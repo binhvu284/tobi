@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 """
 MAIN ORCHESTRATOR - MMO Agent System
 ======================================
@@ -44,7 +47,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler(os.path.expanduser("~/.mmo_agent/system.log")),
+        logging.FileHandler("/workspaces/tobi/logs/system.log"),
         logging.StreamHandler(),
     ],
 )
