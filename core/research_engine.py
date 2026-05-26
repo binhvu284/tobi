@@ -186,14 +186,13 @@ def analyze_and_score_niches(raw_results: list[dict]) -> list[dict]:
 
     strategy = get_latest_strategy() or "Chưa có strategy. Ưu tiên digital products và tools."
 
-    prompt = SCORING_PROMPT.format(
-        research_data=research_text,
-        existing_projects=", ".join(existing_names),
-        lessons=lessons_text,
-        strategy=strategy,
-    )
+    prompt = SCORING_PROMPT
+    prompt = prompt.replace("{research_data}", research_text)
+    prompt = prompt.replace("{existing_projects}", ", ".join(existing_names))
+    prompt = prompt.replace("{lessons}", lessons_text)
+    prompt = prompt.replace("{strategy}", strategy[:1500])
 
-    raw_output = llm_complete(prompt, task_type="research", max_tokens=3000)
+    raw_output = llm_complete(prompt, task_type="research", max_tokens=4000)
 
     # Parse JSON
     try:
@@ -308,7 +307,8 @@ def generate_business_plan(niche: dict) -> dict:
     print(f"📋 Generating business plan for: {niche.get('name', 'unknown')}")
 
     niche_info = json.dumps(niche, ensure_ascii=False, indent=2)
-    prompt = BUSINESS_PLAN_PROMPT.format(niche_info=niche_info)
+    prompt = BUSINESS_PLAN_PROMPT
+    prompt = prompt.replace("{niche_info}", niche_info)
 
     raw_output = llm_complete(prompt, task_type="planning", max_tokens=4000)
 

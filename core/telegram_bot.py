@@ -163,6 +163,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "/todos — Việc bạn cần làm\n"
         "/revenue — Chi tiết doanh thu\n"
         "/lessons — Bài học đã rút ra\n"
+        "/research — Tobi tự research tìm cơ hội mới\n"
         "/pause <id> — Tạm dừng project\n"
         "/done <task_id> — Đánh dấu task hoàn thành",
         parse_mode="Markdown",
@@ -285,6 +286,50 @@ async def cmd_done(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # Callback Query Handler (Inline Buttons)
 # ─────────────────────────────────────────
 
+async def run_research_and_notify(bot):
+    from core.research_engine import run_research_cycle
+    from core.database import get_project
+    project_ids = run_research_cycle()
+    if not project_ids:
+        await bot.send_message(
+            chat_id=CHAT_ID,
+            text="🔬 Research xong — không tìm thấy cơ hội nổi bật.",
+            parse_mode="Markdown",
+        )
+        return
+    for pid in project_ids:
+        p = get_project(pid)
+        if p:
+            await send_project_proposal_msg(bot, pid, p.get("business_plan", {}))
+
+
+async def cmd_research(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    await update.message.reply_text(
+        "🔬 *Research cycle bắt đầu...*\n"
+        "Tobi đang tìm kiếm cơ hội. Sẽ gửi proposals sau 5-10 phút.",
+        parse_mode="Markdown",
+    )
+    asyncio.create_task(run_research_and_notify(update.get_bot()))
+
+
+async def handle_chat(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update):
+        return
+    user_msg = update.message.text
+    await update.message.reply_text("💭 _Tobi đang suy nghĩ..._", parse_mode="Markdown")
+    from core.model_router import llm_complete
+    system = (
+        "Bạn là Tobi, AI agent quản lý digital business portfolio cho Thomas. "
+        "Trả lời ngắn gọn, thực tế, bằng tiếng Việt. "
+        "Nếu được hỏi về projects, dùng lệnh /projects. "
+        "Nếu muốn research, gợi ý /research."
+    )
+    reply = llm_complete(user_msg, task_type="simple", system=system, max_tokens=500)
+    await update.message.reply_text(reply, parse_mode="Markdown")
+
+
 async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -322,6 +367,26 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # Proactive Notification Functions
 # (Gọi từ ngoài để gửi messages chủ động)
 # ─────────────────────────────────────────
+
+async def send_project_proposal_msg(bot, project_id: int, business_plan: dict):
+    """Gửi business plan proposal dùng raw bot object (không cần Application)."""
+    text = format_business_plan(project_id, business_plan)
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ APPROVE", callback_data=f"approve:{project_id}"),
+            InlineKeyboardButton("❌ REJECT",  callback_data=f"reject:{project_id}"),
+        ],
+        [
+            InlineKeyboardButton("✏️ REQUEST CHANGES", callback_data=f"edit:{project_id}"),
+        ],
+    ])
+    await bot.send_message(
+        chat_id=CHAT_ID,
+        text=text,
+        parse_mode="Markdown",
+        reply_markup=keyboard,
+    )
+
 
 async def send_project_proposal(app: Application, project_id: int, business_plan: dict):
     """Gửi business plan proposal đến Telegram kèm inline buttons."""
@@ -402,7 +467,9 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("revenue",  cmd_revenue))
     app.add_handler(CommandHandler("lessons",  cmd_lessons))
     app.add_handler(CommandHandler("done",     cmd_done))
+    app.add_handler(CommandHandler("research", cmd_research))
     app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_chat))
 
     return app
 

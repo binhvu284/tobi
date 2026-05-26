@@ -432,4 +432,11 @@ async def main_async():
 
 
 if __name__ == "__main__":
-    asyncio.run(main_async())
+    # run_polling() manages its own event loop — must run outside asyncio.run()
+    if len(sys.argv) > 1 and sys.argv[1] == "bot":
+        init_database()
+        app = build_app()
+        print("🤖 Starting Telegram bot...")
+        app.run_polling(drop_pending_updates=True)
+    else:
+        asyncio.run(main_async())
