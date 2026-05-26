@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Optional
 
 try:
-    from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatAction
+    from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
     from telegram.ext import (
         Application, CommandHandler, CallbackQueryHandler,
         ContextTypes, MessageHandler, filters,
@@ -51,6 +51,11 @@ def detect_lang(text: str) -> str:
     return 'vi' if any(c in viet for c in text.lower()) else 'en'
 
 
+def md(text: str) -> str:
+    """Escape Markdown v1 special chars in dynamic content."""
+    return str(text).replace('_', r'\_').replace('*', r'\*').replace('`', r'\`').replace('[', r'\[')
+
+
 def build_system_prompt() -> str:
     try:
         d = get_dashboard()
@@ -83,8 +88,8 @@ def format_business_plan(project_id: int, plan: dict) -> str:
     risk_list  = "\n".join(f"   ⚠️ {r}" for r in p.get("risks", [])[:3]) or "   ⚠️ Cạnh tranh cao"
     return (
         f"📊 *BUSINESS PLAN PROPOSAL #{project_id}*\n{'─'*32}\n\n"
-        f"📝 *Tổng quan:*\n{p.get('executive_summary','—')}\n\n"
-        f"💰 *Revenue model:* {p.get('revenue_model','—')}\n\n"
+        f"📝 *Tổng quan:*\n{md(p.get('executive_summary','—'))}\n\n"
+        f"💰 *Revenue model:* {md(p.get('revenue_model','—'))}\n\n"
         f"📈 *Dự báo doanh thu:*\n"
         f"   Tháng 1: {projections.get('month_1','$0')}\n"
         f"   Tháng 3: {projections.get('month_3','$0')}\n"
@@ -101,7 +106,7 @@ def format_daily_report(dashboard: dict) -> str:
     projects = dashboard.get("active_projects", [])
     todos = dashboard.get("human_todos_count", 0)
     proj_lines = "".join(
-        f"\n   📁 *{p['name']}* ({p['type']})\n"
+        f"\n   📁 *{md(p['name'])}* ({md(p['type'])})\n"
         f"      Progress: {p['progress_pct']}% | Revenue: ${p['revenue_total']:.2f}\n"
         for p in projects
     )
