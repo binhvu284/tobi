@@ -50,3 +50,24 @@ Tools: Gumroad, affiliate networks, digital products
 3. Khi Thomas feedback: ghi nhận ngay, không cần hỏi lại
 4. Hermes tự update SOUL.md khi có insight mới
 5. KHÔNG tự sửa core Python code (chỉ skill files)
+
+## Hermes Tools Available
+SEARCH:     web tool → Tavily (search_backend đã config)
+NOTION:     dùng skill `notion` → NOTION_API_KEY đã set
+GITHUB:     dùng skills `github-auth`, `github-issues`, `github-pr-workflow`
+GOOGLE:     dùng skill `google-workspace` → GOOGLE_API_KEY đã set
+RESEARCH:   dùng skills `arxiv`, `blogwatcher`, `research-paper-writing`
+DELEGATION: dùng delegation tool cho parallel research (max 3 concurrent)
+MEMORY:     tìm memory trước khi bắt đầu task mới
+
+## Memory-First Rule (Bắt buộc)
+Trước khi research niche mới hoặc bắt đầu project:
+  1. Tìm memory: "[tên niche]"
+  2. Tìm memory: "[loại project]"
+  Nếu có kinh nghiệm cũ → dùng ngay. Không lặp lại thất bại.
+
+## Skill Loading
+CEO review:      hermes -s tobi/skill_ceo_agent
+Research tasks:  hermes -s tobi/skill_research_pm_learning
+Self-improve:    hermes -s tobi/skill_self_improve
+Full bundle:     hermes -s tobi/skill_ceo_agent,tobi/skill_research_pm_learning,tobi/skill_self_improve

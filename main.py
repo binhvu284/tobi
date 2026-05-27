@@ -12,6 +12,7 @@ python main.py execute    → manual execution cycle
 python main.py ceo        → manual CEO review
 python main.py status     → print system status
 python main.py test       → test all connections
+python main.py terminal   → interactive terminal chat with Tobi
 
 Schedules (Vietnam GMT+7):
   Every 6h      → execute_all_projects()
@@ -40,7 +41,7 @@ from core.model_router import llm_complete
 from core.research_engine import run_research_cycle
 from core.project_executor import execute_all_projects
 from core.ceo_loop import run_ceo_review, format_ceo_telegram_summary
-from core.telegram_bot import build_app, send_daily_report, send_message, send_project_proposal
+from core.telegram_bot import build_app, send_daily_report, send_message, send_project_proposal, run_terminal_session
 
 logging.basicConfig(
     level=logging.INFO,
@@ -439,9 +440,13 @@ async def main_async():
         except KeyboardInterrupt:
             print("\nStopped.")
 
+    elif command == "terminal":
+        init_database()
+        await run_terminal_session()
+
     else:
         print(f"Unknown command: {command}")
-        print("Usage: python main.py [start|bot|api|research|execute|ceo|status|test]")
+        print("Usage: python main.py [start|bot|api|research|execute|ceo|status|test|terminal]")
 
 
 if __name__ == "__main__":

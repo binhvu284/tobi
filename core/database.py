@@ -112,11 +112,21 @@ def init_database() -> None:
         created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- ── CONVERSATIONS (persistent chat history) ───────
+    CREATE TABLE IF NOT EXISTS conversations (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id     INTEGER NOT NULL,
+        role        TEXT    NOT NULL,
+        content     TEXT    NOT NULL,
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- ── Indexes để query nhanh ────────────────────────
-    CREATE INDEX IF NOT EXISTS idx_tasks_project   ON tasks(project_id);
-    CREATE INDEX IF NOT EXISTS idx_tasks_status    ON tasks(status);
-    CREATE INDEX IF NOT EXISTS idx_revenue_project ON revenue(project_id);
-    CREATE INDEX IF NOT EXISTS idx_lessons_project ON lessons(project_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_project    ON tasks(project_id);
+    CREATE INDEX IF NOT EXISTS idx_tasks_status     ON tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_revenue_project  ON revenue(project_id);
+    CREATE INDEX IF NOT EXISTS idx_lessons_project  ON lessons(project_id);
+    CREATE INDEX IF NOT EXISTS idx_convos_chat      ON conversations(chat_id, created_at);
     """)
     conn.commit()
     conn.close()
@@ -471,6 +481,36 @@ def get_dashboard() -> dict:
         "human_todos": pending_human,
         "timestamp": datetime.now().isoformat(),
     }
+
+
+# ─────────────────────────────────────────
+# Conversation History (persistent across restarts)
+# ─────────────────────────────────────────
+
+def load_conversation_history(chat_id: int, limit: int = 20) -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT role, content FROM conversations WHERE chat_id=? ORDER BY created_at DESC LIMIT ?",
+        (chat_id, limit),
+    ).fetchall()
+    conn.close()
+    return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
+
+
+def save_conversation_message(chat_id: int, role: str, content: str) -> None:
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO conversations (chat_id, role, content) VALUES (?, ?, ?)",
+        (chat_id, role, content),
+    )
+    conn.execute(
+        """DELETE FROM conversations WHERE chat_id=? AND id NOT IN (
+               SELECT id FROM conversations WHERE chat_id=? ORDER BY created_at DESC LIMIT 50
+           )""",
+        (chat_id, chat_id),
+    )
+    conn.commit()
+    conn.close()
 
 
 # ─────────────────────────────────────────

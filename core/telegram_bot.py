@@ -3,9 +3,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
+import re
+import time
 import json
 import asyncio
 import logging
+import subprocess
 from datetime import datetime
 from typing import Optional
 
@@ -25,7 +28,9 @@ from core.database import (
     get_all_projects, get_active_projects, get_dashboard,
     get_pending_human_tasks_all, complete_task, get_revenue_summary,
     get_all_lessons, add_lesson,
+    load_conversation_history, save_conversation_message,
 )
+from core.task_classifier import classify
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -34,8 +39,13 @@ BOT_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID     = os.getenv("TELEGRAM_CHAT_ID")
 ALLOWED_IDS = [int(x) for x in os.getenv("TELEGRAM_ALLOWED_USERS", CHAT_ID or "0").split(",") if x]
 
-_history: dict = {}
+PROJECT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+_history: dict[int, list] = {}
+_chat_locks: dict[int, asyncio.Lock] = {}
 MAX_HISTORY = 12
+
+_prompt_cache: dict = {"text": "", "expires": 0.0}
 
 
 # ─────────────────────────────────────────
@@ -75,6 +85,241 @@ def build_system_prompt() -> str:
         f"Reply in same language as user (Vietnamese if Vietnamese chars detected).\n"
         f"Be concise. Lead with the answer. Suggest /commands when relevant."
     )
+
+
+def build_system_prompt_cached() -> str:
+    """Cached version — refreshes every 5 minutes."""
+    now = time.monotonic()
+    if now < _prompt_cache["expires"]:
+        return _prompt_cache["text"]
+    _prompt_cache["text"] = build_system_prompt()
+    _prompt_cache["expires"] = now + 300
+    return _prompt_cache["text"]
+
+
+def _get_lock(chat_id: int) -> asyncio.Lock:
+    if chat_id not in _chat_locks:
+        _chat_locks[chat_id] = asyncio.Lock()
+    return _chat_locks[chat_id]
+
+
+def _init_history(chat_id: int) -> None:
+    if chat_id not in _history:
+        _history[chat_id] = load_conversation_history(chat_id, limit=MAX_HISTORY)
+
+
+def _trim_history(chat_id: int) -> None:
+    if len(_history[chat_id]) > MAX_HISTORY:
+        _history[chat_id] = _history[chat_id][-MAX_HISTORY:]
+
+
+# ─────────────────────────────────────────
+# Coding Agent Tools
+# ─────────────────────────────────────────
+
+_CODING_TOOLS = [
+    {
+        "name": "write_file",
+        "description": "Write or overwrite a file in the project directory",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path (relative to project root or absolute)"},
+                "content": {"type": "string", "description": "Full file content to write"},
+            },
+            "required": ["path", "content"],
+        },
+    },
+    {
+        "name": "read_file",
+        "description": "Read a file's content",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path"},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "run_bash",
+        "description": "Run a bash command in the project directory. Do not run destructive commands.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "description": "Shell command to execute"},
+            },
+            "required": ["command"],
+        },
+    },
+    {
+        "name": "list_files",
+        "description": "List files in a directory",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "directory": {"type": "string", "description": "Directory to list (default: project root)"},
+            },
+        },
+    },
+]
+
+_BLOCKED_CMDS = ["rm -rf /", "sudo rm", "> /dev/", "dd if=", ":(){ :|:& };:"]
+
+
+async def _execute_tool(name: str, inputs: dict) -> str:
+    if name == "write_file":
+        raw = inputs.get("path", "")
+        path = os.path.join(PROJECT_DIR, raw) if not os.path.isabs(raw) else raw
+        path = os.path.normpath(path)
+        if not path.startswith(PROJECT_DIR):
+            return f"ERROR: path outside project directory ({PROJECT_DIR})"
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(inputs.get("content", ""))
+        return f"Written {len(inputs.get('content',''))} chars to {path}"
+
+    if name == "read_file":
+        raw = inputs.get("path", "")
+        path = os.path.join(PROJECT_DIR, raw) if not os.path.isabs(raw) else raw
+        try:
+            with open(path, encoding="utf-8") as f:
+                return f.read()[:6000]
+        except Exception as e:
+            return f"ERROR: {e}"
+
+    if name == "run_bash":
+        cmd = inputs.get("command", "")
+        if any(b in cmd for b in _BLOCKED_CMDS):
+            return "ERROR: command blocked for safety"
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                cmd, shell=True, capture_output=True, text=True,
+                timeout=30, cwd=PROJECT_DIR,
+            )
+            out = (result.stdout + result.stderr).strip()
+            return out[:3000] if out else "(no output)"
+        except subprocess.TimeoutExpired:
+            return "ERROR: command timed out (30s)"
+        except Exception as e:
+            return f"ERROR: {e}"
+
+    if name == "list_files":
+        d = inputs.get("directory", ".")
+        base = os.path.join(PROJECT_DIR, d) if not os.path.isabs(d) else d
+        try:
+            files = []
+            for root, dirs, fnames in os.walk(base):
+                dirs[:] = [x for x in dirs if x not in ("__pycache__", "node_modules", "venv", ".git", ".tobi")]
+                for fn in fnames:
+                    files.append(os.path.relpath(os.path.join(root, fn), base))
+            return "\n".join(files[:150])
+        except Exception as e:
+            return f"ERROR: {e}"
+
+    return f"ERROR: unknown tool {name}"
+
+
+async def _run_coding_agent(user_msg: str, context_msg: str = "") -> str:
+    """Run Claude with tool_use loop. Returns final text reply."""
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        from core.model_router import get_llm
+        client = get_llm("coding")
+        return await asyncio.to_thread(
+            client.complete,
+            [{"role": "user", "content": user_msg}],
+            "You are an expert programmer. Write clean, working code with brief explanation.",
+            1500,
+        )
+
+    import anthropic
+    client = anthropic.Anthropic(api_key=api_key)
+    system = (
+        f"You are Tobi's coding agent. Project dir: {PROJECT_DIR}\n"
+        "Write clean, working code. Use tools to create files and test commands.\n"
+        "When done, give a brief summary of what you built."
+    )
+    full_msg = (context_msg + "\n\n" + user_msg).strip() if context_msg else user_msg
+    messages = [{"role": "user", "content": full_msg}]
+
+    max_iterations = 15
+    final_text = ""
+
+    for _ in range(max_iterations):
+        response = await asyncio.to_thread(
+            client.messages.create,
+            model="claude-sonnet-4-20250514",
+            max_tokens=4000,
+            system=system,
+            tools=_CODING_TOOLS,
+            messages=messages,
+        )
+
+        text_parts = [b.text for b in response.content if hasattr(b, "text")]
+        if text_parts:
+            final_text = "\n".join(text_parts)
+
+        if response.stop_reason != "tool_use":
+            break
+
+        tool_results = []
+        for block in response.content:
+            if block.type == "tool_use":
+                result = await _execute_tool(block.name, block.input)
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": result,
+                })
+
+        messages.append({"role": "assistant", "content": response.content})
+        messages.append({"role": "user", "content": tool_results})
+
+    return final_text or "Done (no summary produced)."
+
+
+# ─────────────────────────────────────────
+# Background task handlers
+# ─────────────────────────────────────────
+
+async def handle_coding_background(update: Update, user_msg: str, chat_id: int):
+    try:
+        result = await _run_coding_agent(user_msg)
+        # Split long responses
+        if len(result) > 3800:
+            for chunk in [result[i:i+3800] for i in range(0, len(result), 3800)]:
+                await update.get_bot().send_message(chat_id=chat_id, text=chunk, parse_mode="Markdown")
+        else:
+            await update.get_bot().send_message(chat_id=chat_id, text=f"✅ Done:\n{result}", parse_mode="Markdown")
+    except Exception as e:
+        logger.exception("Coding background error")
+        await update.get_bot().send_message(chat_id=chat_id, text=f"⚠️ Coding error: {str(e)[:200]}")
+
+
+async def handle_research_background(update: Update, user_msg: str, chat_id: int):
+    try:
+        from core.research_engine import run_research_cycle
+        project_ids = run_research_cycle()
+        bot = update.get_bot()
+        if not project_ids:
+            await bot.send_message(
+                chat_id=chat_id,
+                text="🔬 Research xong — không tìm thấy cơ hội nổi bật.",
+                parse_mode="Markdown",
+            )
+            return
+        for pid in project_ids:
+            p = get_project(pid)
+            if p:
+                await send_project_proposal_msg(bot, pid, p.get("business_plan", {}))
+    except Exception as e:
+        logger.exception("Research background error")
+        await update.get_bot().send_message(
+            chat_id=chat_id,
+            text=f"⚠️ Research error: {str(e)[:200]}",
+        )
 
 
 # ─────────────────────────────────────────
@@ -239,13 +484,9 @@ async def cmd_code(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Dùng: /code [mô tả code cần viết]")
         return
     await ctx.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    from core.model_router import llm_complete
-    result = llm_complete(
-        desc, task_type="coding",
-        system="You are an expert programmer. Write clean, working code with brief explanation. Use markdown code blocks.",
-        max_tokens=1500,
-    )
-    await update.message.reply_text(result, parse_mode="Markdown")
+    await update.message.reply_text("💻 Đang viết code... sẽ báo khi xong.")
+    chat_id = update.effective_chat.id
+    asyncio.create_task(handle_coding_background(update, desc, chat_id))
 
 
 async def cmd_note(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -255,9 +496,9 @@ async def cmd_note(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Dùng: /note [nội dung ghi chú]")
         return
     add_lesson(content=note_text, title=note_text[:50], lesson_type="insight", impact_score=5)
-    import subprocess
-    subprocess.run(["hermes", "memory", "add", f"note: {note_text[:100]}"],
-                   capture_output=True, timeout=5, check=False)
+    import subprocess as _sp
+    _sp.run(["hermes", "memory", "add", f"note: {note_text[:100]}"],
+            capture_output=True, timeout=5, check=False)
     await update.message.reply_text(f"📝 Đã lưu: _{note_text[:100]}_", parse_mode="Markdown")
 
 
@@ -301,9 +542,10 @@ async def cmd_web(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Không tìm thấy kết quả.")
         return
     lang_hint = "in Vietnamese" if detect_lang(query) == "vi" else "in English"
-    summary = llm_complete(
+    summary = await asyncio.to_thread(
+        llm_complete,
         f"Summarize this in 3-5 bullet points {lang_hint}:\n\n{content[:2000]}",
-        task_type="simple", max_tokens=400,
+        "simple", None, 400,
     )
     await update.message.reply_text(f"🌐 *{query[:50]}*\n\n{summary}", parse_mode="Markdown")
 
@@ -366,24 +608,72 @@ async def handle_chat(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     user_msg = update.message.text
 
+    task_type = classify(user_msg)
     await ctx.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-    if chat_id not in _history:
-        _history[chat_id] = []
-    _history[chat_id].append({"role": "user", "content": user_msg})
-    if len(_history[chat_id]) > MAX_HISTORY:
-        _history[chat_id] = _history[chat_id][-MAX_HISTORY:]
-
-    try:
+    # SMALLTALK — fast path, no DB query, lightweight model
+    if task_type == "SMALLTALK":
         from core.model_router import get_llm
-        client = get_llm("writing")
-        reply = client.complete(_history[chat_id], system=build_system_prompt(), max_tokens=500)
-        _history[chat_id].append({"role": "assistant", "content": reply})
-        if len(_history[chat_id]) > MAX_HISTORY:
-            _history[chat_id] = _history[chat_id][-MAX_HISTORY:]
+        client = get_llm("simple")
+        system = "You are Tobi, Thomas's AI agent. Be brief and friendly. Max 2 sentences."
+        async with _get_lock(chat_id):
+            _init_history(chat_id)
+            _history[chat_id].append({"role": "user", "content": user_msg})
+            _trim_history(chat_id)
+            try:
+                reply = await asyncio.to_thread(client.complete, _history[chat_id], system, 150)
+                _history[chat_id].append({"role": "assistant", "content": reply})
+                _trim_history(chat_id)
+            except Exception as e:
+                reply = "👋"
+        save_conversation_message(chat_id, "user", user_msg)
+        save_conversation_message(chat_id, "assistant", reply)
+        try:
+            await update.message.reply_text(reply, parse_mode="Markdown")
+        except Exception:
+            await update.message.reply_text(reply)
+        return
+
+    # CODING — acknowledge immediately, run in background
+    if task_type == "CODING":
+        await update.message.reply_text("💻 Đang viết code... sẽ báo khi xong.")
+        save_conversation_message(chat_id, "user", user_msg)
+        asyncio.create_task(handle_coding_background(update, user_msg, chat_id))
+        return
+
+    # RESEARCH — acknowledge, run in background
+    if task_type == "RESEARCH":
+        await update.message.reply_text(
+            "🔬 Đang research... sẽ báo khi xong (5-10 phút).",
+            parse_mode="Markdown",
+        )
+        save_conversation_message(chat_id, "user", user_msg)
+        asyncio.create_task(handle_research_background(update, user_msg, chat_id))
+        return
+
+    # STATUS / QUESTION / EXECUTION — normal LLM path with context
+    from core.model_router import get_llm
+    client = get_llm("writing")
+    system = build_system_prompt_cached()
+
+    async with _get_lock(chat_id):
+        _init_history(chat_id)
+        _history[chat_id].append({"role": "user", "content": user_msg})
+        _trim_history(chat_id)
+        try:
+            reply = await asyncio.to_thread(client.complete, _history[chat_id], system, 500)
+            _history[chat_id].append({"role": "assistant", "content": reply})
+            _trim_history(chat_id)
+        except Exception as e:
+            logger.exception("LLM error in handle_chat")
+            reply = f"⚠️ {str(e)[:50]} — thử lại sau"
+
+    save_conversation_message(chat_id, "user", user_msg)
+    save_conversation_message(chat_id, "assistant", reply)
+    try:
         await update.message.reply_text(reply, parse_mode="Markdown")
-    except Exception as e:
-        await update.message.reply_text(f"⚠️ {str(e)[:50]} — thử lại sau")
+    except Exception:
+        await update.message.reply_text(reply)
 
 
 # ─────────────────────────────────────────
@@ -461,6 +751,56 @@ async def send_message(app: Application, text: str):
 
 
 # ─────────────────────────────────────────
+# Terminal interface (used by main.py)
+# ─────────────────────────────────────────
+
+async def run_terminal_session():
+    """Interactive terminal chat with Tobi. Ctrl+C or /quit to exit."""
+    from core.model_router import get_llm
+    print("🤖 Tobi Terminal | /quit to exit | /status | /code <task>\n")
+    history: list[dict] = []
+
+    while True:
+        try:
+            user_input = await asyncio.to_thread(input, "You: ")
+        except (EOFError, KeyboardInterrupt):
+            print("\n👋 Bye!")
+            break
+
+        user_input = user_input.strip()
+        if not user_input:
+            continue
+        if user_input in ("/quit", "/exit", "quit", "exit"):
+            print("👋 Bye!")
+            break
+        if user_input == "/status":
+            print(format_daily_report(get_dashboard()))
+            continue
+
+        task_type = classify(user_input)
+        history.append({"role": "user", "content": user_input})
+        if len(history) > MAX_HISTORY:
+            history = history[-MAX_HISTORY:]
+
+        print("Tobi: ", end="", flush=True)
+
+        if task_type == "CODING":
+            print("💻 Running coding agent...")
+            reply = await _run_coding_agent(user_input)
+        elif task_type == "SMALLTALK":
+            client = get_llm("simple")
+            reply = await asyncio.to_thread(client.complete, history, "You are Tobi. Be brief.", 150)
+        else:
+            client = get_llm("writing")
+            reply = await asyncio.to_thread(client.complete, history, build_system_prompt_cached(), 800)
+
+        print(reply + "\n")
+        history.append({"role": "assistant", "content": reply})
+        if len(history) > MAX_HISTORY:
+            history = history[-MAX_HISTORY:]
+
+
+# ─────────────────────────────────────────
 # Build App
 # ─────────────────────────────────────────
 
@@ -470,7 +810,12 @@ def build_app() -> Application:
     if not CHAT_ID:
         raise ValueError("TELEGRAM_CHAT_ID not set in .env")
 
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .concurrent_updates(True)
+        .build()
+    )
 
     app.add_handler(CommandHandler("start",        cmd_start))
     app.add_handler(CommandHandler("status",       cmd_status))
