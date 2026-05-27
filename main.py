@@ -374,12 +374,18 @@ async def run_daemon():
     logger.info("Running initial execution cycle...")
     await job_execution_cycle()
 
-    await get_telegram_app()
-    logger.info("🤖 Tobi running. Ctrl+C to stop.\n")
+    app = await get_telegram_app()
+    await app.updater.start_polling(drop_pending_updates=True)
+    logger.info("🤖 Tobi running + polling Telegram. Ctrl+C to stop.\n")
 
-    while True:
-        schedule.run_pending()
-        await asyncio.sleep(60)
+    try:
+        while True:
+            schedule.run_pending()
+            await asyncio.sleep(60)
+    finally:
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
 
 
 async def main_async():
