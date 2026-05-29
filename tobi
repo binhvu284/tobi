@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+cd "$(dirname "$(readlink -f "$0")")"
+source venv/bin/activate
+exec python main.py "${1:-start}" "${@:2}"
