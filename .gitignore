@@ -1,0 +1,20 @@
+# Secrets — never commit
+.env
+.env.*
+*.save
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Local database & logs
+.tobi/
+logs/
+
+# Node
+node_modules/
+
+# OS / editor
+.DS_Store
