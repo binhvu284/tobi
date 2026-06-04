@@ -5,8 +5,8 @@ PRIMARY_MODEL options: openrouter | claude | auto
 import os
 from abc import ABC, abstractmethod
 from typing import Optional
-from dotenv import load_dotenv
-load_dotenv()
+from core.env_utils import safe_load_dotenv
+safe_load_dotenv()
 
 
 class BaseLLMClient(ABC):

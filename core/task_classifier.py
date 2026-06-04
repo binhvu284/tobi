@@ -35,9 +35,19 @@ _EXECUTION = [
     r"\brun.*?task\b", r"\bstart.*?project\b",
 ]
 
+_PROJECT_MGMT = [
+    r"\bcreate\s+project\b", r"\bnew\s+project\b", r"\btạo\s+project\b", r"\btạo\s+dự án\b",
+    r"\badd\s+task\b", r"\bthêm\s+task\b", r"\bthêm\s+nhiệm vụ\b",
+    r"\bupdate\s+(goal|progress|task)\b", r"\bcập nhật\s+(goal|tiến độ|task)\b",
+    r"\bmark.*?done\b", r"\bcomplete\s+task\b", r"\bhoàn thành\s+task\b",
+    r"\bproject\s+status\b", r"\blist\s+projects?\b", r"\bmy\s+projects?\b",
+    r"\bproject\s+tasks?\b", r"\bproject\s+goals?\b",
+    r"\bdự án\b",
+]
+
 
 def classify(text: str) -> str:
-    """Return task type: SMALLTALK | CODING | RESEARCH | STATUS | EXECUTION | QUESTION"""
+    """Return SMALLTALK | CODING | RESEARCH | STATUS | EXECUTION | PROJECT_MGMT | QUESTION"""
     t = text.strip()
     tl = t.lower()
 
@@ -45,6 +55,8 @@ def classify(text: str) -> str:
         return "SMALLTALK"
     if any(re.search(p, tl) for p in _CODING):
         return "CODING"
+    if any(re.search(p, tl) for p in _PROJECT_MGMT):
+        return "PROJECT_MGMT"
     if any(re.search(p, tl) for p in _RESEARCH):
         return "RESEARCH"
     if any(re.search(p, tl) for p in _STATUS):

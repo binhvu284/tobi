@@ -1,5 +1,5 @@
-from dotenv import load_dotenv
-load_dotenv()
+from core.env_utils import safe_load_dotenv
+safe_load_dotenv()
 
 """
 TOBI — Main Orchestrator
@@ -270,10 +270,24 @@ def setup_schedules():
 # Status
 # ─────────────────────────────────────────
 
+def get_dashboard_url() -> str:
+    """Return the public-accessible Mission Control URL."""
+    port = os.getenv("DASHBOARD_PORT", "8080")
+    custom = os.getenv("DASHBOARD_URL")
+    if custom:
+        return custom
+    codespace = os.getenv("CODESPACE_NAME")
+    domain = os.getenv("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "app.github.dev")
+    if codespace:
+        return f"https://{codespace}-{port}.{domain}"
+    return f"http://localhost:{port}"
+
+
 def print_status():
     dash = get_dashboard()
     projects = dash.get("projects", {})
     revenue = dash.get("revenue", {})
+    mc_url = get_dashboard_url()
     print("\n" + "="*50)
     print("🤖 TOBI STATUS")
     print("="*50)
@@ -287,7 +301,7 @@ def print_status():
     print(f"  Telegram:  {'✅' if os.getenv('TELEGRAM_BOT_TOKEN') else '❌'}")
     print(f"  Tavily:    {'✅' if os.getenv('TAVILY_API_KEY') else '⚠️ missing'}")
     print(f"  API:       http://localhost:{os.getenv('API_PORT','8000')}")
-    print(f"  Dashboard: http://localhost:{os.getenv('DASHBOARD_PORT','8080')}")
+    print(f"  Mission Control: {mc_url}")
     print("="*50 + "\n")
 
 
@@ -364,12 +378,13 @@ async def run_daemon():
     launch_background_servers()
     setup_schedules()
 
+    mc_url = get_dashboard_url()
     await notify(
         f"🚀 *Tobi Started*\n"
         f"Time: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
         f"Model: {os.getenv('PRIMARY_MODEL','openrouter')}\n"
-        f"API: :{os.getenv('API_PORT','8000')} | Dashboard: :{os.getenv('DASHBOARD_PORT','8080')}\n\n"
-        f"System running 24/7. /status để xem tổng quan."
+        f"Mission Control: {mc_url}\n\n"
+        f"System running 24/7\\. /status để xem tổng quan\\."
     )
 
     logger.info("Running initial execution cycle...")

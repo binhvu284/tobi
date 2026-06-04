@@ -1,6 +1,6 @@
 """REST API Server - Tobi Agent"""
-from dotenv import load_dotenv
-load_dotenv()
+from core.env_utils import safe_load_dotenv
+safe_load_dotenv()
 
 import os
 from fastapi import FastAPI, HTTPException, Depends, Header

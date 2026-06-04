@@ -1,6 +1,6 @@
 """Telegram Bot - Tobi Agent"""
-from dotenv import load_dotenv
-load_dotenv()
+from core.env_utils import safe_load_dotenv
+safe_load_dotenv()
 
 import os
 import re
@@ -23,14 +23,156 @@ except ImportError:
 
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def get_dashboard_url() -> str:
+    port = os.getenv("DASHBOARD_PORT", "8080")
+    custom = os.getenv("DASHBOARD_URL")
+    if custom:
+        return custom
+    codespace = os.getenv("CODESPACE_NAME")
+    domain = os.getenv("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "app.github.dev")
+    if codespace:
+        return f"https://{codespace}-{port}.{domain}"
+    return f"http://localhost:{port}"
 from core.database import (
     get_project, approve_project, reject_project,
     get_all_projects, get_active_projects, get_dashboard,
     get_pending_human_tasks_all, complete_task, get_revenue_summary,
     get_all_lessons, add_lesson,
     load_conversation_history, save_conversation_message,
+    get_connection,
 )
 from core.task_classifier import classify
+import json as _json
+
+
+# ── PM project helpers (direct DB, no HTTP) ──────────────────────────────────
+
+def pm_list_active() -> list[dict]:
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM pm_projects WHERE status != 'archived' ORDER BY updated_at DESC"
+    ).fetchall()
+    result = []
+    for r in rows:
+        p = dict(r)
+        p["task_count"] = conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE pm_project_id=? AND deleted_at IS NULL", (p["id"],)
+        ).fetchone()[0]
+        p["task_done"] = conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE pm_project_id=? AND deleted_at IS NULL AND status_v1='done'",
+            (p["id"],),
+        ).fetchone()[0]
+        result.append(p)
+    conn.close()
+    return result
+
+
+def pm_find_project(name_or_id: str) -> dict | None:
+    conn = get_connection()
+    # Try numeric ID first
+    if name_or_id.isdigit():
+        row = conn.execute("SELECT * FROM pm_projects WHERE id=?", (int(name_or_id),)).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT * FROM pm_projects WHERE LOWER(name) LIKE ? ORDER BY updated_at DESC LIMIT 1",
+            (f"%{name_or_id.lower()}%",),
+        ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def pm_create(name: str, status: str = "active", created_by: str = "tobi") -> dict:
+    conn = get_connection()
+    cur = conn.execute(
+        "INSERT INTO pm_projects (name, status, size, emoji_icon, accent_color, created_by) VALUES (?,?,?,?,?,?)",
+        (name, status, "medium", "🚀", "#58a6ff", created_by),
+    )
+    pid = cur.lastrowid
+    conn.execute(
+        "INSERT INTO pm_activity (project_id, actor, action_type, summary) VALUES (?,?,?,?)",
+        (pid, created_by, "project.created", f"Project '{name}' created via Telegram"),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM pm_projects WHERE id=?", (pid,)).fetchone()
+    conn.close()
+    return dict(row)
+
+
+def pm_add_task(project_id: int, title: str, priority: str = "P2", agent: str = "tobi",
+                created_by: str = "tobi") -> dict:
+    conn = get_connection()
+    next_sort = conn.execute("SELECT COALESCE(MAX(sort_order), 0)+1 FROM tasks").fetchone()[0]
+    cur = conn.execute(
+        """INSERT INTO tasks (title, objective, status, status_v1, priority, priority_label,
+           owner_label, agent_key, pm_project_id, created_at, updated_at, sort_order)
+           VALUES (?,?,?,?,5,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,?)""",
+        (title, title, "pending", "planned", priority, "owner", agent, project_id, next_sort),
+    )
+    tid = cur.lastrowid
+    conn.execute(
+        "INSERT INTO pm_activity (project_id, actor, action_type, summary) VALUES (?,?,?,?)",
+        (project_id, created_by, "task.created", f"Task '{title}' added via Telegram"),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM tasks WHERE id=?", (tid,)).fetchone()
+    conn.close()
+    return dict(row)
+
+
+def pm_list_tasks(project_id: int, status: str | None = None) -> list[dict]:
+    conn = get_connection()
+    sql = "SELECT * FROM tasks WHERE pm_project_id=? AND deleted_at IS NULL"
+    params: list = [project_id]
+    if status:
+        sql += " AND status_v1=?"; params.append(status)
+    sql += " ORDER BY sort_order ASC, created_at ASC"
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def pm_update_goal(goal_id: int, current_value: float, actor: str = "tobi") -> bool:
+    conn = get_connection()
+    row = conn.execute("SELECT project_id FROM pm_goals WHERE id=?", (goal_id,)).fetchone()
+    if not row:
+        conn.close()
+        return False
+    conn.execute(
+        "UPDATE pm_goals SET current_value=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+        (current_value, goal_id),
+    )
+    # Recalculate progress
+    pid = row["project_id"]
+    goals = conn.execute("SELECT target_value, current_value FROM pm_goals WHERE project_id=?", (pid,)).fetchall()
+    pcts = [min(100.0, (g["current_value"] / g["target_value"] * 100)) for g in goals if g["target_value"] > 0]
+    pct = round(sum(pcts) / len(pcts), 1) if pcts else 0.0
+    conn.execute("UPDATE pm_projects SET progress_pct=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (pct, pid))
+    conn.execute(
+        "INSERT INTO pm_activity (project_id, actor, action_type, summary) VALUES (?,?,?,?)",
+        (pid, actor, "goal.updated", f"Goal #{goal_id} updated to {current_value} via Telegram"),
+    )
+    conn.commit()
+    conn.close()
+    return True
+
+
+def pm_summary_for_prompt() -> str:
+    """Brief PM context for the LLM system prompt."""
+    try:
+        projects = pm_list_active()
+        if not projects:
+            return "No active PM projects."
+        lines = []
+        for p in projects[:5]:
+            lines.append(
+                f"• #{p['id']} {p['name']} [{p['status']}] {p['progress_pct']}% "
+                f"({p['task_done']}/{p['task_count']} tasks)"
+            )
+        return "\n".join(lines)
+    except Exception:
+        return ""
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -70,20 +212,17 @@ def build_system_prompt() -> str:
     try:
         d = get_dashboard()
         rev = d.get('revenue', {})
-        projects = d.get('active_projects', [])
         todos = d.get('human_todos_count', 0)
-        proj_summary = ', '.join([
-            f"{p['name']}({p['progress_pct']}%)" for p in projects
-        ]) or 'none'
     except Exception:
-        proj_summary, rev, todos = 'none', {}, 0
+        rev, todos = {}, 0
+    pm_ctx = pm_summary_for_prompt()
     return (
-        f"You are Tobi, Thomas's AI agent. Sharp, direct, results-focused.\n"
-        f"Active projects: {proj_summary}\n"
-        f"Revenue this month: ${rev.get('this_month', 0):.0f}\n"
-        f"Pending todos: {todos}\n"
+        f"You are Tobi, Thomas's personal AI agent. Sharp, direct, results-focused.\n"
+        f"Revenue this month: ${rev.get('this_month', 0):.0f} | Pending todos: {todos}\n"
+        f"\nMy Projects:\n{pm_ctx}\n"
+        f"\nYou can manage projects via /pm commands or naturally in chat.\n"
         f"Reply in same language as user (Vietnamese if Vietnamese chars detected).\n"
-        f"Be concise. Lead with the answer. Suggest /commands when relevant."
+        f"Be concise. Lead with the answer. Suggest /pm commands when relevant."
     )
 
 
@@ -385,21 +524,25 @@ def format_human_todos(todos: list) -> str:
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update): return
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("⚡ Open Mission Control", url=get_dashboard_url()),
+    ]])
     await update.message.reply_text(
         "🤖 *Tobi online.*\n\n"
-        "Chat tự nhiên hoặc dùng lệnh:\n"
-        "/research — tìm cơ hội MMO mới\n"
-        "/status — tổng quan portfolio\n"
-        "/projects — danh sách dự án\n"
-        "/todos — việc cần làm\n"
-        "/revenue — theo dõi doanh thu\n"
-        "/code — viết code\n"
-        "/web — search & tóm tắt\n"
-        "/note — lưu ghi chú\n"
-        "/learn — bài học đã rút\n"
-        "/dashboard — mở web dashboard\n"
-        "/integrations — kết nối apps",
+        "*Project Management:*\n"
+        "/pm — danh sách projects\n"
+        "/pm new <name> — tạo project mới\n"
+        "/pm task <id> <title> — thêm task\n"
+        "/pm tasks <id> — xem tasks của project\n"
+        "/pm done <task\\_id> — hoàn thành task\n"
+        "/pm goal <id> <value> — cập nhật goal\n\n"
+        "*General:*\n"
+        "/status — tổng quan · /todos — việc cần làm\n"
+        "/research — tìm cơ hội · /code — viết code\n"
+        "/web — search · /note — ghi chú\n"
+        "/dashboard — mở Mission Control",
         parse_mode="Markdown",
+        reply_markup=keyboard,
     )
 
 
@@ -552,10 +695,155 @@ async def cmd_web(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_dashboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update): return
-    port = os.getenv("DASHBOARD_PORT", "8080")
+    url = get_dashboard_url()
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("⚡ Open Mission Control", url=url),
+    ]])
     await update.message.reply_text(
-        f"📊 *Tobi Dashboard*\n\n`http://localhost:{port}`\n\n"
-        f"_(VPS: thay localhost bằng IP server)_",
+        f"📊 *Mission Control*\n\n{url}",
+        parse_mode="Markdown",
+        reply_markup=keyboard,
+    )
+
+
+async def cmd_pm(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """
+    /pm               — list PM projects
+    /pm new <name>    — create a new active project
+    /pm task <id> <title> — add a task to project <id>
+    /pm done <task_id>    — complete a task
+    /pm tasks <id>        — list open tasks for project <id>
+    /pm goal <goal_id> <value> — update goal current value
+    """
+    if not is_authorized(update): return
+    args = ctx.args or []
+    sub = args[0].lower() if args else ""
+
+    # ── /pm  (no subcommand) — list projects ──────────────────────────────────
+    if not sub:
+        projects = pm_list_active()
+        if not projects:
+            await update.message.reply_text("📁 No active PM projects.\nUse `/pm new <name>` to create one.", parse_mode="Markdown")
+            return
+        STATUS_EMOJI = {"idea": "💡", "active": "🚀", "done": "✅", "archived": "📦"}
+        lines = ["📁 *MY PROJECTS*\n" + "─" * 28]
+        for p in projects:
+            e = STATUS_EMOJI.get(p["status"], "📁")
+            lines.append(
+                f"\n{e} *#{p['id']} {md(p['name'])}* [{p['status']}]\n"
+                f"   {p['progress_pct']}% · {p['task_done']}/{p['task_count']} tasks"
+                + (f" · 📅 {p['deadline']}" if p.get('deadline') else "")
+            )
+        lines.append(f"\n_/pm task <id> <title> to add a task_")
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        return
+
+    # ── /pm new <name> ────────────────────────────────────────────────────────
+    if sub == "new":
+        name = " ".join(args[1:]).strip()
+        if not name:
+            await update.message.reply_text("Usage: `/pm new Project Name`", parse_mode="Markdown")
+            return
+        p = pm_create(name, status="active", created_by="tobi")
+        await update.message.reply_text(
+            f"✅ *Project created!*\n\n#{p['id']} {md(p['name'])}\nStatus: {p['status']}\n\n"
+            f"Add tasks: `/pm task {p['id']} Task title`",
+            parse_mode="Markdown",
+        )
+        return
+
+    # ── /pm task <project_id_or_name> <title> ─────────────────────────────────
+    if sub == "task":
+        if len(args) < 3:
+            await update.message.reply_text("Usage: `/pm task <project_id> <task title>`", parse_mode="Markdown")
+            return
+        proj = pm_find_project(args[1])
+        if not proj:
+            await update.message.reply_text(f"❌ Project '{args[1]}' not found. Use /pm to list projects.")
+            return
+        title = " ".join(args[2:]).strip()
+        t = pm_add_task(proj["id"], title, created_by="tobi")
+        await update.message.reply_text(
+            f"✅ *Task added to {md(proj['name'])}*\n\n`{md(title)}`\nTask #{t['id']}",
+            parse_mode="Markdown",
+        )
+        return
+
+    # ── /pm done <task_id> ────────────────────────────────────────────────────
+    if sub == "done":
+        if not args[1:] or not args[1].isdigit():
+            await update.message.reply_text("Usage: `/pm done <task_id>`", parse_mode="Markdown")
+            return
+        tid = int(args[1])
+        conn = get_connection()
+        row = conn.execute("SELECT title, pm_project_id FROM tasks WHERE id=? AND deleted_at IS NULL", (tid,)).fetchone()
+        if not row:
+            conn.close(); await update.message.reply_text("❌ Task not found."); return
+        conn.execute(
+            "UPDATE tasks SET status='done', status_v1='done', completed_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (tid,),
+        )
+        if row["pm_project_id"]:
+            # recalc progress
+            total = conn.execute("SELECT COUNT(*) FROM tasks WHERE pm_project_id=? AND deleted_at IS NULL", (row["pm_project_id"],)).fetchone()[0]
+            done = conn.execute("SELECT COUNT(*) FROM tasks WHERE pm_project_id=? AND deleted_at IS NULL AND status_v1='done'", (row["pm_project_id"],)).fetchone()[0]
+            pct = round(done / total * 100, 1) if total > 0 else 0
+            conn.execute("UPDATE pm_projects SET progress_pct=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (pct, row["pm_project_id"]))
+            conn.execute(
+                "INSERT INTO pm_activity (project_id, actor, action_type, summary) VALUES (?,?,?,?)",
+                (row["pm_project_id"], "tobi", "task.done", f"Task #{tid} '{row['title']}' completed via Telegram"),
+            )
+        conn.commit(); conn.close()
+        await update.message.reply_text(f"✅ *Task #{tid} done!*\n`{md(row['title'])}`", parse_mode="Markdown")
+        return
+
+    # ── /pm tasks <project_id> ────────────────────────────────────────────────
+    if sub == "tasks":
+        if not args[1:]:
+            await update.message.reply_text("Usage: `/pm tasks <project_id>`", parse_mode="Markdown")
+            return
+        proj = pm_find_project(args[1])
+        if not proj:
+            await update.message.reply_text("❌ Project not found."); return
+        tasks = pm_list_tasks(proj["id"])
+        if not tasks:
+            await update.message.reply_text(f"📋 *{md(proj['name'])}* has no tasks yet.\n`/pm task {proj['id']} Task title`", parse_mode="Markdown")
+            return
+        STATUS_EMOJI = {"planned": "⬜", "in_progress": "🔄", "done": "✅", "blocked": "🚫", "paused": "⏸️"}
+        lines = [f"📋 *{md(proj['name'])}* — Tasks\n" + "─" * 24]
+        for t in tasks[:15]:
+            e = STATUS_EMOJI.get(t["status_v1"], "⬜")
+            lines.append(f"{e} `#{t['id']}` {md(t['title'][:60])} [{t.get('priority_label','P2')}]")
+        if len(tasks) > 15:
+            lines.append(f"\n_…and {len(tasks)-15} more. Open Mission Control for full view._")
+        lines.append(f"\n`/pm done <task_id>` to complete a task")
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        return
+
+    # ── /pm goal <goal_id> <value> ────────────────────────────────────────────
+    if sub == "goal":
+        if len(args) < 3 or not args[1].isdigit():
+            await update.message.reply_text("Usage: `/pm goal <goal_id> <current_value>`", parse_mode="Markdown")
+            return
+        try:
+            val = float(args[2])
+        except ValueError:
+            await update.message.reply_text("❌ Value must be a number."); return
+        if pm_update_goal(int(args[1]), val, actor="tobi"):
+            await update.message.reply_text(f"✅ Goal #{args[1]} updated to *{val}*", parse_mode="Markdown")
+        else:
+            await update.message.reply_text("❌ Goal not found.")
+        return
+
+    # ── Unknown subcommand ────────────────────────────────────────────────────
+    await update.message.reply_text(
+        "📁 *PM Commands*\n"
+        "/pm — list projects\n"
+        "/pm new <name> — create project\n"
+        "/pm task <id> <title> — add task\n"
+        "/pm tasks <id> — list tasks\n"
+        "/pm done <task_id> — complete task\n"
+        "/pm goal <id> <value> — update goal progress",
         parse_mode="Markdown",
     )
 
@@ -639,6 +927,43 @@ async def handle_chat(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("💻 Đang viết code... sẽ báo khi xong.")
         save_conversation_message(chat_id, "user", user_msg)
         asyncio.create_task(handle_coding_background(update, user_msg, chat_id))
+        return
+
+    # PROJECT_MGMT — natural language project actions via LLM with PM context
+    if task_type == "PROJECT_MGMT":
+        from core.model_router import get_llm
+        client = get_llm("writing")
+        projects = pm_list_active()
+        pm_ctx = "\n".join(
+            f"#{p['id']} {p['name']} [{p['status']}] {p['progress_pct']}% ({p['task_done']}/{p['task_count']} tasks)"
+            for p in projects
+        ) or "none"
+        system = (
+            "You are Tobi, Thomas's AI agent. You manage his projects.\n"
+            f"Current projects:\n{pm_ctx}\n\n"
+            "When the user asks to create a project, add a task, update progress, or check project status:\n"
+            "1. Do the action if you have enough info (call the appropriate /pm command in your reply)\n"
+            "2. If you need clarification, ask a single focused question\n"
+            "Always reply with a VERY clear confirmation of what you did or plan to do.\n"
+            "Format: tell the user exactly what action was taken and the /pm command equivalent.\n"
+            "Reply in same language as user."
+        )
+        async with _get_lock(chat_id):
+            _init_history(chat_id)
+            _history[chat_id].append({"role": "user", "content": user_msg})
+            _trim_history(chat_id)
+            try:
+                reply = await asyncio.to_thread(client.complete, _history[chat_id], system, 400)
+                _history[chat_id].append({"role": "assistant", "content": reply})
+                _trim_history(chat_id)
+            except Exception as e:
+                reply = f"⚠️ {str(e)[:80]}"
+        save_conversation_message(chat_id, "user", user_msg)
+        save_conversation_message(chat_id, "assistant", reply)
+        try:
+            await update.message.reply_text(reply, parse_mode="Markdown")
+        except Exception:
+            await update.message.reply_text(reply)
         return
 
     # RESEARCH — acknowledge, run in background
@@ -831,6 +1156,7 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("learn",        cmd_learn))
     app.add_handler(CommandHandler("web",          cmd_web))
     app.add_handler(CommandHandler("dashboard",    cmd_dashboard))
+    app.add_handler(CommandHandler("pm",           cmd_pm))
     app.add_handler(CommandHandler("integrations", cmd_integrations))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_chat))
