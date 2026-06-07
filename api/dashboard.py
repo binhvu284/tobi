@@ -1900,55 +1900,9 @@ async def api_health_deep():
     return result
 
 
-# ── Serve React static files ──────────────────────────────────────────────────
-
 @app.on_event("startup")
 async def startup():
     init_database()
-
-
-if DIST_DIR.exists():
-    app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")
-
-    @app.get("/")
-    async def root():
-        return FileResponse(str(DIST_DIR / "index.html"))
-
-    @app.get("/{full_path:path}")
-    async def spa_fallback(full_path: str):
-        file_path = DIST_DIR / full_path
-        if file_path.is_file():
-            return FileResponse(str(file_path))
-        return FileResponse(str(DIST_DIR / "index.html"))
-
-else:
-    # Fallback HTML when dist hasn't been built yet
-    @app.get("/")
-    async def root():
-        return HTMLResponse("""<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><title>Tobi Mission Control</title>
-<style>
-  body{background:#0d1117;color:#c9d1d9;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;}
-  .box{text-align:center;border:1px solid #30363d;border-radius:8px;padding:40px;max-width:480px;}
-  h1{color:#58a6ff;font-size:28px;letter-spacing:4px;margin-bottom:8px;}
-  p{color:#8b949e;margin:8px 0;}
-  code{background:#161b22;border:1px solid #30363d;padding:8px 16px;border-radius:4px;display:block;margin:16px 0;font-size:13px;}
-</style>
-</head>
-<body>
-<div class="box">
-  <h1>⚡ TOBI</h1>
-  <p>Mission Control UI needs to be built first.</p>
-  <code>cd dashboard && npm install && npm run build</code>
-  <p style="color:#8b949e;font-size:12px;">Then restart the dashboard server.</p>
-</div>
-</body>
-</html>""")
-
-    @app.get("/{full_path:path}")
-    async def catch_all(full_path: str):
-        return HTMLResponse("<html><body>Build the dashboard first: <code>cd dashboard && npm run build</code></body></html>")
 
 
 # ── PROJECT MODULE (Mission Control — Projects) ──────────────────────────────
@@ -3085,6 +3039,50 @@ async def get_evolution():
         "missing_in_current_tier": missing,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+# ── Serve React static files (MUST be last — catch-all shadows all routes above) ──
+if DIST_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")
+
+    @app.get("/")
+    async def root():
+        return FileResponse(str(DIST_DIR / "index.html"))
+
+    @app.get("/{full_path:path}")
+    async def spa_fallback(full_path: str):
+        file_path = DIST_DIR / full_path
+        if file_path.is_file():
+            return FileResponse(str(file_path))
+        return FileResponse(str(DIST_DIR / "index.html"))
+
+else:
+    @app.get("/")
+    async def root():
+        return HTMLResponse("""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Tobi Mission Control</title>
+<style>
+  body{background:#0d1117;color:#c9d1d9;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;}
+  .box{text-align:center;border:1px solid #30363d;border-radius:8px;padding:40px;max-width:480px;}
+  h1{color:#58a6ff;font-size:28px;letter-spacing:4px;margin-bottom:8px;}
+  p{color:#8b949e;margin:8px 0;}
+  code{background:#161b22;border:1px solid #30363d;padding:8px 16px;border-radius:4px;display:block;margin:16px 0;font-size:13px;}
+</style>
+</head>
+<body>
+<div class="box">
+  <h1>⚡ TOBI</h1>
+  <p>Mission Control UI needs to be built first.</p>
+  <code>cd dashboard && npm install && npm run build</code>
+  <p style="color:#8b949e;font-size:12px;">Then restart the dashboard server.</p>
+</div>
+</body>
+</html>""")
+
+    @app.get("/{full_path:path}")
+    async def catch_all(full_path: str):
+        return HTMLResponse("<html><body>Build the dashboard first: <code>cd dashboard && npm run build</code></body></html>")
 
 
 if __name__ == "__main__":

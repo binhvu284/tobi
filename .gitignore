@@ -19,3 +19,6 @@ node_modules/
 # OS / editor
 .DS_Store
 .aider*
+
+# graphify knowledge-graph index (regenerated locally; rebuilt by the post-commit hook)
+graphify-out/
