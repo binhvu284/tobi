@@ -387,17 +387,19 @@ function TierUnlockOverlay({ tierId, tierName, colorKey, onDone }: {
 export default function Evolution() {
   const [data, setData] = useState<EvolutionReport | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [drawerAb, setDrawerAb] = useState<{ ab: TierAbility; tier: TierData } | null>(null)
   const [unlockOverlay, setUnlockOverlay] = useState<{ id: number; name: string; colorKey: string } | null>(null)
   const sfx = useSound()
   const shownUnlocks = useRef<Set<number>>(new Set())
 
-  useEffect(() => {
+  const load = () => {
+    setLoading(true)
+    setError(null)
     getEvolution()
       .then(d => {
         setData(d)
         setLoading(false)
-        // Show tier-up overlay for newly unlocked tiers (only once per session)
         for (const tid of d.just_unlocked) {
           if (!shownUnlocks.current.has(tid)) {
             shownUnlocks.current.add(tid)
@@ -411,8 +413,15 @@ export default function Evolution() {
           }
         }
       })
-      .catch(() => setLoading(false))
-  }, [sfx])
+      .catch((e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e)
+        console.error('[Evolution] fetch failed:', msg)
+        setError(msg)
+        setLoading(false)
+      })
+  }
+
+  useEffect(() => { load() }, [])
 
   if (loading) {
     return (
@@ -425,7 +434,14 @@ export default function Evolution() {
   if (!data) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="text-sm text-danger">Failed to load. Is the API running?</div>
+        <div className="flex flex-col items-center gap-3 text-center">
+          <div className="text-sm text-danger">Failed to load evolution data</div>
+          {error && <div className="max-w-xs rounded bg-surface px-3 py-2 font-mono text-[11px] text-muted">{error}</div>}
+          <button onClick={load}
+            className="rounded-md bg-accent/15 px-4 py-1.5 text-xs font-semibold text-accent hover:bg-accent/25">
+            Retry
+          </button>
+        </div>
       </div>
     )
   }
