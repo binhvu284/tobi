@@ -23,11 +23,13 @@ Schedules (Vietnam GMT+7):
 
 import os
 import sys
+import signal
 import shutil
 import asyncio
 import logging
 import threading
 from datetime import datetime
+from pathlib import Path
 
 try:
     import schedule
@@ -42,6 +44,42 @@ from core.research_engine import run_research_cycle
 from core.project_executor import execute_all_projects
 from core.ceo_loop import run_ceo_review, format_ceo_telegram_summary
 from core.telegram_bot import build_app, send_daily_report, send_message, send_project_proposal, run_terminal_session
+
+_PID_FILE = Path(__file__).parent / ".tobi" / "tobi.pid"
+
+
+def ensure_single_instance():
+    """Kill any existing Tobi process before starting, then claim the PID file."""
+    if _PID_FILE.exists():
+        try:
+            old_pid = int(_PID_FILE.read_text().strip())
+            os.kill(old_pid, 0)  # raises if process doesn't exist
+            print(f"[single-instance] Stopping existing Tobi (PID {old_pid})...")
+            os.kill(old_pid, signal.SIGTERM)
+            for _ in range(20):          # wait up to 10 s for clean exit
+                time.sleep(0.5)
+                try:
+                    os.kill(old_pid, 0)
+                except ProcessLookupError:
+                    break
+            else:
+                os.kill(old_pid, signal.SIGKILL)
+            time.sleep(1)               # let OS release ports
+        except (ProcessLookupError, ValueError):
+            pass                        # stale PID file — ignore
+    _PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _PID_FILE.write_text(str(os.getpid()))
+
+    def _cleanup():
+        try:
+            if _PID_FILE.exists() and _PID_FILE.read_text().strip() == str(os.getpid()):
+                _PID_FILE.unlink()
+        except Exception:
+            pass
+
+    import atexit
+    atexit.register(_cleanup)
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -367,6 +405,7 @@ async def test_connections():
 # ─────────────────────────────────────────
 
 async def run_daemon():
+    ensure_single_instance()
     init_database()
     sync_soul_and_skills()
     print_status()
