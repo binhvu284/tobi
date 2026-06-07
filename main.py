@@ -151,9 +151,29 @@ def start_dashboard_server():
         logger.error(f"Dashboard error: {e}")
 
 
+def _ensure_port_public():
+    """Flip the dashboard port to public in GitHub Codespaces after it binds."""
+    codespace = os.getenv("CODESPACE_NAME")
+    if not codespace:
+        return
+    port = os.getenv("DASHBOARD_PORT", "8080")
+    for _ in range(30):
+        time.sleep(2)
+        try:
+            import urllib.request
+            urllib.request.urlopen(f"http://localhost:{port}/api/status", timeout=2)
+            ret = os.system(f"gh codespace ports visibility {port}:public -c {codespace} >/dev/null 2>&1")
+            if ret == 0:
+                logger.info(f"🌐 Port {port} set to public (Codespace)")
+            return
+        except Exception:
+            continue
+
+
 def launch_background_servers():
     threading.Thread(target=start_api_server,    daemon=True, name="api").start()
     threading.Thread(target=start_dashboard_server, daemon=True, name="dashboard").start()
+    threading.Thread(target=_ensure_port_public, daemon=True, name="port-public").start()
     time.sleep(1)  # brief pause for servers to bind
 
 
