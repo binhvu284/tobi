@@ -3054,19 +3054,21 @@ async def get_evolution():
 
 
 # ── Serve React static files (MUST be last — catch-all shadows all routes above) ──
+_NO_CACHE_HEADERS = {"Cache-Control": "no-cache, must-revalidate", "Pragma": "no-cache"}
+
 if DIST_DIR.exists():
     app.mount("/assets", StaticFiles(directory=str(DIST_DIR / "assets")), name="assets")
 
     @app.get("/")
     async def root():
-        return FileResponse(str(DIST_DIR / "index.html"))
+        return FileResponse(str(DIST_DIR / "index.html"), headers=_NO_CACHE_HEADERS)
 
     @app.get("/{full_path:path}")
     async def spa_fallback(full_path: str):
         file_path = DIST_DIR / full_path
         if file_path.is_file():
             return FileResponse(str(file_path))
-        return FileResponse(str(DIST_DIR / "index.html"))
+        return FileResponse(str(DIST_DIR / "index.html"), headers=_NO_CACHE_HEADERS)
 
 else:
     @app.get("/")

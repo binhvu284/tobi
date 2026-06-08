@@ -1,11 +1,12 @@
 async function get(path: string) {
-  const res = await fetch(path)
+  const res = await fetch(path, { cache: 'no-cache' })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
 
 async function request(path: string, init: RequestInit) {
   const res = await fetch(path, {
+    cache: 'no-cache',
     headers: { 'Content-Type': 'application/json', ...(init.headers || {}) },
     ...init,
   })
