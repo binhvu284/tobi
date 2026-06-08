@@ -152,22 +152,53 @@ def start_dashboard_server():
 
 
 def _ensure_port_public():
-    """Flip the dashboard port to public in GitHub Codespaces after it binds."""
+    """Flip the dashboard port to public in GitHub Codespaces, retrying until
+    `gh ports` actually confirms it.
+
+    Codespaces forward ports as private by default and reset them to private on
+    every restart, so the MC link 404s for anyone outside the Codespace until we
+    re-flip. The previous version polled only 60s (too short on a cold boot),
+    swallowed all errors, and never retried — so a single failed/raced flip left
+    the port private with no trace. Now: wait up to 5 min for the dashboard to
+    bind, then retry the flip up to 10x until the port listing reports `public`
+    (the first call can race the port-forward registration), logging each step.
+    """
     codespace = os.getenv("CODESPACE_NAME")
     if not codespace:
         return
     port = os.getenv("DASHBOARD_PORT", "8080")
-    for _ in range(30):
-        time.sleep(2)
+    import urllib.request, subprocess, re
+
+    # Wait up to 5 min (150 x 2s) for the dashboard to answer.
+    for _ in range(150):
         try:
-            import urllib.request
             urllib.request.urlopen(f"http://localhost:{port}/api/status", timeout=2)
-            ret = os.system(f"gh codespace ports visibility {port}:public -c {codespace} >/dev/null 2>&1")
-            if ret == 0:
-                logger.info(f"🌐 Port {port} set to public (Codespace)")
-            return
+            break
         except Exception:
-            continue
+            time.sleep(2)
+    else:
+        logger.warning(f"⚠️  Dashboard never answered on :{port} — skipped public flip")
+        return
+
+    # Flip to public, retrying until `gh ports` confirms it.
+    for attempt in range(1, 11):
+        subprocess.run(
+            ["gh", "codespace", "ports", "visibility", f"{port}:public", "-c", codespace],
+            capture_output=True, text=True,
+        )
+        try:
+            listing = subprocess.run(
+                ["gh", "codespace", "ports", "-c", codespace],
+                capture_output=True, text=True, timeout=15,
+            ).stdout
+        except Exception:
+            listing = ""
+        if re.search(rf"{port}\s+public", listing):
+            logger.info(f"🌐 Port {port} is PUBLIC (attempt {attempt}) — MC link is reachable")
+            return
+        logger.warning(f"⚠️  Port {port} still private (attempt {attempt}/10), retrying in 3s…")
+        time.sleep(3)
+    logger.error(f"❌ Could not make port {port} public after 10 attempts — MC link will 404 externally")
 
 
 def launch_background_servers():
