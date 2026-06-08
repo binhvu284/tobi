@@ -33,14 +33,20 @@ if [ -n "$CODESPACE_NAME" ]; then
       exit 0
     fi
     echo "[$(date -Is)] autostart: dashboard is up, flipping 8080 to public..." >> "$log"
-    for attempt in $(seq 1 10); do
+    # ~2 min of retries: a restart-in-place tears down the existing 8080 forward
+    # and Codespaces re-registers it up to a minute later; until it reappears in
+    # `gh ports` there is no port for `visibility` to act on. A fresh boot
+    # succeeds on the first attempt and breaks out immediately.
+    ok=0
+    for attempt in $(seq 1 40); do
       gh codespace ports visibility 8080:public -c "$CODESPACE_NAME" >> "$log" 2>&1
       if gh codespace ports -c "$CODESPACE_NAME" 2>/dev/null | grep -qE '8080[[:space:]]+public'; then
         echo "[$(date -Is)] autostart: Mission Control (8080) is PUBLIC (attempt $attempt)" >> "$log"
-        break
+        ok=1; break
       fi
-      echo "[$(date -Is)] autostart: 8080 still private (attempt $attempt/10), retrying in 3s..." >> "$log"
+      echo "[$(date -Is)] autostart: 8080 not public yet (attempt $attempt/40, forward may be registering), retrying in 3s..." >> "$log"
       sleep 3
     done
+    [ "$ok" = 1 ] || echo "[$(date -Is)] autostart: gave up — 8080 still not public after 40 attempts (MC link will 404 externally)" >> "$log"
   ) &
 fi

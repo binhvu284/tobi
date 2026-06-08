@@ -180,8 +180,15 @@ def _ensure_port_public():
         logger.warning(f"⚠️  Dashboard never answered on :{port} — skipped public flip")
         return
 
-    # Flip to public, retrying until `gh ports` confirms it.
-    for attempt in range(1, 11):
+    # Flip to public, retrying until `gh ports` confirms it. The window is
+    # generous (~2 min) because the port-FORWARD itself can lag: on a
+    # restart-in-place (kill the old instance, relaunch) Codespaces tears down
+    # the existing 8080 forward and re-registers it up to a minute later — until
+    # it reappears in `gh ports` there is no port for `visibility` to act on, so
+    # early attempts are silent no-ops. A fresh boot succeeds on attempt 1 and
+    # exits immediately, so the long ceiling only costs time in the lag case.
+    attempts = 40
+    for attempt in range(1, attempts + 1):
         subprocess.run(
             ["gh", "codespace", "ports", "visibility", f"{port}:public", "-c", codespace],
             capture_output=True, text=True,
@@ -196,9 +203,9 @@ def _ensure_port_public():
         if re.search(rf"{port}\s+public", listing):
             logger.info(f"🌐 Port {port} is PUBLIC (attempt {attempt}) — MC link is reachable")
             return
-        logger.warning(f"⚠️  Port {port} still private (attempt {attempt}/10), retrying in 3s…")
+        logger.warning(f"⚠️  Port {port} not public yet (attempt {attempt}/{attempts}) — forward may still be registering; retrying in 3s…")
         time.sleep(3)
-    logger.error(f"❌ Could not make port {port} public after 10 attempts — MC link will 404 externally")
+    logger.error(f"❌ Could not make port {port} public after {attempts} attempts — MC link will 404 externally")
 
 
 def launch_background_servers():
