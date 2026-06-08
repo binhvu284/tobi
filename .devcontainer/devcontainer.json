@@ -1,4 +1,10 @@
 {
   "image": "mcr.microsoft.com/devcontainers/python:3.12",
-  "postStartCommand": "bash /workspaces/tobi/scripts/autostart.sh"
+  "postStartCommand": "bash /workspaces/tobi/scripts/autostart.sh",
+  "//": "forwardPorts pre-registers these at container start so the public-flip in autostart.sh/main.py lands on attempt 1 (no auto-forward race). Public visibility itself can't be set declaratively in Codespaces — that's done at runtime. Takes effect on a container REBUILD, not a plain restart.",
+  "forwardPorts": [8080, 8000],
+  "portsAttributes": {
+    "8080": { "label": "Mission Control" },
+    "8000": { "label": "Tobi API" }
+  }
 }

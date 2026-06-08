@@ -187,6 +187,7 @@ def _ensure_port_public():
     # it reappears in `gh ports` there is no port for `visibility` to act on, so
     # early attempts are silent no-ops. A fresh boot succeeds on attempt 1 and
     # exits immediately, so the long ceiling only costs time in the lag case.
+    logger.info(f"🌐 Publishing port {port} to public (Codespace)…")
     attempts = 40
     for attempt in range(1, attempts + 1):
         subprocess.run(
@@ -203,7 +204,13 @@ def _ensure_port_public():
         if re.search(rf"{port}\s+public", listing):
             logger.info(f"🌐 Port {port} is PUBLIC (attempt {attempt}) — MC link is reachable")
             return
-        logger.warning(f"⚠️  Port {port} not public yet (attempt {attempt}/{attempts}) — forward may still be registering; retrying in 3s…")
+        # Stay quiet during the normal forward-registration lag — a healthy boot
+        # succeeds on attempt 1, so this only loops when something's actually
+        # wrong. Escalate to WARNING every 10th try instead of spamming 40 lines.
+        if attempt % 10 == 0:
+            logger.warning(f"⚠️  Port {port} still not public after {attempt}/{attempts} attempts — forward not registering")
+        else:
+            logger.debug(f"Port {port} not public yet (attempt {attempt}/{attempts}); retrying in 3s")
         time.sleep(3)
     logger.error(f"❌ Could not make port {port} public after {attempts} attempts — MC link will 404 externally")
 
