@@ -28,6 +28,7 @@ import TaskFilters from '../components/TaskFilters'
 import TaskDetailPanel from '../components/TaskDetailPanel'
 import TaskCreateModal from '../components/TaskCreateModal'
 import ConfirmTransitionModal from '../components/ConfirmTransitionModal'
+import PageLoader from '../components/PageLoader'
 
 const statusOrder: TaskStatus[] = [
   'planned',
@@ -246,7 +247,7 @@ export default function Task() {
       />
 
       {loading ? (
-        <div className="text-sm text-muted">Loading tasks...</div>
+        <PageLoader preset="task" compact />
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-2">
           <div className="flex min-w-0 flex-1 gap-3">

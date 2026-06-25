@@ -38,6 +38,15 @@ except ImportError:
     print("pip install schedule")
     sys.exit(1)
 
+# Windows consoles often default to a non-UTF-8 codepage (e.g. cp1258 on a
+# Vietnamese locale), which raises UnicodeEncodeError on the emoji used in
+# log/print statements throughout the codebase. Force UTF-8 console I/O.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
 from core.database import init_database, get_dashboard, get_all_lessons, add_lesson
 from core.model_router import llm_complete
 from core.research_engine import run_research_cycle
@@ -45,7 +54,45 @@ from core.project_executor import execute_all_projects
 from core.ceo_loop import run_ceo_review, format_ceo_telegram_summary
 from core.telegram_bot import build_app, send_daily_report, send_message, send_project_proposal, run_terminal_session
 
-_PID_FILE = Path(__file__).parent / ".tobi" / "tobi.pid"
+PROJECT_DIR = Path(__file__).resolve().parent
+_PID_FILE = PROJECT_DIR / ".tobi" / "tobi.pid"
+
+
+def _pid_alive(pid: int) -> bool:
+    """Cross-platform 'is this PID running?' check.
+
+    On Windows `os.kill(pid, 0)` is NOT a no-op existence probe — signal 0 maps
+    to CTRL_C_EVENT — so we shell out to `tasklist` instead.
+    """
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import subprocess
+        try:
+            out = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                capture_output=True, text=True, timeout=10,
+            ).stdout
+            return str(pid) in out
+        except Exception:
+            return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _terminate_pid(pid: int, force: bool = False) -> None:
+    """Cross-platform process termination."""
+    if os.name == "nt":
+        import subprocess
+        args = ["taskkill", "/PID", str(pid)] + (["/F"] if force else [])
+        subprocess.run(args, capture_output=True, text=True)
+        return
+    os.kill(pid, signal.SIGKILL if force else signal.SIGTERM)
 
 
 def ensure_single_instance():
@@ -53,20 +100,18 @@ def ensure_single_instance():
     if _PID_FILE.exists():
         try:
             old_pid = int(_PID_FILE.read_text().strip())
-            os.kill(old_pid, 0)  # raises if process doesn't exist
-            print(f"[single-instance] Stopping existing Tobi (PID {old_pid})...")
-            os.kill(old_pid, signal.SIGTERM)
-            for _ in range(20):          # wait up to 10 s for clean exit
-                time.sleep(0.5)
-                try:
-                    os.kill(old_pid, 0)
-                except ProcessLookupError:
-                    break
-            else:
-                os.kill(old_pid, signal.SIGKILL)
-            time.sleep(1)               # let OS release ports
-        except (ProcessLookupError, ValueError):
-            pass                        # stale PID file — ignore
+            if _pid_alive(old_pid):
+                print(f"[single-instance] Stopping existing Tobi (PID {old_pid})...")
+                _terminate_pid(old_pid, force=False)
+                for _ in range(20):          # wait up to 10 s for clean exit
+                    time.sleep(0.5)
+                    if not _pid_alive(old_pid):
+                        break
+                else:
+                    _terminate_pid(old_pid, force=True)
+                time.sleep(1)               # let OS release ports
+        except ValueError:
+            pass                        # stale/garbage PID file — ignore
     _PID_FILE.parent.mkdir(parents=True, exist_ok=True)
     _PID_FILE.write_text(str(os.getpid()))
 
@@ -81,11 +126,13 @@ def ensure_single_instance():
     atexit.register(_cleanup)
 
 
+_LOG_DIR = PROJECT_DIR / "logs"
+_LOG_DIR.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("/workspaces/tobi/logs/system.log"),
+        logging.FileHandler(str(_LOG_DIR / "system.log"), encoding="utf-8"),
         logging.StreamHandler(),
     ],
 )
@@ -99,17 +146,21 @@ _tg_app = None
 # ─────────────────────────────────────────
 
 def sync_soul_and_skills():
-    soul_src = "/workspaces/tobi/SOUL.md"
-    soul_dst = os.path.expanduser("~/.hermes/SOUL.md")
+    # HERMES_DIR lets us keep Hermes-synced files off the C: home dir.
+    hermes_dir = os.path.expanduser(os.getenv("HERMES_DIR", "~/.hermes"))
+
+    soul_src = str(PROJECT_DIR / "SOUL.md")
+    soul_dst = os.path.join(hermes_dir, "SOUL.md")
     if os.path.exists(soul_src):
         try:
+            os.makedirs(os.path.dirname(soul_dst), exist_ok=True)
             shutil.copy2(soul_src, soul_dst)
             logger.info(f"✅ SOUL.md synced → {soul_dst}")
         except Exception as e:
             logger.warning(f"SOUL.md sync failed: {e}")
 
-    skills_src = "/workspaces/tobi/hermes_skills"
-    skills_dst = os.path.expanduser("~/.hermes/skills/tobi")
+    skills_src = str(PROJECT_DIR / "hermes_skills")
+    skills_dst = os.path.join(hermes_dir, "skills", "tobi")
     if os.path.exists(skills_src):
         try:
             os.makedirs(skills_dst, exist_ok=True)
@@ -124,6 +175,26 @@ def sync_soul_and_skills():
 # ─────────────────────────────────────────
 # Background servers (API + Dashboard)
 # ─────────────────────────────────────────
+
+def _autounlock_vault():
+    """Re-inject previously-connected integration secrets into os.environ at boot,
+    using the vault's cached key (no master-password prompt). No-op if the vault
+    isn't set up or auto-unlock was never enabled. Never raises."""
+    try:
+        from core import vault
+        from core.database import get_connection
+        if not vault.CRYPTO_AVAILABLE:
+            return
+        conn = get_connection()
+        try:
+            if vault.is_setup(conn) and vault.try_autounlock(conn):
+                n = vault.inject_env(conn)
+                logger.info(f"🔐 Vault auto-unlocked; {n} integration secret(s) live.")
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f"Vault auto-unlock skipped: {e}")
+
 
 def start_api_server():
     try:
@@ -343,6 +414,47 @@ async def job_weekly_reflection():
         logger.error(f"Weekly reflection error: {e}")
 
 
+def job_brain_sweep():
+    """Periodic Brain auto-learning: extract durable owner facts from new chat messages
+    (dashboard + Telegram — both persist to the shared `conversations` table)."""
+    try:
+        from core.brain import sweep_once, mirror_to_hermes
+        res = sweep_once()
+        if res.get("processed"):
+            logger.info(f"🧠 Brain sweep: {res}")
+        # Mirror freshly-learned memories into Hermes (one-way, best-effort).
+        mres = mirror_to_hermes()
+        if mres.get("mirrored"):
+            logger.info(f"🪞 Brain→Hermes mirror: {mres}")
+    except Exception as e:
+        logger.error(f"Brain sweep error: {e}")
+
+
+def job_brain_decay():
+    """Daily freshness automation: decay confidence of unconfirmed memories so stale
+    knowledge fades and surfaces for re-check (never silently deleted)."""
+    try:
+        from core.brain import decay_confidences
+        res = decay_confidences()
+        if res.get("decayed"):
+            logger.info(f"🧠 Brain decay: {res}")
+    except Exception as e:
+        logger.error(f"Brain decay error: {e}")
+
+
+def job_graph_sync():
+    """Periodic Graph View refresh: register internal nodes (memory/task/project), mirror
+    connected integrations, rebuild semantic + tag edges, recompute degree."""
+    try:
+        from core.graph_engine import rebuild
+        from core.integrations import check_all
+        sources = [s for s, ok in check_all().items() if ok and s in ("notion", "github", "google")]
+        res = rebuild(sources=sources)
+        logger.info(f"🕸️ Graph sync: {res}")
+    except Exception as e:
+        logger.error(f"Graph sync error: {e}")
+
+
 # ─────────────────────────────────────────
 # Scheduler bridge
 # ─────────────────────────────────────────
@@ -363,10 +475,13 @@ def setup_schedules():
     schedule.every(6).hours.do(lambda: run_async(job_execution_cycle()))
     schedule.every().sunday.at("20:00").do(lambda: run_async(job_research_cycle()))
     schedule.every().sunday.at("20:00").do(lambda: run_async(job_weekly_reflection()))
+    schedule.every(30).minutes.do(job_brain_sweep)
+    schedule.every().day.at("04:00").do(job_brain_decay)
+    schedule.every(45).minutes.do(job_graph_sync)
     schedule.every().day.at("09:00").do(
         lambda: run_async(job_ceo_review()) if datetime.now().day == 1 else None
     )
-    logger.info("📅 Schedules: daily 08:00 report | every 6h execution | sunday 20:00 research+reflection | monthly CEO review")
+    logger.info("📅 Schedules: daily 08:00 report | every 6h execution | sunday 20:00 research+reflection | brain sweep 30m + decay 04:00 | monthly CEO review")
 
 
 # ─────────────────────────────────────────
@@ -472,6 +587,7 @@ async def test_connections():
 async def run_daemon():
     ensure_single_instance()
     init_database()
+    _autounlock_vault()
     sync_soul_and_skills()
     print_status()
 

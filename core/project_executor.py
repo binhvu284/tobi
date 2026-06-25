@@ -176,6 +176,17 @@ def execute_task(task: dict, project: dict) -> Optional[str]:
 
     print(f"   ⚡ Executing [{task_category}]: {task['title']}")
 
+    # Memory-first (Brain v2): consult what Tobi knows about the owner and fold it into
+    # the task context so every executor produces output aligned to the owner's
+    # preferences/goals rather than generic output. Degrades to a no-op if Brain empty.
+    try:
+        from core import brain
+        ctx_block = brain.owner_context(f"{task.get('title','')} {task.get('description','')}")
+        if ctx_block:
+            task = {**task, "description": f"{task.get('description','')}\n\n[{ctx_block}]"}
+    except Exception:
+        pass
+
     try:
         executors = {
             "research": execute_research_task,

@@ -9,6 +9,14 @@ tqdm==4.67.3
 anyio==4.13.0
 click==8.4.1
 fastapi==0.136.3
+# Brain: local on-device embeddings (semantic memory search + dedup). Optional —
+# the Brain degrades to keyword search if these aren't installed.
+numpy==2.2.1
+fastembed==0.5.1
 h11==0.16.0
 starlette==1.1.0
 uvicorn==0.48.0
+# Genesis Complete: encrypted secrets vault (AES-256-GCM + scrypt KDF).
+cryptography==49.0.0
+# MCP Hub (#5): TOBI as an MCP server (Streamable HTTP) + client. Official SDK.
+mcp==1.28.0

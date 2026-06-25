@@ -133,6 +133,71 @@
 .tier-unlock { animation: tier-unlock 0.7s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
 .ring-expand { animation: ring-expand 1.2s ease-out forwards; }
 
+/* ── Unified loading effect (modern, glowing) — shared by every page via <Loader/> ── */
+@keyframes tobi-spin { to { transform: rotate(360deg); } }
+@keyframes tobi-core-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(0.8); }
+  50%      { opacity: 1;    transform: scale(1.15); }
+}
+@keyframes tobi-text-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+
+.tobi-loader { position: relative; display: inline-grid; place-items: center; }
+.tobi-loader-ring {
+  position: absolute; inset: 0; border-radius: 9999px;
+  border: 2px solid transparent;
+  border-top-color: rgb(var(--accent));
+  border-right-color: rgb(var(--accent) / 0.35);
+  animation: tobi-spin 0.9s linear infinite;
+  filter: drop-shadow(0 0 6px rgb(var(--accent) / 0.7));
+}
+.tobi-loader-ring--2 {
+  inset: 26%;
+  border-top-color: rgb(var(--purple));
+  border-right-color: transparent;
+  animation: tobi-spin 1.4s linear infinite reverse;
+  filter: drop-shadow(0 0 4px rgb(var(--purple) / 0.6));
+}
+.tobi-loader-core {
+  width: 22%; height: 22%; border-radius: 9999px;
+  background: rgb(var(--accent));
+  box-shadow: 0 0 12px rgb(var(--accent) / 0.9), 0 0 26px rgb(var(--accent) / 0.5);
+  animation: tobi-core-pulse 1.4s ease-in-out infinite;
+}
+.tobi-loader-label { animation: tobi-text-pulse 1.5s ease-in-out infinite; }
+
+/* ── PageLoader effects: skeleton shimmer · running bar · icon/name glow ── */
+@keyframes tobi-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.tobi-skel {
+  background: linear-gradient(100deg,
+    rgb(var(--surface)) 0%, rgb(var(--surface)) 35%,
+    rgb(var(--border) / 0.85) 50%,
+    rgb(var(--surface)) 65%, rgb(var(--surface)) 100%);
+  background-size: 200% 100%;
+  animation: tobi-shimmer 1.6s linear infinite;
+  border: 1px solid rgb(var(--border) / 0.5);
+  border-radius: 0.6rem;
+}
+@keyframes tobi-bar-slide { 0% { left: -35%; } 100% { left: 100%; } }
+.tobi-runbar { position: relative; overflow: hidden; border-radius: 9999px; }
+.tobi-runbar::after {
+  content: ''; position: absolute; top: 0; bottom: 0; width: 35%;
+  background: linear-gradient(90deg, transparent, var(--bar-color, rgb(var(--accent))), transparent);
+  box-shadow: 0 0 14px var(--bar-color, rgb(var(--accent)));
+  animation: tobi-bar-slide 1.15s ease-in-out infinite;
+}
+@keyframes tobi-icon-glow {
+  0%, 100% { box-shadow: 0 0 14px -2px var(--glow, rgb(var(--accent))); transform: scale(1); }
+  50%      { box-shadow: 0 0 34px 2px var(--glow, rgb(var(--accent))); transform: scale(1.06); }
+}
+.tobi-icon-glow { animation: tobi-icon-glow 1.9s ease-in-out infinite; }
+.tobi-name-shimmer {
+  background: linear-gradient(90deg, rgb(var(--muted)) 0%, var(--name-color, rgb(var(--heading))) 50%, rgb(var(--muted)) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  animation: tobi-shimmer 2.4s linear infinite;
+}
+
 @keyframes charIdle { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-5px); } }
 @keyframes charWork { 0%, 100% { transform: translateY(0px) rotate(-3deg); } 25% { transform: translateY(-2px) rotate(0deg); } 75% { transform: translateY(2px) rotate(3deg); } }
 @keyframes eyeBlink { 0%, 88%, 100% { transform: scaleY(1); } 92% { transform: scaleY(0.1); } }

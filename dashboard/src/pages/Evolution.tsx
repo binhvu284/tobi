@@ -2,10 +2,12 @@ import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   CheckCircle2, XCircle, Lock, Brain, Cpu, Wifi,
-  ChevronDown, ChevronUp, X, Clock, Zap, TrendingUp,
+  ChevronDown, ChevronUp, X, Clock, Zap, TrendingUp, Sparkles, Loader2,
 } from 'lucide-react'
-import { getEvolution, type EvolutionReport, type TierData, type TierAbility } from '../api'
+import { getEvolution, reflectNow, type EvolutionReport, type TierData, type TierAbility } from '../api'
 import { useSound } from '../hooks/useSound'
+import PageLoader from '../components/PageLoader'
+import TierEmblem from '../components/TierEmblem'
 
 // ── Color palette per tier ───────────────────────────────────────────────────
 
@@ -185,10 +187,8 @@ function TierCard({
         onClick={() => !isLocked && setOpen(o => !o)}>
 
         {/* Tier badge */}
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-sm font-bold"
-          style={{ background: c.gradient, color: '#000', fontSize: tier.id >= 6 ? '11px' : '14px' }}>
-          {tier.id >= 6 ? tier.roman : tier.roman}
-        </div>
+        <TierEmblem tier={tier.id} colorKey={tier.color_key} size={40}
+          state={isCurrent ? 'current' : isLocked ? 'locked' : 'normal'} />
 
         <div className="flex-1 text-left">
           <div className="flex items-center gap-2">
@@ -262,11 +262,30 @@ function TierCard({
   )
 }
 
-function AbilityDrawer({ ab, tier, onClose }: {
-  ab: TierAbility; tier: TierData; onClose: () => void
+function AbilityDrawer({ ab, tier, onClose, onReflected }: {
+  ab: TierAbility; tier: TierData; onClose: () => void; onReflected: () => void
 }) {
   const c = TIER_COLORS[tier.color_key] ?? TIER_COLORS.gray
   const isActive = ab.status === 'active'
+  const [reflecting, setReflecting] = useState(false)
+  const [reflectErr, setReflectErr] = useState<string | null>(null)
+  const [reflected, setReflected] = useState<string | null>(null)
+
+  const runReflect = async () => {
+    setReflecting(true)
+    setReflectErr(null)
+    try {
+      const r = await reflectNow()
+      setReflected(r.lesson.content)
+      // Let the user read the lesson, then refresh the tier data so the
+      // ability flips to ACTIVE (and Genesis may complete).
+      setTimeout(onReflected, 1600)
+    } catch (e: unknown) {
+      setReflectErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setReflecting(false)
+    }
+  }
 
   return (
     <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
@@ -274,10 +293,7 @@ function AbilityDrawer({ ab, tier, onClose }: {
       className="fixed right-0 top-0 z-50 flex h-full w-full flex-col border-l border-border bg-surface shadow-2xl sm:w-96">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
-          <div className="h-6 w-6 rounded text-[10px] font-bold flex items-center justify-center"
-            style={{ background: c.gradient, color: '#000' }}>
-            {tier.roman}
-          </div>
+          <TierEmblem tier={tier.id} colorKey={tier.color_key} size={24} />
           <span className="text-xs text-muted">{tier.name}</span>
         </div>
         <button onClick={onClose} className="rounded-md p-1 text-muted hover:text-text"><X size={16} /></button>
@@ -316,6 +332,30 @@ function AbilityDrawer({ ab, tier, onClose }: {
         {!isActive && !ab.how_to_unlock && (
           <div className="rounded-lg border border-border bg-bg/50 p-3">
             <p className="text-xs text-muted italic">This capability unlocks as the cumulative result of earlier tiers. Build the prerequisite tiers first.</p>
+          </div>
+        )}
+
+        {/* One-click activator for the self-reflection store */}
+        {!isActive && ab.id === 'lessons_store' && (
+          <div className="space-y-2">
+            <button onClick={runReflect} disabled={reflecting}
+              className="flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold text-black transition-opacity hover:opacity-90 disabled:opacity-60"
+              style={{ background: c.gradient }}>
+              {reflecting
+                ? <><Loader2 size={15} className="animate-spin" /> Reflecting…</>
+                : <><Sparkles size={15} /> Reflect now</>}
+            </button>
+            {reflectErr && (
+              <p className="text-xs text-red-400">Reflection failed: {reflectErr}</p>
+            )}
+            {reflected && (
+              <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-3">
+                <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-green-400">
+                  <CheckCircle2 size={11} /> Lesson #1 written
+                </div>
+                <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted">{reflected}</p>
+              </div>
+            )}
           </div>
         )}
 
@@ -363,10 +403,7 @@ function TierUnlockOverlay({ tierId, tierName, colorKey, onDone }: {
             }} />
         ))}
         {/* Badge */}
-        <div className="tier-unlock flex h-28 w-28 items-center justify-center rounded-2xl text-3xl font-black"
-          style={{ background: c.gradient, color: '#000', boxShadow: c.hex + ' 0 0 60px 10px' }}>
-          {tierId}
-        </div>
+        <TierEmblem tier={tierId} colorKey={colorKey} size={112} state="current" celebrate />
         <div className="text-center tier-unlock" style={{ animationDelay: '0.2s', animationFillMode: 'both' }}>
           <div className="text-xs font-bold uppercase tracking-[0.3em] text-muted">Tier Unlocked</div>
           <div className={`mt-1 text-2xl font-black tracking-widest ${c.nameClass ?? ''}`}
@@ -424,11 +461,7 @@ export default function Evolution() {
   useEffect(() => { load() }, [])
 
   if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <div className="text-sm text-muted">Loading evolution data…</div>
-      </div>
-    )
+    return <PageLoader preset="evolution" />
   }
 
   if (!data) {
@@ -469,10 +502,7 @@ export default function Evolution() {
               )),
             }}>
             <div className="text-[10px] font-semibold uppercase tracking-widest text-muted">Current Tier</div>
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl text-2xl font-black"
-              style={{ background: currentColors.gradient, color: '#000' }}>
-              {currentTier?.roman}
-            </div>
+            <TierEmblem tier={currentTier?.id ?? 0} colorKey={currentTier?.color_key ?? 'gray'} size={64} state="current" />
             <div className={`text-lg font-black tracking-widest ${currentColors.nameClass ?? ''}`}
               style={currentColors.nameClass ? undefined : { color: currentColors.hex }}>
               {currentTier?.name}
@@ -499,10 +529,7 @@ export default function Evolution() {
           {nextTier && nextColors ? (
             <div className="rounded-xl border border-border bg-surface/50 p-4 flex flex-col items-center gap-2 text-center opacity-80">
               <div className="text-[10px] font-semibold uppercase tracking-widest text-muted">Next Tier</div>
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl text-2xl font-black opacity-60"
-                style={{ background: nextColors.gradient, color: '#000' }}>
-                {nextTier.roman}
-              </div>
+              <TierEmblem tier={nextTier.id} colorKey={nextTier.color_key} size={64} state="locked" />
               <div className={`text-lg font-black tracking-widest ${nextColors.nameClass ?? ''}`}
                 style={nextColors.nameClass ? undefined : { color: nextColors.hex }}>
                 {nextTier.name}
@@ -568,7 +595,8 @@ export default function Evolution() {
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="fixed inset-0 z-40 bg-black/50" onClick={() => setDrawerAb(null)} />
-            <AbilityDrawer ab={drawerAb.ab} tier={drawerAb.tier} onClose={() => setDrawerAb(null)} />
+            <AbilityDrawer ab={drawerAb.ab} tier={drawerAb.tier} onClose={() => setDrawerAb(null)}
+              onReflected={() => { setDrawerAb(null); load() }} />
           </>
         )}
       </AnimatePresence>

@@ -20,6 +20,7 @@ import {
   type TaskItem, type TaskStatus,
 } from '../api'
 import { useToast } from '../context/ToastProvider'
+import PageLoader from '../components/PageLoader'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const STATUS_CFG: Record<string, { label: string; color: string; dot: string }> = {
@@ -553,7 +554,7 @@ function TabTasks({ projectId, onTaskChange }: { projectId: number; onTaskChange
       {/* Task list */}
       <div className="flex-1 overflow-y-auto">
         {loading ? (
-          <div className="flex items-center justify-center h-24 text-muted text-sm">Loading…</div>
+          <PageLoader preset="projects" compact />
         ) : displayed.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 gap-2 text-muted">
             <CheckCircle2 size={28} className="text-muted/30" />
@@ -1223,7 +1224,7 @@ export default function Projects() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         {loading ? (
-          <div className="flex items-center justify-center h-48 text-muted text-sm">Loading…</div>
+          <PageLoader preset="projects" compact />
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted">
             <TrendingUp size={40} className="text-muted/30" />

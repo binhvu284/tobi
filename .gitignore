@@ -12,6 +12,7 @@ venv/
 # Local database & logs
 .tobi/
 logs/
+.hermes/
 
 # Node
 node_modules/

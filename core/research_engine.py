@@ -192,7 +192,14 @@ def analyze_and_score_niches(raw_results: list[dict]) -> list[dict]:
     prompt = prompt.replace("{lessons}", lessons_text)
     prompt = prompt.replace("{strategy}", strategy[:1500])
 
-    raw_output = llm_complete(prompt, task_type="research", max_tokens=4000)
+    # Memory-first (Brain v2): score opportunities against the owner's goals, risk
+    # appetite, and preferences — not just generic market fit.
+    try:
+        from core import brain
+        _owner = brain.owner_context("business goals, risk appetite, preferences, target market, skills")
+    except Exception:
+        _owner = ""
+    raw_output = llm_complete(prompt, task_type="research", system=_owner or None, max_tokens=4000)
 
     # Parse JSON
     try:

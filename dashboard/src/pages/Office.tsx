@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { motion, AnimatePresence, useDragControls } from 'framer-motion'
 import {
   X, Activity, Zap, Shield, Users, LayoutGrid, Plus, Play, Cpu, Coins, Trash2, Pencil, ListChecks,
-  Pause, Square, Send, Radio, CheckCircle2, GripHorizontal, Rocket, ChevronDown,
+  Pause, Square, Send, Radio, CheckCircle2, GripHorizontal, Rocket, ChevronDown, Volume2, VolumeX, Sparkles,
 } from 'lucide-react'
 import {
   getAgents, getOfficeStats, getMissions, getMission, createMission, runMission, patchMission,
@@ -11,6 +11,11 @@ import {
   type Agent, type OfficeStats, type Mission, type AgentUpsert,
 } from '../api'
 import { useMissionStream, type WarState } from '../hooks/useMissionStream'
+import PageLoader from '../components/PageLoader'
+import PhaserGame from '../office/PhaserGame'
+import { accentHex } from '../office/theme'
+import { useTheme } from '../context/ThemeProvider'
+import { sfx } from '../hooks/useSound'
 
 // ── Typography ──────────────────────────────────────────────────────
 if (typeof document !== 'undefined' && !document.getElementById('rajdhani-font')) {
@@ -200,7 +205,7 @@ function HqBase({ agents, selectedId, activeAgentId, onSelect }: { agents: Agent
 /** Flat, screen-space agent detail panel for the HQ scene. Rendered OUTSIDE the
  * 3D-transformed plane so its text never skews. Glance-and-read only — full
  * config/missions live in Ops (the "Manage in Ops" affordance jumps there). */
-function AgentHqPanel({ agent, onClose, onManage }: { agent: Agent; onClose: () => void; onManage: () => void }) {
+function AgentHqPanel({ agent, onClose, onManage, liveText }: { agent: Agent; onClose: () => void; onManage: () => void; liveText?: string }) {
   const color = agent.color || '#58a6ff'
   const Character = spriteOf(agent)
   const Row = ({ k, v }: { k: string; v: string }) => (
@@ -241,6 +246,12 @@ function AgentHqPanel({ agent, onClose, onManage }: { agent: Agent; onClose: () 
         <Row k="Model" v={agent.model || '—'} />
         <Row k="Last active" v={agent.live.last_active || '—'} />
       </div>
+      {liveText && (
+        <div className="mb-3 rounded border border-accent/30 bg-accent/5 p-2">
+          <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-accent"><Radio size={10} className="animate-pulse" /> Live step</div>
+          <div className="font-mono text-[11px] leading-relaxed text-gray-300">{liveText.slice(-220)}<span className="ml-0.5 inline-block h-3 w-1.5 animate-pulse bg-accent align-middle" /></div>
+        </div>
+      )}
       {agent.live.detail && <div className="mb-3 text-[11px] italic leading-relaxed text-gray-400">{agent.live.detail}</div>}
       <button onClick={onManage} className="w-full rounded bg-accent/20 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/30">Manage in Ops →</button>
     </motion.div>
@@ -331,14 +342,31 @@ function WarRoomPanel({ missionId, war, agents, onClose }: { missionId: number; 
 }
 
 // ── Real org KPIs (replaces the old fake CPU/MEM/NET overlay — D43) ──
-function KpiOverlay({ stats }: { stats: OfficeStats | null }) {
+function KpiOverlay({ stats, collapsed, onToggle }: { stats: OfficeStats | null; collapsed: boolean; onToggle: () => void }) {
   const s = stats?.stats
   const integrations = stats?.integrations || {}
   const intlist = Object.entries(integrations)
+  if (collapsed) {
+    return (
+      <div className="absolute top-6 right-6 z-30 hidden sm:block font-['Rajdhani']">
+        <button onClick={onToggle} title="Expand status"
+          className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/60 px-3 py-2 text-[11px] text-gray-300 backdrop-blur-md transition-colors hover:bg-black/80">
+          <Activity size={12} className="text-accent" />
+          <span className="font-bold text-accent">{s?.agents_active ?? '—'}</span> agents
+          <span className="text-gray-600">·</span>
+          <span className="font-bold text-warning">{(s?.tokens_total ?? 0).toLocaleString()}</span> tok
+          <ChevronDown size={13} className="rotate-90 text-gray-500" />
+        </button>
+      </div>
+    )
+  }
   return (
     <div className="absolute top-6 right-6 z-30 hidden sm:flex flex-col gap-3 font-['Rajdhani'] w-60">
       <div className="bg-black/60 border border-white/10 px-4 py-3 backdrop-blur-md">
-        <div className="mb-2 flex items-center gap-2 text-[11px] text-gray-400 uppercase tracking-widest"><Activity size={12} className="text-accent" /> Org Status</div>
+        <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-gray-400 uppercase tracking-widest">
+          <span className="flex items-center gap-2"><Activity size={12} className="text-accent" /> Org Status</span>
+          <button onClick={onToggle} title="Collapse" className="text-gray-500 transition-colors hover:text-white"><ChevronDown size={13} className="-rotate-90" /></button>
+        </div>
         <div className="grid grid-cols-2 gap-y-1.5 text-[11px]">
           <span className="text-gray-400">Agents</span><span className="text-right font-bold text-accent">{s?.agents_active ?? '—'} ({s?.agents_working ?? 0} working)</span>
           <span className="text-gray-400">Missions</span><span className="text-right font-bold text-success">{s?.missions_running ?? 0} running / {s?.missions_done ?? 0} done</span>
@@ -552,6 +580,26 @@ export default function Office() {
   const [openMission, setOpenMission] = useState<Mission | null>(null)
   const [warMissionId, setWarMissionId] = useState<number | null>(null)
   const [launcherOpen, setLauncherOpen] = useState(false)
+  const [hoverId, setHoverId] = useState<string | null>(null)
+  const [kpiCollapsed, setKpiCollapsed] = useState(false)
+  const [perf, setPerf] = useState(false)
+
+  // Live theme accent for the Phaser scene (recompute a frame after the theme
+  // var is written to <html> by ThemeProvider).
+  const { theme, sound, set } = useTheme()
+  const [accent, setAccent] = useState<number>(() => accentHex())
+  useEffect(() => { const id = requestAnimationFrame(() => setAccent(accentHex())); return () => cancelAnimationFrame(id) }, [theme])
+  // prefers-reduced-motion → skip the canvas, fall back to the calm static scene.
+  const [reduced] = useState(() => typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches)
+  // small / touch screens → static fallback too (the canvas is desktop-first).
+  const [isMobile, setIsMobile] = useState(() => typeof matchMedia !== 'undefined' && matchMedia('(max-width: 768px)').matches)
+  useEffect(() => {
+    if (typeof matchMedia === 'undefined') return
+    const mq = matchMedia('(max-width: 768px)')
+    const on = () => setIsMobile(mq.matches); mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+  const staticScene = reduced || isMobile
 
   // Guard the shape: a stale backend (pre-Phase-2) returns the old /api/agents
   // dict with HTTP 200, so .catch won't fire — degrade to an empty office
@@ -573,6 +621,33 @@ export default function Office() {
     if (war.done) { loadAgents(); loadStats(); loadMissions() }
   }, [war.done]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Event SFX (respects the global sound pref): chime on finish, buzz on failure.
+  useEffect(() => {
+    if (!warMissionId || !war.done) return
+    if (war.status === 'done') sfx.success(); else if (war.status === 'blocked' || war.status === 'failed') sfx.error()
+  }, [war.done, war.status, warMissionId])
+
+  // Keyboard: ←/→ (or Tab) cycle agents, Enter opens the focused one, Esc clears.
+  useEffect(() => {
+    if (view !== 'hq' || staticScene) return
+    const onKey = (e: KeyboardEvent) => {
+      if (warMissionId) return
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (!['ArrowRight', 'ArrowLeft', 'Tab', 'Enter', 'Escape'].includes(e.key)) return
+      if (e.key === 'Escape') { setSelectedAgentId(null); return }
+      if (agents.length === 0) return
+      e.preventDefault()
+      const idx = agents.findIndex(a => a.id === selectedAgentId)
+      if (e.key === 'Enter') { if (idx < 0) setSelectedAgentId(agents[0].id); return }
+      const dir = e.key === 'ArrowLeft' ? -1 : 1
+      const next = idx < 0 ? 0 : (idx + dir + agents.length) % agents.length
+      setSelectedAgentId(agents[next].id); sfx.tick()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [view, staticScene, warMissionId, agents, selectedAgentId])
+
   const launch = async (id: number, mock: boolean) => {
     setOpenMission(null); setSelectedAgentId(null); setView('hq'); setWarMissionId(id)
     try { await runMission(id, mock) } catch { /* already running / shown via stream */ }
@@ -580,6 +655,8 @@ export default function Office() {
 
   const selected = agents.find(a => a.id === selectedAgentId) || null
   const activeColor = (warMissionId ? agents.find(a => a.id === war.activeAgentId)?.color : selected?.color) || undefined
+  // Reserve right-edge space so the iso room shifts left of whatever HUD panel is open.
+  const rightInset = warMissionId ? 440 : (!selectedAgentId && !kpiCollapsed) ? 280 : 0
 
   return (
     <div data-theme="dark" className="h-full flex flex-col bg-[#020202] relative overflow-hidden select-none font-mono">
@@ -605,10 +682,8 @@ export default function Office() {
 
       <AnimatePresence>
         {booting && (
-          <motion.div exit={{ opacity: 0 }} className="fixed inset-0 z-[100] bg-black flex items-center justify-center font-mono">
-            <div className="text-accent text-sm tracking-widest uppercase">Initializing Mission Control...
-              <motion.div initial={{ width: 0 }} animate={{ width: '100%' }} transition={{ duration: 0.8 }} className="h-0.5 bg-accent mt-2" />
-            </div>
+          <motion.div exit={{ opacity: 0 }} className="absolute inset-0 z-[100]">
+            <PageLoader preset="office" />
           </motion.div>
         )}
       </AnimatePresence>
@@ -617,15 +692,29 @@ export default function Office() {
       {view === 'hq' && (
         <>
           {/* KPI overlay hides while an agent panel or the war-room is open (shared top-right) */}
-          <AnimatePresence>{!selected && !warMissionId && <KpiOverlay stats={stats} />}</AnimatePresence>
+          <AnimatePresence>{!selected && !warMissionId && <KpiOverlay stats={stats} collapsed={kpiCollapsed} onToggle={() => setKpiCollapsed(c => !c)} />}</AnimatePresence>
           <div className="relative m-4 flex-1 overflow-hidden rounded-2xl border border-white/5 shadow-[0_0_100px_rgba(0,0,0,1)]">
             <div className="grid-bg pointer-events-none absolute inset-0 opacity-40" />
             <CodeRain color={activeColor} />
             <div className="pointer-events-none absolute inset-0 z-10 shadow-[inset_0_0_160px_rgba(0,0,0,0.85)]" />
-            {/* click empty space to deselect; station cards stop propagation */}
-            <div className="absolute inset-0 z-20" onClick={() => !warMissionId && setSelectedAgentId(null)}>
-              <HqBase agents={agents} selectedId={warMissionId ? null : selectedAgentId} activeAgentId={war.activeAgentId} onSelect={setSelectedAgentId} />
-            </div>
+            {/* Living office: Phaser iso scene (or the calm static fallback on reduced-motion / mobile) */}
+            {staticScene ? (
+              <div className="absolute inset-0 z-20" onClick={() => !warMissionId && setSelectedAgentId(null)}>
+                <HqBase agents={agents} selectedId={warMissionId ? null : selectedAgentId} activeAgentId={war.activeAgentId} onSelect={setSelectedAgentId} />
+              </div>
+            ) : (
+              <PhaserGame
+                agents={agents} stats={stats} war={war} accent={accent} performance={perf} rightInset={rightInset}
+                selectedId={warMissionId ? null : selectedAgentId}
+                onAgentClick={(id) => { if (warMissionId) return; setSelectedAgentId(prev => (id && prev === id ? null : id)) }}
+                onAgentHover={setHoverId}
+              />
+            )}
+            {hoverId && !selectedAgentId && !warMissionId && (
+              <div className="pointer-events-none absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full border border-white/15 bg-black/70 px-3 py-1 text-[11px] text-gray-200 backdrop-blur font-['Rajdhani']">
+                {agents.find(a => a.id === hoverId)?.name}
+              </div>
+            )}
           </div>
           {/* HQ mission launcher — makes the live War Room reachable from the scene */}
           {!warMissionId && (
@@ -662,7 +751,8 @@ export default function Office() {
             ) : selected ? (
               <AgentHqPanel key={selected.id} agent={selected}
                 onClose={() => setSelectedAgentId(null)}
-                onManage={() => { setView('ops'); setAgentModal(selected); setSelectedAgentId(null) }} />
+                onManage={() => { setView('ops'); setAgentModal(selected); setSelectedAgentId(null) }}
+                liveText={war.activeAgentId === selected.id && !war.done && war.activeSeq != null ? war.steps[war.activeSeq]?.text : undefined} />
             ) : null}
           </AnimatePresence>
         </>
@@ -755,7 +845,21 @@ export default function Office() {
           <div className="text-[10px] text-gray-500 uppercase tracking-widest flex items-center gap-2"><Cpu size={10} className="text-accent" /> Engine: {stats?.stats.missions_running ? 'Running' : 'Idle'}</div>
           <div className="text-[10px] text-gray-500 uppercase tracking-widest flex items-center gap-2"><Zap size={10} className="text-warning" /> Tokens: {(stats?.stats.tokens_total ?? 0).toLocaleString()}</div>
         </div>
-        <div className="text-[10px] text-gray-500 uppercase tracking-widest">Local: {new Date().toLocaleTimeString()} (GMT+7)</div>
+        <div className="flex items-center gap-3">
+          {view === 'hq' && !staticScene && (
+            <>
+              <button onClick={() => setPerf(p => !p)} title="Performance mode (strip FX)"
+                className={`flex items-center gap-1.5 text-[10px] uppercase tracking-widest transition-colors ${perf ? 'text-accent' : 'text-gray-500 hover:text-gray-300'}`}>
+                <Sparkles size={11} /> {perf ? 'Perf' : 'FX'}
+              </button>
+              <button onClick={() => set({ sound: !sound })} title="Sound effects"
+                className={`flex items-center gap-1.5 text-[10px] uppercase tracking-widest transition-colors ${sound ? 'text-accent' : 'text-gray-500 hover:text-gray-300'}`}>
+                {sound ? <Volume2 size={11} /> : <VolumeX size={11} />} {sound ? 'On' : 'Off'}
+              </button>
+            </>
+          )}
+          <div className="text-[10px] text-gray-500 uppercase tracking-widest">Local: {new Date().toLocaleTimeString()} (GMT+7)</div>
+        </div>
       </div>
 
       <AnimatePresence>

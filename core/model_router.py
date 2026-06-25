@@ -14,6 +14,13 @@ class BaseLLMClient(ABC):
     def complete(self, messages: list, system: str = None, max_tokens: int = 2000) -> str:
         pass
 
+    def complete_stream(self, messages: list, system: str = None, max_tokens: int = 2000):
+        """Yield text deltas. Default: no native streaming → emit the full reply once.
+
+        Subclasses override with real token streaming; this base impl guarantees any
+        client works with the streaming API (callers always get at least one chunk)."""
+        yield self.complete(messages, system=system, max_tokens=max_tokens)
+
 
 class OpenRouterClient(BaseLLMClient):
     # Models verified working (May 2026)
@@ -70,6 +77,29 @@ class OpenRouterClient(BaseLLMClient):
                 return r.choices[0].message.content
             raise
 
+    def complete_stream(self, messages, system=None, max_tokens=2000):
+        if system:
+            messages = [{"role": "system", "content": system}] + messages
+        headers = {
+            "HTTP-Referer": "https://github.com/binhvu284/tobi",
+            "X-Title": "Tobi Agent",
+        }
+        try:
+            stream = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                max_tokens=max_tokens,
+                extra_headers=headers,
+                stream=True,
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content if chunk.choices else None
+                if delta:
+                    yield delta
+        except Exception:
+            # any streaming failure → fall back to a single full completion
+            yield self.complete(messages, max_tokens=max_tokens)
+
 
 class ClaudeClient(BaseLLMClient):
     def __init__(self, model: str = "claude-opus-4-20250514"):
@@ -83,6 +113,18 @@ class ClaudeClient(BaseLLMClient):
             kwargs["system"] = system
         r = self.client.messages.create(**kwargs)
         return r.content[0].text
+
+    def complete_stream(self, messages, system=None, max_tokens=2000):
+        kwargs = {"model": self.model, "max_tokens": max_tokens, "messages": messages}
+        if system:
+            kwargs["system"] = system
+        try:
+            with self.client.messages.stream(**kwargs) as stream:
+                for text in stream.text_stream:
+                    if text:
+                        yield text
+        except Exception:
+            yield self.complete(messages, system=system, max_tokens=max_tokens)
 
 
 class ModelRouter:

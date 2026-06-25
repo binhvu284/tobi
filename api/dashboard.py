@@ -10,8 +10,8 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Request, Body
-from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Query, Request, Body, Header
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -20,6 +20,23 @@ from core.database import (
     init_database, get_dashboard, get_all_projects,
     get_all_lessons, get_pending_human_tasks_all, complete_task,
 )
+from core import brain
+from core import graph_engine as graph
+from core import vault
+from core import integrations_registry as registry
+from core import mcp_security as mcpsec
+try:  # MCP Hub (#5) — optional; app still runs if the mcp SDK isn't installed
+    from core import mcp_server
+    from core import mcp_client
+    from core import a2a as mcp_a2a
+    from core import mcp_tunnel
+    MCP_AVAILABLE = True
+except Exception:
+    mcp_server = None
+    mcp_client = None
+    mcp_a2a = None
+    mcp_tunnel = None
+    MCP_AVAILABLE = False
 
 LOGS_DIR = Path(__file__).parent.parent / "logs"
 API_PORT = os.getenv("API_PORT", "8000")
@@ -160,6 +177,22 @@ class NoCacheAPIMiddleware(BaseHTTPMiddleware):
         return response
 
 app.add_middleware(NoCacheAPIMiddleware)
+
+# MCP Hub (#5) — mount TOBI's MCP server (Streamable HTTP) at /mcp. Inbound auth,
+# rate-limit, scope, and audit are enforced by McpAuthMiddleware inside the app.
+if MCP_AVAILABLE:
+    try:
+        app.mount("/mcp", mcp_server.asgi_app())
+
+        # The Streamable-HTTP endpoint lives at /mcp/ (Starlette mounts add a slash).
+        # Redirect the slash-less form so clients can use http://host/mcp too —
+        # 307 preserves method, body, and the Authorization header on same-origin.
+        @app.api_route("/mcp", methods=["GET", "POST", "DELETE"])
+        async def _mcp_slashless():
+            return RedirectResponse("/mcp/", status_code=307)
+    except Exception as _mcp_err:  # never block the dashboard on MCP mount issues
+        import logging as _logging
+        _logging.getLogger("tobi.dashboard").warning("MCP mount skipped: %s", _mcp_err)
 
 DIST_DIR = Path(__file__).parent.parent / "dashboard" / "dist"
 DB_PATH = os.path.expanduser(os.getenv("DB_PATH", "~/.mmo_agent/agent.db"))
@@ -1915,6 +1948,37 @@ async def api_health_deep():
 @app.on_event("startup")
 async def startup():
     init_database()
+    # Auto-connect previously-connected integrations — re-inject vault secrets into
+    # os.environ at boot using the cached key, with NO master-password prompt.
+    try:
+        conn = _get_conn()
+        try:
+            if vault.CRYPTO_AVAILABLE and vault.is_setup(conn) and vault.try_autounlock(conn):
+                n = vault.inject_env(conn)
+                import logging
+                logging.getLogger("tobi.dashboard").info(
+                    "Vault auto-unlocked on startup; injected %d secret(s).", n)
+        finally:
+            conn.close()
+    except Exception as e:  # never let this block server startup
+        import logging
+        logging.getLogger("tobi.dashboard").warning("Vault auto-unlock skipped: %s", e)
+    # Start the MCP server's session manager (Streamable HTTP).
+    if MCP_AVAILABLE:
+        try:
+            await mcp_server.start_session()
+        except Exception as e:
+            import logging
+            logging.getLogger("tobi.dashboard").warning("MCP session start skipped: %s", e)
+
+
+@app.on_event("shutdown")
+async def _mcp_shutdown():
+    if MCP_AVAILABLE:
+        try:
+            await mcp_server.stop_session()
+        except Exception:
+            pass
 
 
 # ── PROJECT MODULE (Mission Control — Projects) ──────────────────────────────
@@ -2616,7 +2680,7 @@ _TIER_DEFINITIONS: list[dict] = [
                 {"id": "task_classifier", "name": "Regex task classifier",
                  "description": "Routes messages to SMALLTALK/CODING/RESEARCH/STATUS/EXECUTION via regex — no LLM call needed. Fast and deterministic.", "how_to_unlock": None, "effort": "done"},
                 {"id": "lessons_store", "name": "Lessons store (self-reflection DB)",
-                 "description": "After cycles, Tobi logs success/failure/insight/warning entries to SQLite. The beginning of institutional memory.", "how_to_unlock": None, "effort": "done"},
+                 "description": "After cycles, Tobi logs success/failure/insight/warning entries to SQLite. The beginning of institutional memory.", "how_to_unlock": "The store is built and wired — it just needs its first entry. Click “Reflect now” below to run a self-reflection and write lesson #1, or wait for the Sunday 20:00 weekly reflection. Any logged lesson (cycle outcome, /note, coaching) also activates it.", "effort": "done"},
             ],
             "control": [
                 {"id": "coding_agent", "name": "Sandboxed coding agent",
@@ -3051,6 +3115,1136 @@ async def get_evolution():
         "missing_in_current_tier": missing,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+def _build_reflection(conn: sqlite3.Connection) -> tuple[str, dict[str, int]]:
+    """Compose a genuine self-reflection from real activity. Uses the connected
+    LLM when available; falls back to a deterministic summary so the lessons
+    store can be seeded even with no model key. Returns (text, stats)."""
+    stats = {
+        "conversations": _count(conn, "SELECT COUNT(*) FROM conversations"),
+        "projects":      _count(conn, "SELECT COUNT(*) FROM projects"),
+        "tasks":         _count(conn, "SELECT COUNT(*) FROM tasks"),
+        "lessons":       _count(conn, "SELECT COUNT(*) FROM lessons"),
+        "reports":       _count(conn, "SELECT COUNT(*) FROM reports"),
+        "missions":      _count(conn, "SELECT COUNT(*) FROM missions"),
+        "agents":        _count(conn, "SELECT COUNT(*) FROM agents"),
+    }
+    recent_lessons = [
+        f"- [{r[0]}] {r[1] or ''}: {(r[2] or '')[:120]}"
+        for r in conn.execute(
+            "SELECT lesson_type, title, content FROM lessons ORDER BY created_at DESC LIMIT 8"
+        ).fetchall()
+    ]
+    lessons_text = "\n".join(recent_lessons) if recent_lessons else "No lessons yet — this is the first."
+
+    deterministic = (
+        "First self-reflection — institutional memory begins.\n"
+        f"- State: {stats['conversations']} conversations, {stats['projects']} projects, "
+        f"{stats['tasks']} tasks, {stats['missions']} missions, {stats['agents']} agents on record.\n"
+        f"- Genesis (Tier 0) is essentially complete: persona, memory, classifier, coding agent, "
+        f"integrations and always-on presence are live.\n"
+        "- What went well: the foundation is wired end-to-end and the secrets vault now lets new "
+        "abilities light up without a restart.\n"
+        "- To improve next: turn repeated lessons into reusable skills, and let reflection run "
+        "automatically after each cycle rather than only weekly.\n"
+        "- Insight: a Jarvis is built one logged lesson at a time — this entry is lesson #1."
+    )
+
+    try:
+        from core.model_router import llm_complete
+        prompt = (
+            "You are Tobi, a personal AI agent writing your very first self-reflection lesson — "
+            "the seed of your institutional memory.\n\n"
+            f"Activity so far: {stats['conversations']} conversations, {stats['projects']} projects, "
+            f"{stats['tasks']} tasks, {stats['missions']} missions, {stats['agents']} agents, "
+            f"{stats['reports']} reports.\n"
+            f"Recent lessons:\n{lessons_text}\n\n"
+            "Write a concise, honest reflection (4-6 short bullet points): what is working, what to "
+            "improve, and one insight to carry forward. Be specific and grounded in the numbers above. "
+            "Under 180 words. No preamble."
+        )
+        text = (llm_complete(prompt, task_type="simple", max_tokens=400) or "").strip()
+        if len(text) < 40:  # model returned nothing useful → fall back
+            text = deterministic
+    except Exception:
+        text = deterministic
+
+    return text, stats
+
+
+@app.post("/api/evolution/reflect")
+async def post_evolution_reflect():
+    """On-demand self-reflection. Writes a genuine lesson to the self-reflection
+    DB, which activates the Genesis `lessons_store` ability (it keys off the
+    lessons table having rows, mirroring how conversation_history keys off
+    conversations). The weekly job does the same on Sundays — this lets the
+    owner seed/refresh it any time."""
+    conn = _get_conn()
+    try:
+        text, stats = _build_reflection(conn)
+    finally:
+        conn.close()
+
+    from core.database import add_lesson
+    title = f"Self-reflection {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    add_lesson(content=text, title=title, lesson_type="insight", impact_score=6)
+
+    # Re-detect so the caller learns whether the ability flipped on.
+    conn = _get_conn()
+    statuses = _detect_abilities(conn)
+    conn.close()
+
+    return {
+        "ok": True,
+        "lesson": {"title": title, "content": text, "lesson_type": "insight"},
+        "lessons_store_active": statuses.get("lessons_store", False),
+        "stats": stats,
+    }
+
+
+# ── Genesis Complete: encrypted secrets vault + integrations manager ────────────
+# The dashboard has no API-key auth (local-only), so the master-password session
+# token IS the security gate for vault writes/reveals. Secret values are never
+# returned by list/status — only `last4` + metadata.
+
+class VaultSetupReq(BaseModel):
+    master: str
+    import_env: bool = True
+
+
+class VaultUnlockReq(BaseModel):
+    master: str
+
+
+class VaultAutoUnlockReq(BaseModel):
+    enabled: bool = True
+
+
+class VaultPasswordReq(BaseModel):
+    password: str
+
+
+class VaultImportReq(BaseModel):
+    blob: str
+    password: str
+
+
+class VaultProfileReq(BaseModel):
+    name: str
+    label: str | None = None
+    activate: bool = True
+
+
+class IntegrationConnectReq(BaseModel):
+    fields: dict[str, str]
+
+
+class CustomSecretReq(BaseModel):
+    name: str
+    value: str
+    secret_type: str = "custom"
+
+
+class RevealReq(BaseModel):
+    name: str
+    master: str
+
+
+_ABILITY_NAMES = {
+    ab["id"]: ab["name"]
+    for tier in _TIER_DEFINITIONS
+    for pillar in tier["pillars"].values()
+    for ab in pillar
+}
+
+
+def _vault_guard(token: str | None) -> None:
+    """Require an unlocked vault session for protected endpoints."""
+    if not vault.CRYPTO_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Vault unavailable — 'cryptography' is not installed.")
+    try:
+        vault.require_session(token)
+    except vault.VaultLocked as e:
+        raise HTTPException(status_code=401, detail=str(e))
+
+
+def _genesis_status(conn: sqlite3.Connection) -> dict:
+    """Live Genesis (Tier 0) completion from the real ability detector."""
+    statuses = _detect_abilities(conn)
+    ids = [ab["id"] for pillar in _TIER_DEFINITIONS[0]["pillars"].values() for ab in pillar]
+    active = sum(1 for i in ids if statuses.get(i))
+    return {
+        "abilities": {i: bool(statuses.get(i)) for i in ids},
+        "active": active, "total": len(ids),
+        "pct": round(active / len(ids) * 100) if ids else 0,
+        "complete": active == len(ids) and len(ids) > 0,
+    }
+
+
+def _integration_view(conn: sqlite3.Connection) -> list[dict]:
+    statuses = _detect_abilities(conn)
+    secrets = {s["name"]: s for s in vault.list_secrets(conn)}
+    out: list[dict] = []
+    for item in registry.REGISTRY:
+        fields_out, any_set = [], False
+        for f in item["fields"]:
+            s = secrets.get(f["name"])
+            if s:
+                any_set = True
+            fields_out.append({
+                "name": f["name"], "label": f["label"], "type": f["type"],
+                "help_url": f.get("help_url"),
+                "set": bool(s), "last4": s["last4"] if s else None,
+                "test_status": s["test_status"] if s else None,
+            })
+        out.append({
+            "id": item["id"], "label": item["label"], "category": item["category"],
+            "required": item["required"], "available": item.get("available", True),
+            "icon": item.get("icon"), "blurb": item.get("blurb"), "coming_in": item.get("coming_in"),
+            "fields": fields_out, "connected": any_set,
+            "abilities": [
+                {"id": a, "name": _ABILITY_NAMES.get(a, a), "active": bool(statuses.get(a))}
+                for a in item["abilities_unlocked"]
+            ],
+        })
+    return out
+
+
+# ── Vault lifecycle ──
+@app.get("/api/vault/status")
+async def vault_status():
+    conn = _get_conn()
+    try:
+        return vault.status(conn)
+    finally:
+        conn.close()
+
+
+@app.post("/api/vault/setup")
+async def vault_setup(body: VaultSetupReq):
+    conn = _get_conn()
+    try:
+        token = vault.setup(conn, body.master, import_env=body.import_env)
+        return {"ok": True, "session": token, "status": vault.status(conn), "genesis": _genesis_status(conn)}
+    except vault.VaultError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.post("/api/vault/unlock")
+async def vault_unlock(body: VaultUnlockReq):
+    conn = _get_conn()
+    try:
+        token = vault.unlock(conn, body.master)
+        injected = vault.inject_env(conn)
+        return {"ok": True, "session": token, "injected": injected,
+                "status": vault.status(conn), "genesis": _genesis_status(conn)}
+    except vault.VaultError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.post("/api/vault/lock")
+async def vault_lock(x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    # no hard guard — locking is always safe; just clear the in-memory key
+    vault.lock()
+    return {"ok": True}
+
+
+@app.post("/api/vault/reload")
+async def vault_reload(x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _vault_guard(x_vault_session)
+    conn = _get_conn()
+    try:
+        n = vault.reload(conn)
+        return {"ok": True, "injected": n, "genesis": _genesis_status(conn)}
+    finally:
+        conn.close()
+
+
+@app.post("/api/vault/autounlock")
+async def vault_autounlock(body: VaultAutoUnlockReq,
+                           x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    """Toggle startup auto-connect. Enabling caches the current key (requires an
+    unlocked session); disabling forgets it so a password is needed again on boot."""
+    _vault_guard(x_vault_session)
+    conn = _get_conn()
+    try:
+        if body.enabled:
+            ok = vault.enable_autounlock(conn)
+        else:
+            vault.disable_autounlock(conn)
+            ok = True
+        return {"ok": ok, "autounlock": vault.autounlock_enabled(conn)}
+    finally:
+        conn.close()
+
+
+# ── MCP Hub (#5) management API ─────────────────────────────────────────────
+# Admin of a (potentially internet-exposed) MCP server is sensitive → gated by the
+# vault session, like the other secret-management endpoints. The MCP wire protocol
+# itself lives at /mcp and is auth'd by McpAuthMiddleware (bearer token + scopes).
+
+class McpConfigReq(BaseModel):
+    enabled: bool | None = None
+    public_url: str | None = None
+    rate_limit_per_minute: int | None = None
+
+
+class McpClientReq(BaseModel):
+    name: str
+    scopes: list[str] | None = None
+
+
+class McpScopesReq(BaseModel):
+    scopes: list[str]
+
+
+@app.get("/api/mcp/server/config")
+async def mcp_server_config(x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _vault_guard(x_vault_session)
+    cfg = mcpsec.get_config()
+    tools = []
+    if MCP_AVAILABLE:
+        try:
+            tools = [{"name": t.name, "description": (t.description or "")[:160],
+                      "sensitive": t.name in mcp_server.SENSITIVE_TOOLS}
+                     for t in await mcp_server.mcp.list_tools()]
+        except Exception:
+            tools = []
+    oauth = mcpsec.get_oauth_config()
+    oauth_public = {"enabled": bool(oauth.get("enabled")), "issuer": oauth.get("issuer"),
+                    "audience": oauth.get("audience"), "alg": oauth.get("alg", "HS256")}
+    tunnel = mcp_tunnel.status() if MCP_AVAILABLE else {"available": False, "running": False}
+    return {"available": MCP_AVAILABLE, "config": cfg, "tools": tools,
+            "mount": "/mcp" if MCP_AVAILABLE else None,
+            "exposed": bool(cfg.get("exposed")), "oauth": oauth_public, "tunnel": tunnel}
+
+
+@app.put("/api/mcp/server/config")
+async def mcp_set_config(body: McpConfigReq, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _vault_guard(x_vault_session)
+    fields: dict = {}
+    if body.enabled is not None:
+        fields["enabled"] = int(body.enabled)
+    if body.public_url is not None:
+        fields["public_url"] = body.public_url
+    if body.rate_limit_per_minute is not None:
+        fields["rate_limit_json"] = json.dumps({"per_minute": int(body.rate_limit_per_minute)})
+    return {"ok": True, "config": mcpsec.set_config(**fields)}
+
+
+@app.get("/api/mcp/clients")
+async def mcp_clients(x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _vault_guard(x_vault_session)
+    return {"clients": mcpsec.list_clients()}
+
+
+@app.post("/api/mcp/clients")
+async def mcp_issue_client(body: McpClientReq, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    """Issue an inbound client. Returns the raw token ONCE — it's only stored hashed."""
+    _vault_guard(x_vault_session)
+    return {"ok": True, **mcpsec.issue_client(body.name, body.scopes)}
+
+
+@app.patch("/api/mcp/clients/{client_id}")
+async def mcp_patch_client(client_id: int, body: McpScopesReq, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _vault_guard(x_vault_session)
+    mcpsec.set_client_scopes(client_id, body.scopes)
+    return {"ok": True}
+
+
+@app.delete("/api/mcp/clients/{client_id}")
+async def mcp_revoke_client(client_id: int, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _vault_guard(x_vault_session)
+    mcpsec.revoke_client(client_id)
+    return {"ok": True}
+
+
+@app.get("/api/mcp/logs")
+async def mcp_logs(limit: int = Query(100), direction: str | None = Query(None),
+                   x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _vault_guard(x_vault_session)
+    return {"logs": mcpsec.get_logs(limit, direction)}
+
+
+@app.get("/api/mcp/approvals")
+async def mcp_approvals(status: str | None = Query("pending"),
+                        x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _vault_guard(x_vault_session)
+    return {"approvals": mcpsec.list_approvals(status)}
+
+
+@app.post("/api/mcp/approvals/{approval_id}/approve")
+async def mcp_approve(approval_id: int, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _vault_guard(x_vault_session)
+    return {"ok": True, **mcpsec.decide_approval(approval_id, True)}
+
+
+@app.post("/api/mcp/approvals/{approval_id}/reject")
+async def mcp_reject(approval_id: int, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _vault_guard(x_vault_session)
+    return {"ok": True, **mcpsec.decide_approval(approval_id, False)}
+
+
+# ── MCP Hub (#5) — M2: outbound client (connections + external tools) ───────
+class McpConnectionReq(BaseModel):
+    name: str
+    transport: str = "http"            # http | sse | stdio
+    endpoint: str
+    token: str | None = None           # optional bearer; stored in the vault
+
+
+class McpConnEnableReq(BaseModel):
+    enabled: bool
+
+
+class McpToolPatchReq(BaseModel):
+    enabled: bool | None = None
+    permission: str | None = None      # allow | ask | deny
+
+
+class McpInvokeReq(BaseModel):
+    args: dict = Field(default_factory=dict)
+
+
+def _mcp_guard(token: str | None) -> None:
+    _vault_guard(token)
+    if not MCP_AVAILABLE:
+        raise HTTPException(status_code=503, detail="MCP SDK not installed — run: pip install mcp")
+
+
+@app.get("/api/mcp/connections")
+async def mcp_connections(x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _mcp_guard(x_vault_session)
+    return {"connections": mcp_client.list_connections()}
+
+
+@app.post("/api/mcp/connections")
+async def mcp_add_connection(body: McpConnectionReq, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    """Add + test an outbound MCP server. Blocks (400) if the handshake fails."""
+    _mcp_guard(x_vault_session)
+    try:
+        return {"ok": True, **await mcp_client.add_connection(body.name, body.transport, body.endpoint, body.token)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Connection test failed: {e}")
+
+
+@app.post("/api/mcp/connections/{cid}/test")
+async def mcp_test_connection(cid: int, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _mcp_guard(x_vault_session)
+    return await mcp_client.test_connection(cid)
+
+
+@app.post("/api/mcp/connections/{cid}/refresh")
+async def mcp_refresh_connection(cid: int, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _mcp_guard(x_vault_session)
+    return await mcp_client.refresh_connection(cid)
+
+
+@app.patch("/api/mcp/connections/{cid}")
+async def mcp_patch_connection(cid: int, body: McpConnEnableReq, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _mcp_guard(x_vault_session)
+    mcp_client.set_connection_enabled(cid, body.enabled)
+    return {"ok": True}
+
+
+@app.delete("/api/mcp/connections/{cid}")
+async def mcp_delete_connection(cid: int, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _mcp_guard(x_vault_session)
+    mcp_client.delete_connection(cid)
+    return {"ok": True}
+
+
+@app.post("/api/mcp/connections/health")
+async def mcp_connections_health(x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _mcp_guard(x_vault_session)
+    return {"health": await mcp_client.health_check_all()}
+
+
+@app.get("/api/mcp/tools")
+async def mcp_tools(source: str | None = Query(None), x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    """External (connected) tools. Self/exposed tools are in /server/config."""
+    _mcp_guard(x_vault_session)
+    return {"tools": mcp_client.list_tools(source)}
+
+
+@app.patch("/api/mcp/tools/{tool_id}")
+async def mcp_patch_tool(tool_id: int, body: McpToolPatchReq, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _mcp_guard(x_vault_session)
+    return {"ok": True, "tool": mcp_client.set_tool(tool_id, body.enabled, body.permission)}
+
+
+@app.post("/api/mcp/tools/{tool_id}/invoke")
+async def mcp_invoke_tool(tool_id: int, body: McpInvokeReq, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    """'Try it' — owner-initiated call (respects 'deny', overrides 'ask')."""
+    _mcp_guard(x_vault_session)
+    return await mcp_client.invoke_tool(tool_id, body.args, owner_override=True)
+
+
+# ── MCP Hub (#5) — M4: OAuth, internet exposure (tunnel), A2A ───────────────
+class McpOAuthReq(BaseModel):
+    enabled: bool
+    issuer: str | None = None
+    audience: str | None = None
+    algorithm: str = "HS256"
+    secret: str | None = None          # HS256 signing key → stored in the vault
+
+
+class McpTunnelReq(BaseModel):
+    action: str                        # start | stop
+    port: int | None = None
+
+
+class A2aCardReq(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    version: str | None = None
+
+
+class A2aPeerReq(BaseModel):
+    url: str
+
+
+class A2aMessageReq(BaseModel):
+    text: str
+
+
+@app.put("/api/mcp/server/oauth")
+async def mcp_set_oauth(body: McpOAuthReq, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _mcp_guard(x_vault_session)
+    oc = mcpsec.set_oauth_config(enabled=body.enabled, issuer=body.issuer, audience=body.audience,
+                                 algorithm=body.algorithm, secret=body.secret)
+    return {"ok": True, "oauth": {"enabled": oc["enabled"], "issuer": oc.get("issuer"),
+                                  "audience": oc.get("audience"), "alg": oc.get("alg")}}
+
+
+@app.get("/api/mcp/server/tunnel")
+async def mcp_get_tunnel(x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _mcp_guard(x_vault_session)
+    return mcp_tunnel.status()
+
+
+@app.post("/api/mcp/server/tunnel")
+async def mcp_set_tunnel(body: McpTunnelReq, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _mcp_guard(x_vault_session)
+    if body.action == "start":
+        port = body.port or int(os.getenv("DASHBOARD_PORT", "8080"))
+        return await asyncio.to_thread(mcp_tunnel.start, port)
+    if body.action == "stop":
+        return mcp_tunnel.stop()
+    raise HTTPException(status_code=400, detail="action must be 'start' or 'stop'")
+
+
+@app.get("/api/mcp/a2a/card")
+async def mcp_a2a_card(x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _mcp_guard(x_vault_session)
+    pub = mcp_tunnel.status().get("public_url")
+    return {"card": mcp_a2a.get_self_card(pub)}
+
+
+@app.put("/api/mcp/a2a/card")
+async def mcp_a2a_set_card(body: A2aCardReq, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _mcp_guard(x_vault_session)
+    mcp_a2a.set_self_card(body.name, body.description, body.version)
+    return {"ok": True, "card": mcp_a2a.get_self_card(mcp_tunnel.status().get("public_url"))}
+
+
+@app.get("/api/mcp/a2a/peers")
+async def mcp_a2a_peers(x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _mcp_guard(x_vault_session)
+    return {"peers": mcp_a2a.list_peers()}
+
+
+@app.post("/api/mcp/a2a/peers")
+async def mcp_a2a_add_peer(body: A2aPeerReq, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _mcp_guard(x_vault_session)
+    try:
+        return {"ok": True, **await mcp_a2a.add_peer(body.url)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not add peer: {e}")
+
+
+@app.delete("/api/mcp/a2a/peers/{peer_id}")
+async def mcp_a2a_remove_peer(peer_id: int, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _mcp_guard(x_vault_session)
+    mcp_a2a.remove_peer(peer_id)
+    return {"ok": True}
+
+
+@app.post("/api/mcp/a2a/peers/{peer_id}/message")
+async def mcp_a2a_message(peer_id: int, body: A2aMessageReq, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _mcp_guard(x_vault_session)
+    return await mcp_a2a.send_message(peer_id, body.text)
+
+
+# Public discovery metadata (no auth — non-secret; external agents/clients fetch these).
+@app.get("/.well-known/agent.json")
+async def well_known_agent():
+    if not MCP_AVAILABLE:
+        raise HTTPException(status_code=404, detail="A2A not available")
+    pub = mcp_tunnel.status().get("public_url") or str(app_base_url())
+    return mcp_a2a.get_self_card(pub)
+
+
+@app.get("/.well-known/oauth-protected-resource")
+async def well_known_oauth():
+    if not MCP_AVAILABLE:
+        raise HTTPException(status_code=404, detail="OAuth not configured")
+    oc = mcpsec.get_oauth_config()
+    pub = mcp_tunnel.status().get("public_url") or str(app_base_url())
+    meta = {"resource": f"{pub}/mcp"}
+    if oc.get("enabled") and oc.get("issuer"):
+        meta["authorization_servers"] = [oc["issuer"]]
+    return meta
+
+
+def app_base_url() -> str:
+    port = os.getenv("DASHBOARD_PORT", "8080")
+    return f"http://localhost:{port}"
+
+
+@app.get("/api/vault/audit")
+async def vault_audit(limit: int = Query(100), x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _vault_guard(x_vault_session)
+    conn = _get_conn()
+    try:
+        return {"entries": vault.get_audit(conn, limit)}
+    finally:
+        conn.close()
+
+
+@app.post("/api/vault/export")
+async def vault_export(body: VaultPasswordReq, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _vault_guard(x_vault_session)
+    conn = _get_conn()
+    try:
+        return {"ok": True, "blob": vault.export_blob(conn, body.password)}
+    except vault.VaultError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.post("/api/vault/import")
+async def vault_import(body: VaultImportReq, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _vault_guard(x_vault_session)
+    conn = _get_conn()
+    try:
+        n = vault.import_blob(conn, body.blob, body.password)
+        vault.inject_env(conn)
+        return {"ok": True, "imported": n, "genesis": _genesis_status(conn)}
+    except vault.VaultError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.get("/api/vault/profiles")
+async def vault_profiles():
+    conn = _get_conn()
+    try:
+        return {"profiles": vault.list_profiles(conn), "active": vault.active_profile(conn)}
+    finally:
+        conn.close()
+
+
+@app.post("/api/vault/profiles")
+async def vault_create_profile(body: VaultProfileReq, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _vault_guard(x_vault_session)
+    conn = _get_conn()
+    try:
+        vault.create_profile(conn, body.name, body.label)
+        if body.activate:
+            vault.set_active_profile(conn, body.name)
+        return {"ok": True, "profiles": vault.list_profiles(conn), "active": vault.active_profile(conn)}
+    except vault.VaultError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+# ── Integrations catalog + connect/test/reveal/remove ──
+@app.get("/api/integrations")
+async def list_integrations():
+    conn = _get_conn()
+    try:
+        return {
+            "integrations": _integration_view(conn),
+            "genesis": _genesis_status(conn),
+            "vault": vault.status(conn),
+        }
+    finally:
+        conn.close()
+
+
+@app.post("/api/integrations/{integration_id}/connect")
+async def connect_integration(integration_id: str, body: IntegrationConnectReq,
+                              x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _vault_guard(x_vault_session)
+    item = registry.get(integration_id)
+    if not item or not item.get("available", True):
+        raise HTTPException(status_code=404, detail="Unknown or unavailable integration.")
+    values = {k: v for k, v in (body.fields or {}).items() if v and v.strip()}
+    if not values:
+        raise HTTPException(status_code=400, detail="Provide at least one value.")
+
+    conn = _get_conn()
+    try:
+        names = [f["name"] for f in item["fields"]]
+        snapshot = {n: os.environ.get(n) for n in names}
+        for n, v in values.items():
+            os.environ[n] = v
+        ok, msg = registry.test_integration(integration_id)
+        vault._audit(conn, "test", integration_id=integration_id, ok=ok, detail=msg)
+        if not ok:
+            for n, old in snapshot.items():  # block: don't persist a bad key
+                if old is None:
+                    os.environ.pop(n, None)
+                else:
+                    os.environ[n] = old
+            raise HTTPException(status_code=400, detail=msg)
+        for f in item["fields"]:
+            if f["name"] in values:
+                vault.set_secret(conn, f["name"], values[f["name"]], integration_id=integration_id,
+                                 secret_type=f["type"], test_status="ok")
+        return {"ok": True, "message": msg, "genesis": _genesis_status(conn),
+                "integrations": _integration_view(conn)}
+    finally:
+        conn.close()
+
+
+@app.post("/api/integrations/{integration_id}/test")
+async def test_integration_endpoint(integration_id: str,
+                                    x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _vault_guard(x_vault_session)
+    item = registry.get(integration_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Unknown integration.")
+    conn = _get_conn()
+    try:
+        vault.inject_env(conn)  # ensure current vault values are live
+        ok, msg = registry.test_integration(integration_id)
+        for f in item["fields"]:
+            try:
+                vault.mark_tested(conn, f["name"], ok)
+            except Exception:
+                pass
+        vault._audit(conn, "test", integration_id=integration_id, ok=ok, detail=msg)
+        return {"ok": ok, "message": msg, "genesis": _genesis_status(conn)}
+    finally:
+        conn.close()
+
+
+@app.post("/api/integrations/reveal")
+async def reveal_secret(body: RevealReq, x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _vault_guard(x_vault_session)
+    conn = _get_conn()
+    try:
+        return {"ok": True, "name": body.name, "value": vault.reveal(conn, body.name, body.master)}
+    except vault.VaultError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.post("/api/integrations/custom")
+async def add_custom_secret(body: CustomSecretReq,
+                            x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _vault_guard(x_vault_session)
+    name = body.name.strip().upper().replace(" ", "_")
+    if not name:
+        raise HTTPException(status_code=400, detail="Secret name is required.")
+    conn = _get_conn()
+    try:
+        vault.set_secret(conn, name, body.value, integration_id="custom", secret_type=body.secret_type)
+        os.environ[name] = body.value
+        return {"ok": True, "genesis": _genesis_status(conn)}
+    except vault.VaultError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.delete("/api/integrations/{integration_id}")
+async def remove_integration(integration_id: str,
+                             x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    _vault_guard(x_vault_session)
+    item = registry.get(integration_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Unknown integration.")
+    conn = _get_conn()
+    try:
+        for f in item["fields"]:
+            vault.delete_secret(conn, f["name"], integration_id=integration_id)
+        return {"ok": True, "genesis": _genesis_status(conn), "integrations": _integration_view(conn)}
+    finally:
+        conn.close()
+
+
+# ── Brain: long-term owner memory (auto-learn + import + chat) ──────────────────
+
+class BrainMemoryCreate(BaseModel):
+    content: str
+    category: str = "identity"
+    confidence: float = 0.6
+    source: str = "manual"
+
+
+class BrainMemoryPatch(BaseModel):
+    content: str | None = None
+    category: str | None = None
+    confidence: float | None = None
+
+
+class BrainSearchReq(BaseModel):
+    query: str
+    k: int = 12
+
+
+class BrainResolveReq(BaseModel):
+    decision: str  # keep_existing | use_candidate | keep_both
+
+
+class BrainImportReq(BaseModel):
+    filename: str = "import"
+    content: str
+
+
+class BrainImportCommitReq(BaseModel):
+    filename: str = "import"
+    source_type: str = "md"
+    items: list[dict]
+
+
+class BrainMergeReq(BaseModel):
+    ids: list[int]
+    keep_id: int | None = None
+
+
+class BrainRememberReq(BaseModel):
+    content: str
+    category: str | None = None
+
+
+class BrainChatReq(BaseModel):
+    message: str
+
+
+@app.get("/api/brain/stats")
+def brain_stats():
+    return brain.stats()
+
+
+@app.get("/api/brain/categories")
+def brain_categories():
+    return {"categories": brain.list_categories()}
+
+
+@app.get("/api/brain/memories")
+def brain_list(category: str | None = None, source: str | None = None,
+               status: str = "active", q: str | None = None, stale: bool | None = None):
+    return {"items": brain.list_memories(category=category, source=source, status=status, q=q, stale=stale)}
+
+
+@app.post("/api/brain/memories")
+def brain_create(payload: BrainMemoryCreate):
+    mid = brain.add_memory(payload.content, payload.category, payload.confidence, payload.source, status="active")
+    return brain.get_memory(mid)
+
+
+@app.get("/api/brain/memories/{mid}")
+def brain_get(mid: int):
+    m = brain.get_memory(mid)
+    if not m:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return m
+
+
+@app.patch("/api/brain/memories/{mid}")
+def brain_patch(mid: int, payload: BrainMemoryPatch):
+    m = brain.update_memory(mid, payload.content, payload.category, payload.confidence)
+    if not m:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return m
+
+
+@app.delete("/api/brain/memories/{mid}")
+def brain_delete(mid: int):
+    brain.delete_memory(mid)
+    return {"ok": True}
+
+
+@app.post("/api/brain/memories/{mid}/confirm")
+def brain_confirm(mid: int):
+    m = brain.confirm_memory(mid)
+    if not m:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return m
+
+
+@app.get("/api/brain/memories/{mid}/versions")
+def brain_versions(mid: int):
+    return {"versions": brain.list_versions(mid)}
+
+
+@app.post("/api/brain/search")
+def brain_search(payload: BrainSearchReq):
+    return {"items": brain.semantic_search(payload.query, k=payload.k)}
+
+
+@app.get("/api/brain/pending")
+def brain_pending():
+    return {"items": brain.list_pending()}
+
+
+@app.post("/api/brain/pending/{mid}/accept")
+def brain_pending_accept(mid: int):
+    return brain.accept_pending(mid) or {"ok": False}
+
+
+@app.post("/api/brain/pending/{mid}/reject")
+def brain_pending_reject(mid: int):
+    brain.reject_pending(mid)
+    return {"ok": True}
+
+
+@app.get("/api/brain/conflicts")
+def brain_conflicts():
+    return {"items": brain.list_conflicts()}
+
+
+@app.post("/api/brain/conflicts/{cid}/resolve")
+def brain_conflict_resolve(cid: int, payload: BrainResolveReq):
+    brain.resolve_conflict(cid, payload.decision)
+    return {"ok": True}
+
+
+@app.post("/api/brain/import")
+def brain_import(payload: BrainImportReq):
+    items = brain.parse_import(payload.filename, payload.content)
+    return {"items": items}
+
+
+@app.post("/api/brain/import/commit")
+def brain_import_commit(payload: BrainImportCommitReq):
+    return brain.commit_import(payload.filename, payload.source_type, payload.items)
+
+
+@app.get("/api/brain/duplicates")
+def brain_duplicates():
+    return {"groups": brain.find_duplicates()}
+
+
+@app.post("/api/brain/duplicates/merge")
+def brain_merge(payload: BrainMergeReq):
+    return brain.merge_group(payload.ids, payload.keep_id)
+
+
+@app.get("/api/brain/narrative")
+def brain_narrative_get():
+    return brain.get_narrative() or {"content": None}
+
+
+@app.post("/api/brain/narrative")
+def brain_narrative_make():
+    n = brain.synthesize_narrative()
+    if not n:
+        raise HTTPException(status_code=503, detail="Could not synthesize (no memories or LLM unavailable)")
+    return n
+
+
+@app.post("/api/brain/remember")
+def brain_remember(payload: BrainRememberReq):
+    return brain.remember(payload.content, payload.category)
+
+
+@app.post("/api/brain/chat")
+def brain_chat(payload: BrainChatReq):
+    return brain.chat(payload.message)
+
+
+@app.post("/api/brain/chat/stream")
+async def brain_chat_stream(payload: BrainChatReq):
+    """SSE token stream for the MC chat (Brain v2). Emits `delta` events as the reply is
+    generated, then a final `done` event. Falls back transparently to a single chunk when
+    the provider doesn't support streaming (see model_router.complete_stream)."""
+    message = payload.message
+
+    async def gen():
+        loop = asyncio.get_event_loop()
+        try:
+            it = iter(brain.chat_stream(message))
+            while True:
+                try:
+                    delta = await loop.run_in_executor(None, next, it)
+                except StopIteration:
+                    break
+                yield f"event: delta\ndata: {json.dumps({'text': delta})}\n\n"
+        except Exception as e:
+            yield f"event: error\ndata: {json.dumps({'detail': str(e)[:200]})}\n\n"
+        yield "event: done\ndata: {}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
+                                      "X-Accel-Buffering": "no"})
+
+
+@app.get("/api/brain/chat/history")
+def brain_chat_history():
+    from core.database import load_conversation_history
+    return {"items": load_conversation_history(brain.DASHBOARD_CHAT_ID, limit=50)}
+
+
+@app.post("/api/brain/sweep")
+def brain_sweep():
+    return brain.sweep_once()
+
+
+# ── Graph View: unified second-brain knowledge graph ────────────────────────────
+class GraphNodeCreate(BaseModel):
+    title: str
+    summary: str | None = None
+    category: str | None = None
+    domain: str = "manual"
+
+
+class GraphNodePatch(BaseModel):
+    title: str | None = None
+    summary: str | None = None
+    category: str | None = None
+
+
+class GraphEdgeCreate(BaseModel):
+    source_id: int
+    target_id: int
+    edge_type: str = "manual"
+    weight: float = 1.0
+
+
+class GraphLayoutReq(BaseModel):
+    pins: list[dict] = Field(default_factory=list)
+
+
+@app.get("/api/graph")
+def graph_get(domain: str | None = None, category: str | None = None,
+              q: str | None = None, min_weight: float = 0.0,
+              date_from: str | None = None, date_to: str | None = None):
+    return graph.get_graph(domain=domain, category=category, q=q, min_weight=min_weight,
+                           date_from=date_from, date_to=date_to)
+
+
+@app.get("/api/graph/sources")
+def graph_sources():
+    return {"sources": graph.get_sources()}
+
+
+@app.get("/api/graph/communities")
+def graph_communities():
+    return {"communities": graph.list_communities()}
+
+
+@app.get("/api/graph/path")
+def graph_path(a: int = Query(...), b: int = Query(...)):
+    return {"path": graph.find_path(a, b)}
+
+
+@app.get("/api/graph/node/{node_id}/neighbors")
+def graph_neighbors(node_id: int, depth: int = 1):
+    return graph.neighbors(node_id, depth=depth)
+
+
+class GraphRetrieveReq(BaseModel):
+    query: str
+    k: int = 8
+    hops: int = 1
+
+
+@app.post("/api/graph/retrieve")
+def graph_retrieve(payload: GraphRetrieveReq):
+    """GraphRAG retrieval: seed by embedding + spreading activation across edges."""
+    return {"results": graph.graph_retrieve(payload.query, k=payload.k, hops=payload.hops)}
+
+
+@app.get("/api/graph/timeline")
+def graph_timeline(date_from: str | None = None, date_to: str | None = None):
+    return {"events": graph.timeline_events(date_from, date_to)}
+
+
+@app.get("/api/graph/search")
+def graph_search(q: str = Query(...), k: int = 12):
+    return graph.search(q, k=k)
+
+
+@app.get("/api/graph/node/{node_id}")
+def graph_node(node_id: int):
+    n = graph.get_node(node_id)
+    if not n:
+        raise HTTPException(status_code=404, detail="node not found")
+    n["connections"] = graph.expand(node_id)
+    return n
+
+
+@app.post("/api/graph/node/{node_id}/expand")
+def graph_expand(node_id: int):
+    return graph.expand(node_id)
+
+
+@app.post("/api/graph/nodes")
+def graph_node_create(payload: GraphNodeCreate):
+    return graph.create_manual_node(payload.title, payload.summary, payload.category, payload.domain)
+
+
+@app.patch("/api/graph/nodes/{node_id}")
+def graph_node_patch(node_id: int, payload: GraphNodePatch):
+    n = graph.update_node(node_id, payload.title, payload.summary, payload.category)
+    if not n:
+        raise HTTPException(status_code=404, detail="node not found")
+    return n
+
+
+@app.delete("/api/graph/nodes/{node_id}")
+def graph_node_delete(node_id: int):
+    graph.delete_node(node_id)
+    return {"ok": True}
+
+
+@app.post("/api/graph/edges")
+def graph_edge_create(payload: GraphEdgeCreate):
+    eid = graph.upsert_edge(payload.source_id, payload.target_id, payload.edge_type,
+                            weight=payload.weight, created_by="owner")
+    if not eid:
+        raise HTTPException(status_code=400, detail="invalid edge")
+    graph.recompute_degree()
+    return {"ok": True, "id": eid}
+
+
+@app.delete("/api/graph/edges/{edge_id}")
+def graph_edge_delete(edge_id: int):
+    graph.delete_edge(edge_id)
+    graph.recompute_degree()
+    return {"ok": True}
+
+
+@app.post("/api/graph/layout")
+def graph_layout(payload: GraphLayoutReq):
+    return {"saved": graph.save_positions(payload.pins)}
+
+
+@app.post("/api/graph/sync/{source}")
+def graph_sync(source: str):
+    if source in ("all", "internal"):
+        res = graph.rebuild(sources=["notion", "github", "google"] if source == "all" else None)
+    else:
+        res = {source: graph.sync_source(source)}
+        res["tag_edges_purged"] = graph.clear_tag_edges()
+        res["semantic_edges"] = graph.build_semantic_edges()
+        graph.recompute_degree()
+        res["communities"] = graph.detect_communities()
+    return res
 
 
 # ── Serve React static files (MUST be last — catch-all shadows all routes above) ──

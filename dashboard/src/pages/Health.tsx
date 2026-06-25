@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { RefreshCw, Activity, AlertTriangle, CheckCircle2, Database, Server, Loader2 } from 'lucide-react'
 import Logo from '../components/Logo'
 import HealthBar from '../components/HealthBar'
+import PageLoader from '../components/PageLoader'
 import {
   getHealth, runDeepTest,
   type HealthReport, type DeepTestReport, type LivenessCheck,
@@ -84,7 +85,7 @@ export default function Health() {
   const runFull = async () => { await load(); await onDeepTest() }
 
   if (!health) {
-    return <div className="p-6 text-muted">Loading health…</div>
+    return <PageLoader preset="health" />
   }
 
   const overall = OVERALL[health.overall]

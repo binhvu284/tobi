@@ -7,8 +7,10 @@ async function get(path: string) {
 async function request(path: string, init: RequestInit) {
   const res = await fetch(path, {
     cache: 'no-cache',
-    headers: { 'Content-Type': 'application/json', ...(init.headers || {}) },
     ...init,
+    // headers must come AFTER ...init so a caller's headers merge *into* the
+    // defaults instead of replacing them (otherwise Content-Type is lost → 422).
+    headers: { 'Content-Type': 'application/json', ...(init.headers || {}) },
   })
   if (!res.ok) {
     const maybeJson = await res.json().catch(() => null)
@@ -552,6 +554,19 @@ export async function getEvolution(): Promise<EvolutionReport> {
   return get('/api/evolution')
 }
 
+export type ReflectResult = {
+  ok: boolean
+  lesson: { title: string; content: string; lesson_type: string }
+  lessons_store_active: boolean
+  stats: Record<string, number>
+}
+
+/** Run an on-demand self-reflection — writes lesson #1 and activates the
+ * Genesis lessons_store ability. */
+export async function reflectNow(): Promise<ReflectResult> {
+  return request('/api/evolution/reflect', { method: 'POST' })
+}
+
 // ── Project Module ──────────────────────────────────────────────────
 export type PMProjectStatus = 'idea' | 'active' | 'done' | 'archived'
 export type PMProjectSize   = 'small' | 'medium' | 'large' | 'epic'
@@ -775,3 +790,405 @@ export async function pmDeleteTemplate(id: number): Promise<{ ok: boolean }> {
 
 // Stats
 export async function pmGetStats(): Promise<PMStats> { return get('/api/pm/stats') }
+
+// ── Brain (long-term owner memory) ───────────────────────────────────────────
+export type Memory = {
+  id: number
+  content: string
+  category: string
+  confidence: number
+  source: string
+  status: string
+  context?: string | null
+  created_at: string
+  updated_at: string
+  last_confirmed_at?: string | null
+  stale: boolean
+  has_embedding?: boolean
+  score?: number
+}
+export type MemoryCategory = {
+  id: string; label: string; color: string; icon: string
+  sort_order: number; sensitive: number; status: string
+}
+export type BrainStats = {
+  total: number
+  by_category: Record<string, number>
+  by_source: Record<string, number>
+  pending: number
+  conflicts: number
+  stale: number
+  embeddings: boolean
+}
+export type MemoryVersion = {
+  id: number; memory_id: number; content: string; category: string
+  confidence: number; change_kind: string; changed_by: string; created_at: string
+}
+export type Conflict = {
+  id: number; memory_id: number; candidate_content: string; candidate_category: string
+  candidate_confidence: number; candidate_source: string; reason: string; status: string; created_at: string
+  existing_content?: string; existing_category?: string; existing_confidence?: number
+}
+export type ImportCandidate = {
+  content: string; category: string; confidence: number
+  merge_into?: number; merge_score?: number
+}
+export type DuplicateGroup = { ids: number[]; memories: Memory[] }
+export type ChatMessage = { role: string; content: string }
+
+export type MemoryFilters = { category?: string; source?: string; status?: string; q?: string; stale?: boolean }
+
+function brainQuery(f: MemoryFilters): string {
+  const p = new URLSearchParams()
+  if (f.category && f.category !== 'all') p.set('category', f.category)
+  if (f.source && f.source !== 'all') p.set('source', f.source)
+  if (f.status) p.set('status', f.status)
+  if (f.q?.trim()) p.set('q', f.q.trim())
+  if (f.stale) p.set('stale', 'true')
+  const q = p.toString()
+  return q ? `?${q}` : ''
+}
+
+export async function getBrainStats(): Promise<BrainStats> { return get('/api/brain/stats') }
+export async function getBrainCategories(): Promise<{ categories: MemoryCategory[] }> { return get('/api/brain/categories') }
+export async function getMemories(f: MemoryFilters = {}): Promise<{ items: Memory[] }> { return get(`/api/brain/memories${brainQuery(f)}`) }
+export async function getMemory(id: number): Promise<Memory> { return get(`/api/brain/memories/${id}`) }
+export async function createMemory(payload: { content: string; category: string; confidence?: number; source?: string }): Promise<Memory> {
+  return request('/api/brain/memories', { method: 'POST', body: JSON.stringify(payload) })
+}
+export async function patchMemory(id: number, payload: { content?: string; category?: string; confidence?: number }): Promise<Memory> {
+  return request(`/api/brain/memories/${id}`, { method: 'PATCH', body: JSON.stringify(payload) })
+}
+export async function deleteMemory(id: number): Promise<{ ok: boolean }> { return request(`/api/brain/memories/${id}`, { method: 'DELETE' }) }
+export async function confirmMemory(id: number): Promise<Memory> { return request(`/api/brain/memories/${id}/confirm`, { method: 'POST' }) }
+export async function getMemoryVersions(id: number): Promise<{ versions: MemoryVersion[] }> { return get(`/api/brain/memories/${id}/versions`) }
+export async function searchMemories(query: string, k = 12): Promise<{ items: Memory[] }> {
+  return request('/api/brain/search', { method: 'POST', body: JSON.stringify({ query, k }) })
+}
+export async function getPendingMemories(): Promise<{ items: Memory[] }> { return get('/api/brain/pending') }
+export async function acceptPending(id: number): Promise<Memory> { return request(`/api/brain/pending/${id}/accept`, { method: 'POST' }) }
+export async function rejectPending(id: number): Promise<{ ok: boolean }> { return request(`/api/brain/pending/${id}/reject`, { method: 'POST' }) }
+export async function getConflicts(): Promise<{ items: Conflict[] }> { return get('/api/brain/conflicts') }
+export async function resolveConflict(id: number, decision: 'keep_existing' | 'use_candidate' | 'keep_both'): Promise<{ ok: boolean }> {
+  return request(`/api/brain/conflicts/${id}/resolve`, { method: 'POST', body: JSON.stringify({ decision }) })
+}
+export async function parseImport(filename: string, content: string): Promise<{ items: ImportCandidate[] }> {
+  return request('/api/brain/import', { method: 'POST', body: JSON.stringify({ filename, content }) })
+}
+export async function commitImport(filename: string, source_type: string, items: ImportCandidate[]): Promise<{ saved: number; merged: number }> {
+  return request('/api/brain/import/commit', { method: 'POST', body: JSON.stringify({ filename, source_type, items }) })
+}
+export async function getDuplicates(): Promise<{ groups: DuplicateGroup[] }> { return get('/api/brain/duplicates') }
+export async function mergeDuplicates(ids: number[], keep_id?: number): Promise<{ merged: number; kept?: number }> {
+  return request('/api/brain/duplicates/merge', { method: 'POST', body: JSON.stringify({ ids, keep_id }) })
+}
+export async function getNarrative(): Promise<{ content: string | null; created_at?: string }> { return get('/api/brain/narrative') }
+export async function makeNarrative(): Promise<{ content: string; created_at?: string }> { return request('/api/brain/narrative', { method: 'POST' }) }
+export async function rememberFact(content: string, category?: string): Promise<{ ok: boolean; id?: number; category?: string }> {
+  return request('/api/brain/remember', { method: 'POST', body: JSON.stringify({ content, category }) })
+}
+export async function brainChat(message: string): Promise<{ reply: string }> {
+  return request('/api/brain/chat', { method: 'POST', body: JSON.stringify({ message }) })
+}
+/** Brain v2: stream the chat reply token-by-token. `onDelta` fires per chunk; resolves
+ *  when the `done` event arrives. Falls back transparently to a single chunk when the
+ *  model provider can't stream (backend emits one delta then done). */
+export async function streamBrainChat(
+  message: string,
+  onDelta: (text: string) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch('/api/brain/chat/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+    signal,
+  })
+  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let idx: number
+    while ((idx = buffer.indexOf('\n\n')) >= 0) {
+      const frame = buffer.slice(0, idx)
+      buffer = buffer.slice(idx + 2)
+      let event = 'message'
+      let data = ''
+      for (const line of frame.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim()
+        else if (line.startsWith('data:')) data += line.slice(5).trim()
+      }
+      if (event === 'delta' && data) {
+        try { const o = JSON.parse(data); if (o.text) onDelta(o.text) } catch { /* ignore */ }
+      } else if (event === 'error') {
+        const o = (() => { try { return JSON.parse(data) } catch { return {} as { detail?: string } } })()
+        throw new Error(o.detail || 'stream error')
+      } else if (event === 'done') {
+        return
+      }
+    }
+  }
+}
+export async function getChatHistory(): Promise<{ items: ChatMessage[] }> { return get('/api/brain/chat/history') }
+export async function runBrainSweep(): Promise<Record<string, number>> { return request('/api/brain/sweep', { method: 'POST' }) }
+
+// ── Graph View ────────────────────────────────────────────────────────────────
+export interface GraphNode {
+  id: number
+  domain: string
+  ref_kind?: string | null
+  ref_id?: string | null
+  title: string
+  summary?: string | null
+  category?: string | null
+  color?: string | null
+  icon?: string | null
+  source_url?: string | null
+  degree: number
+  community?: number | null
+  community_label?: string | null
+  x?: number | null
+  y?: number | null
+  pinned?: number
+  has_embedding?: boolean
+}
+export interface GraphCommunity { cid: number; label: string; color: string; count: number }
+export interface GraphEdge {
+  id: number
+  source: number
+  target: number
+  type: 'ref' | 'semantic' | 'tag' | 'manual'
+  weight: number
+  directed?: number
+  created_by?: string
+}
+export interface GraphData { nodes: GraphNode[]; edges: GraphEdge[] }
+export interface GraphSource {
+  source: string; domain: string; available: boolean; nodes: number
+  last_synced_at?: string | null; item_count?: number
+}
+export interface GraphSearchResult { id: number; title: string; domain: string; score: number }
+export interface TimelineEvent { id: number; domain: string; ts: string }
+export interface GraphFilters {
+  domain?: string; category?: string; q?: string
+  min_weight?: number; date_from?: string; date_to?: string
+}
+
+function graphQuery(f: GraphFilters = {}): string {
+  const p = new URLSearchParams()
+  if (f.domain && f.domain !== 'all') p.set('domain', f.domain)
+  if (f.category) p.set('category', f.category)
+  if (f.q) p.set('q', f.q)
+  if (f.min_weight) p.set('min_weight', String(f.min_weight))
+  if (f.date_from) p.set('date_from', f.date_from)
+  if (f.date_to) p.set('date_to', f.date_to)
+  const s = p.toString()
+  return s ? `?${s}` : ''
+}
+
+export async function getGraph(f: GraphFilters = {}): Promise<GraphData> { return get(`/api/graph${graphQuery(f)}`) }
+export async function getGraphSources(): Promise<{ sources: GraphSource[] }> { return get('/api/graph/sources') }
+export async function getGraphCommunities(): Promise<{ communities: GraphCommunity[] }> { return get('/api/graph/communities') }
+export async function getGraphPath(a: number, b: number): Promise<{ path: GraphNode[] }> { return get(`/api/graph/path?a=${a}&b=${b}`) }
+export async function graphRetrieve(query: string, k = 8, hops = 1): Promise<{ results: GraphNode[] }> {
+  return request('/api/graph/retrieve', { method: 'POST', body: JSON.stringify({ query, k, hops }) })
+}
+export async function getGraphTimeline(): Promise<{ events: TimelineEvent[] }> { return get('/api/graph/timeline') }
+export async function searchGraph(q: string, k = 12): Promise<{ results: GraphSearchResult[]; mode: string }> {
+  return get(`/api/graph/search?q=${encodeURIComponent(q)}&k=${k}`)
+}
+export async function getGraphNode(id: number): Promise<GraphNode & { connections: GraphData }> {
+  return get(`/api/graph/node/${id}`)
+}
+export async function createGraphNode(payload: { title: string; summary?: string; category?: string; domain?: string }): Promise<GraphNode> {
+  return request('/api/graph/nodes', { method: 'POST', body: JSON.stringify(payload) })
+}
+export async function updateGraphNode(id: number, payload: { title?: string; summary?: string; category?: string }): Promise<GraphNode> {
+  return request(`/api/graph/nodes/${id}`, { method: 'PATCH', body: JSON.stringify(payload) })
+}
+export async function deleteGraphNode(id: number): Promise<{ ok: boolean }> {
+  return request(`/api/graph/nodes/${id}`, { method: 'DELETE' })
+}
+export async function createGraphEdge(source_id: number, target_id: number, edge_type = 'manual', weight = 1): Promise<{ ok: boolean; id: number }> {
+  return request('/api/graph/edges', { method: 'POST', body: JSON.stringify({ source_id, target_id, edge_type, weight }) })
+}
+export async function deleteGraphEdge(id: number): Promise<{ ok: boolean }> {
+  return request(`/api/graph/edges/${id}`, { method: 'DELETE' })
+}
+export async function saveGraphLayout(pins: { id: number; x: number; y: number; pinned: boolean }[]): Promise<{ saved: number }> {
+  return request('/api/graph/layout', { method: 'POST', body: JSON.stringify({ pins }) })
+}
+export async function syncGraph(source: string): Promise<Record<string, unknown>> {
+  return request(`/api/graph/sync/${source}`, { method: 'POST' })
+}
+
+// ── Genesis Complete: vault + integrations ──────────────────────────
+// Session token from unlock/setup, kept in memory only (never persisted).
+let _vaultSession: string | null = null
+export function setVaultSession(t: string | null) { _vaultSession = t }
+function vaultHeaders(): Record<string, string> {
+  return _vaultSession ? { 'X-Vault-Session': _vaultSession } : {}
+}
+function vreq(path: string, init: RequestInit = {}) {
+  return request(path, { ...init, headers: { ...vaultHeaders(), ...(init.headers || {}) } })
+}
+
+export type Profile = { name: string; label: string | null; created_at: string | null }
+export type VaultStatus = {
+  crypto_available: boolean; setup: boolean; unlocked: boolean
+  active_profile: string; secret_count: number; profiles: Profile[]; auto_lock_seconds: number
+}
+export type GenesisStatus = { abilities: Record<string, boolean>; active: number; total: number; pct: number; complete: boolean }
+export type IntegrationField = {
+  name: string; label: string; type: string; help_url?: string | null
+  set: boolean; last4: string | null; test_status: string | null
+}
+export type IntegrationAbility = { id: string; name: string; active: boolean }
+export type Integration = {
+  id: string; label: string; category: 'core' | 'tools' | 'coming_soon' | 'custom'
+  required: boolean; available: boolean; icon?: string | null; blurb?: string | null; coming_in?: string | null
+  fields: IntegrationField[]; connected: boolean; abilities: IntegrationAbility[]
+}
+export type IntegrationsResponse = { integrations: Integration[]; genesis: GenesisStatus; vault: VaultStatus }
+export type AuditEntry = { ts: string; action: string; integration_id: string | null; name: string | null; ok: boolean | null; detail: string | null }
+
+export async function getVaultStatus(): Promise<VaultStatus> { return get('/api/vault/status') }
+export async function vaultSetup(master: string, import_env = true) {
+  const r = await request('/api/vault/setup', { method: 'POST', body: JSON.stringify({ master, import_env }) })
+  setVaultSession(r.session); return r
+}
+export async function vaultUnlock(master: string) {
+  const r = await request('/api/vault/unlock', { method: 'POST', body: JSON.stringify({ master }) })
+  setVaultSession(r.session); return r
+}
+export async function vaultLock() { setVaultSession(null); return vreq('/api/vault/lock', { method: 'POST' }) }
+export async function vaultReload() { return vreq('/api/vault/reload', { method: 'POST' }) }
+export async function getVaultAudit(limit = 100): Promise<{ entries: AuditEntry[] }> { return vreq(`/api/vault/audit?limit=${limit}`) }
+export async function vaultExport(password: string): Promise<{ blob: string }> {
+  return vreq('/api/vault/export', { method: 'POST', body: JSON.stringify({ password }) })
+}
+export async function vaultImport(blob: string, password: string) {
+  return vreq('/api/vault/import', { method: 'POST', body: JSON.stringify({ blob, password }) })
+}
+export async function getVaultProfiles(): Promise<{ profiles: Profile[]; active: string }> { return get('/api/vault/profiles') }
+export async function createVaultProfile(name: string, label?: string, activate = true) {
+  return vreq('/api/vault/profiles', { method: 'POST', body: JSON.stringify({ name, label, activate }) })
+}
+
+export async function getIntegrations(): Promise<IntegrationsResponse> { return get('/api/integrations') }
+export async function connectIntegration(id: string, fields: Record<string, string>) {
+  return vreq(`/api/integrations/${id}/connect`, { method: 'POST', body: JSON.stringify({ fields }) })
+}
+export async function testIntegration(id: string): Promise<{ ok: boolean; message: string; genesis: GenesisStatus }> {
+  return vreq(`/api/integrations/${id}/test`, { method: 'POST' })
+}
+export async function revealSecret(name: string, master: string): Promise<{ value: string }> {
+  return vreq('/api/integrations/reveal', { method: 'POST', body: JSON.stringify({ name, master }) })
+}
+export async function addCustomSecret(name: string, value: string, secret_type = 'custom') {
+  return vreq('/api/integrations/custom', { method: 'POST', body: JSON.stringify({ name, value, secret_type }) })
+}
+export async function removeIntegration(id: string) { return vreq(`/api/integrations/${id}`, { method: 'DELETE' }) }
+
+// ── MCP Hub (#5) ─────────────────────────────────────────────────────────
+export type McpServerConfigRow = {
+  id: number; enabled: number; transport: string; public_url: string | null
+  tunnel_status: string; auth_modes_json: string; rate_limit_json: string; updated_at: string
+}
+export type McpSelfTool = { name: string; description: string; sensitive: boolean }
+export type McpOAuth = { enabled: boolean; issuer: string | null; audience: string | null; alg: string }
+export type McpTunnel = { available: boolean; running: boolean; public_url: string | null; mcp_url?: string | null }
+export type McpServerInfo = {
+  available: boolean; config: McpServerConfigRow; tools: McpSelfTool[]; mount: string | null
+  exposed: boolean; oauth: McpOAuth; tunnel: McpTunnel
+}
+export type A2aSkill = { id: string; name: string; description?: string }
+export type A2aCard = { name: string; description: string; version: string; url: string; skills: A2aSkill[] }
+export type A2aPeer = { id: number; name: string; endpoint: string; status: string; skills: string[] }
+export type McpClient = {
+  id: number; name: string; auth_type: string; scopes: string[]
+  status: string; created_at: string; last_seen: string | null
+}
+export type McpIssuedClient = { ok: boolean; id: number; name: string; scopes: string[]; token: string }
+export type McpConnection = {
+  id: number; name: string; transport: string; endpoint: string
+  enabled: number; status: string; last_tested_at: string | null; tools_count: number
+}
+export type McpExternalTool = { id: number; source: string; name: string; enabled: number; permission: 'allow' | 'ask' | 'deny' }
+export type McpCallLog = {
+  id: number; ts: string; direction: 'in' | 'out'; peer: string | null
+  tool: string | null; status: string | null; latency_ms: number | null; error: string | null
+}
+export type McpApproval = {
+  id: number; client: string | null; tool: string | null; args: string | null
+  status: string; created_at: string; decided_at: string | null
+}
+
+// Server (M1)
+export async function getMcpServerConfig(): Promise<McpServerInfo> { return vreq('/api/mcp/server/config') }
+export async function setMcpServerConfig(body: { enabled?: boolean; public_url?: string; rate_limit_per_minute?: number }) {
+  return vreq('/api/mcp/server/config', { method: 'PUT', body: JSON.stringify(body) })
+}
+export async function getMcpClients(): Promise<{ clients: McpClient[] }> { return vreq('/api/mcp/clients') }
+export async function issueMcpClient(name: string, scopes: string[]): Promise<McpIssuedClient> {
+  return vreq('/api/mcp/clients', { method: 'POST', body: JSON.stringify({ name, scopes }) })
+}
+export async function setMcpClientScopes(id: number, scopes: string[]) {
+  return vreq(`/api/mcp/clients/${id}`, { method: 'PATCH', body: JSON.stringify({ scopes }) })
+}
+export async function revokeMcpClient(id: number) { return vreq(`/api/mcp/clients/${id}`, { method: 'DELETE' }) }
+
+// Activity + approvals (M1)
+export async function getMcpLogs(limit = 100, direction?: 'in' | 'out'): Promise<{ logs: McpCallLog[] }> {
+  return vreq(`/api/mcp/logs?limit=${limit}${direction ? `&direction=${direction}` : ''}`)
+}
+export async function getMcpApprovals(status = 'pending'): Promise<{ approvals: McpApproval[] }> {
+  return vreq(`/api/mcp/approvals?status=${status}`)
+}
+export async function approveMcp(id: number) { return vreq(`/api/mcp/approvals/${id}/approve`, { method: 'POST' }) }
+export async function rejectMcp(id: number) { return vreq(`/api/mcp/approvals/${id}/reject`, { method: 'POST' }) }
+
+// Connections + external tools (M2)
+export async function getMcpConnections(): Promise<{ connections: McpConnection[] }> { return vreq('/api/mcp/connections') }
+export async function addMcpConnection(body: { name: string; transport: string; endpoint: string; token?: string }) {
+  return vreq('/api/mcp/connections', { method: 'POST', body: JSON.stringify(body) })
+}
+export async function testMcpConnection(id: number) { return vreq(`/api/mcp/connections/${id}/test`, { method: 'POST' }) }
+export async function refreshMcpConnection(id: number) { return vreq(`/api/mcp/connections/${id}/refresh`, { method: 'POST' }) }
+export async function setMcpConnectionEnabled(id: number, enabled: boolean) {
+  return vreq(`/api/mcp/connections/${id}`, { method: 'PATCH', body: JSON.stringify({ enabled }) })
+}
+export async function deleteMcpConnection(id: number) { return vreq(`/api/mcp/connections/${id}`, { method: 'DELETE' }) }
+export async function mcpHealth() { return vreq('/api/mcp/connections/health', { method: 'POST' }) }
+export async function getMcpTools(source?: string): Promise<{ tools: McpExternalTool[] }> {
+  return vreq(`/api/mcp/tools${source ? `?source=${source}` : ''}`)
+}
+export async function setMcpTool(id: number, body: { enabled?: boolean; permission?: string }) {
+  return vreq(`/api/mcp/tools/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
+}
+export async function invokeMcpTool(id: number, args: Record<string, unknown>): Promise<{ ok: boolean; content?: string; error?: string; pending?: boolean; approval_id?: number; message?: string }> {
+  return vreq(`/api/mcp/tools/${id}/invoke`, { method: 'POST', body: JSON.stringify({ args }) })
+}
+
+// M4 — OAuth, tunnel exposure, A2A
+export async function setMcpOAuth(body: { enabled: boolean; issuer?: string; audience?: string; algorithm?: string; secret?: string }) {
+  return vreq('/api/mcp/server/oauth', { method: 'PUT', body: JSON.stringify(body) })
+}
+export async function getMcpTunnel(): Promise<McpTunnel> { return vreq('/api/mcp/server/tunnel') }
+export async function setMcpTunnel(action: 'start' | 'stop', port?: number): Promise<{ ok: boolean; public_url?: string; mcp_url?: string; error?: string; note?: string }> {
+  return vreq('/api/mcp/server/tunnel', { method: 'POST', body: JSON.stringify({ action, port }) })
+}
+export async function getA2aCard(): Promise<{ card: A2aCard }> { return vreq('/api/mcp/a2a/card') }
+export async function setA2aCard(body: { name?: string; description?: string; version?: string }): Promise<{ ok: boolean; card: A2aCard }> {
+  return vreq('/api/mcp/a2a/card', { method: 'PUT', body: JSON.stringify(body) })
+}
+export async function getA2aPeers(): Promise<{ peers: A2aPeer[] }> { return vreq('/api/mcp/a2a/peers') }
+export async function addA2aPeer(url: string) { return vreq('/api/mcp/a2a/peers', { method: 'POST', body: JSON.stringify({ url }) }) }
+export async function removeA2aPeer(id: number) { return vreq(`/api/mcp/a2a/peers/${id}`, { method: 'DELETE' }) }
+export async function a2aMessage(id: number, text: string): Promise<{ ok: boolean; status?: number; response?: string; error?: string }> {
+  return vreq(`/api/mcp/a2a/peers/${id}/message`, { method: 'POST', body: JSON.stringify({ text }) })
+}

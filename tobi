@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
-cd "$(dirname "$(readlink -f "$0")")"
-source venv/bin/activate
-exec python main.py "${1:-start}" "${@:2}"
+# Tobi launcher (bash / Git Bash on Windows + Linux/macOS).
+# Picks the venv interpreter directly so no activate-script path differences matter.
+cd "$(dirname "$(readlink -f "$0")")" || exit 1
+
+if [ -x "venv/Scripts/python.exe" ]; then        # Windows venv (Git Bash)
+  PY="venv/Scripts/python.exe"
+elif [ -x "venv/bin/python" ]; then              # Linux/macOS venv
+  PY="venv/bin/python"
+else
+  PY="python"                                     # fall back to PATH python
+fi
+
+exec "$PY" main.py "${1:-start}" "${@:2}"

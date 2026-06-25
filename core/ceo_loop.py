@@ -198,7 +198,14 @@ def run_ceo_review() -> dict:
         current_strategy=current_strategy[:1500],
     )
 
-    raw_output = llm_complete(prompt, task_type="ceo_review", max_tokens=4000)
+    # Memory-first (Brain v2): weigh portfolio decisions against the owner's strategic
+    # priorities, values, and risk appetite.
+    try:
+        from core import brain
+        _owner = brain.owner_context("strategic priorities, values, risk appetite, long-term goals")
+    except Exception:
+        _owner = ""
+    raw_output = llm_complete(prompt, task_type="ceo_review", system=_owner or None, max_tokens=4000)
 
     # Parse response
     try:

@@ -536,6 +536,9 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "/pm tasks <id> — xem tasks của project\n"
         "/pm done <task\\_id> — hoàn thành task\n"
         "/pm goal <id> <value> — cập nhật goal\n\n"
+        "*Brain (trí nhớ):*\n"
+        "/remember <điều cần nhớ> — lưu vào Brain\n"
+        "/brain — tổng quan · /brain <từ khóa> — tìm\n\n"
         "*General:*\n"
         "/status — tổng quan · /todos — việc cần làm\n"
         "/research — tìm cơ hội · /code — viết code\n"
@@ -657,6 +660,60 @@ async def cmd_learn(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         emoji = TYPE_EMOJI.get(l["lesson_type"], "📌")
         lines.append(f"\n{emoji} *{l.get('title','')[:50]}*\n   {l['content'][:150]}")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+async def cmd_remember(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """/remember <fact> — explicitly save a durable fact about the owner into the Brain."""
+    if not is_authorized(update): return
+    content = " ".join(ctx.args).strip() if ctx.args else ""
+    if not content:
+        await update.message.reply_text(
+            "Dùng: `/remember <điều cần nhớ>`\nVD: `/remember Tôi thích họp buổi sáng`",
+            parse_mode="Markdown",
+        )
+        return
+    try:
+        from core import brain
+        res = await asyncio.to_thread(brain.remember, content)
+        if res.get("ok"):
+            await update.message.reply_text(
+                f"🧠 Đã nhớ vào *{res.get('category','identity')}*:\n_{md(content[:200])}_",
+                parse_mode="Markdown",
+            )
+        else:
+            await update.message.reply_text("⚠️ Không lưu được (nội dung trống).")
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ {str(e)[:120]}")
+
+
+async def cmd_brain(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """/brain [query] — what Tobi knows about you. With a query → semantic recall."""
+    if not is_authorized(update): return
+    query = " ".join(ctx.args).strip() if ctx.args else ""
+    try:
+        from core import brain
+        if query:
+            items = await asyncio.to_thread(brain.semantic_search, query, 8)
+            if not items:
+                await update.message.reply_text("🧠 Chưa nhớ gì liên quan tới điều đó.")
+                return
+            lines = [f"🧠 *Tobi nhớ về:* _{md(query[:60])}_\n" + "─" * 24]
+            for m in items:
+                conf = int(round((m.get("confidence") or 0) * 100))
+                lines.append(f"• [{m.get('category','?')}] {md(m['content'][:160])}  _({conf}%)_")
+            await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        else:
+            st = await asyncio.to_thread(brain.stats)
+            by_cat = st.get("by_category", {})
+            cat_lines = "\n".join(f"   • {c}: {n}" for c, n in sorted(by_cat.items(), key=lambda x: -x[1]))
+            await update.message.reply_text(
+                f"🧠 *Brain* — {st.get('total',0)} điều đã nhớ\n{'─'*24}\n{cat_lines or '   (trống)'}\n\n"
+                f"⏳ Pending: {st.get('pending',0)} · ⚠️ Conflicts: {st.get('conflicts',0)} · 🕰 Stale: {st.get('stale',0)}\n\n"
+                f"_/brain <từ khóa> để tìm · /remember <điều cần nhớ> để lưu_",
+                parse_mode="Markdown",
+            )
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ {str(e)[:120]}")
 
 
 async def cmd_web(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -980,6 +1037,14 @@ async def handle_chat(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     from core.model_router import get_llm
     client = get_llm("writing")
     system = build_system_prompt_cached()
+    # Memory-first: consult the Brain for what's relevant to this message (v2).
+    try:
+        from core import brain
+        ctx_block = await asyncio.to_thread(brain.owner_context, user_msg)
+        if ctx_block:
+            system += f"\n\n{ctx_block}"
+    except Exception:
+        pass
 
     async with _get_lock(chat_id):
         _init_history(chat_id)
@@ -1154,6 +1219,8 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("code",         cmd_code))
     app.add_handler(CommandHandler("note",         cmd_note))
     app.add_handler(CommandHandler("learn",        cmd_learn))
+    app.add_handler(CommandHandler("remember",     cmd_remember))
+    app.add_handler(CommandHandler("brain",        cmd_brain))
     app.add_handler(CommandHandler("web",          cmd_web))
     app.add_handler(CommandHandler("dashboard",    cmd_dashboard))
     app.add_handler(CommandHandler("pm",           cmd_pm))

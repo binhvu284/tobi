@@ -6,6 +6,8 @@ import {
   Loader2, GripVertical, Eye, EyeOff, SlidersHorizontal, Play, FolderKanban,
 } from 'lucide-react'
 import HealthBar from '../components/HealthBar'
+import Loader from '../components/Loader'
+import PageLoader from '../components/PageLoader'
 import {
   getStatus, getProjects, getLessons, getHealth, markDone, runEngine, pmGetStats,
   type Project, type Lesson, type Todo, type HealthReport, type EngineName, type PMStats,
@@ -104,7 +106,7 @@ export default function Dashboard() {
           </div>
           <HealthBar score={health.score} size="sm" />
         </Link>
-      ) : <div className="rounded-xl border border-border bg-surface p-4 text-xs text-muted">Health loading…</div>,
+      ) : <div className="rounded-xl border border-border bg-surface p-4"><Loader size={28} label="Health loading…" /></div>,
     },
     kpis: {
       title: 'KPIs', node: (
@@ -157,7 +159,7 @@ export default function Dashboard() {
             <span className="text-xs text-muted">Open →</span>
           </div>
           {!pmStats ? (
-            <div className="py-6 text-center text-xs text-muted">Loading…</div>
+            <Loader size={28} label="Loading…" />
           ) : (
             <div className="grid grid-cols-3 divide-x divide-border">
               <div className="px-5 py-4 text-center">
@@ -245,7 +247,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {loading ? <div className="animate-pulse text-sm text-muted">Loading data…</div> : (
+      {loading ? <PageLoader preset="dashboard" compact /> : (
         edit ? (
           <Reorder.Group axis="y" values={cfg.order} onReorder={(o) => saveCfg({ ...cfg, order: o })} className="space-y-4">
             {cfg.order.filter(id => W[id]).map(id => (

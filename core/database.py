@@ -24,9 +24,13 @@ DB_PATH = os.path.expanduser(
 
 def get_connection() -> sqlite3.Connection:
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row  # dict-like rows
     conn.execute("PRAGMA foreign_keys = ON")
+    # WAL + busy_timeout: lets readers and a writer coexist and makes concurrent writers
+    # wait instead of raising "database is locked" (engines nest short-lived connections).
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 8000")
     return conn
 
 
@@ -485,6 +489,330 @@ def _ensure_pm_schema(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "tasks", "sub_tasks_json","TEXT DEFAULT '[]'")
 
 
+def _ensure_brain_schema(conn: sqlite3.Connection) -> None:
+    """Brain: long-term owner memory (auto-learn + import + psychology profile).
+
+    Idempotent. Source of truth for the Brain feature; embeddings stored as BLOB
+    (numpy float32) on each memory for local semantic search / dedup.
+    """
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS brain_categories (
+        id          TEXT PRIMARY KEY,          -- slug
+        label       TEXT NOT NULL,
+        color       TEXT DEFAULT '#58a6ff',
+        icon        TEXT DEFAULT 'Brain',
+        sort_order  INTEGER DEFAULT 0,
+        sensitive   INTEGER DEFAULT 0,         -- 1 = always route to review
+        status      TEXT DEFAULT 'approved',   -- approved | pending (TOBI-proposed)
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_memories (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        content          TEXT NOT NULL,
+        category         TEXT DEFAULT 'identity',
+        confidence       REAL DEFAULT 0.6,
+        source           TEXT DEFAULT 'manual',   -- manual | auto | import | remember
+        status           TEXT DEFAULT 'active',   -- active | pending | archived | superseded
+        context          TEXT,                    -- where it was learned
+        embedding        BLOB,
+        embed_model      TEXT,
+        created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_confirmed_at DATETIME,
+        deleted_at       DATETIME
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_memory_versions (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        memory_id   INTEGER REFERENCES brain_memories(id) ON DELETE CASCADE,
+        content     TEXT,
+        category    TEXT,
+        confidence  REAL,
+        change_kind TEXT,                          -- create | edit | merge | confirm | supersede
+        changed_by  TEXT,                          -- owner | auto | import
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_conflicts (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        memory_id           INTEGER REFERENCES brain_memories(id) ON DELETE CASCADE,
+        candidate_content   TEXT NOT NULL,
+        candidate_category  TEXT,
+        candidate_confidence REAL DEFAULT 0.6,
+        candidate_source    TEXT DEFAULT 'auto',
+        reason              TEXT,
+        status              TEXT DEFAULT 'open',   -- open | resolved
+        created_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_imports (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        filename    TEXT,
+        source_type TEXT,                          -- md | json
+        card_count  INTEGER DEFAULT 0,
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_sweep_state (
+        id                     INTEGER PRIMARY KEY CHECK (id = 1),
+        last_processed_convo_id INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_narrative (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        content     TEXT NOT NULL,
+        model_used  TEXT,
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_brain_mem_cat    ON brain_memories(category, status);
+    CREATE INDEX IF NOT EXISTS idx_brain_mem_status ON brain_memories(status);
+    CREATE INDEX IF NOT EXISTS idx_brain_mem_conf   ON brain_memories(last_confirmed_at);
+    CREATE INDEX IF NOT EXISTS idx_brain_ver_mem    ON brain_memory_versions(memory_id);
+    """)
+    # Seed the comprehensive category set (sensitive = Psychology/Relationships/Health).
+    seed = [
+        ("identity",      "Identity",       "#58a6ff", "User",       0, 0),
+        ("preferences",   "Preferences",    "#3fb950", "Heart",      1, 0),
+        ("psychology",    "Psychology",     "#a78bfa", "Brain",      2, 1),
+        ("relationships", "Relationships",  "#f472b6", "Users",      3, 1),
+        ("goals",         "Goals",          "#d29922", "Target",     4, 0),
+        ("work",          "Work / Projects","#22d3ee", "Briefcase",  5, 0),
+        ("habits",        "Habits / Routines","#2dd4bf", "Repeat",   6, 0),
+        ("health",        "Health",         "#f85149", "Activity",   7, 1),
+    ]
+    for cid, label, color, icon, order, sensitive in seed:
+        conn.execute(
+            """INSERT OR IGNORE INTO brain_categories (id, label, color, icon, sort_order, sensitive)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (cid, label, color, icon, order, sensitive),
+        )
+    conn.execute("INSERT OR IGNORE INTO brain_sweep_state (id, last_processed_convo_id) VALUES (1, 0)")
+
+    # v2: one-way Brain → Hermes memory mirror tracking (idempotent migration).
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(brain_memories)").fetchall()}
+    if "hermes_synced_at" not in cols:
+        conn.execute("ALTER TABLE brain_memories ADD COLUMN hermes_synced_at DATETIME")
+
+
+def _ensure_graph_schema(conn: sqlite3.Connection) -> None:
+    """Graph View: unified second-brain knowledge graph (memories + tasks + projects +
+    integration mirrors). Idempotent. One node/edge store backs the per-domain switcher;
+    embeddings (reused from Brain) drive cross-domain semantic links.
+    """
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS graph_nodes (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        domain      TEXT NOT NULL,              -- memory|task|project|notion|github|gdrive|local
+        ref_kind    TEXT,                       -- sub-kind (issue|commit|page|repo|doc…)
+        ref_id      TEXT,                       -- source row id / external id (as text)
+        title       TEXT NOT NULL,
+        summary     TEXT,
+        category    TEXT,
+        color       TEXT,
+        icon        TEXT,
+        source_url  TEXT,
+        embedding   BLOB,
+        embed_model TEXT,
+        degree      INTEGER DEFAULT 0,
+        x           REAL,
+        y           REAL,
+        pinned      INTEGER DEFAULT 0,
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+        deleted_at  DATETIME
+    );
+
+    CREATE TABLE IF NOT EXISTS graph_edges (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id   INTEGER NOT NULL REFERENCES graph_nodes(id) ON DELETE CASCADE,
+        target_id   INTEGER NOT NULL REFERENCES graph_nodes(id) ON DELETE CASCADE,
+        edge_type   TEXT NOT NULL DEFAULT 'ref',  -- ref|semantic|tag|manual
+        weight      REAL DEFAULT 1,
+        directed    INTEGER DEFAULT 0,
+        created_by  TEXT DEFAULT 'system',        -- system|owner
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+        deleted_at  DATETIME
+    );
+
+    CREATE TABLE IF NOT EXISTS graph_sync_state (
+        source        TEXT PRIMARY KEY,           -- internal|notion|github|gdrive|local
+        last_synced_at DATETIME,
+        cursor        TEXT,
+        item_count    INTEGER DEFAULT 0
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_graph_node_ref  ON graph_nodes(domain, ref_id);
+    CREATE INDEX        IF NOT EXISTS idx_graph_node_dom  ON graph_nodes(domain);
+    CREATE INDEX        IF NOT EXISTS idx_graph_node_cat  ON graph_nodes(category);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_graph_edge_uniq ON graph_edges(source_id, target_id, edge_type);
+    CREATE INDEX        IF NOT EXISTS idx_graph_edge_src  ON graph_edges(source_id);
+    CREATE INDEX        IF NOT EXISTS idx_graph_edge_tgt  ON graph_edges(target_id);
+    """)
+    # v1.1: community detection (Louvain-style label propagation) for color/hull grouping.
+    gcols = {r[1] for r in conn.execute("PRAGMA table_info(graph_nodes)").fetchall()}
+    if "community" not in gcols:
+        conn.execute("ALTER TABLE graph_nodes ADD COLUMN community INTEGER")
+    if "community_label" not in gcols:
+        conn.execute("ALTER TABLE graph_nodes ADD COLUMN community_label TEXT")
+
+
+def _ensure_vault_schema(conn: sqlite3.Connection) -> None:
+    """Encrypted secrets vault (Genesis Complete). Idempotent.
+
+    Stores only ciphertext + metadata — never plaintext secrets. The master
+    password (KDF → AES-256-GCM key) lives only in server memory while unlocked.
+    `vault_meta` holds the KDF salt/params + a verifier blob to validate the
+    password without storing it. See core/vault.py for the crypto.
+    """
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS vault_meta (
+        id             INTEGER PRIMARY KEY CHECK (id = 1),
+        kdf            TEXT NOT NULL DEFAULT 'scrypt',
+        kdf_salt       BLOB NOT NULL,
+        kdf_params     TEXT NOT NULL,        -- JSON {n,r,p,len}
+        verifier       BLOB NOT NULL,        -- nonce||ciphertext of a known constant
+        active_profile TEXT NOT NULL DEFAULT 'local',
+        created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS vault_profiles (
+        name       TEXT PRIMARY KEY,          -- 'local' | 'vps' | …
+        label      TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS vault_secrets (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile        TEXT NOT NULL DEFAULT 'local',
+        name           TEXT NOT NULL,         -- env-var NAME (e.g. GITHUB_TOKEN)
+        integration_id TEXT,                  -- registry id this secret belongs to
+        secret_type    TEXT NOT NULL DEFAULT 'api_key', -- api_key|url|oauth|webhook|custom
+        ciphertext     BLOB NOT NULL,
+        nonce          BLOB NOT NULL,
+        last4          TEXT,                  -- last chars for masked display only
+        test_status    TEXT DEFAULT 'untested',  -- untested|ok|failed
+        added_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_tested_at DATETIME,
+        UNIQUE(profile, name)
+    );
+
+    CREATE TABLE IF NOT EXISTS vault_audit (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts             DATETIME DEFAULT CURRENT_TIMESTAMP,
+        action         TEXT NOT NULL,         -- setup|unlock|lock|create|update|delete|test|reveal|reload|export|import
+        integration_id TEXT,
+        name           TEXT,
+        ok             INTEGER,
+        detail         TEXT                   -- short note, NEVER a secret value
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_vault_secrets_profile ON vault_secrets(profile);
+    CREATE INDEX IF NOT EXISTS idx_vault_audit_ts        ON vault_audit(ts);
+    """)
+
+
+def _ensure_mcp_schema(conn: sqlite3.Connection) -> None:
+    """MCP Hub (#5) — TOBI as MCP server (inbound) + client (outbound). Idempotent.
+
+    Inbound client tokens are stored hashed (never the raw token). Outbound
+    connection credentials live in the Genesis vault (auth_ref → vault_secrets).
+    See core/mcp_server.py (server), core/mcp_security.py (authn/scopes/audit).
+    """
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS mcp_server_config (
+        id            INTEGER PRIMARY KEY CHECK (id = 1),
+        enabled       INTEGER NOT NULL DEFAULT 1,
+        transport     TEXT NOT NULL DEFAULT 'streamable_http',
+        public_url    TEXT,
+        tunnel_status TEXT DEFAULT 'off',
+        auth_modes_json TEXT DEFAULT '["token"]',   -- token | oauth (oauth = M4)
+        rate_limit_json TEXT DEFAULT '{"per_minute":60}',
+        updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS mcp_clients (              -- inbound peers
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT NOT NULL,
+        auth_type   TEXT NOT NULL DEFAULT 'token',        -- token | oauth
+        token_hash  TEXT,                                 -- sha256(token); raw shown once
+        scopes_json TEXT NOT NULL DEFAULT '["*"]',        -- allowed tool names or ["*"]
+        status      TEXT NOT NULL DEFAULT 'active',       -- active | revoked
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_seen   DATETIME
+    );
+
+    CREATE TABLE IF NOT EXISTS mcp_connections (          -- outbound servers (M2)
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        name          TEXT NOT NULL,
+        transport     TEXT NOT NULL DEFAULT 'http',       -- http | stdio | sse | a2a
+        endpoint      TEXT,                               -- url or command
+        auth_ref      TEXT,                               -- vault_secrets.name
+        enabled       INTEGER NOT NULL DEFAULT 1,
+        status        TEXT DEFAULT 'unknown',
+        last_tested_at DATETIME,
+        tools_count   INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS mcp_tools (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        source      TEXT NOT NULL,                        -- 'self' | connection id
+        name        TEXT NOT NULL,
+        schema_json TEXT,
+        enabled     INTEGER NOT NULL DEFAULT 1,
+        permission  TEXT NOT NULL DEFAULT 'allow',        -- allow | ask | deny
+        scopes_json TEXT,
+        UNIQUE(source, name)
+    );
+
+    CREATE TABLE IF NOT EXISTS mcp_call_log (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts           DATETIME DEFAULT CURRENT_TIMESTAMP,
+        direction    TEXT NOT NULL,                       -- in | out
+        peer         TEXT,                                -- client/connection name
+        tool         TEXT,
+        status       TEXT,                                -- ok | denied | error | pending
+        latency_ms   INTEGER,
+        request_json TEXT,
+        response_json TEXT,
+        error        TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS mcp_approvals (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        client     TEXT,
+        tool       TEXT,
+        args_json  TEXT,
+        status     TEXT NOT NULL DEFAULT 'pending',       -- pending | approved | rejected
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        decided_at DATETIME
+    );
+
+    CREATE TABLE IF NOT EXISTS a2a_agents (               -- A2A peers + own card (M4)
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        name      TEXT NOT NULL,
+        card_json TEXT,
+        endpoint  TEXT,
+        status    TEXT DEFAULT 'unknown',
+        is_self   INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mcp_call_log_ts   ON mcp_call_log(ts);
+    CREATE INDEX IF NOT EXISTS idx_mcp_approvals_st  ON mcp_approvals(status);
+    """)
+    # M4 additive columns (idempotent — ignore if they already exist).
+    for ddl in (
+        "ALTER TABLE mcp_server_config ADD COLUMN oauth_json TEXT",
+        "ALTER TABLE mcp_server_config ADD COLUMN exposed INTEGER NOT NULL DEFAULT 0",
+    ):
+        try:
+            conn.execute(ddl)
+        except Exception:
+            pass
+
+
 def init_database() -> None:
     """Tạo toàn bộ tables nếu chưa có. Safe to call nhiều lần."""
     conn = get_connection()
@@ -584,6 +912,10 @@ def init_database() -> None:
     _ensure_skill_schema(conn)
     _ensure_office_schema(conn)
     _ensure_pm_schema(conn)
+    _ensure_brain_schema(conn)
+    _ensure_graph_schema(conn)
+    _ensure_vault_schema(conn)
+    _ensure_mcp_schema(conn)
     conn.commit()
     conn.close()
     print(f"✅ Database ready: {DB_PATH}")
