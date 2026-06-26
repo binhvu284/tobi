@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   KeyRound, Lock, Unlock, ShieldCheck, Eye, EyeOff, Check, X, RefreshCw, Plus, Trash2,
   ExternalLink, AlertTriangle, ScrollText, Download, Upload, Loader2, Sparkles, Copy,
+  Wand2, SkipForward,
 } from 'lucide-react'
 import {
   getIntegrations, vaultSetup, vaultUnlock, vaultLock, vaultReload, getVaultAudit,
@@ -26,6 +27,7 @@ export default function Integrations() {
   const [session, setSession] = useState(false)        // unlocked *this* browser session
   const [showAudit, setShowAudit] = useState(false)
   const [audit, setAudit] = useState<AuditEntry[]>([])
+  const [wizardOpen, setWizardOpen] = useState(false)
   const wasComplete = useMemo(() => data?.genesis.complete, [data?.genesis.complete]) // eslint-disable-line
 
   const load = useCallback(async () => {
@@ -84,7 +86,7 @@ export default function Integrations() {
         </div>
 
         {/* Genesis progress */}
-        <GenesisHeader genesis={genesis} />
+        <GenesisHeader genesis={genesis} onStartWizard={() => setWizardOpen(true)} />
 
         {/* Sections */}
         {(['core', 'tools', 'coming_soon'] as const).map(cat => {
@@ -109,6 +111,11 @@ export default function Integrations() {
 
         {showAudit && <AuditPanel entries={audit} onClose={() => setShowAudit(false)} />}
       </div>
+
+      {wizardOpen && (
+        <GenesisWizard integrations={data!.integrations} genesis={genesis}
+          onChanged={(g) => { celebrate(g); load() }} onClose={() => setWizardOpen(false)} onLocked={onLocked} />
+      )}
     </div>
   )
 }
@@ -228,21 +235,145 @@ function GateShell({ title, icon, children }: { title: string; icon: React.React
 }
 
 // ── Genesis header ──────────────────────────────────────────────────
-function GenesisHeader({ genesis }: { genesis: GenesisStatus }) {
+function GenesisHeader({ genesis, onStartWizard }: { genesis: GenesisStatus; onStartWizard?: () => void }) {
   return (
     <div className="rounded-xl border border-border bg-surface p-4">
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm font-semibold text-heading">
           <Sparkles size={15} className={genesis.complete ? 'text-success' : 'text-accent'} />
           Genesis (Tier 0){genesis.complete && <span className="rounded-full bg-success/20 px-2 py-0.5 text-[10px] text-success">COMPLETE</span>}
         </div>
-        <div className="text-xs text-muted">{genesis.active} / {genesis.total} abilities</div>
+        <div className="flex items-center gap-2">
+          <div className="text-xs text-muted">{genesis.active} / {genesis.total} abilities</div>
+          {!genesis.complete && onStartWizard && (
+            <button onClick={onStartWizard} className="flex items-center gap-1 rounded-lg bg-accent/20 px-2.5 py-1 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/30">
+              <Wand2 size={12} /> Complete Genesis
+            </button>
+          )}
+        </div>
       </div>
       <div className="h-2 w-full overflow-hidden rounded-full bg-border/40">
         <div className={`h-full rounded-full transition-all duration-700 ${genesis.complete ? 'bg-success' : 'bg-accent'}`} style={{ width: `${genesis.pct}%` }} />
       </div>
       <div className="mt-1.5 text-[11px] text-muted">
         {genesis.complete ? 'Every Genesis ability is active. 🎉' : `${genesis.pct}% — connect the required integrations below to complete Genesis.`}
+      </div>
+    </div>
+  )
+}
+
+// ── Complete-Genesis wizard ─────────────────────────────────────────
+function GenesisWizard({ integrations, genesis, onChanged, onClose, onLocked }: {
+  integrations: Integration[]; genesis: GenesisStatus
+  onChanged: (g?: GenesisStatus) => void; onClose: () => void; onLocked: () => void
+}) {
+  const { toast } = useToast()
+  // Snapshot the steps once: available integrations that still unlock an inactive
+  // Genesis ability — required ones first.
+  const [order] = useState<string[]>(() =>
+    integrations
+      .filter(i => i.available && i.abilities.some(a => !a.active))
+      .sort((a, b) => Number(b.required) - Number(a.required))
+      .map(i => i.id))
+  const [idx, setIdx] = useState(0)
+  const [vals, setVals] = useState<Record<string, string>>({})
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const cur = idx < order.length ? integrations.find(i => i.id === order[idx]) : undefined
+  const finished = idx >= order.length
+
+  const connect = async () => {
+    if (!cur) return
+    const fields = Object.fromEntries(Object.entries(vals).filter(([, v]) => v.trim()))
+    if (!Object.keys(fields).length) return toast({ kind: 'error', title: 'Enter a value first' })
+    setBusy(true); setErr(null)
+    try {
+      const r = await connectIntegration(cur.id, fields)
+      toast({ kind: 'success', title: `${cur.label} connected`, detail: r.message })
+      setVals({}); onChanged(r.genesis); setIdx(i => i + 1)
+    } catch (e) {
+      const ex = e as { status?: number; message?: string }
+      if (ex.status === 401) { onLocked(); onClose(); return }
+      setErr(ex.message || 'Failed')
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
+        <div className="border-b border-border p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm font-bold text-heading"><Wand2 size={16} className="text-accent" /> Complete Genesis</div>
+            <button onClick={onClose} className="text-muted hover:text-text"><X size={16} /></button>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-border/40">
+            <div className={`h-full rounded-full transition-all duration-700 ${genesis.complete ? 'bg-success' : 'bg-accent'}`} style={{ width: `${genesis.pct}%` }} />
+          </div>
+          <div className="mt-1.5 flex justify-between text-[11px] text-muted">
+            <span>{genesis.active} / {genesis.total} abilities</span>
+            {!genesis.complete && !finished && <span>Step {idx + 1} of {order.length}</span>}
+          </div>
+        </div>
+
+        {genesis.complete ? (
+          <div className="flex flex-col items-center gap-2 p-8 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-success/15 text-success"><Sparkles size={26} /></div>
+            <div className="text-base font-bold text-heading">Genesis complete! 🎉</div>
+            <p className="text-xs text-muted">All {genesis.total} Tier 0 abilities are active.</p>
+            <button onClick={onClose} className="mt-2 rounded-lg bg-accent/20 px-4 py-2 text-xs font-semibold text-accent hover:bg-accent/30">Done</button>
+          </div>
+        ) : finished || !cur ? (
+          <div className="flex flex-col items-center gap-2 p-8 text-center">
+            <div className="text-sm font-semibold text-heading">Integrations done — {genesis.pct}%</div>
+            <p className="max-w-xs text-xs text-muted">The remaining abilities come from non-integration sources (SOUL.md, conversation history, the lessons store) rather than keys.</p>
+            <button onClick={onClose} className="mt-2 rounded-lg border border-border px-4 py-2 text-xs text-muted hover:text-text">Close</button>
+          </div>
+        ) : (
+          <div className="space-y-3 p-4">
+            <div className="flex items-start gap-2.5">
+              <BrandLogo id={cur.id} label={cur.label} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-heading">{cur.label}</span>
+                  {cur.required
+                    ? <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-accent">Required</span>
+                    : <span className="rounded bg-muted/20 px-1.5 py-0.5 text-[9px] uppercase text-muted">Optional</span>}
+                </div>
+                <p className="mt-0.5 text-[11px] leading-snug text-muted">{cur.blurb}</p>
+              </div>
+            </div>
+            {cur.abilities.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {cur.abilities.map(a => (
+                  <span key={a.id} className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] ${a.active ? 'bg-success/15 text-success' : 'bg-border/40 text-muted'}`}>
+                    {a.active ? <Check size={9} /> : <span className="h-1.5 w-1.5 rounded-full bg-current opacity-50" />}{a.name}
+                  </span>
+                ))}
+              </div>
+            )}
+            {cur.fields.map(f => (
+              <div key={f.name}>
+                <div className="mb-0.5 flex items-center justify-between">
+                  <span className="text-[10px] uppercase tracking-wide text-muted">{f.label}</span>
+                  {f.help_url && <a href={f.help_url} target="_blank" rel="noreferrer" className="flex items-center gap-0.5 text-[10px] text-accent hover:underline">get key <ExternalLink size={9} /></a>}
+                </div>
+                <input type="password" value={vals[f.name] || ''} onChange={e => setVals(s => ({ ...s, [f.name]: e.target.value }))}
+                  placeholder={f.set ? `connected ••••${f.last4 || ''} — replace` : f.name} className={inputCls} />
+              </div>
+            ))}
+            {err && <div className="rounded border border-danger/30 bg-danger/10 px-2 py-1 text-[11px] text-danger">{err}</div>}
+            <div className="flex items-center gap-2 pt-1">
+              <button onClick={connect} disabled={busy} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent/20 py-2 text-xs font-semibold text-accent hover:bg-accent/30 disabled:opacity-50">
+                {busy ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Connect & continue
+              </button>
+              <button onClick={() => { setVals({}); setErr(null); setIdx(i => i + 1) }}
+                className="flex items-center gap-1 rounded-lg border border-border px-3 py-2 text-xs text-muted hover:text-text">
+                <SkipForward size={12} /> Skip
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

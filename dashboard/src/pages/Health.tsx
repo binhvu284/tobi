@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { RefreshCw, Activity, AlertTriangle, CheckCircle2, Database, Server, Loader2 } from 'lucide-react'
+import { RefreshCw, Activity, AlertTriangle, CheckCircle2, Database, Server, Loader2, KeyRound, ExternalLink } from 'lucide-react'
 import Logo from '../components/Logo'
 import HealthBar from '../components/HealthBar'
 import PageLoader from '../components/PageLoader'
+import { Stagger, StaggerItem } from '../components/motion'
+import { useReducedMotionPref } from '../context/MotionProvider'
 import {
-  getHealth, runDeepTest,
-  type HealthReport, type DeepTestReport, type LivenessCheck,
+  getHealth, runDeepTest, getIntegrations,
+  type HealthReport, type DeepTestReport, type LivenessCheck, type IntegrationsResponse,
 } from '../api'
 
 const OVERALL = {
@@ -34,6 +37,17 @@ function Dot({ ok }: { ok: boolean }) {
   return <span className={`inline-block h-2 w-2 rounded-full ${ok ? 'bg-success' : 'bg-danger'}`} />
 }
 
+/** One-shot tier-colored glow when a diagnostic row snaps to its result. */
+function SnapRing({ ok }: { ok: boolean }) {
+  const reduced = useReducedMotionPref() !== 'full'
+  if (reduced) return null
+  return (
+    <motion.span aria-hidden className="pointer-events-none absolute inset-0 rounded"
+      style={{ background: `radial-gradient(circle at 14px 50%, rgb(${ok ? 'var(--success)' : 'var(--danger)'} / 0.35), transparent 60%)` }}
+      initial={{ opacity: 0.9 }} animate={{ opacity: 0 }} transition={{ duration: 0.9, ease: 'easeOut' }} />
+  )
+}
+
 function Section({ title, icon, children, hint }: {
   title: string; icon: React.ReactNode; children: React.ReactNode; hint?: string
 }) {
@@ -53,8 +67,11 @@ export default function Health() {
   const [updated, setUpdated] = useState<string>('')
   const [deep, setDeep] = useState<DeepTestReport | null>(null)
   const [deepLoading, setDeepLoading] = useState(false)
+  const [gen, setGen] = useState<IntegrationsResponse | null>(null)
+  const reduced = useReducedMotionPref() !== 'full'
 
   const load = async () => {
+    getIntegrations().then(setGen).catch(() => {})  // Genesis/integrations cross-link (read-only)
     try {
       const h = await getHealth()
       setHealth(h)
@@ -92,6 +109,11 @@ export default function Health() {
   const upChecks = Object.entries(health.up)
   const configured = Object.entries(health.configured)
   const activity = Object.entries(health.activity)
+  // Targets shown during the live diagnostic sweep (real names if we have a prior
+  // run, else the configured services as a stand-in until results return).
+  const scanTargets = deep
+    ? ['llm', ...Object.keys(deep.integrations)]
+    : ['llm', ...configured.filter(([, ok]) => ok).map(([k]) => k)]
 
   return (
     <div className="space-y-4 p-6">
@@ -145,6 +167,35 @@ export default function Health() {
           )}
         </div>
       </motion.div>
+
+      {/* Genesis & Integrations — cross-link to the Integrations page */}
+      {gen && (
+        <Section title="Genesis & Integrations" icon={<KeyRound size={15} className="text-accent" />}
+          hint="Tier 0 completion and the connected API keys that power it.">
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="mb-1 flex items-center justify-between text-xs">
+                <span className="text-muted">{gen.genesis.complete ? 'Genesis complete 🎉' : `${gen.genesis.pct}% complete`}</span>
+                <span className="text-muted">{gen.genesis.active}/{gen.genesis.total} abilities</span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-border/40">
+                <div className={`h-full rounded-full transition-all duration-700 ${gen.genesis.complete ? 'bg-success' : 'bg-accent'}`}
+                  style={{ width: `${gen.genesis.pct}%` }} />
+              </div>
+            </div>
+            <Link to="/integrations" className="flex shrink-0 items-center gap-1 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20">
+              Manage <ExternalLink size={12} />
+            </Link>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {gen.integrations.filter(i => i.available).map(i => (
+              <span key={i.id} className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] ${i.connected ? 'bg-success/15 text-success' : 'bg-border/40 text-muted'}`}>
+                {i.connected ? <CheckCircle2 size={10} /> : <span className="h-1.5 w-1.5 rounded-full bg-current opacity-50" />}{i.label}
+              </span>
+            ))}
+          </div>
+        </Section>
+      )}
 
       {/* Liveness */}
       <Section title="Liveness" icon={<Server size={15} className="text-accent" />}
@@ -237,32 +288,55 @@ export default function Health() {
           {deep && <span className="text-[10px] text-muted">tested {new Date(deep.timestamp).toLocaleTimeString('en-GB')}</span>}
         </div>
         {!deep && !deepLoading && <div className="text-xs text-muted">No live check yet — click <b>Check all APIs</b> (or “Run full health check” up top) to test every API now.</div>}
-        {deep && (
+
+        {/* Live diagnostic sweep — radar scan rows cascade while every API is pinged */}
+        {deepLoading && (
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="flex items-center gap-2 rounded border border-border bg-bg p-2.5">
+            {scanTargets.map((name, i) => (
+              <div key={name} className="relative flex items-center gap-2 overflow-hidden rounded border border-accent/30 bg-bg p-2.5">
+                {!reduced && <span className="radar-scan-overlay" style={{ animationDelay: `${i * 0.12}s` }} />}
+                <span className="relative z-10 flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
+                </span>
+                {name !== 'llm' && <Logo name={name} size={16} />}
+                <div className="relative z-10 min-w-0 flex-1">
+                  <span className="text-xs font-medium text-text">{name === 'llm' ? 'LLM' : (SERVICE_LABEL[name] ?? name)}</span>
+                  <div className="truncate text-[10px] text-accent/80">testing…</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!deepLoading && deep && (
+          <Stagger className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3" step={0.07}>
+            <StaggerItem className="relative flex items-center gap-2 overflow-hidden rounded border border-border bg-bg p-2.5">
+              <SnapRing ok={deep.llm.ok} />
               <Dot ok={deep.llm.ok} />
-              <div className="min-w-0 flex-1">
+              <div className="relative z-10 min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-medium text-text">LLM ({deep.llm.provider ?? 'model'})</span>
                   {deep.llm.latency_ms != null && <span className="shrink-0 font-mono text-[10px] text-muted">{deep.llm.latency_ms}ms</span>}
                 </div>
                 <div className="truncate text-[10px] text-muted">{deep.llm.detail}</div>
               </div>
-            </div>
+            </StaggerItem>
             {Object.entries(deep.integrations).map(([name, c]) => (
-              <div key={name} className="flex items-center gap-2 rounded border border-border bg-bg p-2.5">
+              <StaggerItem key={name} className="relative flex items-center gap-2 overflow-hidden rounded border border-border bg-bg p-2.5">
+                <SnapRing ok={c.ok} />
                 <Dot ok={c.ok} />
                 <Logo name={name} size={16} />
-                <div className="min-w-0 flex-1">
+                <div className="relative z-10 min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-medium text-text">{SERVICE_LABEL[name] ?? name}</span>
                     {c.latency_ms ? <span className="shrink-0 font-mono text-[10px] text-muted">{c.latency_ms}ms</span> : null}
                   </div>
                   <div className="truncate text-[10px] text-muted">{c.detail}</div>
                 </div>
-              </div>
+              </StaggerItem>
             ))}
-          </div>
+          </Stagger>
         )}
       </Section>
     </div>

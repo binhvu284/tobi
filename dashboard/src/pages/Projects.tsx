@@ -21,6 +21,7 @@ import {
 } from '../api'
 import { useToast } from '../context/ToastProvider'
 import PageLoader from '../components/PageLoader'
+import { AmbientField } from '../components/motion'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const STATUS_CFG: Record<string, { label: string; color: string; dot: string }> = {
@@ -1179,7 +1180,8 @@ export default function Projects() {
   }))
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="relative flex flex-col h-full min-h-0">
+      <AmbientField />
       {/* Header */}
       <div className="flex items-center justify-between gap-4 px-6 py-4 border-b border-border shrink-0">
         <div>

@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Search, ArrowRight, Play, Palette, LayoutDashboard, Network, Zap, Building2, Kanban, HeartPulse, Terminal, Settings, type LucideIcon } from 'lucide-react'
 import { useTheme, THEMES, THEME_META, type Theme } from '../context/ThemeProvider'
 import { useToast } from '../context/ToastProvider'
+import { Stagger } from './motion'
+import { staggerChild, SPRING, useReducedMotionPref } from '../lib/motion'
 import { runEngine, type EngineName } from '../api'
 
 type Action = { id: string; label: string; group: string; icon: LucideIcon; run: () => void | Promise<void> }
@@ -16,6 +18,7 @@ export default function CommandPalette() {
   const nav = useNavigate()
   const { set } = useTheme()
   const { toast } = useToast()
+  const level = useReducedMotionPref()
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -78,21 +81,26 @@ export default function CommandPalette() {
                 className="w-full bg-transparent py-3 text-sm text-text outline-none placeholder:text-muted" />
               <kbd className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted">ESC</kbd>
             </div>
-            <div className="max-h-80 overflow-y-auto py-1">
+            <Stagger step={0.028} className="max-h-80 overflow-y-auto py-1">
               {filtered.length === 0 && <div className="px-4 py-6 text-center text-sm text-muted">No matches</div>}
               {filtered.map((a, idx) => {
                 const Icon = a.icon
+                const active = idx === i
                 return (
-                  <button key={a.id} onMouseEnter={() => setI(idx)} onClick={() => exec(a)}
-                    className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm ${idx === i ? 'bg-accent/15 text-text' : 'text-muted'}`}>
-                    <Icon size={15} />
-                    <span className="flex-1 text-text">{a.label}</span>
-                    <span className="text-[10px] uppercase tracking-wider text-muted">{a.group}</span>
-                    {idx === i && <ArrowRight size={13} className="text-accent" />}
-                  </button>
+                  <motion.button key={a.id} variants={staggerChild(level, 4)} onMouseEnter={() => setI(idx)} onClick={() => exec(a)}
+                    className="relative flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm">
+                    {active && (
+                      <motion.span layoutId="cmdSel" transition={SPRING.snappy}
+                        className="absolute inset-1 z-0 rounded-md bg-accent/15 shadow-[0_0_14px_-2px_rgb(var(--accent)/0.5)] ring-1 ring-accent/30" />
+                    )}
+                    <Icon size={15} className={`relative z-10 ${active ? 'text-accent' : 'text-muted'}`} />
+                    <span className={`relative z-10 flex-1 ${active ? 'text-text' : 'text-muted'}`}>{a.label}</span>
+                    <span className="relative z-10 text-[10px] uppercase tracking-wider text-muted">{a.group}</span>
+                    {active && <ArrowRight size={13} className="relative z-10 text-accent" />}
+                  </motion.button>
                 )
               })}
-            </div>
+            </Stagger>
           </motion.div>
         </>
       )}

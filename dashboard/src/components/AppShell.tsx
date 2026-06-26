@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { NavLink, useLocation } from 'react-router-dom'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, LayoutGroup } from 'framer-motion'
 import {
   LayoutDashboard, Network, Zap, Building2, Kanban, HeartPulse, Settings,
   Menu, X, Bell, Command, Palette, Circle, FolderKanban, TrendingUp,
@@ -14,6 +14,8 @@ import { getOfficeStats, getEvolution, type OfficeStats, type EvolutionReport } 
 import CommandPalette from './CommandPalette'
 import ErrorBoundary from './ErrorBoundary'
 import TierEmblem from './TierEmblem'
+import PageBoot from './motion/PageBoot'
+import { SPRING } from '../lib/motion'
 
 const APP_VERSION = 'v3.0'
 
@@ -95,8 +97,21 @@ function NavSection({ group, links, collapsed, onNavigate, open, onToggle }: {
             <div className="mt-0.5 space-y-0.5">
               {links.map(({ to, icon: Icon, label }) => (
                 <NavLink key={to} to={to} onClick={onNavigate}
-                  className={({ isActive }) => navClass(isActive, false)}>
-                  <Icon size={16} className="shrink-0" /> <span>{label}</span>
+                  className={({ isActive }) => `relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
+                    isActive ? 'text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
+                  {({ isActive }) => (
+                    <>
+                      {/* Sliding active pill — one shared layoutId per sidebar instance */}
+                      {isActive && (
+                        <motion.span layoutId="navActive" transition={SPRING.snappy}
+                          className="absolute inset-0 z-0 rounded-md bg-accent/15 ring-1 ring-accent/20" />
+                      )}
+                      <motion.span whileHover={{ scale: 1.18 }} transition={SPRING.pop} className="relative z-10 shrink-0">
+                        <Icon size={16} />
+                      </motion.span>
+                      <span className="relative z-10">{label}</span>
+                    </>
+                  )}
                 </NavLink>
               ))}
             </div>
@@ -172,13 +187,14 @@ function BottomMenu({ collapsed, evo, onNavigate }: {
   )
 }
 
-function SidebarContent({ onNavigate, collapsed = false, onToggleCollapse, openSections, toggleSection, evo }: {
+function SidebarContent({ onNavigate, collapsed = false, onToggleCollapse, openSections, toggleSection, evo, idScope = 'sidebar' }: {
   onNavigate?: () => void
   collapsed?: boolean
   onToggleCollapse?: () => void
   openSections: Record<string, boolean>
   toggleSection: (group: string) => void
   evo: EvolutionReport | null
+  idScope?: string
 }) {
   return (
     <div className="flex h-full flex-col">
@@ -201,13 +217,16 @@ function SidebarContent({ onNavigate, collapsed = false, onToggleCollapse, openS
         )}
       </div>
 
-      {/* Sections (scroll) */}
-      <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden">
-        {NAV.map(g => (
-          <NavSection key={g.group} group={g.group} links={g.links} collapsed={collapsed}
-            onNavigate={onNavigate} open={openSections[g.group] ?? true} onToggle={() => toggleSection(g.group)} />
-        ))}
-      </div>
+      {/* Sections (scroll) — LayoutGroup namespaces the sliding nav-active pill
+          per instance so the desktop + mobile sidebars never share a layoutId. */}
+      <LayoutGroup id={idScope}>
+        <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden">
+          {NAV.map(g => (
+            <NavSection key={g.group} group={g.group} links={g.links} collapsed={collapsed}
+              onNavigate={onNavigate} open={openSections[g.group] ?? true} onToggle={() => toggleSection(g.group)} />
+          ))}
+        </div>
+      </LayoutGroup>
 
       {/* Bottom status badge + system menu */}
       <BottomMenu collapsed={collapsed} evo={evo} onNavigate={onNavigate} />
@@ -349,7 +368,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       {/* desktop sidebar */}
       <aside className={`hidden shrink-0 flex-col border-r border-border bg-surface px-3 py-4 transition-[width] duration-200 md:flex ${collapsed ? 'w-16' : 'w-56'}`}>
         <SidebarContent collapsed={collapsed} onToggleCollapse={() => setCollapsed(c => !c)}
-          openSections={openSections} toggleSection={toggleSection} evo={evo} />
+          openSections={openSections} toggleSection={toggleSection} evo={evo} idScope="desktop" />
       </aside>
 
       {/* mobile drawer */}
@@ -360,7 +379,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             <motion.aside initial={{ x: -260 }} animate={{ x: 0 }} exit={{ x: -260 }} transition={{ type: 'spring', stiffness: 360, damping: 32 }}
               className="fixed left-0 top-0 z-[121] flex h-full w-60 flex-col border-r border-border bg-surface px-3 py-4 md:hidden">
               <button onClick={() => setDrawer(false)} className="absolute right-2 top-2 z-10 text-muted hover:text-text"><X size={16} /></button>
-              <SidebarContent onNavigate={() => setDrawer(false)} openSections={openSections} toggleSection={toggleSection} evo={evo} />
+              <SidebarContent onNavigate={() => setDrawer(false)} openSections={openSections} toggleSection={toggleSection} evo={evo} idScope="mobile" />
             </motion.aside>
           </>
         )}
@@ -369,14 +388,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar onMenu={() => setDrawer(true)} stats={stats} />
         <main className="relative flex-1 overflow-y-auto pb-16 md:pb-0">
-          {/* Keyed fade-in (no AnimatePresence exit gating): the incoming page always
-              mounts immediately, so navigation can never leave the view blank. */}
-          <motion.div key={loc.pathname} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.16, ease: 'easeOut' }} className="h-full">
+          {/* HUD panel-boot per route (slide-up + fade + one-shot scanline sweep).
+              Keyed by path with no AnimatePresence exit gating — the incoming page
+              always mounts immediately, so navigation can never leave a blank view. */}
+          <PageBoot key={loc.pathname}>
             <ErrorBoundary key={loc.pathname}>
               {children}
             </ErrorBoundary>
-          </motion.div>
+          </PageBoot>
         </main>
       </div>
 

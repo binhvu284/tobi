@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion'
+import CountUp from './motion/CountUp'
 
 type Tier = 'healthy' | 'degraded' | 'issue'
 
@@ -46,7 +47,7 @@ export default function HealthBar({ score, size = 'lg', className = '' }: Props)
     <div className={className}>
       <div className="mb-2 flex items-end justify-between">
         <div className="flex items-baseline gap-2">
-          <span className={`font-mono text-4xl font-bold leading-none ${t.text}`}>{s}</span>
+          <span className={`font-mono text-4xl font-bold leading-none ${t.text}`}><CountUp value={s} /></span>
           <span className="text-sm text-muted">/ 100 HP</span>
         </div>
         <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider ${t.text} border-current/40`}>

@@ -6,6 +6,8 @@ import {
 } from 'lucide-react'
 import { getEvolution, reflectNow, type EvolutionReport, type TierData, type TierAbility } from '../api'
 import { useSound } from '../hooks/useSound'
+import { useToast } from '../context/ToastProvider'
+import { useReducedMotionPref } from '../context/MotionProvider'
 import PageLoader from '../components/PageLoader'
 import TierEmblem from '../components/TierEmblem'
 
@@ -381,6 +383,7 @@ function TierUnlockOverlay({ tierId, tierName, colorKey, onDone }: {
   tierId: number; tierName: string; colorKey: string; onDone: () => void
 }) {
   const c = TIER_COLORS[colorKey] ?? TIER_COLORS.gray
+  const reduced = useReducedMotionPref() !== 'full'
   useEffect(() => {
     const t = setTimeout(onDone, 4000)
     return () => clearTimeout(t)
@@ -391,6 +394,13 @@ function TierUnlockOverlay({ tierId, tierName, colorKey, onDone }: {
       className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm"
       onClick={onDone}>
       <div className="relative flex flex-col items-center gap-4 select-none">
+        {/* Refined glow sweep across the completing tier node (premium, not fireworks) */}
+        {!reduced && (
+          <motion.span aria-hidden className="pointer-events-none absolute inset-x-[-40%] top-1/2 h-28 -translate-y-1/2"
+            style={{ background: `linear-gradient(90deg, transparent, ${c.hex}66, transparent)`, mixBlendMode: 'screen' }}
+            initial={{ x: '-120%', opacity: 0 }} animate={{ x: '120%', opacity: [0, 0.85, 0] }}
+            transition={{ duration: 1.1, ease: 'easeOut', delay: 0.3 }} />
+        )}
         {/* Expanding rings */}
         {[0.4, 0.65, 1].map((delay, i) => (
           <div key={i} className="absolute rounded-full border ring-expand"
@@ -428,6 +438,7 @@ export default function Evolution() {
   const [drawerAb, setDrawerAb] = useState<{ ab: TierAbility; tier: TierData } | null>(null)
   const [unlockOverlay, setUnlockOverlay] = useState<{ id: number; name: string; colorKey: string } | null>(null)
   const sfx = useSound()
+  const { toast } = useToast()
   const shownUnlocks = useRef<Set<number>>(new Set())
 
   const load = () => {
@@ -445,6 +456,7 @@ export default function Evolution() {
               setTimeout(() => {
                 setUnlockOverlay({ id: tid, name: t.name, colorKey: t.color_key })
                 sfx.tierUp()
+                toast({ kind: 'success', title: `Tier ${tid} unlocked — ${t.name}`, detail: 'A new tier of capability is online.' })
               }, 600)
             }
           }

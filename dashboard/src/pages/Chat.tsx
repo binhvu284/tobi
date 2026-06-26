@@ -1,14 +1,45 @@
 import { useEffect, useRef, useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { Send, Loader2, Sparkles, Bot, User } from 'lucide-react'
 import { type ChatMessage, streamBrainChat, getChatHistory, rememberFact } from '../api'
 import { useToast } from '../context/ToastProvider'
+import { useReducedMotionPref } from '../context/MotionProvider'
+
+const THINK_PHASES = ['Recalling memories…', 'Connecting context…', 'Thinking…']
+
+/** Pulsing orb + cycling status phases that mirror TOBI's memory-first pipeline. */
+function ThinkingOrb() {
+  const reduced = useReducedMotionPref() !== 'full'
+  const [pi, setPi] = useState(0)
+  useEffect(() => {
+    if (pi >= THINK_PHASES.length - 1) return
+    const t = setTimeout(() => setPi(p => Math.min(p + 1, THINK_PHASES.length - 1)), reduced ? 500 : 850)
+    return () => clearTimeout(t)
+  }, [pi, reduced])
+  return (
+    <div className="flex gap-2.5">
+      <div className="flex h-7 w-7 items-center justify-center rounded-full border border-purple/30 bg-purple/10 text-purple"><Bot size={13} /></div>
+      <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-border bg-surface px-3.5 py-2.5">
+        <motion.span className="h-2.5 w-2.5 rounded-full"
+          style={{ background: 'rgb(var(--purple))', boxShadow: '0 0 8px rgb(var(--purple) / 0.7)' }}
+          animate={reduced ? {} : { scale: [1, 1.4, 1], opacity: [0.6, 1, 0.6] }}
+          transition={{ duration: 1.1, repeat: Infinity, ease: 'easeInOut' }} />
+        <AnimatePresence mode="wait">
+          <motion.span key={pi} initial={{ opacity: 0, y: reduced ? 0 : 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: reduced ? 0 : -4 }}
+            transition={{ duration: 0.2 }} className="text-xs text-muted">{THINK_PHASES[pi]}</motion.span>
+        </AnimatePresence>
+      </div>
+    </div>
+  )
+}
 
 export default function Chat() {
   const { toast } = useToast()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [streaming, setStreaming] = useState(false)
+  const reduced = useReducedMotionPref() !== 'full'
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { getChatHistory().then(r => setMessages(r.items)).catch(() => {}) }, [])
@@ -26,6 +57,7 @@ export default function Chat() {
       if (streamed) return
       streamed = true
       setSending(false)
+      setStreaming(true)
       setMessages(m => [...m, { role: 'assistant', content: '' }])
     }
     try {
@@ -50,7 +82,7 @@ export default function Chat() {
       } else {
         setMessages(m => [...m, { role: 'assistant', content: msg }])
       }
-    } finally { setSending(false) }
+    } finally { setSending(false); setStreaming(false) }
   }
 
   const remember = async (content: string) => {
@@ -86,7 +118,12 @@ export default function Chat() {
                 {mine ? <User size={13} /> : <Bot size={13} />}
               </div>
               <div className={`max-w-[78%] rounded-2xl border px-3.5 py-2 text-sm ${mine ? 'rounded-tr-sm border-accent/20 bg-accent/10 text-text' : 'rounded-tl-sm border-border bg-surface text-text'}`}>
-                <div className="whitespace-pre-wrap leading-relaxed">{m.content}</div>
+                <div className="whitespace-pre-wrap leading-relaxed">
+                  {m.content}
+                  {!mine && streaming && i === messages.length - 1 && (
+                    <span className={`ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] bg-accent align-middle ${reduced ? '' : 'chat-caret'}`} />
+                  )}
+                </div>
                 {!mine && (
                   <button onClick={() => remember(m.content)}
                     className="mt-1 flex items-center gap-1 text-[10px] text-muted opacity-0 transition-opacity hover:text-accent group-hover:opacity-100">
@@ -97,14 +134,7 @@ export default function Chat() {
             </motion.div>
           )
         })}
-        {sending && (
-          <div className="flex gap-2.5">
-            <div className="flex h-7 w-7 items-center justify-center rounded-full border border-purple/30 bg-purple/10 text-purple"><Bot size={13} /></div>
-            <div className="flex items-center gap-1 rounded-2xl rounded-tl-sm border border-border bg-surface px-3.5 py-2.5">
-              <span className="tobi-loader-label text-xs text-muted">TOBI is thinking…</span>
-            </div>
-          </div>
-        )}
+        {sending && <ThinkingOrb />}
         <div ref={endRef} />
       </div>
 

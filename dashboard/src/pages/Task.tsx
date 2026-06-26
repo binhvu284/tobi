@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { RefreshCw, Plus } from 'lucide-react'
+import { AmbientField, CountUp, SpotlightCard } from '../components/motion'
 import {
   addTaskNote,
   createTask,
@@ -186,7 +187,8 @@ export default function Task() {
   }
 
   return (
-    <div className="space-y-4 p-6">
+    <div className="relative space-y-4 p-6">
+      <AmbientField tone="rgb(var(--accent))" />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-heading">Task</h1>
@@ -366,9 +368,11 @@ export default function Task() {
 function Metric({ label, value, warn = false, danger = false }: { label: string; value: string | number; warn?: boolean; danger?: boolean }) {
   const color = danger ? 'text-danger' : warn ? 'text-warning' : 'text-text'
   return (
-    <div className="rounded-lg border border-border bg-surface p-3">
+    <SpotlightCard className="rounded-lg border border-border bg-surface p-3">
       <p className="text-[11px] uppercase tracking-wider text-muted">{label}</p>
-      <p className={`mt-1 text-lg font-semibold ${color}`}>{value}</p>
-    </div>
+      <p className={`mt-1 text-lg font-semibold ${color}`}>
+        {typeof value === 'number' ? <CountUp value={value} /> : value}
+      </p>
+    </SpotlightCard>
   )
 }

@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import { X, Upload, Check, Loader2, GitMerge, CheckCheck, FileText } from 'lucide-react'
 import { type ImportCandidate, type MemoryCategory, parseImport, commitImport } from '../../api'
+import NeuralIngestion from './NeuralIngestion'
+import { Stagger, StaggerItem } from '../motion'
 
 type Props = { categories: MemoryCategory[]; onClose: () => void; onDone: (saved: number, merged: number) => void }
 type Row = ImportCandidate & { _id: number; _merge: boolean }
@@ -17,7 +19,8 @@ export default function BrainImportModal({ categories, onClose, onDone }: Props)
   const [filename, setFilename] = useState('import')
   const [sourceType, setSourceType] = useState('md')
   const [rows, setRows] = useState<Row[] | null>(null)
-  const [parsing, setParsing] = useState(false)
+  const [ingesting, setIngesting] = useState(false)
+  const [parsedCount, setParsedCount] = useState<number | null>(null)
   const [busyId, setBusyId] = useState<number | null>(null)
   const [savingAll, setSavingAll] = useState(false)
   const [error, setError] = useState('')
@@ -28,7 +31,7 @@ export default function BrainImportModal({ categories, onClose, onDone }: Props)
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    setError(''); setParsing(true); setRows(null)
+    setError(''); setRows(null); setParsedCount(null); setIngesting(true)
     setSaved(0); setMerged(0); setRejected(0)
     try {
       const text = await file.text()
@@ -36,10 +39,11 @@ export default function BrainImportModal({ categories, onClose, onDone }: Props)
       setSourceType(file.name.endsWith('.json') ? 'json' : 'md')
       const { items } = await parseImport(file.name, text)
       setRows(items.map((it, i) => ({ ...it, _id: i, _merge: false })))
-      if (items.length === 0) setError('No memories could be extracted from that file.')
+      if (items.length === 0) { setError('No memories could be extracted from that file.'); setIngesting(false) }
+      else setParsedCount(items.length) // → NeuralIngestion plays its completion, then reveals the cards
     } catch (err) {
-      setError((err as Error).message || 'Failed to parse file')
-    } finally { setParsing(false) }
+      setError((err as Error).message || 'Failed to parse file'); setIngesting(false)
+    }
   }
 
   const update = (id: number, patch: Partial<Row>) =>
@@ -110,17 +114,20 @@ export default function BrainImportModal({ categories, onClose, onDone }: Props)
           )}
 
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            {!rows && (
+            {ingesting && (
+              <NeuralIngestion filename={filename} result={parsedCount} onReveal={() => setIngesting(false)} />
+            )}
+            {!ingesting && !rows && (
               <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-bg py-12 text-muted hover:border-accent/50 hover:text-text">
-                {parsing ? <Loader2 size={22} className="animate-spin text-accent" /> : <Upload size={22} />}
-                <span className="text-sm">{parsing ? 'Parsing & extracting…' : 'Choose a .md or .json file'}</span>
+                <Upload size={22} />
+                <span className="text-sm">Choose a .md or .json file</span>
                 <span className="text-[11px]">TOBI rewrites it into clean, categorized memory cards you review one by one</span>
-                <input type="file" accept=".md,.json,.txt" className="hidden" onChange={onFile} disabled={parsing} />
+                <input type="file" accept=".md,.json,.txt" className="hidden" onChange={onFile} />
               </label>
             )}
-            {error && <div className="mt-3 rounded border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">{error}</div>}
+            {!ingesting && error && <div className="mt-3 rounded border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">{error}</div>}
 
-            {done && (
+            {!ingesting && done && (
               <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full border border-success/40 bg-success/10 text-success"><CheckCheck size={22} /></div>
                 <div className="text-sm font-medium text-heading">Import complete</div>
@@ -128,14 +135,14 @@ export default function BrainImportModal({ categories, onClose, onDone }: Props)
               </div>
             )}
 
-            {rows && rows.length > 0 && (
-              <div className="space-y-2">
+            {!ingesting && rows && rows.length > 0 && (
+              <Stagger className="space-y-2">
                 {rows.map(r => {
                   const cat = categories.find(c => c.id === r.category)
                   const color = cat?.color ?? '#a78bfa'
                   const conf = r.confidence ?? 0.6
                   return (
-                    <div key={r._id} className="rounded-lg border border-border bg-bg p-2.5">
+                    <StaggerItem key={r._id} className="rounded-lg border border-border bg-bg p-2.5">
                       <div className="flex items-start gap-2">
                         <span title="From imported file" className="mt-0.5 text-muted"><FileText size={13} /></span>
                         <textarea value={r.content} onChange={e => update(r._id, { content: e.target.value })} rows={2}
@@ -172,10 +179,10 @@ export default function BrainImportModal({ categories, onClose, onDone }: Props)
                           </button>
                         </div>
                       </div>
-                    </div>
+                    </StaggerItem>
                   )
                 })}
-              </div>
+              </Stagger>
             )}
           </div>
 

@@ -4,6 +4,7 @@ import { X, Plus, Check, GitBranch, Sparkles, Inbox, ThumbsUp, ThumbsDown } from
 import Logo from '../components/Logo'
 import StatBar from '../components/StatBar'
 import RadarChart from '../components/RadarChart'
+import { AmbientField } from '../components/motion'
 import {
   getAbilities, getAbilityDetail, coachAbility, getProposals, approveProposal, rejectProposal, rollbackAbility,
   type AbilitiesReport, type AbilityUsage, type SkillDetail, type Proposal,
@@ -300,7 +301,8 @@ export default function Ability() {
   }
 
   return (
-    <div className="flex h-full gap-6 p-6">
+    <div className="relative flex h-full gap-6 p-6">
+      <AmbientField tone="rgb(var(--purple))" />
       <div className="flex-1 overflow-y-auto">
         {/* Header */}
         <div className="mb-5 flex items-start justify-between">

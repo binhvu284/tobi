@@ -1,7 +1,7 @@
 # TOBI "Genesis Complete" — In-MC Integrations & Secrets Manager
 
-> **Queue status:** 🔵 Built — awaiting owner verification (needs backend restart) · **Completes:** Evolution **Genesis (Tier 0)** · **Owner-reviewed:** 30 Q&A + code grounding below
-> **Built:** `core/vault.py` (scrypt→AES-256-GCM, in-memory key + auto-relock, verifier; 14 unit tests), `core/database._ensure_vault_schema`, `core/integrations_registry.py`, 16 `/api/vault/*`+`/api/integrations/*` endpoints (session-token gated; full HTTP e2e passes), and `dashboard/src/pages/Integrations.tsx` (+ `api.ts`, nav, loader preset). `cryptography` added to requirements. Wizard + Health cross-link left as optional follow-ups.
+> **Queue status:** ✅ Done (v1) — all four milestones shipped · **Completes:** Evolution **Genesis (Tier 0)** · **Owner-reviewed:** 30 Q&A + code grounding below
+> **Built:** `core/vault.py` (scrypt→AES-256-GCM, in-memory key + auto-relock, verifier; 14 unit tests), `core/database._ensure_vault_schema`, `core/integrations_registry.py`, 16 `/api/vault/*`+`/api/integrations/*` endpoints (session-token gated; full HTTP e2e passes), and `dashboard/src/pages/Integrations.tsx` (+ `api.ts`, nav, loader preset). `cryptography` added to requirements. Also shipped: **startup auto-unlock** (DPAPI-wrapped key → integrations auto-connect on boot), the **Complete-Genesis wizard** (`GenesisWizard` stepper), and the **Health cross-link** (Genesis & Integrations panel on `/health`).
 > Part of the [Feature Development Queue](QUEUE.md). Builds a secure, in-Mission-Control way to configure, validate, and manage the API keys/tokens that gate Genesis — replacing today's `.env`-only setup.
 
 ## Context

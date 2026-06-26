@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { motion, Reorder } from 'framer-motion'
+import { motion, AnimatePresence, Reorder } from 'framer-motion'
 import {
   RefreshCw, CheckCircle, HeartPulse, FlaskConical, FileText, Crown, Building2, Zap, Plus,
   Loader2, GripVertical, Eye, EyeOff, SlidersHorizontal, Play, FolderKanban,
@@ -8,11 +8,50 @@ import {
 import HealthBar from '../components/HealthBar'
 import Loader from '../components/Loader'
 import PageLoader from '../components/PageLoader'
+import { AmbientField, CountUp, SpotlightCard, TraceButton } from '../components/motion'
+import { useReducedMotionPref } from '../context/MotionProvider'
 import {
   getStatus, getProjects, getLessons, getHealth, markDone, runEngine, pmGetStats,
   type Project, type Lesson, type Todo, type HealthReport, type EngineName, type PMStats,
 } from '../api'
 import { useToast } from '../context/ToastProvider'
+
+/** Once-per-session "system online" hero boot for the Dashboard. */
+function HeroBoot() {
+  const level = useReducedMotionPref()
+  const [show, setShow] = useState(() => {
+    if (level === 'off') return false
+    try { return sessionStorage.getItem('tobi.dash.booted') !== '1' } catch { return true }
+  })
+  useEffect(() => {
+    try { sessionStorage.setItem('tobi.dash.booted', '1') } catch { /* ignore */ }
+    if (!show) return
+    const t = setTimeout(() => setShow(false), level === 'full' ? 1300 : 650)
+    return () => clearTimeout(t)
+  }, [show, level])
+  return (
+    <AnimatePresence>
+      {show && (
+        <motion.div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 overflow-hidden bg-bg"
+          initial={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.45, ease: 'easeOut' }}>
+          <div className="grid-bg pointer-events-none absolute inset-0 opacity-60" />
+          <span className="page-scanline" />
+          <motion.div initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 260, damping: 18 }}
+            className="glow-accent relative flex h-16 w-16 items-center justify-center rounded-2xl border border-accent/50 bg-accent/10 text-accent">
+            <Zap size={30} />
+          </motion.div>
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="text-center">
+            <div className="text-2xl font-bold tracking-[0.3em] text-heading">TOBI</div>
+            <div className="mt-1 flex items-center justify-center gap-2 text-[11px] uppercase tracking-[0.4em] text-accent">
+              <span className="h-1.5 w-1.5 rounded-full bg-success" /> System online
+            </div>
+          </motion.div>
+          <div className="tobi-runbar mt-2 h-0.5 w-40" style={{ background: 'rgb(var(--border) / 0.4)' }} />
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
 
 const STATUS_COLOR: Record<string, string> = {
   active: 'bg-accent/20 text-accent', pending: 'bg-warning/20 text-warning', approved: 'bg-warning/20 text-warning',
@@ -80,11 +119,11 @@ export default function Dashboard() {
             {QUICK.map(q => {
               const Icon = q.icon; const running = busy === q.id
               return (
-                <button key={q.id} onClick={q.run} disabled={running}
+                <TraceButton key={q.id} onClick={q.run} disabled={running}
                   className="flex flex-col items-center gap-1.5 rounded-lg border border-border bg-bg p-3 text-center text-xs text-text transition-colors hover:border-accent/50 disabled:opacity-50">
                   {running ? <Loader2 size={18} className="animate-spin text-accent" /> : <Icon size={18} className="text-accent" />}
                   <span>{q.label}</span>
-                </button>
+                </TraceButton>
               )
             })}
             <Link to="/office" className="flex flex-col items-center gap-1.5 rounded-lg border border-border bg-bg p-3 text-center text-xs text-text hover:border-accent/50">
@@ -112,14 +151,14 @@ export default function Dashboard() {
       title: 'KPIs', node: (
         <div className="grid grid-cols-3 gap-4">
           {[
-            { label: 'Active Projects', val: activeCount, c: 'text-accent', icon: '📁' },
-            { label: 'Revenue (month)', val: `$${(rev.this_month ?? 0).toFixed(0)}`, c: 'text-success', icon: '💰' },
-            { label: 'Pending Todos', val: todos.length, c: todos.length ? 'text-warning' : 'text-muted', icon: '📋' },
+            { label: 'Active Projects', val: activeCount, c: 'text-accent', icon: '📁', prefix: '' },
+            { label: 'Revenue (month)', val: Math.round(rev.this_month ?? 0), c: 'text-success', icon: '💰', prefix: '$' },
+            { label: 'Pending Todos', val: todos.length, c: todos.length ? 'text-warning' : 'text-muted', icon: '📋', prefix: '' },
           ].map(k => (
-            <div key={k.label} className="rounded-xl border border-border bg-surface p-4">
+            <SpotlightCard key={k.label} className="rounded-xl border border-border bg-surface p-4">
               <div className="mb-1 text-xs text-muted">{k.icon} {k.label}</div>
-              <div className={`text-2xl font-bold ${k.c}`}>{k.val}</div>
-            </div>
+              <div className={`text-2xl font-bold ${k.c}`}><CountUp value={k.val} prefix={k.prefix} /></div>
+            </SpotlightCard>
           ))}
         </div>
       ),
@@ -221,7 +260,10 @@ export default function Dashboard() {
   const visible = cfg.order.filter(id => W[id] && !cfg.hidden.includes(id))
 
   return (
-    <div className="p-6">
+    <div className="relative p-6">
+      <AmbientField />
+      <HeroBoot />
+      <div className="relative z-10">
       <div className="mb-6 flex items-center justify-between">
         <div><h1 className="text-xl font-bold text-heading">Dashboard</h1><p className="mt-0.5 text-xs text-muted">Tobi&apos;s live operating status</p></div>
         <div className="flex items-center gap-3">
@@ -265,6 +307,7 @@ export default function Dashboard() {
           </motion.div>
         )
       )}
+      </div>
     </div>
   )
 }

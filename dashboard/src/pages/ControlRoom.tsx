@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { Play, Loader2, CheckCircle2, AlertTriangle, Terminal, FlaskConical, Building2, FileText, Crown } from 'lucide-react'
 import { getRunReadiness, runEngine, type Readiness, type RunResult, type EngineName } from '../api'
 import { useToast } from '../context/ToastProvider'
+import { AmbientField } from '../components/motion'
 
 const ICONS: Record<string, typeof Play> = { research: FlaskConical, execute: Building2, report: FileText, ceo: Crown }
 
@@ -32,7 +33,8 @@ export default function ControlRoom() {
   const readyCount = engines.filter(e => e.ready).length
 
   return (
-    <div className="p-6">
+    <div className="relative p-6">
+      <AmbientField tone="rgb(var(--success))" />
       <div className="mb-5 flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/15 text-accent"><Terminal size={20} /></div>
         <div>

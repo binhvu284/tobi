@@ -204,3 +204,123 @@
 .char-idle { animation: charIdle 2.5s ease-in-out infinite; }
 .char-working { animation: charWork 0.5s ease-in-out infinite; }
 .char-eye { animation: eyeBlink 4s ease-in-out infinite; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   "Living Machine" motion system (queue #6) — tokens, keyframes, primitives.
+   Single source of truth; framer variants live in src/lib/motion.ts. Budget:
+   transform/opacity only. Reduced/off neutralized by the [data-motion] guards.
+   ════════════════════════════════════════════════════════════════════════════ */
+:root {
+  --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --dur-xs: 120ms; --dur-sm: 180ms; --dur-md: 280ms; --dur-lg: 500ms; --dur-xl: 800ms;
+}
+
+/* ── Route boot scanline sweep (one-shot, top→bottom) ── */
+@keyframes scanline-sweep {
+  0%   { transform: translateY(-100%); opacity: 0; }
+  12%  { opacity: 0.9; }
+  100% { transform: translateY(2200%); opacity: 0; }
+}
+.page-scanline {
+  pointer-events: none;
+  position: absolute; left: 0; right: 0; top: 0; height: 14px; z-index: 30;
+  background: linear-gradient(to bottom, transparent, rgb(var(--accent) / 0.18), transparent);
+  box-shadow: 0 0 18px rgb(var(--accent) / 0.25);
+  animation: scanline-sweep 0.7s var(--ease-out) forwards;
+}
+
+/* ── Per-page ambient atmosphere (faint accent glow + drifting grid) ── */
+@keyframes ambient-drift {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50%      { transform: translate3d(0, -14px, 0); }
+}
+/* z-index:-1 so a page only needs `position: relative` + <AmbientField/> — content
+   (normal-flow / positioned with bg) paints above it without a wrapper. */
+.ambient-field { pointer-events: none; position: absolute; inset: 0; z-index: -1; overflow: hidden; }
+.ambient-field > .ambient-glow {
+  position: absolute; top: -25%; left: 50%; width: 80vw; max-width: 1100px; aspect-ratio: 1;
+  transform: translateX(-50%);
+  background: radial-gradient(circle at center, var(--ambient, rgb(var(--accent))) 0%, transparent 62%);
+  opacity: 0.06; filter: blur(28px);
+  animation: ambient-drift 14s ease-in-out infinite;
+}
+.ambient-field > .ambient-grid {
+  position: absolute; inset: -1px;
+  background-image:
+    linear-gradient(var(--ambient, rgb(var(--accent)) ) 1px, transparent 1px),
+    linear-gradient(90deg, var(--ambient, rgb(var(--accent))) 1px, transparent 1px);
+  background-size: 38px 38px; opacity: 0.025;
+  -webkit-mask-image: radial-gradient(circle at 50% 0%, black, transparent 75%);
+  mask-image: radial-gradient(circle at 50% 0%, black, transparent 75%);
+}
+
+/* ── Spotlight card: cursor-follow radial glow (pseudo-element, opacity only) ── */
+.spotlight-card { position: relative; isolation: isolate; }
+.spotlight-card::before {
+  content: ''; position: absolute; inset: 0; z-index: 1; border-radius: inherit;
+  background: radial-gradient(220px circle at var(--mx, 50%) var(--my, 50%), rgb(var(--accent) / 0.14), transparent 60%);
+  opacity: 0; transition: opacity var(--dur-md) var(--ease-out); pointer-events: none;
+}
+.spotlight-card:hover::before { opacity: 1; }
+
+/* ── Trace button: border sweep on hover + tiny press feedback ── */
+@keyframes border-trace { 0% { transform: translateX(-120%); } 100% { transform: translateX(120%); } }
+.trace-btn { position: relative; overflow: hidden; }
+.trace-btn::after {
+  content: ''; position: absolute; top: 0; bottom: 0; width: 45%; z-index: 1;
+  background: linear-gradient(100deg, transparent, rgb(255 255 255 / 0.12), transparent);
+  transform: translateX(-150%); opacity: 0; pointer-events: none;
+}
+.trace-btn:hover::after { opacity: 1; animation: border-trace 0.7s var(--ease-out); }
+
+/* ── Count-up accent flash on change ── */
+@keyframes count-flash { 0% { color: rgb(var(--accent)); text-shadow: 0 0 10px rgb(var(--accent) / 0.55); } 100% { color: inherit; text-shadow: none; } }
+.count-flash { animation: count-flash 0.6s var(--ease-out); }
+
+/* ── Blinking caret (Chat stream + Brain ingestion log) ── */
+@keyframes caret-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+.chat-caret { animation: caret-blink 0.9s steps(1) infinite; }
+
+/* ── Health diagnostic sweep: radar shimmer overlay (per-row, staggered) ── */
+@keyframes radar-scan { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.radar-scan-overlay {
+  position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(100deg, transparent 30%, rgb(var(--accent) / 0.18) 50%, transparent 70%);
+  background-size: 200% 100%;
+  animation: radar-scan 1.1s linear infinite;
+}
+
+/* ── Theme crossfade: only during the switch window (set by ThemeProvider) ── */
+[data-theme-anim] *, [data-theme-anim] *::before, [data-theme-anim] *::after {
+  transition: background-color .3s ease, border-color .3s ease, color .3s ease, fill .3s ease, stroke .3s ease !important;
+}
+
+/* ── Reduced-motion guards (first-class, Decision #25) ──
+   reduced ⇒ kill decorative loops/sweeps, keep opacity feedback;
+   off ⇒ neutralize all animation/transition (instant). */
+[data-motion="reduced"] .page-scanline,
+[data-motion="off"]     .page-scanline { display: none !important; }
+[data-motion="reduced"] .ambient-field > .ambient-glow,
+[data-motion="reduced"] .spotlight-card::before,
+[data-motion="reduced"] .trace-btn::after,
+[data-motion="reduced"] .char-idle,
+[data-motion="reduced"] .char-working,
+[data-motion="reduced"] .char-eye,
+[data-motion="reduced"] .tier-pulse,
+[data-motion="reduced"] .sovereign-text,
+[data-motion="reduced"] .aurora-text,
+[data-motion="reduced"] .tobi-icon-glow,
+[data-motion="reduced"] .tobi-name-shimmer,
+[data-motion="reduced"] .chat-caret,
+[data-motion="reduced"] .radar-scan-overlay { animation: none !important; }
+[data-motion="reduced"] .chat-caret { opacity: 1 !important; }
+[data-motion="reduced"] .radar-scan-overlay,
+[data-motion="off"]     .radar-scan-overlay { display: none !important; }
+[data-motion="off"] .ambient-field { display: none !important; }
+[data-motion="off"] *, [data-motion="off"] *::before, [data-motion="off"] *::after {
+  animation-duration: .001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: .001ms !important;
+  scroll-behavior: auto !important;
+}

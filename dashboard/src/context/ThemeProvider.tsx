@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 
 export const THEMES = ['dark', 'light', 'midnight', 'contrast', 'warm', 'gaming', 'hightech', 'scientific'] as const
 export type Theme = typeof THEMES[number]
@@ -35,6 +35,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     r.style.setProperty('--font-scale', String(prefs.fontScale * (prefs.density === 'compact' ? 0.9 : 1)))
     try { localStorage.setItem(KEY, JSON.stringify(prefs)) } catch { /* ignore */ }
   }, [prefs])
+
+  // Theme crossfade (queue #6): open a brief window where color-bearing props
+  // transition (~300ms), only during an actual theme switch — never on mount or
+  // on everyday interactions. The [data-theme-anim] CSS rule does the fade.
+  const firstRun = useRef(true)
+  useEffect(() => {
+    if (firstRun.current) { firstRun.current = false; return }
+    const r = document.documentElement
+    r.setAttribute('data-theme-anim', '')
+    const t = setTimeout(() => r.removeAttribute('data-theme-anim'), 340)
+    return () => clearTimeout(t)
+  }, [prefs.theme])
+
   const set = (p: Partial<Prefs>) => setPrefs(s => ({ ...s, ...p }))
   const reset = () => setPrefs(DEFAULTS)
   return <ThemeCtx.Provider value={{ ...prefs, set, reset }}>{children}</ThemeCtx.Provider>

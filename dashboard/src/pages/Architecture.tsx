@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X } from 'lucide-react'
 import Logo from '../components/Logo'
+import { AmbientField } from '../components/motion'
 
 type Node = {
   id: string
@@ -349,7 +350,8 @@ export default function Architecture() {
   const toggle = (node: Node) => setActive(prev => (prev?.id === node.id ? null : node))
 
   return (
-    <div className="flex h-full gap-6 p-6">
+    <div className="relative flex h-full gap-6 p-6">
+      <AmbientField tone="rgb(var(--accent))" />
       {/* Zone stack */}
       <div className="flex-1 overflow-y-auto">
         <div className="mb-5">

@@ -1,6 +1,13 @@
-import { Check, Volume2, VolumeX, RotateCcw, Type, Rows, Palette } from 'lucide-react'
+import { Check, Volume2, VolumeX, RotateCcw, Type, Rows, Palette, Sparkles } from 'lucide-react'
 import { useTheme, THEMES, THEME_META, type Theme } from '../context/ThemeProvider'
+import { useMotion, type MotionSetting } from '../context/MotionProvider'
 import { sfx } from '../hooks/useSound'
+
+const MOTION_OPTS: { key: MotionSetting; label: string; hint: string }[] = [
+  { key: 'full', label: 'Full', hint: 'All HUD motion & signature effects' },
+  { key: 'reduced', label: 'Reduced', hint: 'Fades only — no slides, sweeps or loops' },
+  { key: 'off', label: 'Off', hint: 'Instant — zero animation' },
+]
 
 function ThemeSwatch({ t }: { t: Theme }) {
   // data-theme on the swatch resolves the tokens to THAT theme — real preview.
@@ -25,6 +32,7 @@ function Section({ title, icon, children }: { title: string; icon: React.ReactNo
 
 export default function Settings() {
   const { theme, fontScale, density, sound, set, reset } = useTheme()
+  const { setting: motionSetting, level: motionLevel, setSetting: setMotion } = useMotion()
 
   return (
     <div className="mx-auto max-w-3xl p-6">
@@ -66,6 +74,25 @@ export default function Settings() {
               </button>
             ))}
           </div>
+        </Section>
+
+        <Section title="Motion" icon={<Sparkles size={15} className="text-accent" />}>
+          <div className="grid grid-cols-3 gap-2">
+            {MOTION_OPTS.map(o => (
+              <button key={o.key} onClick={() => { setMotion(o.key); if (o.key !== 'off') sfx.select() }}
+                className={`flex flex-col gap-1 rounded-lg border p-3 text-left transition-colors ${motionSetting === o.key ? 'border-accent bg-accent/10' : 'border-border hover:border-white/20'}`}>
+                <div className="flex items-center justify-between">
+                  <span className={`text-xs font-semibold ${motionSetting === o.key ? 'text-accent' : 'text-heading'}`}>{o.label}</span>
+                  {motionSetting === o.key && <Check size={14} className="text-accent" />}
+                </div>
+                <span className="text-[10px] leading-tight text-muted">{o.hint}</span>
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] text-muted">
+            Controls route transitions, signature effects & ambient motion across Mission Control.
+            {motionLevel !== motionSetting && <span className="text-warning"> Your OS prefers reduced motion, so effects are clamped to “{motionLevel}”.</span>}
+          </p>
         </Section>
 
         <Section title="Text size" icon={<Type size={15} className="text-accent" />}>

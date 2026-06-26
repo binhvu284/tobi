@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ThemeProvider } from './context/ThemeProvider'
+import { MotionProvider } from './context/MotionProvider'
 import { ToastProvider } from './context/ToastProvider'
 import AppShell from './components/AppShell'
 import PageLoader from './components/PageLoader'
@@ -27,8 +28,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <ThemeProvider>
-        <ToastProvider>
-          <AppShell>
+        <MotionProvider>
+          <ToastProvider>
+            <AppShell>
             <Routes>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<Dashboard />} />
@@ -52,8 +54,9 @@ export default function App() {
               <Route path="/health" element={<Health />} />
               <Route path="/settings" element={<Settings />} />
             </Routes>
-          </AppShell>
-        </ToastProvider>
+            </AppShell>
+          </ToastProvider>
+        </MotionProvider>
       </ThemeProvider>
     </BrowserRouter>
   )
