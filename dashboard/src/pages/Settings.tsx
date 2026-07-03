@@ -1,7 +1,10 @@
-import { Check, Volume2, VolumeX, RotateCcw, Type, Rows, Palette, Sparkles } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Check, Volume2, VolumeX, RotateCcw, Type, Rows, Palette, Sparkles, Globe, Save } from 'lucide-react'
 import { useTheme, THEMES, THEME_META, type Theme } from '../context/ThemeProvider'
 import { useMotion, type MotionSetting } from '../context/MotionProvider'
 import { sfx } from '../hooks/useSound'
+import { getOwnerSettings, patchOwnerSettings } from '../api'
+import { useToast } from '../context/ToastProvider'
 
 const MOTION_OPTS: { key: MotionSetting; label: string; hint: string }[] = [
   { key: 'full', label: 'Full', hint: 'All HUD motion & signature effects' },
@@ -27,6 +30,54 @@ function Section({ title, icon, children }: { title: string; icon: React.ReactNo
       <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-heading">{icon}{title}</div>
       {children}
     </div>
+  )
+}
+
+const TIMEZONES = [
+  { value: 'Asia/Ho_Chi_Minh', label: 'Vietnam (UTC+7)' },
+  { value: 'Asia/Bangkok', label: 'Bangkok (UTC+7)' },
+  { value: 'Asia/Singapore', label: 'Singapore (UTC+8)' },
+  { value: 'Asia/Shanghai', label: 'Shanghai (UTC+8)' },
+  { value: 'Asia/Tokyo', label: 'Tokyo (UTC+9)' },
+  { value: 'Asia/Seoul', label: 'Seoul (UTC+9)' },
+  { value: 'Asia/Kolkata', label: 'India (UTC+5:30)' },
+  { value: 'Europe/London', label: 'London (UTC+0/+1)' },
+  { value: 'Europe/Paris', label: 'Paris (UTC+1/+2)' },
+  { value: 'America/New_York', label: 'New York (UTC-5/-4)' },
+  { value: 'America/Los_Angeles', label: 'Los Angeles (UTC-8/-7)' },
+  { value: 'UTC', label: 'UTC' },
+]
+
+function TimezoneSection() {
+  const [tz, setTz] = useState('Asia/Ho_Chi_Minh')
+  const [saved, setSaved] = useState(false)
+  const { toast } = useToast()
+
+  useEffect(() => {
+    getOwnerSettings().then(s => { if (s.timezone) setTz(s.timezone) }).catch(() => {})
+  }, [])
+
+  async function save() {
+    try {
+      await patchOwnerSettings({ timezone: tz })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch (e) { toast({ kind: 'error', title: 'Failed to save', detail: (e as Error).message }) }
+  }
+
+  return (
+    <Section title="Timezone" icon={<Globe size={15} className="text-accent" />}>
+      <div className="flex items-center gap-3">
+        <select value={tz} onChange={e => { setTz(e.target.value); setSaved(false) }}
+          className="flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-accent">
+          {TIMEZONES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+        <button onClick={save} className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-colors ${saved ? 'border-success/40 bg-success/10 text-success' : 'border-border text-muted hover:text-text'}`}>
+          {saved ? <Check size={14} /> : <Save size={14} />} {saved ? 'Saved' : 'Save'}
+        </button>
+      </div>
+      <p className="mt-2 text-[11px] text-muted">Used by the header clock and TOBI's datetime awareness.</p>
+    </Section>
   )
 }
 
@@ -110,6 +161,8 @@ export default function Settings() {
           </button>
           <p className="mt-2 text-[11px] text-muted">Subtle clicks/confirms across the app. Off by default.</p>
         </Section>
+
+        <TimezoneSection />
       </div>
     </div>
   )

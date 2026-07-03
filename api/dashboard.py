@@ -1744,6 +1744,36 @@ def _last(conn: sqlite3.Connection, query: str) -> str | None:
         return None
 
 
+class OwnerSettingsPatchRequest(BaseModel):
+    timezone: str | None = None
+
+
+@app.get("/api/owner/settings")
+async def get_owner_settings():
+    conn = _get_conn()
+    try:
+        rows = conn.execute("SELECT key, value FROM owner_settings").fetchall()
+        return {r["key"]: r["value"] for r in rows}
+    finally:
+        conn.close()
+
+
+@app.patch("/api/owner/settings")
+async def patch_owner_settings(payload: OwnerSettingsPatchRequest):
+    conn = _get_conn()
+    try:
+        if payload.timezone is not None:
+            conn.execute(
+                "INSERT OR REPLACE INTO owner_settings (key, value, updated_at) VALUES ('timezone', ?, CURRENT_TIMESTAMP)",
+                (payload.timezone,),
+            )
+        conn.commit()
+        rows = conn.execute("SELECT key, value FROM owner_settings").fetchall()
+        return {r["key"]: r["value"] for r in rows}
+    finally:
+        conn.close()
+
+
 @app.get("/api/health")
 async def api_health():
     """Diagnostics for Mission Control's Health page.
@@ -2027,20 +2057,26 @@ class PMProjectPatchRequest(BaseModel):
 
 class PMGoalCreateRequest(BaseModel):
     title: str
+    description: str | None = None
     metric_name: str | None = None
     target_value: float = 100
     current_value: float = 0
     due_date: str | None = None
+    priority: str = "medium"
     owner: str = "user"
+    parent_goal_id: int | None = None
 
 
 class PMGoalPatchRequest(BaseModel):
     title: str | None = None
+    description: str | None = None
     metric_name: str | None = None
     target_value: float | None = None
     current_value: float | None = None
     due_date: str | None = None
+    priority: str | None = None
     owner: str | None = None
+    parent_goal_id: int | None = None
 
 
 class PMMissionCreateRequest(BaseModel):
@@ -2307,10 +2343,12 @@ async def pm_create_goal(project_id: int, payload: PMGoalCreateRequest):
         conn.close()
         raise HTTPException(status_code=404, detail="project not found")
     cur = conn.execute(
-        """INSERT INTO pm_goals (project_id, title, metric_name, target_value, current_value, due_date, owner)
-           VALUES (?,?,?,?,?,?,?)""",
-        (project_id, payload.title, payload.metric_name, payload.target_value,
-         payload.current_value, payload.due_date, payload.owner),
+        """INSERT INTO pm_goals (project_id, title, description, metric_name, target_value,
+                                 current_value, due_date, priority, owner, parent_goal_id)
+           VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        (project_id, payload.title, payload.description, payload.metric_name, payload.target_value,
+         payload.current_value, payload.due_date, payload.priority, payload.owner,
+         payload.parent_goal_id),
     )
     gid = cur.lastrowid
     _pm_recalc_progress(conn, project_id)
@@ -2331,9 +2369,11 @@ async def pm_patch_goal(project_id: int, goal_id: int, payload: PMGoalPatchReque
         conn.close()
         raise HTTPException(status_code=404, detail="goal not found")
     fields, vals, diff = [], [], {}
-    for col, v in [("title", payload.title), ("metric_name", payload.metric_name),
+    for col, v in [("title", payload.title), ("description", payload.description),
+                   ("metric_name", payload.metric_name),
                    ("target_value", payload.target_value), ("current_value", payload.current_value),
-                   ("due_date", payload.due_date), ("owner", payload.owner)]:
+                   ("due_date", payload.due_date), ("priority", payload.priority),
+                   ("owner", payload.owner), ("parent_goal_id", payload.parent_goal_id)]:
         if v is not None:
             fields.append(f"{col}=?"); vals.append(v); diff[col] = v
     if fields:
@@ -3960,6 +4000,35 @@ def brain_stats():
 @app.get("/api/brain/categories")
 def brain_categories():
     return {"categories": brain.list_categories()}
+
+
+class BrainCategoryPatchRequest(BaseModel):
+    is_locked: bool | None = None
+    label: str | None = None
+    color: str | None = None
+
+
+@app.patch("/api/brain/categories/{cat_id}")
+def brain_patch_category(cat_id: str, payload: BrainCategoryPatchRequest):
+    conn = _get_conn()
+    try:
+        if not conn.execute("SELECT 1 FROM brain_categories WHERE id=?", (cat_id,)).fetchone():
+            raise HTTPException(status_code=404, detail="category not found")
+        fields, vals = [], []
+        if payload.is_locked is not None:
+            fields.append("is_locked=?"); vals.append(1 if payload.is_locked else 0)
+        if payload.label is not None:
+            fields.append("label=?"); vals.append(payload.label)
+        if payload.color is not None:
+            fields.append("color=?"); vals.append(payload.color)
+        if fields:
+            vals.append(cat_id)
+            conn.execute(f"UPDATE brain_categories SET {', '.join(fields)} WHERE id=?", vals)
+            conn.commit()
+        row = conn.execute("SELECT * FROM brain_categories WHERE id=?", (cat_id,)).fetchone()
+        return dict(row)
+    finally:
+        conn.close()
 
 
 @app.get("/api/brain/memories")

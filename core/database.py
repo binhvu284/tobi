@@ -499,6 +499,11 @@ def _ensure_pm_schema(conn: sqlite3.Connection) -> None:
         ") WHERE sort_order IS NULL"
     )
 
+    # v2: Goals get description, priority, and one-level sub-goal nesting.
+    _ensure_column(conn, "pm_goals", "description",    "TEXT")
+    _ensure_column(conn, "pm_goals", "priority",       "TEXT DEFAULT 'medium'")
+    _ensure_column(conn, "pm_goals", "parent_goal_id", "INTEGER REFERENCES pm_goals(id) ON DELETE CASCADE")
+
 
 def _ensure_brain_schema(conn: sqlite3.Connection) -> None:
     """Brain: long-term owner memory (auto-learn + import + psychology profile).
@@ -605,6 +610,11 @@ def _ensure_brain_schema(conn: sqlite3.Connection) -> None:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(brain_memories)").fetchall()}
     if "hermes_synced_at" not in cols:
         conn.execute("ALTER TABLE brain_memories ADD COLUMN hermes_synced_at DATETIME")
+
+    # v2: is_locked decoupled from sensitive (lock = UI display; sensitive = auto-memory routing).
+    # Psychology was unlocked by owner command — set is_locked=0 so UI reflects the override.
+    _ensure_column(conn, "brain_categories", "is_locked", "INTEGER DEFAULT 0")
+    conn.execute("UPDATE brain_categories SET is_locked=0 WHERE id='psychology'")
 
 
 def _ensure_graph_schema(conn: sqlite3.Connection) -> None:
@@ -949,6 +959,13 @@ def _ensure_chat_schema(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE TABLE IF NOT EXISTS llm_config ("
         "id INTEGER PRIMARY KEY CHECK (id=1), config_json TEXT, updated_at TEXT)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS owner_settings ("
+        "key TEXT PRIMARY KEY, value TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO owner_settings (key, value) VALUES ('timezone', 'Asia/Ho_Chi_Minh')"
     )
 
 

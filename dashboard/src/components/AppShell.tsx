@@ -15,6 +15,7 @@ import CommandPalette from './CommandPalette'
 import ErrorBoundary from './ErrorBoundary'
 import TierEmblem from './TierEmblem'
 import PageBoot from './motion/PageBoot'
+import ClockCalendar from './ClockCalendar'
 import { SPRING } from '../lib/motion'
 
 const APP_VERSION = 'v3.0'
@@ -329,6 +330,7 @@ function TopBar({ onMenu, stats }: { onMenu: () => void; stats: OfficeStats | nu
           className="hidden items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-xs text-muted hover:text-text sm:flex">
           <Command size={13} /> <span>K</span>
         </button>
+        <ClockCalendar />
         <ThemeQuickSwitch />
         <BellInbox />
       </div>

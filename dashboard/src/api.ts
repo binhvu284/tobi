@@ -602,12 +602,15 @@ export type PMGoal = {
   id: number
   project_id: number
   title: string
+  description: string | null
   metric_name: string | null
   target_value: number
   current_value: number
   progress_pct: number
   due_date: string | null
+  priority: 'low' | 'medium' | 'high'
   owner: PMGoalOwner
+  parent_goal_id: number | null
   created_at: string
   updated_at: string
 }
@@ -685,11 +688,14 @@ export type PMProjectPatch = Partial<Omit<PMProjectCreate, 'created_by'>> & { kp
 
 export type PMGoalCreate = {
   title: string
+  description?: string
   metric_name?: string
   target_value?: number
   current_value?: number
   due_date?: string
+  priority?: 'low' | 'medium' | 'high'
   owner?: PMGoalOwner
+  parent_goal_id?: number | null
 }
 
 export type PMTaskCreate = {
@@ -812,7 +818,7 @@ export type Memory = {
 }
 export type MemoryCategory = {
   id: string; label: string; color: string; icon: string
-  sort_order: number; sensitive: number; status: string
+  sort_order: number; sensitive: number; is_locked: number; status: string
 }
 export type BrainStats = {
   total: number
@@ -854,6 +860,13 @@ function brainQuery(f: MemoryFilters): string {
 
 export async function getBrainStats(): Promise<BrainStats> { return get('/api/brain/stats') }
 export async function getBrainCategories(): Promise<{ categories: MemoryCategory[] }> { return get('/api/brain/categories') }
+export async function patchBrainCategory(catId: string, payload: { is_locked?: number; label?: string; color?: string }): Promise<{ ok: boolean }> {
+  return request(`/api/brain/categories/${catId}`, { method: 'PATCH', body: JSON.stringify(payload) })
+}
+export async function getOwnerSettings(): Promise<Record<string, string>> { return get('/api/owner/settings') }
+export async function patchOwnerSettings(payload: Record<string, string>): Promise<{ ok: boolean }> {
+  return request('/api/owner/settings', { method: 'PATCH', body: JSON.stringify(payload) })
+}
 export async function getMemories(f: MemoryFilters = {}): Promise<{ items: Memory[] }> { return get(`/api/brain/memories${brainQuery(f)}`) }
 export async function getMemory(id: number): Promise<Memory> { return get(`/api/brain/memories/${id}`) }
 export async function createMemory(payload: { content: string; category: string; confidence?: number; source?: string }): Promise<Memory> {

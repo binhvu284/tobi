@@ -201,7 +201,7 @@ export default function Brain() {
         <Tab active={activeCat === 'all'} onClick={() => setActiveCat('all')} color="#8b949e" label="All" count={stats?.total} />
         {categories.map(c => (
           <Tab key={c.id} active={activeCat === c.id} onClick={() => setActiveCat(c.id)} color={c.color}
-            label={c.label} count={stats?.by_category[c.id]} sensitive={!!c.sensitive} />
+            label={c.label} count={stats?.by_category[c.id]} locked={!!c.is_locked} />
         ))}
       </div>
 
@@ -275,13 +275,13 @@ export default function Brain() {
   )
 }
 
-function Tab({ active, onClick, color, label, count, sensitive }: { active: boolean; onClick: () => void; color: string; label: string; count?: number; sensitive?: boolean }) {
+function Tab({ active, onClick, color, label, count, locked }: { active: boolean; onClick: () => void; color: string; label: string; count?: number; locked?: boolean }) {
   return (
     <button onClick={onClick}
       className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${active ? 'text-text' : 'text-muted hover:text-text'}`}
       style={active ? { borderColor: color, background: `${color}1a` } : { borderColor: 'rgb(var(--border))' }}>
       <span className="h-2 w-2 rounded-full" style={{ background: color }} />
-      {label}{sensitive ? ' 🔒' : ''}
+      {label}{locked ? ' 🔒' : ''}
       {typeof count === 'number' && <span className="text-[10px] text-muted">{count}</span>}
     </button>
   )

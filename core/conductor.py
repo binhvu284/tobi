@@ -293,7 +293,44 @@ def tool_web_search(query: str = "", **_: Any) -> dict:
 
 
 # name → (callable, one-line description for the model)
+def tool_get_current_datetime(**_: Any) -> dict:
+    """Current date and time in the owner's timezone — always live."""
+    import time as _time
+    try:
+        tz_name = _load_owner_timezone()
+    except Exception:
+        tz_name = "Asia/Ho_Chi_Minh"
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(tz_name)
+        now = datetime.now(tz)
+        local_str = now.strftime("%A, %d %B %Y %H:%M:%S %Z")
+    except Exception:
+        now = datetime.now(timezone.utc)
+        local_str = now.strftime("%A, %d %B %Y %H:%M:%S UTC")
+    return {
+        "datetime_local": local_str,
+        "timezone": tz_name,
+        "iso_utc": datetime.now(timezone.utc).isoformat(),
+        "unix_ts": int(_time.time()),
+    }
+
+
+def _load_owner_timezone() -> str:
+    conn = _conn()
+    try:
+        row = conn.execute(
+            "SELECT value FROM owner_settings WHERE key='timezone'"
+        ).fetchone()
+        return row["value"] if row else "Asia/Ho_Chi_Minh"
+    except Exception:
+        return "Asia/Ho_Chi_Minh"
+    finally:
+        conn.close()
+
+
 READ_TOOLS: dict[str, tuple[Callable[..., dict], str]] = {
+    "get_current_datetime": (tool_get_current_datetime, "Current date and time in the owner's timezone. No args."),
     "get_evolution": (tool_get_evolution, "Current evolution tier, completion %, and ability counts. No args."),
     "explain_architecture": (tool_explain_architecture, "TOBI's system architecture, layer by layer. No args."),
     "office_status": (tool_office_status, "Agent count, each agent's role + working/free status, missions running. No args."),
@@ -533,14 +570,141 @@ def tool_run_mission(objective: str = "", **_: Any) -> dict:
     return {"ok": True, "mission_id": mid, "status": "queued", "objective": obj[:120]}
 
 
+def tool_rename_project(project_id: int = 0, new_name: str = "", **_: Any) -> dict:
+    """Rename a PM project. Args: project_id (int), new_name (string)."""
+    try:
+        project_id = int(project_id)
+    except Exception:
+        return {"error": "project_id must be an integer"}
+    new_name = (new_name or "").strip()
+    if not new_name:
+        return {"error": "new_name is required"}
+    conn = _conn()
+    try:
+        row = conn.execute("SELECT name FROM pm_projects WHERE id=?", (project_id,)).fetchone()
+        if not row:
+            return {"error": f"no project with id {project_id}"}
+        old_name = row["name"]
+        conn.execute("UPDATE pm_projects SET name=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (new_name, project_id))
+        _pm_log(conn, project_id, "project.renamed", f"Renamed from '{old_name}' to '{new_name}'")
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "project_id": project_id, "old_name": old_name, "new_name": new_name}
+
+
+def tool_create_goal(project_id: int = 0, title: str = "", description: str = "",
+                     due_date: str = "", priority: str = "medium", **_: Any) -> dict:
+    """Create a goal inside a PM project. Args: project_id (int), title (string), description (optional), due_date (YYYY-MM-DD, optional), priority (low|medium|high)."""
+    title = (title or "").strip()
+    if not title:
+        return {"error": "title is required"}
+    try:
+        project_id = int(project_id)
+    except Exception:
+        return {"error": "project_id must be an integer"}
+    conn = _conn()
+    try:
+        if not conn.execute("SELECT 1 FROM pm_projects WHERE id=?", (project_id,)).fetchone():
+            return {"error": f"no project with id {project_id}"}
+        cur = conn.execute(
+            "INSERT INTO pm_goals (project_id, title, description, due_date, priority, target_value, current_value, owner) VALUES (?,?,?,?,?,100,0,'tobi')",
+            (project_id, title, description or None, due_date or None, priority or "medium"),
+        )
+        gid = cur.lastrowid
+        _pm_log(conn, project_id, "goal.created", f"Goal '{title}' created via TOBI")
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "goal_id": gid, "project_id": project_id, "title": title}
+
+
+def tool_edit_goal(goal_id: int = 0, title: str = "", description: str = "",
+                   due_date: str = "", priority: str = "", current_value: float = -1, **_: Any) -> dict:
+    """Edit a goal. Args: goal_id (int), and any of: title, description, due_date, priority (low|medium|high), current_value (0-100)."""
+    try:
+        goal_id = int(goal_id)
+    except Exception:
+        return {"error": "goal_id must be an integer"}
+    conn = _conn()
+    try:
+        row = conn.execute("SELECT project_id FROM pm_goals WHERE id=?", (goal_id,)).fetchone()
+        if not row:
+            return {"error": f"no goal with id {goal_id}"}
+        project_id = row["project_id"]
+        fields, vals = [], []
+        if title:
+            fields.append("title=?"); vals.append(title.strip())
+        if description:
+            fields.append("description=?"); vals.append(description)
+        if due_date:
+            fields.append("due_date=?"); vals.append(due_date)
+        if priority:
+            fields.append("priority=?"); vals.append(priority)
+        if current_value >= 0:
+            fields.append("current_value=?"); vals.append(float(current_value))
+        if fields:
+            fields.append("updated_at=CURRENT_TIMESTAMP")
+            vals.append(goal_id)
+            conn.execute(f"UPDATE pm_goals SET {', '.join(fields)} WHERE id=?", vals)
+            _pm_log(conn, project_id, "goal.edited", f"Goal #{goal_id} updated via TOBI")
+            conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "goal_id": goal_id}
+
+
+def tool_delete_goal(goal_id: int = 0, **_: Any) -> dict:
+    """Delete a goal (and its sub-goals). Args: goal_id (int)."""
+    try:
+        goal_id = int(goal_id)
+    except Exception:
+        return {"error": "goal_id must be an integer"}
+    conn = _conn()
+    try:
+        row = conn.execute("SELECT project_id, title FROM pm_goals WHERE id=?", (goal_id,)).fetchone()
+        if not row:
+            return {"error": f"no goal with id {goal_id}"}
+        project_id = row["project_id"]
+        title = row["title"]
+        conn.execute("DELETE FROM pm_goals WHERE parent_goal_id=?", (goal_id,))
+        conn.execute("DELETE FROM pm_goals WHERE id=?", (goal_id,))
+        _pm_log(conn, project_id, "goal.deleted", f"Goal '{title}' deleted via TOBI")
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "goal_id": goal_id, "deleted": True}
+
+
+def tool_set_category_lock(category_id: str = "", is_locked: bool = False, **_: Any) -> dict:
+    """Lock or unlock a Brain memory category. Args: category_id (string slug e.g. 'psychology'), is_locked (bool)."""
+    category_id = (category_id or "").strip()
+    if not category_id:
+        return {"error": "category_id is required"}
+    conn = _conn()
+    try:
+        if not conn.execute("SELECT 1 FROM brain_categories WHERE id=?", (category_id,)).fetchone():
+            return {"error": f"no category '{category_id}'"}
+        conn.execute("UPDATE brain_categories SET is_locked=? WHERE id=?", (1 if is_locked else 0, category_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "category_id": category_id, "is_locked": is_locked}
+
+
 # name → (callable, risk, description)
 ACT_TOOLS: dict[str, tuple[Callable[..., dict], str, str]] = {
     "remember": (tool_remember, "low", "Save a fact to long-term memory. Args: fact (string), category (optional)."),
     "create_project": (tool_create_project, "low", "Create a project on the owner's board. Args: name (string), description (optional), category (optional)."),
     "create_task": (tool_create_task, "low", "Create a task in a project. Args: project_id (int — call list_projects first to get a real id), title (string), description (optional)."),
     "complete_task": (tool_complete_task, "low", "Mark a task done. Args: task_id (int from list_tasks)."),
+    "rename_project": (tool_rename_project, "low", "Rename a project. Args: project_id (int), new_name (string). Can be called multiple times to batch-rename."),
+    "create_goal": (tool_create_goal, "low", "Create a goal inside a project. Args: project_id (int), title (string), description (optional), due_date (YYYY-MM-DD, optional), priority (low|medium|high)."),
+    "edit_goal": (tool_edit_goal, "low", "Update a goal's fields. Args: goal_id (int), and any of: title, description, due_date, priority, current_value (0-100)."),
+    "set_category_lock": (tool_set_category_lock, "low", "Lock or unlock a Brain memory category. Args: category_id (slug e.g. 'psychology'), is_locked (bool)."),
     "assign_task": (tool_assign_task, "medium", "Assign a task to an agent. Args: task_id (int), agent (tobi|research|coder|ceo)."),
     "update_project_progress": (tool_update_project_progress, "medium", "Set a project's progress %. Args: project_id (int), progress_pct (0-100), notes (optional)."),
+    "delete_goal": (tool_delete_goal, "medium", "Delete a goal and its sub-goals. Args: goal_id (int)."),
     "delete_task": (tool_delete_task, "high", "Delete a task — REQUIRES the owner's confirmation. Args: task_id (int)."),
     "delete_project": (tool_delete_project, "high", "Delete a project and its tasks — REQUIRES the owner's confirmation. Args: project_id (int — call list_projects first to get a real id)."),
     "run_mission": (tool_run_mission, "high", "Queue a mission toward an objective — REQUIRES the owner's confirmation. Args: objective (string)."),
@@ -613,16 +777,21 @@ def _project_name(project_id: Any) -> str:
 def _action_summary(tool: str, args: dict) -> str:
     a = args or {}
     return {
-        "remember": f"remember “{str(a.get('fact', ''))[:60]}”",
-        "create_project": f"create project “{a.get('name', '')}”",
-        "create_task": f"create task “{a.get('title', '')}” in project {a.get('project_id')}",
-        "complete_task": f"complete task #{a.get('task_id')}",
-        "assign_task": f"assign task #{a.get('task_id')} to {a.get('agent')}",
-        "update_project_progress": f"set project {a.get('project_id')} progress to {a.get('progress_pct')}%",
-        "delete_task": f"delete task #{a.get('task_id')}",
-        "delete_project": f"delete project {_project_name(a.get('project_id'))} (and its tasks)",
-        "run_mission": f"run a mission: “{str(a.get('objective', ''))[:60]}”",
-    }.get(tool, f"{tool} {json.dumps(a, default=str)[:60]}")
+        “remember”: f”remember “{str(a.get('fact', ''))[:60]}””,
+        “create_project”: f”create project “{a.get('name', '')}””,
+        “create_task”: f”create task “{a.get('title', '')}” in project {a.get('project_id')}”,
+        “complete_task”: f”complete task #{a.get('task_id')}”,
+        “rename_project”: f”rename project {_project_name(a.get('project_id'))} → “{a.get('new_name', '')}””,
+        “create_goal”: f”create goal “{a.get('title', '')}” in project {a.get('project_id')}”,
+        “edit_goal”: f”update goal #{a.get('goal_id')}”,
+        “delete_goal”: f”delete goal #{a.get('goal_id')}”,
+        “set_category_lock”: f”{'lock' if a.get('is_locked') else 'unlock'} Brain category '{a.get('category_id')}'”,
+        “assign_task”: f”assign task #{a.get('task_id')} to {a.get('agent')}”,
+        “update_project_progress”: f”set project {a.get('project_id')} progress to {a.get('progress_pct')}%”,
+        “delete_task”: f”delete task #{a.get('task_id')}”,
+        “delete_project”: f”delete project {_project_name(a.get('project_id'))} (and its tasks)”,
+        “run_mission”: f”run a mission: “{str(a.get('objective', ''))[:60]}””,
+    }.get(tool, f”{tool} {json.dumps(a, default=str)[:60]}”)
 
 
 def _now() -> str:
@@ -791,11 +960,55 @@ def _act_doc() -> str:
     return "\n".join(f"- {name} [{risk}]: {desc}" for name, (_, risk, desc) in ACT_TOOLS.items())
 
 
+def _build_tier_context() -> str:
+    """Inject the full tier roadmap so TOBI always knows the evolution plan."""
+    try:
+        from api import dashboard as D
+        conn = D._get_conn()
+        try:
+            statuses = D._detect_abilities(conn)
+            prev = D._load_evo_snapshot(conn)
+            tiers, _ = D._build_evo_response(statuses, prev)
+        finally:
+            conn.close()
+        lines = ["TOBI EVOLUTION ROADMAP (full tier data — use for any evolution/tier questions):"]
+        for t in tiers:
+            status = "ACTIVE" if not t.get("complete") and t.get("id") == next(
+                (x["id"] for x in tiers if not x.get("complete")), tiers[-1]["id"]
+            ) else ("DONE" if t.get("complete") else "LOCKED")
+            lines.append(
+                f"  Tier {t['id']} [{t.get('roman','')}] {t.get('name','')} [{status}] "
+                f"— {t.get('progress_pct',0)}% ({t.get('active_count',0)}/{t.get('total_count',0)} abilities) "
+                f"| Tagline: {t.get('tagline','')}"
+            )
+        return "\n".join(lines)
+    except Exception as e:
+        return f"(Tier roadmap unavailable: {e})"
+
+
+_TIME_SENSITIVE_RE = re.compile(
+    r"\b(today|tonight|now|current(ly)?|latest|recent(ly)?|this (week|month|year|morning|evening|afternoon)|"
+    r"right now|at the moment|news|research|search|web|price|market|weather|schedule|calendar|date|time|hour|"
+    r"when|deadline|due|upcoming|soon|tomorrow|yesterday)\b",
+    re.IGNORECASE,
+)
+
+
 def _system_prompt(profile: str, tools_enabled: bool, surface: str = "mc",
-                   directives: Optional[str] = None, extra_tools: Optional[list[str]] = None) -> str:
+                   directives: Optional[str] = None, extra_tools: Optional[list[str]] = None,
+                   user_message: str = "") -> str:
     s = _BUTLER
     if profile:
         s += f"\n\nWhat you know about the owner (use it to be personal):\n{profile}"
+    # Always inject full tier context so TOBI has the complete roadmap
+    s += f"\n\n{_build_tier_context()}"
+    # Smart datetime injection — only when the query is time-sensitive
+    if user_message and _TIME_SENSITIVE_RE.search(user_message):
+        try:
+            dt = tool_get_current_datetime()
+            s += f"\n\nCURRENT DATE/TIME: {dt['datetime_local']} (use this as the authoritative 'now' for any time-sensitive research or answers)."
+        except Exception:
+            pass
     if tools_enabled:
         s += (
             "\n\nYou can read and act on Mission Control with tools. When you want to use one, reply with "
@@ -1237,7 +1450,7 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
     if attachments_text:
         message = f"{message}\n\n[Attached content the owner shared]\n{attachments_text}"
     tools_enabled = intent not in ("SMALLTALK", "CODING")
-    system = _system_prompt(profile, tools_enabled, surface, directives, extra_tools)
+    system = _system_prompt(profile, tools_enabled, surface, directives, extra_tools, user_message=message)
 
     try:
         # Keep the legacy call shape when no model override is given, so callers/tests that

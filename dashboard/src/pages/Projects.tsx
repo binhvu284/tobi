@@ -704,26 +704,49 @@ function SubTasks({ task, projectId }: { task: PMTask; projectId: number }) {
   )
 }
 
+const PRIORITY_BADGE: Record<string, string> = {
+  low:    'bg-muted/15 text-muted',
+  medium: 'bg-accent/15 text-accent',
+  high:   'bg-danger/15 text-danger',
+}
+
 // ── Tab: Goals ────────────────────────────────────────────────────────────────
 function TabGoals({ projectId, goals, onRefresh }: { projectId: number; goals: PMGoal[]; onRefresh: () => void }) {
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
+  const [desc, setDesc] = useState('')
   const [metric, setMetric] = useState('')
   const [target, setTarget] = useState('100')
   const [current, setCurrent] = useState('0')
   const [due, setDue] = useState('')
+  const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('medium')
   const [editMap, setEditMap] = useState<Record<number, string>>({})
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
+  const [expandedSubs, setExpandedSubs] = useState<Set<number>>(new Set())
+  const [addingSubFor, setAddingSubFor] = useState<number | null>(null)
+  const [subTitle, setSubTitle] = useState('')
   const { toast } = useToast()
+
+  const topGoals = goals.filter(g => g.parent_goal_id == null)
+  const subGoals = (parentId: number) => goals.filter(g => g.parent_goal_id === parentId)
 
   async function createGoal() {
     if (!title.trim()) return
     try {
-      await pmCreateGoal(projectId, { title: title.trim(), metric_name: metric || undefined,
-        target_value: parseFloat(target) || 100, current_value: parseFloat(current) || 0,
-        due_date: due || undefined })
-      setTitle(''); setMetric(''); setTarget('100'); setCurrent('0'); setDue('')
+      await pmCreateGoal(projectId, { title: title.trim(), description: desc || undefined,
+        metric_name: metric || undefined, target_value: parseFloat(target) || 100,
+        current_value: parseFloat(current) || 0, due_date: due || undefined, priority })
+      setTitle(''); setDesc(''); setMetric(''); setTarget('100'); setCurrent('0'); setDue(''); setPriority('medium')
       setAdding(false); onRefresh()
       toast({ kind: 'success', title: 'Goal added' })
+    } catch (e) { toast({ kind: 'error', title: 'Failed', detail: (e as Error).message }) }
+  }
+
+  async function createSubGoal(parentId: number) {
+    if (!subTitle.trim()) return
+    try {
+      await pmCreateGoal(projectId, { title: subTitle.trim(), parent_goal_id: parentId })
+      setSubTitle(''); setAddingSubFor(null); onRefresh()
     } catch (e) { toast({ kind: 'error', title: 'Failed', detail: (e as Error).message }) }
   }
 
@@ -737,9 +760,91 @@ function TabGoals({ projectId, goals, onRefresh }: { projectId: number; goals: P
     } catch { toast({ kind: 'error', title: 'Update failed' }) }
   }
 
-  async function deleteGoal(g: PMGoal) {
-    try { await pmDeleteGoal(projectId, g.id); onRefresh() }
+  async function deleteGoal(id: number) {
+    try { await pmDeleteGoal(projectId, id); setConfirmDelete(null); onRefresh() }
     catch { toast({ kind: 'error', title: 'Delete failed' }) }
+  }
+
+  function GoalRow({ g, sub = false }: { g: PMGoal; sub?: boolean }) {
+    const subs = subGoals(g.id)
+    const expanded = expandedSubs.has(g.id)
+    return (
+      <div className={`rounded-xl border border-border bg-panel space-y-2 ${sub ? 'ml-6 p-3' : 'p-4'}`}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-semibold text-sm text-text">{g.title}</span>
+              {g.priority && g.priority !== 'medium' && (
+                <span className={`text-[10px] rounded px-1.5 py-0.5 uppercase tracking-wide font-medium ${PRIORITY_BADGE[g.priority] || ''}`}>{g.priority}</span>
+              )}
+            </div>
+            {g.description && <div className="text-[12px] text-muted mt-0.5 leading-snug">{g.description}</div>}
+            <div className="text-[12px] text-muted mt-0.5 flex items-center gap-2 flex-wrap">
+              {editMap[g.id] !== undefined ? (
+                <>
+                  <input autoFocus type="number" value={editMap[g.id]}
+                    onChange={e => setEditMap(m => ({ ...m, [g.id]: e.target.value }))}
+                    onKeyDown={e => { if (e.key === 'Enter') updateCurrent(g, editMap[g.id]); if (e.key === 'Escape') setEditMap(m => { const n = { ...m }; delete n[g.id]; return n }) }}
+                    className="w-20 rounded border border-accent bg-panel px-2 py-0.5 text-sm text-text outline-none" />
+                  <span>/ {g.target_value} {g.metric_name}</span>
+                  <button onClick={() => updateCurrent(g, editMap[g.id])} className="text-success"><Save size={13} /></button>
+                  <button onClick={() => setEditMap(m => { const n = { ...m }; delete n[g.id]; return n })} className="text-muted"><X size={13} /></button>
+                </>
+              ) : (
+                <button onClick={() => setEditMap(m => ({ ...m, [g.id]: String(g.current_value) }))}
+                  className="hover:text-accent transition-colors">
+                  {g.current_value}{g.metric_name ? ` / ${g.target_value} ${g.metric_name}` : ''} ✎
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-lg font-bold text-accent">{g.progress_pct}%</span>
+            {g.due_date && <span className="text-[11px] text-muted flex items-center gap-1"><Calendar size={11} />{fmtDate(g.due_date)}</span>}
+            {!sub && (
+              <button onClick={() => setExpandedSubs(s => { const n = new Set(s); n.has(g.id) ? n.delete(g.id) : n.add(g.id); return n })}
+                className="text-muted hover:text-text transition-colors" title="Sub-goals">
+                {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+              </button>
+            )}
+            <div className="relative">
+              {confirmDelete === g.id ? (
+                <div className="flex items-center gap-1.5 rounded-lg border border-danger/40 bg-danger/10 px-2 py-1">
+                  <span className="text-[10px] text-danger">Delete?</span>
+                  <button onClick={() => deleteGoal(g.id)} className="text-[10px] text-danger font-medium hover:underline">Yes</button>
+                  <button onClick={() => setConfirmDelete(null)} className="text-[10px] text-muted hover:text-text">No</button>
+                </div>
+              ) : (
+                <button onClick={() => setConfirmDelete(g.id)} className="text-muted hover:text-danger transition-colors"><Trash2 size={13} /></button>
+              )}
+            </div>
+          </div>
+        </div>
+        <Bar pct={g.progress_pct} />
+
+        {/* Sub-goals (one level deep, only for top-level goals) */}
+        {!sub && expanded && (
+          <div className="mt-2 space-y-2">
+            {subs.map(sg => <GoalRow key={sg.id} g={sg} sub />)}
+            {addingSubFor === g.id ? (
+              <div className="ml-6 flex items-center gap-2">
+                <input autoFocus value={subTitle} onChange={e => setSubTitle(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') createSubGoal(g.id); if (e.key === 'Escape') { setAddingSubFor(null); setSubTitle('') } }}
+                  placeholder="Sub-goal title…"
+                  className="flex-1 rounded-lg border border-accent/40 bg-surface px-2.5 py-1 text-sm text-text outline-none focus:border-accent" />
+                <button onClick={() => createSubGoal(g.id)} className="text-success"><Save size={13} /></button>
+                <button onClick={() => { setAddingSubFor(null); setSubTitle('') }} className="text-muted"><X size={13} /></button>
+              </div>
+            ) : (
+              <button onClick={() => { setAddingSubFor(g.id); setSubTitle('') }}
+                className="ml-6 flex items-center gap-1 text-[12px] text-muted hover:text-accent transition-colors">
+                <Plus size={12} /> Add sub-goal
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    )
   }
 
   return (
@@ -750,39 +855,7 @@ function TabGoals({ projectId, goals, onRefresh }: { projectId: number; goals: P
           <div className="text-sm">No goals yet. Goals drive project progress %.</div>
         </div>
       )}
-      {goals.map(g => (
-        <div key={g.id} className="rounded-xl border border-border bg-panel p-4 space-y-2">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex-1">
-              <div className="font-semibold text-sm text-text">{g.title}</div>
-              <div className="text-[12px] text-muted mt-0.5 flex items-center gap-2">
-                {editMap[g.id] !== undefined ? (
-                  <>
-                    <input autoFocus type="number" value={editMap[g.id]}
-                      onChange={e => setEditMap(m => ({ ...m, [g.id]: e.target.value }))}
-                      onKeyDown={e => { if (e.key === 'Enter') updateCurrent(g, editMap[g.id]); if (e.key === 'Escape') setEditMap(m => { const n = { ...m }; delete n[g.id]; return n }) }}
-                      className="w-20 rounded border border-accent bg-panel px-2 py-0.5 text-sm text-text outline-none" />
-                    <span>/ {g.target_value} {g.metric_name}</span>
-                    <button onClick={() => updateCurrent(g, editMap[g.id])} className="text-success"><Save size={13} /></button>
-                    <button onClick={() => setEditMap(m => { const n = { ...m }; delete n[g.id]; return n })} className="text-muted"><X size={13} /></button>
-                  </>
-                ) : (
-                  <button onClick={() => setEditMap(m => ({ ...m, [g.id]: String(g.current_value) }))}
-                    className="hover:text-accent transition-colors">
-                    {g.current_value}{g.metric_name ? ` / ${g.target_value} ${g.metric_name}` : ''} ✎
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="text-lg font-bold text-accent">{g.progress_pct}%</span>
-              {g.due_date && <span className="text-[11px] text-muted flex items-center gap-1"><Calendar size={11} />{fmtDate(g.due_date)}</span>}
-              <button onClick={() => deleteGoal(g)} className="text-muted hover:text-danger transition-colors"><Trash2 size={13} /></button>
-            </div>
-          </div>
-          <Bar pct={g.progress_pct} />
-        </div>
-      ))}
+      {topGoals.map(g => <GoalRow key={g.id} g={g} />)}
 
       {adding ? (
         <div className="rounded-xl border border-accent/30 bg-panel p-4 space-y-3">
@@ -790,13 +863,22 @@ function TabGoals({ projectId, goals, onRefresh }: { projectId: number; goals: P
           <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Goal title *"
             autoFocus onKeyDown={e => e.key === 'Enter' && createGoal()}
             className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-accent" />
-          <div className="grid grid-cols-3 gap-2">
-            <input value={metric} onChange={e => setMetric(e.target.value)} placeholder="Metric (e.g. MAU)"
+          <textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="Description (optional)"
+            rows={2}
+            className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-accent resize-none" />
+          <div className="grid grid-cols-4 gap-2">
+            <input value={metric} onChange={e => setMetric(e.target.value)} placeholder="Metric"
               className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent" />
             <input value={target} onChange={e => setTarget(e.target.value)} type="number" placeholder="Target"
               className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent" />
             <input value={current} onChange={e => setCurrent(e.target.value)} type="number" placeholder="Current"
               className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent" />
+            <select value={priority} onChange={e => setPriority(e.target.value as any)}
+              className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent">
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
           </div>
           <input value={due} onChange={e => setDue(e.target.value)} type="date"
             className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm text-text outline-none focus:border-accent" />

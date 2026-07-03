@@ -30,6 +30,18 @@ type Msg = { id?: number; role: string; content: string; model?: string | null; 
 const DEFAULT_STARTERS = ['What should I focus on today?', 'Give me a status report of the office.', 'Draft a message for me', 'Plan my day']
 const shortModel = (id?: string | null) => (id || '').split(':').pop()?.split('/').pop() || ''
 const fmtTime = (s?: string) => { if (!s) return ''; try { return new Date(s).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } catch { return '' } }
+const fmtAbsolute = (s?: string) => { if (!s) return ''; try { return new Date(s).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return '' } }
+const fmtRelative = (s?: string) => {
+  if (!s) return ''
+  try {
+    const diff = Math.floor((Date.now() - new Date(s).getTime()) / 1000)
+    if (diff < 60) return 'just now'
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+    return fmtTime(s)
+  } catch { return '' }
+}
+const minuteKey = (s?: string) => { if (!s) return ''; try { const d = new Date(s); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}-${d.getMinutes()}` } catch { return '' } }
 
 const COLUMN = 'mx-auto w-full max-w-[760px]'
 const fmtBytes = (n: number) => n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`
@@ -176,6 +188,7 @@ export default function Chat() {
   useEffect(() => { if (atBottomRef.current) endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, sending])
   useEffect(() => { try { localStorage.setItem('tobi.chat.sidebar', sidebarOpen ? '1' : '0') } catch { /* ignore */ } }, [sidebarOpen])
   useEffect(() => { try { localStorage.setItem('tobi.chat.confirmMode', confirmMode) } catch { /* ignore */ } }, [confirmMode])
+  useEffect(() => { if (activeId == null) return; try { if (input) localStorage.setItem(`tobi.chat.draft.${activeId}`, input); else localStorage.removeItem(`tobi.chat.draft.${activeId}`) } catch { /* ignore */ } }, [input, activeId])
   const onScroll = () => {
     const el = scrollRef.current; if (!el) return
     const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
@@ -191,6 +204,7 @@ export default function Chat() {
     setActiveId(id); setPending(null); setThink(null); setActivityOpen(false); setModelIssue(false); setAutoAcceptChat(false)
     const s = (list || sessions).find(x => x.id === id)
     setModel(s?.model ?? null)
+    try { setInput(localStorage.getItem(`tobi.chat.draft.${id}`) || '') } catch { setInput('') }
     try {
       const r = await getChatSession(id)
       setModel(r.session.model ?? null)
@@ -311,6 +325,7 @@ export default function Chat() {
     if ((!text && !attachments.length) || sending || streaming || activeId == null) return
     const opts = { attachments, web_research: webResearch, thinking: thinkingOn, connectors }
     setInput(''); setAttachments([]); setPlusOpen(false)
+    try { localStorage.removeItem(`tobi.chat.draft.${activeId}`) } catch { /* ignore */ }
     runTurn(text, activeId, opts)
   }
   const stop = () => { abortRef.current?.abort(); setSending(false); setStreaming(false); setThink(null) }
@@ -551,6 +566,7 @@ export default function Chat() {
                       ) : (
                         <>
                           <div className="rounded-2xl rounded-tr-sm border border-accent/20 bg-accent/10 px-4 py-2.5 text-[15px] text-text"><div className="whitespace-pre-wrap leading-relaxed">{m.content}</div></div>
+                          {m.created_at && <div className="mt-0.5 flex justify-end"><span title={fmtAbsolute(m.created_at)} className="cursor-default text-[10px] text-muted/50">{fmtRelative(m.created_at)}</span></div>}
                           <div className="mt-1 flex justify-end gap-3 opacity-0 transition-opacity group-hover:opacity-100">
                             <button onClick={() => copy(m.content.replace(/\s*📎×\d+$/, ''))} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent"><Copy size={10} /> Copy</button>
                             <button onClick={() => startWith(m.content.replace(/\s*📎×\d+$/, ''))} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent"><RotateCcw size={10} /> Resend</button>
@@ -571,6 +587,9 @@ export default function Chat() {
                         {m.content ? <MarkdownView content={m.content} /> : <span className="text-sm text-muted">…</span>}
                         {streaming && isLast && <span className={`ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] bg-accent align-middle ${reduced ? '' : 'chat-caret'}`} />}
                       </div>
+                      {m.created_at && !(streaming && isLast) && (
+                        <div className="mt-0.5"><span title={fmtAbsolute(m.created_at)} className="cursor-default text-[10px] text-muted/50">{fmtRelative(m.created_at)}</span></div>
+                      )}
                       {m.content && !(streaming && isLast) && (
                         <div className="mt-1.5 flex items-center gap-3 opacity-0 transition-opacity group-hover:opacity-100">
                           <button onClick={() => copy(m.content)} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent"><Copy size={10} /> Copy</button>
@@ -648,15 +667,28 @@ export default function Chat() {
               </div>
               <div className="flex-1 space-y-1.5 overflow-y-auto px-2.5 pb-3">
                 {activity.length === 0 && <p className="px-1 text-[11px] text-muted">No actions yet in this chat.</p>}
-                {activity.map(a => (
-                  <div key={a.id} className="rounded-lg border border-border bg-bg/40 px-2.5 py-1.5">
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="truncate text-xs text-text">{a.summary}</span>
-                      <span className={`shrink-0 rounded px-1 py-0.5 text-[9px] uppercase ${a.status === 'executed' ? 'bg-success/15 text-success' : a.status === 'failed' ? 'bg-danger/15 text-danger' : a.status === 'rejected' ? 'bg-border text-muted' : 'bg-warning/15 text-warning'}`}>{a.status}</span>
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-1.5 text-[9px] text-muted"><span className="rounded bg-surface px-1">{a.tool}</span><span className="uppercase">{a.risk}</span></div>
-                  </div>
-                ))}
+                {(() => {
+                  let lastMinKey = ''
+                  return activity.map(a => {
+                    const mk = minuteKey(a.created_at)
+                    const showStamp = mk !== lastMinKey
+                    lastMinKey = mk
+                    return (
+                      <div key={a.id}>
+                        {showStamp && a.created_at && (
+                          <div className="px-1 py-0.5 text-[9px] text-muted/50">{fmtTime(a.created_at)}</div>
+                        )}
+                        <div className="rounded-lg border border-border bg-bg/40 px-2.5 py-1.5">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="truncate text-xs text-text">{a.summary}</span>
+                            <span className={`shrink-0 rounded px-1 py-0.5 text-[9px] uppercase ${a.status === 'executed' ? 'bg-success/15 text-success' : a.status === 'failed' ? 'bg-danger/15 text-danger' : a.status === 'rejected' ? 'bg-border text-muted' : 'bg-warning/15 text-warning'}`}>{a.status}</span>
+                          </div>
+                          <div className="mt-0.5 flex items-center gap-1.5 text-[9px] text-muted"><span className="rounded bg-surface px-1">{a.tool}</span><span className="uppercase">{a.risk}</span></div>
+                        </div>
+                      </div>
+                    )
+                  })
+                })()}
               </div>
             </aside>
           )}
