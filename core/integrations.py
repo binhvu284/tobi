@@ -88,6 +88,42 @@ class NotionIntegration:
             logger.warning(f"Notion append error: {e}")
             return False
 
+    def get_page_content(self, page_id: str) -> str:
+        """Read a page's block children as plain text (paragraphs, headings, list items,
+        to-dos). Best-effort; returns '' on any failure. Lets the Conductor ground a
+        Notion → project → tasks chain in the page's real content."""
+        if not self.is_available():
+            return ""
+        try:
+            import requests
+            pid = (page_id or "").replace("-", "")
+            r = requests.get(
+                f"{self.base_url}/blocks/{pid}/children",
+                headers=self.headers, params={"page_size": 100}, timeout=10,
+            )
+            if r.status_code != 200:
+                return ""
+            lines = []
+            for b in r.json().get("results", []):
+                t = b.get("type")
+                node = b.get(t, {}) if isinstance(b.get(t), dict) else {}
+                rich = node.get("rich_text", [])
+                text = "".join(rt.get("plain_text", "") for rt in rich).strip()
+                if not text:
+                    continue
+                if t in ("to_do",):
+                    lines.append(f"[{'x' if node.get('checked') else ' '}] {text}")
+                elif t in ("bulleted_list_item", "numbered_list_item"):
+                    lines.append(f"- {text}")
+                elif t and t.startswith("heading"):
+                    lines.append(f"# {text}")
+                else:
+                    lines.append(text)
+            return "\n".join(lines)[:4000]
+        except Exception as e:
+            logger.warning(f"Notion read page error: {e}")
+            return ""
+
 
 class GitHubIntegration:
     def __init__(self):

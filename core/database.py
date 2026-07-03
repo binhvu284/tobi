@@ -488,6 +488,17 @@ def _ensure_pm_schema(conn: sqlite3.Connection) -> None:
     _ensure_column(conn, "tasks", "time_estimate", "TEXT")
     _ensure_column(conn, "tasks", "sub_tasks_json","TEXT DEFAULT '[]'")
 
+    # Manual drag-to-reorder on the Projects board (lower sort_order = earlier). Seed the
+    # initial order to the existing "most-recently-updated first" so nothing visibly moves.
+    _ensure_column(conn, "pm_projects", "sort_order", "REAL")
+    conn.execute(
+        "UPDATE pm_projects SET sort_order = ("
+        "  SELECT COUNT(*) FROM pm_projects p2"
+        "  WHERE p2.updated_at > pm_projects.updated_at"
+        "     OR (p2.updated_at = pm_projects.updated_at AND p2.id > pm_projects.id)"
+        ") WHERE sort_order IS NULL"
+    )
+
 
 def _ensure_brain_schema(conn: sqlite3.Connection) -> None:
     """Brain: long-term owner memory (auto-learn + import + psychology profile).
@@ -916,9 +927,29 @@ def init_database() -> None:
     _ensure_graph_schema(conn)
     _ensure_vault_schema(conn)
     _ensure_mcp_schema(conn)
+    _ensure_chat_schema(conn)
     conn.commit()
     conn.close()
     print(f"✅ Database ready: {DB_PATH}")
+
+
+def _ensure_chat_schema(conn: sqlite3.Connection) -> None:
+    """Premium Chat (#8): vault-backed LLM routing config + multi-model chat sessions.
+    The owning modules also create these lazily, so this is just an eager boot pass."""
+    try:
+        from core import chat_store
+        chat_store.ensure_schema(conn)
+    except Exception:
+        pass
+    try:
+        from core import usage
+        usage.ensure_schema(conn)
+    except Exception:
+        pass
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS llm_config ("
+        "id INTEGER PRIMARY KEY CHECK (id=1), config_json TEXT, updated_at TEXT)"
+    )
 
 
 # ─────────────────────────────────────────

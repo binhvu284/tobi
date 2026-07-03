@@ -18,7 +18,7 @@ The code in this repo currently looks like an **autonomous MMO business-portfoli
 
 ## Codebase navigation (save tokens — query before you read)
 
-A graphify knowledge graph of this repo lives at `graphify-out/graph.json` (993 nodes / 2217 edges,
+A graphify knowledge graph of this repo lives at `graphify-out/graph.json` (2331 nodes / 4718 edges,
 indexing every symbol + doc concept with file:line pointers). For "how does X work / where is Y /
 what calls Z" questions, run `graphify query "<question>"` **before** Glob/Grep/Read — it returns the
 relevant subgraph with `src=file loc=L###` pointers, then read only those cited lines.

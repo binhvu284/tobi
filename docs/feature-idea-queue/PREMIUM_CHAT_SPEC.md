@@ -9,6 +9,164 @@
 >
 > **Queue #8** · **Date:** 2026-06-26 · **Owner-reviewed via 30 Q&A** (Appendix A) ·
 > **Relates to:** [CONDUCTOR_SPEC.md](CONDUCTOR_SPEC.md) (#7, connector-as-tools), Genesis vault (#4).
+>
+> **Status: ✅ Done (v1) — P1 + P2 + P3 all shipped & tested** (needs backend restart + `pip install pypdf`
+> for PDF text). See **§6 Phased plan** for the checkpoints.
+
+---
+
+## Post-delivery fixes (owner-reported, live-verified)
+
+After a first hands-on test the owner hit three real issues; all fixed and **verified against a live
+server** (started on a temp DB, driven over the real SSE API):
+
+1. **"Create project but nothing shows up / serious hallucination."** Root cause was a **data-layer
+   mismatch**, not a model hallucination: the Conductor's `create_project`/`list_projects`/`create_task`/
+   `complete_task`/`update_project_progress`/`delete_task`/`assign_task` wrote/read the **legacy
+   `projects` table**, while every user-facing page uses the **PM system** (`pm_projects` + `tasks.pm_project_id`).
+   Repointed all of them to the PM tables (status `active`, progress auto-recalc via the API's
+   `_pm_recalc_progress`, activity logged to `pm_activity`); `list_projects` now returns the **real id**
+   so create→task chains target the right project. `assign_task` now sets a **canonical Tasks-board key**
+   (`tobi|research|coder|ceo`, with friendly aliases) instead of an office-agent id. **Live proof:** a chat
+   "Create a project called Newsletter Engine" → "Add a task: draft the welcome email" → "what tasks do I
+   have?" produced a project + task that appear on **`/api/pm/projects`** and the project's task list, with
+   the reply grounded to the real ids; an unknowable query (revenue) **refused instead of inventing**.
+2. **"Thinking effect is not good."** The turn ran the whole tool-loop synchronously, so the user stared at
+   a static "Thinking…" for the model's full latency (~16 s). Added an **`on_event` progress callback** to
+   `conductor.answer` that fires a live phase per tool ("Creating the project…", "Reading your projects…"),
+   bridged to the SSE stream via a **thread→async queue**, so the thinking panel narrates the work in real
+   time with tool chips.
+3. **"Output answer stays in a box."** The assistant message was wrapped in a bordered bubble; made it a
+   **full-width, borderless block** spanning the chat (user messages stay bubbles), matching the spec's
+   "assistant full-width blocks."
+
+**Regression status after the fixes:** `test_pm_fix` 13/13 (Conductor→PM board), #7 P2 24/24 · P3 17/17,
+#8 P1 26/26 · P1b 10/10 · P2 25/25 · P3 23/23; frontend build clean.
+
+---
+
+## P3 — Meters & analytics ✅ (built & tested, this run) — #8 COMPLETE
+
+**Real per-call usage logging** — `core/usage.py` **extends the existing D34 `llm_usage` table** (rather
+than competing with it — exactly what #10 envisions) with `ts / surface / feature / cost_est / latency_ms`.
+The `model_router` **clients auto-log every `complete()`** (real provider token counts when available, else
+an estimate) tagged with a process-global **surface** (`set_usage_context`) — the chat stream endpoint sets
+`chat`, everything else defaults to `agent`, and legacy **Office** per-mission rows fold in via `created_at`.
+A **manual price table** (per-1M in/out, longest-fragment match) drives `estimate_cost`.
+
+**Analytics** — `GET /api/llm/usage?days=` aggregates weekly **tokens / cost / requests / avg-latency**,
+**by-model** columns, **by-surface**, and a gap-filled **per-day** series. Rendered on the **Models page**
+(KPI row + per-model bars + tokens/day trend, 7d/30d toggle — dependency-free CSS bars) and a compact
+**Health** widget (KPIs + top models + a "Models →" cross-link).
+
+**Context energy bar** — per the current model's real **context limit** (`context_limit`, exposed on each
+`available_models()` entry), % full from a client token estimate; turns **warning at ≥80%** with an inline
+**Compact** button.
+
+**Compact** — `POST /api/chat/sessions/{id}/compact` summarizes the **older** turns (LLM) into one stored
+`summary` message while keeping the most recent `keep` verbatim (`chat_store.compact_session`); the summary
+**feeds back into context** (surfaced by `recent_history` as a user-role line) and renders as a "compacted"
+callout. The energy bar drops; a loading shimmer covers the call.
+
+**Tests:** price/cost + logging + summary aggregation (chat + office surfaces) + client auto-log +
+per-model context limits + compaction (summarize/keep/feed-back/no-op) = **23/23**; **regressions intact**
+(#8 P2 25/25, P1 26/26, P1b 10/10; #7 P3 17/17); app imports with all P3 routes + the `llm_usage`
+extension applied on boot; frontend `npm run build` clean (`tsc` no errors; main bundle ~731 kB, +~7 kB).
+
+---
+
+## P2 — Tools & actions ✅ (built & tested, this run)
+
+**`+` menu** in the composer (popover, badge counts active tools): **Upload file**, **Attach image**
+(or **paste** straight into the box), **Web research** toggle, **Show thinking** toggle, **Connector
+toggles** (the session's connected integrations → live tools), and a **Choose from Drive** item left as
+honest "soon" (Google read isn't wired — matches the Conductor's `read_drive`).
+
+**Attachments** — `core/attachments.py` splits uploads into (a) **text** (txt/md/code/json/csv + **PDF**
+via `pypdf`, graceful "install pypdf" note if absent) folded into the turn as context for the normal
+tool-loop, and (b) **images** kept as data-URLs. Images go through a **native vision** path —
+`model_router.vision_complete()` builds the provider-correct multimodal message (**Anthropic image
+blocks / OpenAI `image_url`**) and calls the model directly (no tool-loop); `supports_vision()` gates it,
+and a non-vision model gets an honest "switch to Claude/GPT-4o/Gemini" note instead.
+
+**Web research → live tool + citations** — a new **opt-in** Conductor tool **`web_search`** (reuses
+`research_engine.tavily_search`, mock-fallback without a key) that is **only advertised when the owner
+toggles Web research** (so #7's base 10-tool catalog is untouched — it lives in `OPTIONAL_TOOLS`, wired
+into `ALL_TOOLS`/`RISK` for execution). The directive asks TOBI to cite sources in a `tobi:reference`
+block, which the P1 renderer already draws.
+
+**Connector emphasis** — enabling a connector adds a per-turn **directive** naming it so TOBI prefers its
+tools (the read tools already exist from #7); the toggle gates intent, not availability.
+
+**Message actions** — **Edit → branch**: editing a user message **forks** the session up to that point
+into a NEW session (`chat_store.fork_session`, original preserved + switchable in the sidebar, marked `↳`)
+and runs the edited turn there; **feedback** 👍/👎 (`chat_messages.feedback` + `/api/chat/messages/{id}/
+feedback`). Copy / Regenerate / Remember carried from P1.
+
+**System action log** — an **Activity panel** (header toggle) listing this session's **TOBI Actions**
+(#7, scoped via `list_actions(chat_id=…)`) with tool/risk/status badges; inline **tool chips** during a
+turn and on the collapsed "Thought for Xs" already cover the inline-chip half.
+
+**API:** stream request gains `attachments` / `web_research` / `thinking` / `connectors`; new
+`POST /api/chat/sessions/{id}/fork`, `POST /api/chat/messages/{id}/feedback`,
+`GET /api/chat/sessions/{id}/activity`. `requirements.txt` adds `pypdf`.
+
+**Tests:** web_search opt-in + answer-runs-it + directives + attachments split/extract + vision
+flags & native message format + feedback + fork + scoped activity = **25/25**; **#7 P3 17/17, #8 P1 26/26,
+P1b 10/10 regressions intact**; frontend `npm run build` clean (`tsc` no errors; main bundle ~724 kB, +~10 kB).
+
+---
+
+## P1 — Foundation & feel ✅ (built & tested, this run)
+
+**Provider abstraction + vault-backed routing** — refactored `core/model_router.py` into a **7-provider
+registry** (Anthropic native · OpenAI · OpenRouter · Google Gemini · xAI Grok · Ollama-local · custom
+OpenAI-compatible) over three client kinds (`ClaudeClient` native, `OpenRouterClient` w/ headers+429
+fallback, `OpenAICompatibleClient` for the rest) + a `FallbackClient` that tries an **ordered chain**.
+Routing prefs (global **default** + **per-task overrides** + **fallback** + per-provider base_url/models)
+live in a new **`llm_config`** table (non-secret → no vault needed to read); **API keys stay in the
+Genesis vault** (#4), read via `os.getenv`. `get_llm(task_type, model=None)` honours an explicit model
+(chat picker) → per-task override → default → **legacy `PRIMARY_MODEL` env** (fully backward-compatible:
+unconfigured = today's behaviour). Introspection: `provider_catalog()` (key-presence/base_url/models),
+`available_models()` (flat `provider:model` picker list), `discover_models()` (live OpenRouter/OpenAI/
+Ollama fetch → persists, else known defaults).
+
+**Hermes alignment (MC → Hermes push)** — `core/hermes_sync.py` writes the chosen routing to Hermes on
+every save, **one-way & defensive** (never crashes the save): JSON sidecar `~/.hermes/config/tobi_models.json`
+(always) + `hermes.yaml` `cost_optimization.model_routing` patch (if PyYAML present) + `hermes config set`
+(if a `hermes` binary is on PATH).
+
+**Sessions** — `core/chat_store.py`: `chat_sessions` (title/model/timestamps) + `chat_messages`
+(role/content/model/tokens/`thinking`, `parent_id` reserved for P2 branching). Create / **auto-title**
+(heuristic from the first message) / rename / delete / **per-session model**. Each session maps to a
+stable **negative `chat_id`** so the Conductor's per-conversation state (pending actions, rolling history)
+is isolated per session without colliding with the dashboard chat (990001) or Telegram ids.
+
+**Typed streaming + thinking UX** — new SSE endpoint `POST /api/chat/sessions/{id}/stream` emits
+**typed events**: `thinking` (phase + tool chips), `delta` (smoothed chunks), `action` (high-risk
+confirmation), `usage` (tokens + latency), `done`. The Conductor (#7) `answer()` now accepts **`model`**
+(thread the picker) + **`history`** (session store owns context). Chat UI: live **timer + phase + tool
+chips** while working, collapsing to **"Thought for Xs · N tok"** (expandable); **Stop** (AbortController,
+keeps partial) + **Regenerate**; per-message **Copy** + **Remember**.
+
+**Rich output (full-width)** — dependency-free `components/chat/MarkdownView.tsx`: headings, bold/italic/
+inline-code, links, ordered/unordered lists, fenced **code w/ copy**, **GFM tables**, blockquotes, hr —
+**plus structured ```tobi:card | tobi:table | tobi:callout | tobi:keyvalue | tobi:reference | tobi:status```
+JSON blocks** as components. **Assistant = full-width blocks; user = bubbles.**
+
+**Model config page** — `/models` (sidebar bottom-menu, `Cpu` icon): provider cards (key-status, vault-gated
+key save, enable toggle, editable base_url for Ollama/custom, **Discover models**), **Routing** (default +
+per-task overrides + drag-ordered **fallback chain**), **Push to Hermes** button + result, P3 analytics
+placeholder. Vault-unlock gate inline.
+
+**API:** chat sessions CRUD + `/append` + `/stream`; `/api/llm/config` (GET/POST, POST also pushes Hermes),
+`/api/llm/models`, `/api/llm/provider/{id}/key` (vault-gated), `/api/llm/discover/{id}`, `/api/llm/hermes-push`.
+`init_database` eagerly creates `chat_sessions`/`chat_messages`/`llm_config` (modules also create lazily).
+
+**Tests:** `model_router` config/catalog/resolution/fallback + `chat_store` sessions/messages/auto-title +
+`hermes_sync` push = **26/26**; per-session turn (model+history threading through the Conductor, persistence,
+tool-loop) = **10/10**; **#7 Conductor P3 regression intact = 17/17**; frontend `npm run build` clean
+(`tsc` no errors; main bundle ~714 kB, +~37 kB for the whole workspace).
 
 ---
 

@@ -2157,7 +2157,8 @@ async def pm_list_projects(status: str | None = None, category: str | None = Non
         sql += " AND size=?"; params.append(size)
     if q:
         sql += " AND (name LIKE ? OR description LIKE ?)"; params += [f"%{q}%", f"%{q}%"]
-    sql += " ORDER BY updated_at DESC"
+    # manual drag order first (new projects with no order yet float to the top), then recency
+    sql += " ORDER BY COALESCE(sort_order, -1) ASC, updated_at DESC, id DESC"
     rows = conn.execute(sql, params).fetchall()
     items = [_pm_serialize_project(conn, r) for r in rows]
     conn.close()
@@ -2210,6 +2211,23 @@ async def pm_create_project(payload: PMProjectCreateRequest):
     result = _pm_serialize_project(conn, row)
     conn.close()
     return result
+
+
+@app.post("/api/pm/projects/reorder")
+async def pm_reorder_projects(payload: dict = Body(...)):
+    """Persist a manual drag order: `{ "order": [id, id, ...] }` → sort_order = position.
+    Defined before /{project_id} so the literal path can never be shadowed by the param route."""
+    order = payload.get("order")
+    if not isinstance(order, list):
+        raise HTTPException(status_code=400, detail="order must be a list of project ids")
+    conn = _get_conn()
+    try:
+        for i, pid in enumerate(order):
+            conn.execute("UPDATE pm_projects SET sort_order=? WHERE id=?", (float(i), int(pid)))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "count": len(order)}
 
 
 @app.get("/api/pm/projects/{project_id}")
@@ -4064,33 +4082,75 @@ def brain_remember(payload: BrainRememberReq):
 
 @app.post("/api/brain/chat")
 def brain_chat(payload: BrainChatReq):
-    return brain.chat(payload.message)
+    # Routed through the Conductor (queue #7): it reads/answers about live MC state in a
+    # butler voice, and degrades to a normal memory-grounded reply for smalltalk. Falls
+    # back to the plain Brain chat if the Conductor is unavailable.
+    try:
+        from core import conductor
+        return conductor.conductor_chat(payload.message, surface="mc")
+    except Exception:
+        return brain.chat(payload.message)
 
 
 @app.post("/api/brain/chat/stream")
 async def brain_chat_stream(payload: BrainChatReq):
-    """SSE token stream for the MC chat (Brain v2). Emits `delta` events as the reply is
-    generated, then a final `done` event. Falls back transparently to a single chunk when
-    the provider doesn't support streaming (see model_router.complete_stream)."""
+    """SSE token stream for the MC chat — Conductor-powered (queue #7). Emits `delta` events as
+    the grounded answer reveals, an `action` event when a high-risk act needs confirmation, then
+    a final `done`. Falls back to the Brain chat stream if the Conductor is unavailable."""
     message = payload.message
 
     async def gen():
         loop = asyncio.get_event_loop()
         try:
-            it = iter(brain.chat_stream(message))
-            while True:
-                try:
-                    delta = await loop.run_in_executor(None, next, it)
-                except StopIteration:
-                    break
-                yield f"event: delta\ndata: {json.dumps({'text': delta})}\n\n"
-        except Exception as e:
-            yield f"event: error\ndata: {json.dumps({'detail': str(e)[:200]})}\n\n"
+            from core import conductor
+            res = await loop.run_in_executor(None, lambda: conductor.conductor_chat(message, None, "mc"))
+            for chunk in conductor._stream_chunks(res.get("reply", "") or ""):
+                yield f"event: delta\ndata: {json.dumps({'text': chunk})}\n\n"
+            pending = res.get("pending_action")
+            if pending:
+                yield f"event: action\ndata: {json.dumps(pending)}\n\n"
+        except Exception:
+            try:
+                it = iter(brain.chat_stream(message))
+                while True:
+                    try:
+                        delta = await loop.run_in_executor(None, next, it)
+                    except StopIteration:
+                        break
+                    yield f"event: delta\ndata: {json.dumps({'text': delta})}\n\n"
+            except Exception as e:
+                yield f"event: error\ndata: {json.dumps({'detail': str(e)[:200]})}\n\n"
         yield "event: done\ndata: {}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
                                       "X-Accel-Buffering": "no"})
+
+
+@app.get("/api/conductor/status")
+def conductor_status():
+    """The Conductor's exposed read/act tools + phase (queue #7)."""
+    from core import conductor
+    return conductor.conductor_status()
+
+
+@app.get("/api/conductor/actions")
+def conductor_actions(limit: int = 50):
+    """The TOBI Actions audit log — what the Conductor did/proposed, when, and the result."""
+    from core import conductor
+    return conductor.list_actions(limit=max(1, min(limit, 200)))
+
+
+class ConductorConfirmReq(BaseModel):
+    action_id: int
+    decision: str = "approve"   # approve | reject
+
+
+@app.post("/api/conductor/confirm")
+def conductor_confirm(payload: ConductorConfirmReq):
+    """Approve or reject a proposed high-risk Conductor action (the confirm button)."""
+    from core import conductor
+    return conductor.confirm_action(payload.action_id, payload.decision, surface="mc")
 
 
 @app.get("/api/brain/chat/history")
@@ -4102,6 +4162,378 @@ def brain_chat_history():
 @app.post("/api/brain/sweep")
 def brain_sweep():
     return brain.sweep_once()
+
+
+# ── Premium Chat (#8 P1): multi-model sessions + vault-backed LLM config ─────────
+class ChatSessionCreate(BaseModel):
+    title: str | None = None
+    model: str | None = None
+
+
+class ChatSessionPatch(BaseModel):
+    title: str | None = None
+    model: str | None = None
+
+
+class ChatSendReq(BaseModel):
+    message: str
+    model: str | None = None
+    attachments: list[dict] = Field(default_factory=list)   # {name,mime,kind,text?,data_url?}
+    web_research: bool = False
+    thinking: bool = False
+    connectors: list[str] = Field(default_factory=list)     # enabled connector ids for this turn
+
+
+class ChatAppendReq(BaseModel):
+    role: str = "assistant"
+    content: str
+
+
+class ChatForkReq(BaseModel):
+    before_message_id: int
+
+
+class ChatFeedbackReq(BaseModel):
+    value: int | None = None    # 1 👍 | -1 👎 | null clear
+
+
+def _chat_directives(web_research: bool, thinking: bool, connectors: list[str]) -> str | None:
+    lines = []
+    if web_research:
+        lines.append("- Web research: use the web_search tool for anything current/factual and cite the sources you use in a ```tobi:reference``` block.")
+    if connectors:
+        lines.append(f"- Connectors: {', '.join(connectors)} — prefer their tools (e.g. read_notion / read_github) when relevant.")
+    if thinking:
+        lines.append("- Briefly show your reasoning before the final answer.")
+    return "\n".join(lines) or None
+
+
+@app.get("/api/chat/sessions")
+def chat_sessions_list():
+    from core import chat_store
+    return {"sessions": chat_store.list_sessions()}
+
+
+@app.post("/api/chat/sessions")
+def chat_session_create(body: ChatSessionCreate):
+    from core import chat_store
+    return chat_store.create_session(title=body.title, model=body.model)
+
+
+@app.get("/api/chat/sessions/{sid}")
+def chat_session_get(sid: int):
+    from core import chat_store
+    sess = chat_store.get_session(sid)
+    if not sess:
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"session": sess, "messages": chat_store.get_messages(sid)}
+
+
+@app.patch("/api/chat/sessions/{sid}")
+def chat_session_patch(sid: int, body: ChatSessionPatch):
+    from core import chat_store
+    sess = chat_store.update_session(sid, title=body.title, model=body.model)
+    if not sess:
+        raise HTTPException(status_code=404, detail="session not found")
+    return sess
+
+
+@app.delete("/api/chat/sessions/{sid}")
+def chat_session_delete(sid: int):
+    from core import chat_store
+    chat_store.delete_session(sid)
+    return {"ok": True}
+
+
+@app.post("/api/chat/sessions/{sid}/append")
+def chat_session_append(sid: int, body: ChatAppendReq):
+    """Persist a message the client produced out-of-band (e.g. a confirmed high-risk
+    action result) into the session so it survives a reload."""
+    from core import chat_store
+    if not chat_store.get_session(sid):
+        raise HTTPException(status_code=404, detail="session not found")
+    mid = chat_store.add_message(sid, body.role, body.content)
+    return {"ok": True, "id": mid}
+
+
+@app.post("/api/chat/sessions/{sid}/stream")
+async def chat_session_stream(sid: int, payload: ChatSendReq):
+    """Premium chat turn over SSE with **typed events**: `thinking` (phase + tool chips),
+    `delta` (smoothed answer chunks), `action` (a high-risk act awaiting confirmation),
+    `usage` (tokens + latency), then `done`. Conductor-powered, per-session model + history.
+    P2: folds in **attachments** (text → context, images → native vision), an opt-in
+    **web_search** tool and **connector** emphasis, all gated by the chat's `+` menu."""
+    from core import chat_store, conductor, model_router, attachments as attach
+    import time as _time
+
+    sess = chat_store.get_session(sid)
+    if not sess:
+        raise HTTPException(status_code=404, detail="session not found")
+    message = (payload.message or "").strip()
+    model = (payload.model or sess.get("model") or "").strip() or None
+    images, att_text = attach.split(payload.attachments)
+    img_urls = attach.image_data_urls(images)
+    directives = _chat_directives(payload.web_research, payload.thinking, payload.connectors)
+    extra_tools = ["web_search"] if payload.web_research else None
+
+    async def gen():
+        loop = asyncio.get_event_loop()
+        if not message and not img_urls and not att_text:
+            yield "event: done\ndata: {}\n\n"
+            return
+        cid = chat_store.chat_id_for_session(sid)
+        history = await loop.run_in_executor(None, lambda: chat_store.recent_history(sid, limit=8))
+        stored_user = message + (f"  📎×{len(payload.attachments)}" if payload.attachments else "")
+        await loop.run_in_executor(None, lambda: chat_store.add_message(sid, "user", stored_user, model=model))
+        await loop.run_in_executor(None, lambda: chat_store.auto_title(sid, message or "Attachment"))
+        t0 = _time.time()
+
+        # ── Vision path: image attachments bypass the tool-loop (one multimodal call) ──
+        vmodel = model or model_router.load_llm_config().get("default_model") or ""
+        if img_urls and vmodel and model_router.supports_vision(vmodel):
+            yield f"event: thinking\ndata: {json.dumps({'phase': 'Looking at the image…', 'tools': ['vision']})}\n\n"
+            try:
+                from core import brain as _brain
+                profile = await loop.run_in_executor(None, _brain.profile_summary)
+            except Exception:
+                profile = ""
+            system = conductor._system_prompt(profile, False, "mc", directives)
+            vtext = message + (("\n\n" + att_text) if att_text else "")
+            _prev = model_router.set_usage_context("chat", "vision")
+            try:
+                reply = await loop.run_in_executor(
+                    None, lambda: model_router.vision_complete(vmodel, system, vtext, img_urls, history=history))
+            except Exception as e:
+                reply = f"I couldn't read that image, sir — {str(e)[:160]}"
+            finally:
+                model_router.set_usage_context(_prev["surface"], _prev["feature"])
+            reply = reply or "I couldn't make out the image, sir."
+            for chunk in conductor._stream_chunks(reply):
+                yield f"event: delta\ndata: {json.dumps({'text': chunk})}\n\n"
+            ctok = model_router.estimate_tokens(reply)
+            await loop.run_in_executor(None, lambda: chat_store.add_message(
+                sid, "assistant", reply, model=vmodel, tokens=ctok, thinking="Looked at image"))
+            usage = {"prompt_tokens": model_router.estimate_tokens(vtext), "completion_tokens": ctok,
+                     "model": vmodel, "latency_ms": round((_time.time() - t0) * 1000)}
+            yield f"event: usage\ndata: {json.dumps(usage)}\n\n"
+            yield "event: done\ndata: {}\n\n"
+            return
+
+        # images present but no vision-capable model → fold an honest note into context
+        atext = att_text
+        if img_urls and not (vmodel and model_router.supports_vision(vmodel)):
+            atext = (att_text + "\n\n" if att_text else "") + \
+                f"[{len(img_urls)} image(s) attached, but the current model isn't vision-capable — switch to Claude / GPT-4o / Gemini to read them, sir.]"
+
+        # ── Standard tool-loop turn — live tool-step + token events via a thread→async queue ──
+        yield f"event: thinking\ndata: {json.dumps({'phase': 'Thinking…'})}\n\n"
+        q: asyncio.Queue = asyncio.Queue()
+
+        def _emit(ev):
+            try:
+                loop.call_soon_threadsafe(q.put_nowait, ev)
+            except Exception:
+                pass
+
+        _prev = model_router.set_usage_context("chat", "")
+        fut = loop.run_in_executor(None, lambda: conductor.answer(
+            message or "(see attached)", cid, "mc", model=model, history=history,
+            attachments_text=atext or None, directives=directives, extra_tools=extra_tools,
+            on_event=_emit, on_delta=lambda t: _emit({"type": "delta", "text": t})))
+        seen_tools: list[str] = []
+        try:
+            while not fut.done() or not q.empty():
+                try:
+                    ev = await asyncio.wait_for(q.get(), timeout=0.12)
+                except asyncio.TimeoutError:
+                    continue
+                if ev.get("type") == "delta":
+                    yield f"event: delta\ndata: {json.dumps({'text': ev.get('text', '')})}\n\n"
+                elif ev.get("type") == "reset":
+                    yield "event: reset\ndata: {}\n\n"
+                elif ev.get("type") == "thinking":
+                    if ev.get("tool") and ev["tool"] not in seen_tools:
+                        seen_tools.append(ev["tool"])
+                    yield f"event: thinking\ndata: {json.dumps({'phase': ev.get('phase', ''), 'tools': seen_tools})}\n\n"
+            res = await fut
+        except Exception as e:
+            yield f"event: error\ndata: {json.dumps({'detail': str(e)[:200]})}\n\n"
+            yield "event: done\ndata: {}\n\n"
+            return
+        finally:
+            model_router.set_usage_context(_prev["surface"], _prev["feature"])
+        reply = res.get("reply", "") or ""
+        reasoning = res.get("reasoning") or None
+        tools = res.get("tools_used") or []
+        # The streamed answer already reached the client via on_delta; only special replies
+        # (proposals, failures, model-issue notices) still need to be sent here.
+        if not res.get("streamed"):
+            for chunk in conductor._stream_chunks(reply):
+                yield f"event: delta\ndata: {json.dumps({'text': chunk})}\n\n"
+        if res.get("model_issue"):
+            yield f"event: notice\ndata: {json.dumps({'kind': 'model_issue'})}\n\n"
+        thinking_meta = reasoning or (("Consulted: " + ", ".join(tools)) if tools else None)
+        ctok = model_router.estimate_tokens(reply)
+        ptok = model_router.estimate_tokens(message + (atext or "") + " ".join(m.get("content", "") for m in history))
+        await loop.run_in_executor(
+            None, lambda: chat_store.add_message(sid, "assistant", reply, model=model,
+                                                 tokens=ctok, thinking=thinking_meta))
+        pending = res.get("pending_action")
+        if pending:
+            yield f"event: action\ndata: {json.dumps(pending)}\n\n"
+        usage = {"prompt_tokens": ptok, "completion_tokens": ctok,
+                 "model": model or sess.get("model") or "default",
+                 "latency_ms": round((_time.time() - t0) * 1000)}
+        yield f"event: usage\ndata: {json.dumps(usage)}\n\n"
+        yield "event: done\ndata: {}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
+                                      "X-Accel-Buffering": "no"})
+
+
+@app.post("/api/chat/sessions/{sid}/fork")
+def chat_session_fork(sid: int, body: ChatForkReq):
+    """Edit→branch: clone the session up to a message into a NEW session (original preserved)."""
+    from core import chat_store
+    new = chat_store.fork_session(sid, body.before_message_id)
+    if not new:
+        raise HTTPException(status_code=404, detail="session not found")
+    return new
+
+
+@app.post("/api/chat/messages/{mid}/feedback")
+def chat_message_feedback(mid: int, body: ChatFeedbackReq):
+    from core import chat_store
+    chat_store.set_feedback(mid, body.value)
+    return {"ok": True, "id": mid, "feedback": body.value}
+
+
+@app.get("/api/chat/sessions/{sid}/activity")
+def chat_session_activity(sid: int, limit: int = 50):
+    """The system action log for this session — TOBI Actions (#7) scoped to the session's chat_id."""
+    from core import chat_store, conductor
+    cid = chat_store.chat_id_for_session(sid)
+    return conductor.list_actions(limit=max(1, min(limit, 200)), chat_id=cid)
+
+
+class ChatCompactReq(BaseModel):
+    model: str | None = None
+    keep: int = 6
+
+
+@app.post("/api/chat/sessions/{sid}/compact")
+def chat_session_compact(sid: int, body: ChatCompactReq):
+    """Compact (P3): summarize the older turns (keep the most recent `keep` verbatim),
+    store the summary, and return the trimmed message list — the context bar drops."""
+    from core import chat_store, model_router
+    sess = chat_store.get_session(sid)
+    if not sess:
+        raise HTTPException(status_code=404, detail="session not found")
+    keep = max(2, min(int(body.keep or 6), 20))
+    transcript = chat_store.older_messages_text(sid, keep=keep)
+    if not transcript:
+        return {"compacted": False, "messages": chat_store.get_messages(sid),
+                "detail": "Nothing old enough to compact yet."}
+    model = (body.model or sess.get("model") or "").strip() or None
+    prompt = ("Summarize this earlier part of a conversation between the Owner and TOBI into tight bullet "
+              "points that preserve names, numbers, decisions, and open threads, so the assistant can keep "
+              "context. Be concise.\n\n" + transcript)
+    try:
+        client = model_router.get_llm("simple", model=model) if model else model_router.get_llm("simple")
+        summary = client.complete([{"role": "user", "content": prompt}], max_tokens=500) or ""
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Could not summarize: {str(e)[:160]}")
+    msgs = chat_store.compact_session(sid, summary, keep=keep)
+    if msgs is None:
+        return {"compacted": False, "messages": chat_store.get_messages(sid)}
+    return {"compacted": True, "messages": msgs, "summary": summary}
+
+
+@app.get("/api/llm/usage")
+def llm_usage(days: int = 7):
+    """Weekly token/cost/latency analytics from real per-call logging (Models page + Health)."""
+    from core import usage
+    return usage.summary(days=max(1, min(days, 90)))
+
+
+@app.get("/api/llm/usage/recent")
+def llm_usage_recent(limit: int = 50):
+    from core import usage
+    return {"calls": usage.recent(limit=limit)}
+
+
+class LlmConfigReq(BaseModel):
+    config: dict
+
+
+class LlmKeyReq(BaseModel):
+    value: str
+
+
+@app.get("/api/llm/config")
+def llm_config_get():
+    """Routing config + provider catalog (key-presence, base_urls, models) + the flat
+    'provider:model' picker list. Non-secret — no vault session required to read."""
+    from core import model_router
+    return {
+        "config": model_router.load_llm_config(),
+        "providers": model_router.provider_catalog(),
+        "models": model_router.available_models(),
+    }
+
+
+@app.get("/api/llm/models")
+def llm_models():
+    from core import model_router
+    return {"models": model_router.available_models()}
+
+
+@app.post("/api/llm/config")
+def llm_config_save(body: LlmConfigReq):
+    """Save routing prefs (default + per-task + fallback + provider base_urls/models) and
+    **push to Hermes** (best-effort, never fails the save)."""
+    from core import model_router, hermes_sync
+    cfg = model_router.save_llm_config(body.config or {})
+    try:
+        hermes = hermes_sync.push_config(cfg)
+    except Exception as e:  # never let a Hermes hiccup break the save
+        hermes = {"ok": False, "detail": f"Hermes push skipped: {str(e)[:120]}"}
+    return {"config": cfg, "providers": model_router.provider_catalog(),
+            "models": model_router.available_models(), "hermes": hermes}
+
+
+@app.post("/api/llm/provider/{pid}/key")
+def llm_provider_key(pid: str, body: LlmKeyReq,
+                     x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    """Store a provider's API key in the Genesis vault (encrypted) and inject it live."""
+    _vault_guard(x_vault_session)
+    from core import model_router
+    spec = model_router.PROVIDERS.get(pid)
+    if not spec or not spec.get("key_env"):
+        raise HTTPException(status_code=400, detail="provider has no API key")
+    conn = _get_conn()
+    try:
+        vault.set_secret(conn, spec["key_env"], body.value, integration_id="llm", secret_type="api_key")
+        vault.inject_env(conn)
+    finally:
+        conn.close()
+    return {"ok": True, "providers": model_router.provider_catalog(),
+            "models": model_router.available_models()}
+
+
+@app.post("/api/llm/discover/{pid}")
+def llm_discover(pid: str):
+    from core import model_router
+    if pid not in model_router.PROVIDERS:
+        raise HTTPException(status_code=404, detail="unknown provider")
+    return model_router.discover_models(pid)
+
+
+@app.post("/api/llm/hermes-push")
+def llm_hermes_push():
+    from core import hermes_sync, model_router
+    return hermes_sync.push_config(model_router.load_llm_config())
 
 
 # ── Graph View: unified second-brain knowledge graph ────────────────────────────

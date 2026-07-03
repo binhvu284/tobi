@@ -1033,6 +1033,31 @@ async def handle_chat(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         asyncio.create_task(handle_research_background(update, user_msg, chat_id))
         return
 
+    # STATUS / QUESTION — Conductor (queue #7): grounded, butler-voiced answers about
+    # live Mission Control state. Telegram is read-only/safe, so only the read intents go
+    # here; EXECUTION (run missions) still falls through to the legacy path for now.
+    if task_type in ("STATUS", "QUESTION"):
+        reply = None
+        try:
+            from core import conductor
+            res = await asyncio.to_thread(conductor.conductor_chat, user_msg, chat_id, "telegram")
+            reply = (res or {}).get("reply")
+        except Exception:
+            logger.exception("Conductor error in handle_chat")
+            reply = None
+        if reply:
+            async with _get_lock(chat_id):
+                _init_history(chat_id)
+                _history[chat_id].append({"role": "user", "content": user_msg})
+                _history[chat_id].append({"role": "assistant", "content": reply})
+                _trim_history(chat_id)
+            try:
+                await update.message.reply_text(reply, parse_mode="Markdown")
+            except Exception:
+                await update.message.reply_text(reply)
+            return
+        # else fall through to the legacy path below
+
     # STATUS / QUESTION / EXECUTION — normal LLM path with context
     from core.model_router import get_llm
     client = get_llm("writing")

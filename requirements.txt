@@ -20,3 +20,6 @@ uvicorn==0.48.0
 cryptography==49.0.0
 # MCP Hub (#5): TOBI as an MCP server (Streamable HTTP) + client. Official SDK.
 mcp==1.28.0
+# Premium Chat (#8 P2): extract text from PDF attachments. Optional — attachments
+# degrade to an honest "install pypdf" note if it's missing.
+pypdf==6.1.1

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, RefreshCw, LayoutGrid, List, Search, X, ChevronRight,
@@ -8,7 +8,7 @@ import {
   ChevronDown, ChevronUp, FolderOutput,
 } from 'lucide-react'
 import {
-  pmListProjects, pmCreateProject, pmPatchProject, pmDeleteProject,
+  pmListProjects, pmCreateProject, pmPatchProject, pmDeleteProject, pmReorderProjects,
   pmListGoals, pmCreateGoal, pmPatchGoal, pmDeleteGoal,
   pmListTasks, pmCreateTask, patchTask, deleteTask,
   pmListMissions, pmCreateMission,
@@ -79,7 +79,7 @@ function Bar({ pct, color = 'bg-accent' }: { pct: number; color?: string }) {
 }
 
 // ── Project card (grid) ───────────────────────────────────────────────────────
-function ProjectCard({ project, onClick }: { project: PMProject; onClick: () => void }) {
+function ProjectCard({ project, onClick, onDelete }: { project: PMProject; onClick: () => void; onDelete: () => void }) {
   const cfg = STATUS_CFG[project.status] ?? STATUS_CFG.idea
   const overdue = project.deadline && project.status !== 'done' && new Date(project.deadline) < new Date()
   return (
@@ -87,6 +87,10 @@ function ProjectCard({ project, onClick }: { project: PMProject; onClick: () => 
       exit={{ opacity: 0, scale: 0.95 }} whileHover={{ y: -2 }} onClick={onClick}
       className="group relative cursor-pointer rounded-xl border border-border bg-surface p-4 hover:border-accent/40 transition-colors"
       style={{ borderTop: `3px solid ${project.accent_color ?? '#58a6ff'}` }}>
+      <button onClick={e => { e.stopPropagation(); onDelete() }} title="Delete project"
+        className="absolute right-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-md border border-border bg-surface text-muted opacity-0 transition-all hover:border-danger/50 hover:text-danger group-hover:opacity-100">
+        <Trash2 size={12} />
+      </button>
       <div className="flex items-start justify-between gap-2 mb-3">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-2xl leading-none">{project.emoji_icon}</span>
@@ -95,7 +99,7 @@ function ProjectCard({ project, onClick }: { project: PMProject; onClick: () => 
             {project.category && <div className="text-[11px] text-muted truncate">{project.category}</div>}
           </div>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0 pr-7">
           <span className={SIZE_CFG[project.size] ?? SIZE_CFG.medium}>{project.size}</span>
           <span className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${cfg.color}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />{cfg.label}
@@ -126,7 +130,7 @@ function ProjectCard({ project, onClick }: { project: PMProject; onClick: () => 
 }
 
 // ── Project row (list) ────────────────────────────────────────────────────────
-function ProjectRow({ project, onClick }: { project: PMProject; onClick: () => void }) {
+function ProjectRow({ project, onClick, onDelete }: { project: PMProject; onClick: () => void; onDelete: () => void }) {
   const cfg = STATUS_CFG[project.status] ?? STATUS_CFG.idea
   const overdue = project.deadline && project.status !== 'done' && new Date(project.deadline) < new Date()
   return (
@@ -150,6 +154,8 @@ function ProjectRow({ project, onClick }: { project: PMProject; onClick: () => v
         <Bar pct={project.progress_pct} />
       </div>
       <span className={`text-[11px] w-16 text-right ${overdue ? 'text-danger' : 'text-muted'}`}>{fmtDate(project.deadline)}</span>
+      <button onClick={e => { e.stopPropagation(); onDelete() }} title="Delete project"
+        className="text-muted opacity-0 transition-all hover:text-danger group-hover:opacity-100"><Trash2 size={14} /></button>
       <ChevronRight size={14} className="text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
     </motion.div>
   )
@@ -994,8 +1000,8 @@ function TabActivity({ projectId }: { projectId: number }) {
 // ── Project detail drawer ─────────────────────────────────────────────────────
 type Tab = 'overview' | 'tasks' | 'goals' | 'docs' | 'missions' | 'activity'
 
-function ProjectDrawer({ project: initial, onClose, onUpdated }: {
-  project: PMProject; onClose: () => void; onUpdated: (p: PMProject) => void
+function ProjectDrawer({ project: initial, onClose, onUpdated, onDelete }: {
+  project: PMProject; onClose: () => void; onUpdated: (p: PMProject) => void; onDelete: () => void
 }) {
   const [project, setProject] = useState(initial)
   const [tab, setTab] = useState<Tab>('overview')
@@ -1084,6 +1090,7 @@ function ProjectDrawer({ project: initial, onClose, onUpdated }: {
           <button onClick={() => setShowTplInput(s => !s)} title="Save as template"
             className="text-muted hover:text-accent transition-colors"><FolderOutput size={16} /></button>
           <button onClick={reload} className="text-muted hover:text-text"><RefreshCw size={15} /></button>
+          <button onClick={onDelete} title="Delete project" className="text-muted hover:text-danger transition-colors"><Trash2 size={16} /></button>
           <button onClick={onClose} className="text-muted hover:text-text ml-1"><X size={18} /></button>
         </div>
 
@@ -1145,7 +1152,10 @@ export default function Projects() {
   const [showCreate, setShowCreate] = useState(false)
   const [selected, setSelected] = useState<PMProject | null>(null)
   const [templates, setTemplates] = useState<{ id: number; name: string }[]>([])
+  const [dragId, setDragId] = useState<number | null>(null)
   const { toast } = useToast()
+  const projectsRef = useRef<PMProject[]>([])
+  useEffect(() => { projectsRef.current = projects }, [projects])
 
   const load = useCallback(async () => {
     try { const r = await pmListProjects(); setProjects(r.items) }
@@ -1173,6 +1183,34 @@ export default function Projects() {
     try { await pmDeleteProject(p.id); load(); toast({ kind: 'success', title: 'Deleted' }) }
     catch (e) { toast({ kind: 'error', title: 'Failed', detail: (e as Error).message }) }
   }
+
+  // ── drag-to-reorder (only in the default unfiltered view) ──
+  const canReorder = filterStatus === 'all' && !search.trim()
+  function onDragOverItem(overId: number) {
+    if (dragId == null || dragId === overId) return
+    setProjects(prev => {
+      const from = prev.findIndex(p => p.id === dragId)
+      const to = prev.findIndex(p => p.id === overId)
+      if (from < 0 || to < 0 || from === to) return prev
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
+  }
+  async function onDragEndItem() {
+    const id = dragId; setDragId(null)
+    if (id == null) return
+    try { await pmReorderProjects(projectsRef.current.map(p => p.id)) }
+    catch (e) { toast({ kind: 'error', title: 'Reorder failed', detail: (e as Error).message }); load() }
+  }
+  const dragProps = (id: number) => canReorder ? {
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => { setDragId(id); e.dataTransfer.effectAllowed = 'move' },
+    onDragOver: (e: React.DragEvent) => { e.preventDefault(); onDragOverItem(id) },
+    onDrop: (e: React.DragEvent) => e.preventDefault(),
+    onDragEnd: onDragEndItem,
+  } : {}
 
   const counts = ['all','idea','active','done','archived'].map(s => ({
     s, label: s === 'all' ? 'All' : (STATUS_CFG[s]?.label ?? s),
@@ -1241,7 +1279,13 @@ export default function Projects() {
         ) : view === 'grid' ? (
           <div className="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <AnimatePresence>
-              {filtered.map(p => <ProjectCard key={p.id} project={p} onClick={() => setSelected(p)} />)}
+              {filtered.map(p => (
+                <div key={p.id} {...dragProps(p.id)}
+                  className={`${canReorder ? 'cursor-grab active:cursor-grabbing' : ''} ${dragId === p.id ? 'opacity-40' : ''}`}
+                  title={canReorder ? 'Drag to reorder' : undefined}>
+                  <ProjectCard project={p} onClick={() => setSelected(p)} onDelete={() => handleDelete(p)} />
+                </div>
+              ))}
             </AnimatePresence>
           </div>
         ) : (
@@ -1253,7 +1297,13 @@ export default function Projects() {
               <span className="w-5" />
             </div>
             <AnimatePresence>
-              {filtered.map(p => <ProjectRow key={p.id} project={p} onClick={() => setSelected(p)} />)}
+              {filtered.map(p => (
+                <div key={p.id} {...dragProps(p.id)}
+                  className={`${canReorder ? 'cursor-grab active:cursor-grabbing' : ''} ${dragId === p.id ? 'opacity-40' : ''}`}
+                  title={canReorder ? 'Drag to reorder' : undefined}>
+                  <ProjectRow project={p} onClick={() => setSelected(p)} onDelete={() => handleDelete(p)} />
+                </div>
+              ))}
             </AnimatePresence>
           </div>
         )}
@@ -1272,6 +1322,7 @@ export default function Projects() {
           <ProjectDrawer
             project={selected}
             onClose={() => setSelected(null)}
+            onDelete={() => { const p = selected; setSelected(null); handleDelete(p) }}
             onUpdated={updated => {
               setProjects(prev => prev.map(p => p.id === updated.id ? updated : p))
               setSelected(updated)

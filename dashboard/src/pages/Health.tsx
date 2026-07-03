@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { RefreshCw, Activity, AlertTriangle, CheckCircle2, Database, Server, Loader2, KeyRound, ExternalLink } from 'lucide-react'
+import { RefreshCw, Activity, AlertTriangle, CheckCircle2, Database, Server, Loader2, KeyRound, ExternalLink, Cpu } from 'lucide-react'
 import Logo from '../components/Logo'
 import HealthBar from '../components/HealthBar'
 import PageLoader from '../components/PageLoader'
 import { Stagger, StaggerItem } from '../components/motion'
 import { useReducedMotionPref } from '../context/MotionProvider'
 import {
-  getHealth, runDeepTest, getIntegrations,
+  getHealth, runDeepTest, getIntegrations, getLlmUsage,
   type HealthReport, type DeepTestReport, type LivenessCheck, type IntegrationsResponse,
+  type UsageSummary,
 } from '../api'
 
 const OVERALL = {
@@ -68,10 +69,12 @@ export default function Health() {
   const [deep, setDeep] = useState<DeepTestReport | null>(null)
   const [deepLoading, setDeepLoading] = useState(false)
   const [gen, setGen] = useState<IntegrationsResponse | null>(null)
+  const [usage, setUsage] = useState<UsageSummary | null>(null)
   const reduced = useReducedMotionPref() !== 'full'
 
   const load = async () => {
     getIntegrations().then(setGen).catch(() => {})  // Genesis/integrations cross-link (read-only)
+    getLlmUsage(7).then(setUsage).catch(() => {})   // LLM usage summary (Premium Chat #8 P3)
     try {
       const h = await getHealth()
       setHealth(h)
@@ -193,6 +196,34 @@ export default function Health() {
                 {i.connected ? <CheckCircle2 size={10} /> : <span className="h-1.5 w-1.5 rounded-full bg-current opacity-50" />}{i.label}
               </span>
             ))}
+          </div>
+        </Section>
+      )}
+
+      {/* LLM usage — cross-link to the Models page (Premium Chat #8 P3) */}
+      {usage && usage.requests > 0 && (
+        <Section title="LLM usage (7 days)" icon={<Cpu size={15} className="text-accent" />}
+          hint="Real per-call logging across chat, agents & research. Full breakdown on the Models page.">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {[
+              { label: 'Tokens', value: usage.total_tokens >= 1000 ? `${(usage.total_tokens / 1000).toFixed(1)}k` : String(usage.total_tokens) },
+              { label: 'Cost', value: `$${usage.total_cost.toFixed(usage.total_cost < 1 ? 4 : 2)}` },
+              { label: 'Requests', value: usage.requests.toLocaleString() },
+              { label: 'Avg latency', value: `${usage.avg_latency_ms}ms` },
+            ].map(k => (
+              <div key={k.label} className="rounded-lg border border-border bg-bg px-3 py-2">
+                <div className="text-[10px] uppercase tracking-wide text-muted">{k.label}</div>
+                <div className="mt-0.5 text-base font-bold text-heading">{k.value}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center justify-between">
+            <div className="flex flex-wrap gap-1.5">
+              {usage.by_model.slice(0, 3).map(m => (
+                <span key={m.model} className="rounded-full bg-bg px-2 py-0.5 text-[10px] text-muted">{m.model.split(':').pop()} · {m.requests}×</span>
+              ))}
+            </div>
+            <Link to="/models" className="flex shrink-0 items-center gap-1 text-xs font-medium text-accent hover:underline">Models <ExternalLink size={12} /></Link>
           </div>
         </Section>
       )}

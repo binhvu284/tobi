@@ -14,11 +14,13 @@ import Task from './pages/Task'
 import Projects from './pages/Projects'
 import ControlRoom from './pages/ControlRoom'
 import Settings from './pages/Settings'
+import Models from './pages/Models'
 import Integrations from './pages/Integrations'
 import Mcp from './pages/Mcp'
 import Brain from './pages/Brain'
 import Chat from './pages/Chat'
 import Inbox from './pages/Inbox'
+import Actions from './pages/Actions'
 // Graph carries the heavy force-graph canvas lib — lazy-load so it stays out of the main bundle.
 const Graph = lazy(() => import('./pages/Graph'))
 // Office embeds the Phaser game engine (~1.2MB) — lazy-load so it stays out of the main bundle.
@@ -37,6 +39,7 @@ export default function App() {
               <Route path="/inbox" element={<Inbox />} />
               <Route path="/brain" element={<Brain />} />
               <Route path="/chat" element={<Chat />} />
+              <Route path="/actions" element={<Actions />} />
               <Route path="/graph" element={
                 <Suspense fallback={<PageLoader preset="graph" />}><Graph /></Suspense>
               } />
@@ -53,6 +56,7 @@ export default function App() {
               <Route path="/mcp" element={<Mcp />} />
               <Route path="/health" element={<Health />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/models" element={<Models />} />
             </Routes>
             </AppShell>
           </ToastProvider>

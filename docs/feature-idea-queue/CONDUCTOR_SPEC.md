@@ -8,6 +8,27 @@
 >
 > **Queue #7** · **Date:** 2026-06-26 · **Builds on:** [SECOND_BRAIN_DIRECTION.md](SECOND_BRAIN_DIRECTION.md)
 > (the memory substrate) · **Owner-reviewed via 30 Q&A** (Appendix A).
+>
+> **Status: ✅ Done (v1) — P0 (reused) · P1 · P2 · P3 all shipped & tested.** `core/conductor.py` is the one
+> shared engine: classifier pre-route → memory-first grounding → provider-agnostic JSON tool-loop →
+> butler voice + EN/VN mirror + strict grounding, with **7 read tools** (`get_evolution`,
+> `explain_architecture`, `office_status`, `list_projects`, `list_tasks`, `check_health`, `recall`).
+> Wired into **both surfaces** — MC chat (`/api/brain/chat` + SSE repointed through the Conductor) and
+> Telegram (`handle_chat` STATUS/QUESTION). 17/17 venv read tests pass.
+>
+> **P2 (act):** **7 act tools** with risk tiers — low/medium (`create_project`/`create_task`/`complete_task`/
+> `remember`/`update_project_progress`) auto-execute & report; high (`delete_task`/`run_mission`) are
+> **proposed** and run only after the owner confirms (Confirm/Cancel card surfaced via an SSE `action` event,
+> **or** a typed "yes"/"có"). **Surface asymmetry enforced** (MC full · Telegram read+low-only). **TOBI Actions
+> audit** (lazy `tobi_actions` table → `/actions` page + `/api/conductor/actions`/`/confirm`). **Log-and-learn**
+> (habit notes to the Brain). 24/24 venv act tests pass; frontend builds clean.
+>
+> **P3 (external + chains):** 3 external read tools over the existing connectors (`read_notion` w/ a new
+> `get_page_content` block reader · `read_github` · `read_drive` honest-stub), all graceful when a source isn't
+> connected; new `assign_task` act tool. **Multi-step chains** in one turn (e.g. read_notion → create_project →
+> create_task → assign_task), each step grounded in the prior step's ids; **stop-on-failure** halts and reports
+> exactly what was done vs. failed. Catalog: **10 read + 8 act tools**. 17/17 venv P3 tests pass. **Acceptance set
+> all green** (§6). Conductor v1 complete.
 
 ---
 
