@@ -990,10 +990,13 @@ export type ChatStoredMessage = {
 }
 export type ChatUsage = { prompt_tokens: number; completion_tokens: number; model: string; latency_ms: number }
 export type ChatNotice = { kind: 'model_issue' | string }
+export type PickerQuestion = { question: string; options?: string[] }
+export type ChatPicker = { topic: string; questions: PickerQuestion[] }
 export type ChatStreamHandlers = {
   onDelta: (text: string) => void
   onThinking?: (phase: string, tools?: string[]) => void
   onAction?: (action: PendingAction) => void
+  onPicker?: (picker: ChatPicker) => void
   onUsage?: (usage: ChatUsage) => void
   onNotice?: (notice: ChatNotice) => void
   onReset?: () => void
@@ -1060,6 +1063,7 @@ export async function streamChatSession(
       if (event === 'delta') { const o = parse(); if (o.text) handlers.onDelta(o.text) }
       else if (event === 'thinking') { const o = parse(); handlers.onThinking?.(o.phase || '', o.tools) }
       else if (event === 'action') { const o = parse(); if (o && o.id != null) handlers.onAction?.(o as PendingAction) }
+      else if (event === 'picker') { const o = parse(); if (o && Array.isArray(o.questions) && o.questions.length) handlers.onPicker?.(o as ChatPicker) }
       else if (event === 'usage') { handlers.onUsage?.(parse() as ChatUsage) }
       else if (event === 'notice') { const o = parse(); if (o && o.kind) handlers.onNotice?.(o as ChatNotice) }
       else if (event === 'reset') { handlers.onReset?.() }

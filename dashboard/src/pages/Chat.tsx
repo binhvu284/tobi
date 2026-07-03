@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import {
   type PendingAction, type ChatSession, type AvailableModel, type ChatUsage,
-  type ChatStoredMessage, type ChatAttachment, type ConductorAction,
+  type ChatStoredMessage, type ChatAttachment, type ConductorAction, type ChatPicker,
   getChatSessions, createChatSession, getChatSession, patchChatSession, deleteChatSession,
   appendChatMessage, streamChatSession, getLlmModels, confirmConductorAction, rememberFact,
   forkChatSession, setMessageFeedback, getSessionActivity, getIntegrations, compactSession,
@@ -21,6 +21,7 @@ import MarkdownView from '../components/chat/MarkdownView'
 import { ThinkingOrb } from '../components/chat/ThinkingOrb'
 import TierEmblem from '../components/TierEmblem'
 import ModelMenu from '../components/chat/ModelMenu'
+import PickerWizard, { type PickerAnswer } from '../components/chat/PickerWizard'
 
 type TierMark = { tier: number; colorKey: string; roman: string; name: string }
 
@@ -28,6 +29,17 @@ type Meta = { elapsedMs?: number; tokens?: number; tools?: string[] }
 type Msg = { id?: number; role: string; content: string; model?: string | null; meta?: Meta; thinking?: string | null; feedback?: number | null; created_at?: string }
 
 const DEFAULT_STARTERS = ['What should I focus on today?', 'Give me a status report of the office.', 'Draft a message for me', 'Plan my day']
+// Manual picker (Feature 3): the owner asks TOBI to "ask me for my details" → this default
+// context set. TOBI can also raise a tailored picker itself via the ask_owner_details tool.
+const DEFAULT_DETAIL_PICKER: ChatPicker = {
+  topic: 'A few details about you',
+  questions: [
+    { question: 'What should I focus on helping you with right now?' },
+    { question: 'What are you working on this week?' },
+    { question: "What's your preferred communication style?", options: ['Concise & direct', 'Detailed & thorough', 'Casual & friendly', 'Formal'] },
+    { question: 'Any deadlines, constraints, or context I should keep in mind?' },
+  ],
+}
 const shortModel = (id?: string | null) => (id || '').split(':').pop()?.split('/').pop() || ''
 const fmtTime = (s?: string) => { if (!s) return ''; try { return new Date(s).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } catch { return '' } }
 const fmtAbsolute = (s?: string) => { if (!s) return ''; try { return new Date(s).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return '' } }
@@ -129,6 +141,8 @@ export default function Chat() {
   const [activityOpen, setActivityOpen] = useState(false)
   const [activity, setActivity] = useState<ConductorAction[]>([])
   const [compacting, setCompacting] = useState(false)
+  const [picker, setPicker] = useState<ChatPicker | null>(null)  // Feature 3 wizard
+  const [dragOver, setDragOver] = useState(false)                // Feature 8 drag & drop
 
   const endRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -292,6 +306,7 @@ export default function Chat() {
           if (deltaRafRef.current == null) deltaRafRef.current = requestAnimationFrame(flushDelta)
         },
         onAction: (a) => { flushDelta(); if (confirmMode === 'auto' || autoAcceptChat) resolveAction('approve', a); else setPending(a) },
+        onPicker: (p) => { flushDelta(); setPicker(p) },
         onNotice: (n) => { if (n.kind === 'model_issue') setModelIssue(true) },
         onReset: () => {
           // a chatty model leaked a prose preamble before a tool call → drop it, show the orb again
@@ -405,6 +420,23 @@ export default function Chat() {
   const toggleConnector = (id: string) => setConnectors(c => c.includes(id) ? c.filter(x => x !== id) : [...c, id])
   const activeFlags = (webResearch ? 1 : 0) + (thinkingOn ? 1 : 0) + connectors.length + attachments.length
 
+  // ── picker wizard (Feature 3) — answers go back to TOBI as the owner's next message ──
+  const submitPicker = (answers: PickerAnswer[]) => {
+    setPicker(null)
+    if (activeId == null || sending || streaming || !answers.length) return
+    const body = answers.map(a => `• ${a.question} — ${a.answer}`).join('\n')
+    runTurn(`Here are the details you asked for:\n${body}`, activeId, {})
+  }
+
+  // ── drag & drop image/file input (Feature 8) ──
+  const onDragOver = (e: React.DragEvent) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragOver(true) } }
+  const onDragLeave = (e: React.DragEvent) => { if (e.currentTarget === e.target) setDragOver(false) }
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setDragOver(false)
+    const files = Array.from(e.dataTransfer.files || [])
+    if (files.length) addFiles(files)
+  }
+
   // ── context energy bar + Compact ──
   const estTok = (s: string) => Math.ceil((s || '').length / 4)
   const ctxLimit = models.find(m => m.id === model)?.context || 128000
@@ -427,8 +459,10 @@ export default function Chat() {
   // ── slash commands (/model /compact /web /new /clear) ──
   const slashCmds: { cmd: string; desc: string; icon: typeof Cpu; run: () => void }[] = [
     { cmd: 'model', desc: 'Switch model', icon: Cpu, run: () => setModelMenuOpen(true) },
-    { cmd: 'compact', desc: 'Summarize older turns', icon: Layers, run: () => doCompact() },
+    { cmd: 'research', desc: webResearch ? 'Web research → off' : 'Web research → on (Hermes)', icon: Globe, run: () => setWebResearch(v => !v) },
     { cmd: 'web', desc: webResearch ? 'Web research → off' : 'Web research → on', icon: Globe, run: () => setWebResearch(v => !v) },
+    { cmd: 'details', desc: 'Let TOBI ask you for context', icon: Sparkles, run: () => setPicker(DEFAULT_DETAIL_PICKER) },
+    { cmd: 'compact', desc: 'Summarize older turns', icon: Layers, run: () => doCompact() },
     { cmd: 'new', desc: 'Start a new chat', icon: MessageSquarePlus, run: () => newSession() },
     { cmd: 'clear', desc: 'Clear the message box', icon: X, run: () => { setInput(''); setAttachments([]) } },
   ]
@@ -454,7 +488,23 @@ export default function Chat() {
     : <span className="flex shrink-0 items-center justify-center rounded-full border border-purple/30 bg-purple/10 text-purple" style={{ width: size, height: size }}><Bot size={Math.round(size * 0.5)} /></span>
 
   return (
-    <div className="flex h-full">
+    <div className="relative flex h-full" onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
+      {/* drag & drop overlay (Feature 8) */}
+      <AnimatePresence>
+        {dragOver && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="pointer-events-none absolute inset-0 z-[150] flex items-center justify-center bg-accent/10 backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-accent/60 bg-surface/90 px-8 py-6 text-accent shadow-2xl">
+              <ImageIcon size={28} />
+              <span className="text-sm font-semibold">Drop images or files to attach</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* picker wizard (Feature 3) */}
+      {picker && <PickerWizard picker={picker} onSubmit={submitPicker} onCancel={() => setPicker(null)} />}
+
       {/* sessions sidebar — collapsible icon rail (persisted, default open) */}
       {sidebarOpen ? (
         <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-surface/30 sm:flex">
@@ -777,6 +827,7 @@ export default function Chat() {
                     <button onClick={() => { fileRef.current?.click(); setPlusOpen(false) }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><ImageIcon size={15} className="text-muted" /> Attach image <span className="ml-auto text-[10px] text-muted">or paste</span></button>
                     <button onClick={() => setWebResearch(v => !v)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><Globe size={15} className={webResearch ? 'text-accent' : 'text-muted'} /> Web research <span className={`ml-auto text-[10px] ${webResearch ? 'text-accent' : 'text-muted'}`}>{webResearch ? 'On' : 'Off'}</span></button>
                     <button onClick={() => setThinkingOn(v => !v)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><Lightbulb size={15} className={thinkingOn ? 'text-accent' : 'text-muted'} /> Show thinking <span className={`ml-auto text-[10px] ${thinkingOn ? 'text-accent' : 'text-muted'}`}>{thinkingOn ? 'On' : 'Off'}</span></button>
+                    <button onClick={() => { setPicker(DEFAULT_DETAIL_PICKER); setPlusOpen(false) }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><Sparkles size={15} className="text-muted" /> Tell TOBI about you <span className="ml-auto text-[10px] text-muted">picker</span></button>
                     <button disabled className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-muted/60"><FileText size={15} /> Choose from Drive <span className="ml-auto text-[10px]">soon</span></button>
                     {connectorOpts.length > 0 && <div className="mt-1 border-t border-border pt-1">
                       <div className="px-2.5 py-1 text-[10px] uppercase tracking-wide text-muted">Connectors → live tools</div>

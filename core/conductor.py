@@ -329,8 +329,38 @@ def _load_owner_timezone() -> str:
         conn.close()
 
 
+def tool_ask_owner_details(topic: str = "", questions: Optional[list] = None, **_: Any) -> dict:
+    """Ask the owner for missing context via an interactive multi-step picker wizard, instead of
+    guessing. Generate the questions yourself, tailored to what you need to know right now. Args:
+    topic (short string), questions (list of question strings, or objects {question, options?[]}).
+    The answers come back in the owner's next message — session-scoped, not saved permanently."""
+    topic = (topic or "").strip()
+    norm: list[dict] = []
+    for q in (questions or []):
+        if isinstance(q, str) and q.strip():
+            norm.append({"question": q.strip()})
+        elif isinstance(q, dict) and q.get("question"):
+            item = {"question": str(q["question"]).strip()}
+            opts = q.get("options")
+            if isinstance(opts, list) and opts:
+                item["options"] = [str(o) for o in opts if str(o).strip()][:6]
+            norm.append(item)
+    norm = norm[:6]
+    if not norm:
+        return {"error": "questions is required — pass a list of question strings"}
+    # Sentinel result: the engine intercepts this, halts the turn, and surfaces a picker
+    # to the owner rather than feeding it back to the model.
+    return {"__picker__": {"topic": topic or "A few quick questions", "questions": norm}}
+
+
+def _picker_intro(picker: dict) -> str:
+    topic = (picker.get("topic") or "a few details").strip().rstrip(".")
+    return f"I need a bit of context first, sir — {topic[:1].lower() + topic[1:]}. Mind filling these in?"
+
+
 READ_TOOLS: dict[str, tuple[Callable[..., dict], str]] = {
     "get_current_datetime": (tool_get_current_datetime, "Current date and time in the owner's timezone. No args."),
+    "ask_owner_details": (tool_ask_owner_details, "Ask the owner for missing context via a picker wizard when you genuinely need details to proceed (or when he says 'ask me for my details'). Args: topic (string), questions (list of strings or {question, options[]}). Prefer this over guessing."),
     "get_evolution": (tool_get_evolution, "Current evolution tier, completion %, and ability counts. No args."),
     "explain_architecture": (tool_explain_architecture, "TOBI's system architecture, layer by layer. No args."),
     "office_status": (tool_office_status, "Agent count, each agent's role + working/free status, missions running. No args."),
@@ -777,21 +807,21 @@ def _project_name(project_id: Any) -> str:
 def _action_summary(tool: str, args: dict) -> str:
     a = args or {}
     return {
-        “remember”: f”remember “{str(a.get('fact', ''))[:60]}””,
-        “create_project”: f”create project “{a.get('name', '')}””,
-        “create_task”: f”create task “{a.get('title', '')}” in project {a.get('project_id')}”,
-        “complete_task”: f”complete task #{a.get('task_id')}”,
-        “rename_project”: f”rename project {_project_name(a.get('project_id'))} → “{a.get('new_name', '')}””,
-        “create_goal”: f”create goal “{a.get('title', '')}” in project {a.get('project_id')}”,
-        “edit_goal”: f”update goal #{a.get('goal_id')}”,
-        “delete_goal”: f”delete goal #{a.get('goal_id')}”,
-        “set_category_lock”: f”{'lock' if a.get('is_locked') else 'unlock'} Brain category '{a.get('category_id')}'”,
-        “assign_task”: f”assign task #{a.get('task_id')} to {a.get('agent')}”,
-        “update_project_progress”: f”set project {a.get('project_id')} progress to {a.get('progress_pct')}%”,
-        “delete_task”: f”delete task #{a.get('task_id')}”,
-        “delete_project”: f”delete project {_project_name(a.get('project_id'))} (and its tasks)”,
-        “run_mission”: f”run a mission: “{str(a.get('objective', ''))[:60]}””,
-    }.get(tool, f”{tool} {json.dumps(a, default=str)[:60]}”)
+        "remember": f'remember "{str(a.get("fact", ""))[:60]}"',
+        "create_project": f'create project "{a.get("name", "")}"',
+        "create_task": f'create task "{a.get("title", "")}" in project {a.get("project_id")}',
+        "complete_task": f'complete task #{a.get("task_id")}',
+        "rename_project": f'rename project {_project_name(a.get("project_id"))} → "{a.get("new_name", "")}"',
+        "create_goal": f'create goal "{a.get("title", "")}" in project {a.get("project_id")}',
+        "edit_goal": f'update goal #{a.get("goal_id")}',
+        "delete_goal": f'delete goal #{a.get("goal_id")}',
+        "set_category_lock": f"{'lock' if a.get('is_locked') else 'unlock'} Brain category '{a.get('category_id')}'",
+        "assign_task": f'assign task #{a.get("task_id")} to {a.get("agent")}',
+        "update_project_progress": f'set project {a.get("project_id")} progress to {a.get("progress_pct")}%',
+        "delete_task": f'delete task #{a.get("task_id")}',
+        "delete_project": f'delete project {_project_name(a.get("project_id"))} (and its tasks)',
+        "run_mission": f'run a mission: "{str(a.get("objective", ""))[:60]}"',
+    }.get(tool, f'{tool} {json.dumps(a, default=str)[:60]}')
 
 
 def _now() -> str:
@@ -1531,6 +1561,12 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
                 continue
             elif risk == "read":
                 result = _exec_tool(call)
+                # Picker sentinel: halt the turn and surface an interactive wizard to the
+                # owner (the answers arrive as his next message — session-scoped context).
+                if isinstance(result, dict) and result.get("__picker__"):
+                    picker = result["__picker__"]
+                    return {"reply": _picker_intro(picker), "tools_used": used + [tool],
+                            "intent": intent, "pending_picker": picker, "streamed": False}
             else:  # low / medium → act + report
                 result = _execute_and_log(chat_id, surface, tool, args, risk)
                 # Stop-on-failure: a failed state change halts the chain and reports cleanly.

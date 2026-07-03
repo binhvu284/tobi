@@ -11,7 +11,7 @@ function useTimezone() {
   return tz
 }
 
-function useTick(tz: string) {
+function useTick() {
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000)
@@ -24,51 +24,19 @@ function toLocal(date: Date, tz: string) {
   return new Date(date.toLocaleString('en-US', { timeZone: tz }))
 }
 
-type PopoverProps = { anchor: DOMRect; children: React.ReactNode; onClose: () => void }
-
-function Popover({ anchor, children }: Omit<PopoverProps, 'onClose'>) {
+// ── Combined detail popover (live clock + month grid) ────────────────────────
+function DetailPopover({ anchor, local, tz }: { anchor: DOMRect; local: Date; tz: string }) {
   const top = anchor.bottom + 8
   const right = window.innerWidth - anchor.right
 
-  return createPortal(
-    <div
-      className="fixed z-[9999] min-w-[180px] rounded-xl border border-border bg-surface shadow-lg"
-      style={{ top, right }}
-    >
-      {children}
-    </div>,
-    document.body,
-  )
-}
-
-function ClockPopover({ anchor, tz }: { anchor: DOMRect; tz: string }) {
-  const now = useTick(tz)
-  const local = toLocal(now, tz)
   const hh = local.getHours().toString().padStart(2, '0')
   const mm = local.getMinutes().toString().padStart(2, '0')
   const ss = local.getSeconds().toString().padStart(2, '0')
-  const dateStr = local.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+  const fullDate = local.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
 
-  return (
-    <Popover anchor={anchor}>
-      <div className="p-3 text-center">
-        <div className="font-mono text-2xl font-bold text-heading">
-          {hh}:{mm}<span className="text-base text-muted">:{ss}</span>
-        </div>
-        <div className="mt-1 text-[11px] text-muted">{dateStr}</div>
-        <div className="mt-0.5 text-[10px] text-muted/60">{tz}</div>
-      </div>
-    </Popover>
-  )
-}
-
-function CalendarPopover({ anchor, tz }: { anchor: DOMRect; tz: string }) {
-  const now = useTick(tz)
-  const local = toLocal(now, tz)
   const year = local.getFullYear()
   const month = local.getMonth()
   const today = local.getDate()
-
   const firstDay = new Date(year, month, 1).getDay()
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const monthName = local.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
@@ -78,8 +46,17 @@ function CalendarPopover({ anchor, tz }: { anchor: DOMRect; tz: string }) {
   for (let d = 1; d <= daysInMonth; d++) cells.push(d)
   while (cells.length % 7 !== 0) cells.push(null)
 
-  return (
-    <Popover anchor={anchor}>
+  return createPortal(
+    <div className="fixed z-[9999] w-60 overflow-hidden rounded-xl border border-border bg-surface shadow-2xl ring-1 ring-accent/10" style={{ top, right }}>
+      {/* Clock */}
+      <div className="border-b border-border/60 p-3 text-center">
+        <div className="font-mono text-2xl font-bold tabular-nums text-heading">
+          {hh}:{mm}<span className="text-base text-muted">:{ss}</span>
+        </div>
+        <div className="mt-1 text-[11px] text-muted">{fullDate}</div>
+        <div className="mt-0.5 text-[10px] text-muted/60">{tz}</div>
+      </div>
+      {/* Calendar */}
       <div className="p-3">
         <div className="mb-2 text-center text-xs font-semibold text-heading">{monthName}</div>
         <div className="grid grid-cols-7 gap-0.5 text-center text-[10px]">
@@ -87,59 +64,51 @@ function CalendarPopover({ anchor, tz }: { anchor: DOMRect; tz: string }) {
             <div key={d} className="py-0.5 font-medium text-muted">{d}</div>
           ))}
           {cells.map((d, i) => (
-            <div
-              key={i}
-              className={`rounded py-0.5 ${
-                d === today
-                  ? 'bg-accent text-white font-bold'
-                  : d
-                  ? 'text-text hover:bg-surface-raised'
-                  : ''
-              }`}
-            >
+            <div key={i}
+              className={`rounded py-0.5 ${d === today ? 'bg-accent font-bold text-white' : d ? 'text-text' : ''}`}>
               {d ?? ''}
             </div>
           ))}
         </div>
       </div>
-    </Popover>
+    </div>,
+    document.body,
   )
 }
 
-type Widget = 'clock' | 'calendar' | null
-
+// ── Single compact badge: inline time + date, hover → full detail ────────────
 export default function ClockCalendar() {
   const tz = useTimezone()
-  const [open, setOpen] = useState<Widget>(null)
-  const clockRef = useRef<HTMLButtonElement>(null)
-  const calRef = useRef<HTMLButtonElement>(null)
+  const now = useTick()
+  const local = toLocal(now, tz)
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLButtonElement>(null)
+  const rect = ref.current?.getBoundingClientRect()
 
-  const clockRect = clockRef.current?.getBoundingClientRect()
-  const calRect = calRef.current?.getBoundingClientRect()
+  const compactTime = local.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) // 14:32
+  const compactDate = local.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })     // Jul 3
 
   return (
     <>
       <button
-        ref={clockRef}
-        onMouseEnter={() => setOpen('clock')}
-        onMouseLeave={() => setOpen(null)}
-        className="rounded-md p-1.5 text-muted hover:text-text"
-        aria-label="Clock"
+        ref={ref}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        className="hidden items-center gap-2 rounded-md border border-border px-2 py-1.5 text-xs text-muted transition-colors hover:border-accent/40 hover:text-text sm:flex"
+        aria-label="Date and time"
       >
-        <Clock size={15} />
-      </button>
-      <button
-        ref={calRef}
-        onMouseEnter={() => setOpen('calendar')}
-        onMouseLeave={() => setOpen(null)}
-        className="rounded-md p-1.5 text-muted hover:text-text"
-        aria-label="Calendar"
-      >
-        <Calendar size={15} />
+        <span className="flex items-center gap-1">
+          <Clock size={13} className="shrink-0" />
+          <span className="font-mono tabular-nums">{compactTime}</span>
+        </span>
+        <span className="h-3.5 w-px bg-border" />
+        <span className="flex items-center gap-1">
+          <Calendar size={13} className="shrink-0" />
+          <span>{compactDate}</span>
+        </span>
       </button>
 
-      {open === 'clock' && clockRect && <ClockPopover anchor={clockRect} tz={tz} />}
-      {open === 'calendar' && calRect && <CalendarPopover anchor={calRect} tz={tz} />}
+      {open && rect && <DetailPopover anchor={rect} local={local} tz={tz} />}
     </>
   )
 }

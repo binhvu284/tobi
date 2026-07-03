@@ -308,6 +308,15 @@ function BellInbox() {
   )
 }
 
+function Stat({ value, label, tone }: { value: string; label: string; tone: string }) {
+  return (
+    <span className="flex items-center gap-1 rounded-md border border-border/60 bg-bg/40 px-2 py-1 text-[11px]">
+      <span className={`font-semibold tabular-nums ${tone}`}>{value}</span>
+      <span className="text-muted">{label}</span>
+    </span>
+  )
+}
+
 function TopBar({ onMenu, stats }: { onMenu: () => void; stats: OfficeStats | null }) {
   const s = stats?.stats
   return (
@@ -319,10 +328,11 @@ function TopBar({ onMenu, stats }: { onMenu: () => void; stats: OfficeStats | nu
           <span className="font-semibold text-heading">Tobi</span>
           <span className="hidden text-muted sm:inline">online</span>
         </div>
-        <div className="hidden items-center gap-3 text-[11px] text-muted sm:flex">
-          <span className="text-accent">{s?.missions_running ?? 0}</span> running
-          <span className="text-warning">{(s?.tokens_total ?? 0).toLocaleString()}</span> tok
-          <span className="text-success">{s?.agents_active ?? 0}</span> agents
+        <div className="hidden h-4 w-px bg-border sm:block" />
+        <div className="hidden items-center gap-1.5 sm:flex">
+          <Stat value={String(s?.missions_running ?? 0)} label="running" tone="text-accent" />
+          <Stat value={(s?.tokens_total ?? 0).toLocaleString()} label="tok" tone="text-warning" />
+          <Stat value={String(s?.agents_active ?? 0)} label="agents" tone="text-success" />
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -331,6 +341,7 @@ function TopBar({ onMenu, stats }: { onMenu: () => void; stats: OfficeStats | nu
           <Command size={13} /> <span>K</span>
         </button>
         <ClockCalendar />
+        <div className="hidden h-4 w-px bg-border sm:block" />
         <ThemeQuickSwitch />
         <BellInbox />
       </div>

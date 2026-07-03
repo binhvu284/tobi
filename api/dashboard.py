@@ -4450,6 +4450,9 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
         pending = res.get("pending_action")
         if pending:
             yield f"event: action\ndata: {json.dumps(pending)}\n\n"
+        picker = res.get("pending_picker")
+        if picker:
+            yield f"event: picker\ndata: {json.dumps(picker)}\n\n"
         usage = {"prompt_tokens": ptok, "completion_tokens": ctok,
                  "model": model or sess.get("model") or "default",
                  "latency_ms": round((_time.time() - t0) * 1000)}
