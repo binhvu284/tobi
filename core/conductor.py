@@ -275,6 +275,34 @@ def tool_read_drive(query: str = "", **_: Any) -> dict:
     return {"available": False, "note": "Google isn't connected yet, sir."}
 
 
+def tool_storage_status(feature: str = "", **_: Any) -> dict:
+    """Storage & Usage (#10): what's eating local disk — total, biggest consumer,
+    per-feature top list; pass a feature name for its drill-down [S25]."""
+    from core import storage_scan
+    try:
+        if feature:
+            return storage_scan.category_detail(feature, top_n=8)
+        s = storage_scan.summary_compact()
+        if not s.get("scanned_at", {}).get("db"):
+            storage_scan.run_scan("all")
+            s = storage_scan.summary_compact()
+        return s
+    except Exception as e:
+        return {"error": str(e)[:200]}
+
+
+def tool_llm_spend(range: str = "month", **_: Any) -> dict:
+    """Storage & Usage (#10): LLM spend/tokens for a range (day|week|month|all),
+    top models, per-surface split, budget state [S25]."""
+    from core import usage_meter
+    if range not in usage_meter.RANGES:
+        range = "month"
+    try:
+        return usage_meter.spend_compact(range)
+    except Exception as e:
+        return {"error": str(e)[:200]}
+
+
 def tool_web_search(query: str = "", **_: Any) -> dict:
     """Search the live web (Tavily research pipeline) and return sources to cite (P2)."""
     query = (query or "").strip()
@@ -371,6 +399,8 @@ READ_TOOLS: dict[str, tuple[Callable[..., dict], str]] = {
     "read_notion": (tool_read_notion, "Read Notion — search pages (arg: query) or read one page's content (arg: page_id from a prior search)."),
     "read_github": (tool_read_github, "Read a GitHub repo's info, issues & recent commits. Arg: repo ('owner/name')."),
     "read_drive": (tool_read_drive, "Read Google Drive/Gmail (arg: query). Reports honestly if not yet wired."),
+    "storage_status": (tool_storage_status, "What's eating local disk: total/biggest/per-feature storage. Optional arg: feature (e.g. 'Brain') for its biggest items."),
+    "llm_spend": (tool_llm_spend, "LLM spend & tokens: totals, top models, per-surface split, budget state. Optional arg: range (day|week|month|all)."),
 }
 
 # Opt-in tools (P2): advertised to the model only when the owner enables them for a turn

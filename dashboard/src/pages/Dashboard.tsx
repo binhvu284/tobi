@@ -12,8 +12,11 @@ import { AmbientField, CountUp, SpotlightCard, TraceButton } from '../components
 import { useReducedMotionPref } from '../context/MotionProvider'
 import {
   getStatus, getProjects, getLessons, getHealth, markDone, runEngine, pmGetStats,
+  getStorageOverview, getUsageOverview, getUsageBudget,
   type Project, type Lesson, type Todo, type HealthReport, type EngineName, type PMStats,
+  type StorageOverview, type UsageOverview, type UsageBudget,
 } from '../api'
+import { fmtBytes, fmtUsd } from '../lib/format'
 import { useToast } from '../context/ToastProvider'
 
 /** Once-per-session "system online" hero boot for the Dashboard. */
@@ -59,9 +62,16 @@ const STATUS_COLOR: Record<string, string> = {
 }
 const LESSON_EMOJI: Record<string, string> = { success: '✅', failure: '❌', insight: '💡', warning: '⚠️' }
 
-const DEFAULT_ORDER = ['launchpad', 'health', 'kpis', 'pm_projects', 'projects', 'activity', 'todos']
+const DEFAULT_ORDER = ['launchpad', 'health', 'storage', 'kpis', 'pm_projects', 'projects', 'activity', 'todos']
 type DashCfg = { order: string[]; hidden: string[] }
-const loadCfg = (): DashCfg => { try { return { order: DEFAULT_ORDER, hidden: [], ...JSON.parse(localStorage.getItem('tobi.dash') || '{}') } } catch { return { order: DEFAULT_ORDER, hidden: [] } } }
+const loadCfg = (): DashCfg => {
+  try {
+    const cfg = { order: DEFAULT_ORDER, hidden: [], ...JSON.parse(localStorage.getItem('tobi.dash') || '{}') }
+    // widgets shipped after the user saved a layout still appear (appended at the end)
+    cfg.order = [...cfg.order, ...DEFAULT_ORDER.filter((id: string) => !cfg.order.includes(id))]
+    return cfg
+  } catch { return { order: DEFAULT_ORDER, hidden: [] } }
+}
 
 export default function Dashboard() {
   const [status, setStatus] = useState<{ revenue?: { this_month?: number; total?: number }; human_todos?: Todo[] } | null>(null)
@@ -70,6 +80,9 @@ export default function Dashboard() {
   const [todos, setTodos] = useState<Todo[]>([])
   const [health, setHealth] = useState<HealthReport | null>(null)
   const [pmStats, setPmStats] = useState<PMStats | null>(null)
+  const [storage, setStorage] = useState<StorageOverview | null>(null)
+  const [usage, setUsage] = useState<UsageOverview | null>(null)
+  const [budget, setBudget] = useState<UsageBudget | null>(null)
   const [loading, setLoading] = useState(true)
   const [lastUpdated, setLastUpdated] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
@@ -88,6 +101,9 @@ export default function Dashboard() {
     } catch { /* keep prior */ } finally { setLoading(false) }
     getHealth().then(setHealth).catch(() => {})
     pmGetStats().then(setPmStats).catch(() => {})
+    getStorageOverview().then(setStorage).catch(() => {})
+    getUsageOverview('month').then(setUsage).catch(() => {})
+    getUsageBudget().then(setBudget).catch(() => {})
   }, [])
   useEffect(() => { load(); const id = setInterval(load, 30_000); return () => clearInterval(id) }, [load])
 
@@ -146,6 +162,38 @@ export default function Dashboard() {
           <HealthBar score={health.score} size="sm" />
         </Link>
       ) : <div className="rounded-xl border border-border bg-surface p-4"><Loader size={28} label="Health loading…" /></div>,
+    },
+    storage: {
+      title: 'Storage & spend', node: (
+        <Link to="/storage" className="block rounded-xl border border-border bg-surface p-4 transition-colors hover:border-white/20">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted">💾 Storage & Spend</span>
+            <span className="text-xs text-muted">View details →</span>
+          </div>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-muted">Total storage</div>
+              <div className="text-lg font-bold text-heading">{storage ? fmtBytes(storage.total_bytes) : '—'}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-muted">Biggest</div>
+              <div className="truncate text-lg font-bold text-heading">{storage?.biggest?.feature ?? '—'}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-muted">LLM spend (30d)</div>
+              <div className="text-lg font-bold text-heading">{usage ? fmtUsd(usage.total_cost) : '—'}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-muted">Budget</div>
+              {budget && budget.level !== 'off' ? (
+                <div className={`text-lg font-bold ${budget.level === 'over' ? 'text-danger' : budget.level === 'warn' ? 'text-warning' : 'text-success'}`}>
+                  {budget.pct}%
+                </div>
+              ) : <div className="text-lg font-bold text-muted">—</div>}
+            </div>
+          </div>
+        </Link>
+      ),
     },
     kpis: {
       title: 'KPIs', node: (

@@ -1370,3 +1370,73 @@ export async function removeA2aPeer(id: number) { return vreq(`/api/mcp/a2a/peer
 export async function a2aMessage(id: number, text: string): Promise<{ ok: boolean; status?: number; response?: string; error?: string }> {
   return vreq(`/api/mcp/a2a/peers/${id}/message`, { method: 'POST', body: JSON.stringify({ text }) })
 }
+
+// ── Storage & Usage (#10) ─────────────────────────────────────────────────────
+export type StorageFeature = { feature: string; bytes: number; db_bytes: number; fs_bytes: number; items: number }
+export type StorageOverview = {
+  scanned_at: { db: string | null; fs: string | null; deps: string | null }
+  total_bytes: number; data_bytes: number; system_bytes: number
+  db: { size_bytes: number; total_rows: number; table_count: number }
+  biggest: StorageFeature | null
+  features: StorageFeature[]
+  trend: { day: string; bytes: number }[]
+  growth: { week_delta_bytes: number; month_delta_bytes: number; projection_30d_bytes: number }
+}
+export type StorageCategoryDetail = {
+  feature: string
+  tables: { table: string; feature: string; bytes: number; rows: number }[]
+  fs_items: { name: string; bytes: number; files: number }[]
+  note?: string
+}
+export type UsageBucket = {
+  provider?: string; model?: string; surface?: string; agent?: string
+  cost: number; tokens: number; prompt_tokens: number; completion_tokens: number
+  requests: number; avg_latency_ms: number
+}
+export type UsageOverview = {
+  range: string; total_cost: number; total_tokens: number; prompt_tokens: number
+  completion_tokens: number; requests: number; avg_latency_ms: number
+  by_provider: UsageBucket[]; by_model: UsageBucket[]; by_surface: UsageBucket[]
+  by_agent: UsageBucket[]; surfaces: string[]
+  by_day: ({ day: string; cost: number; tokens: number } & Record<string, number | string>)[]
+}
+export type UsageCall = {
+  id: number; ts: string; surface: string; feature: string | null; provider: string
+  model: string; agent_id: string | null; prompt_tokens: number; completion_tokens: number
+  cost_est: number; latency_ms: number
+}
+export type UsagePlan = {
+  id?: number; provider: string; plan_name: string; limit_type: 'usd' | 'tokens' | 'requests'
+  limit_value: number; period: string; used?: number; pct?: number
+}
+export type UsageBudget = {
+  monthly_cap_usd: number; alert_pct: number; spent_usd: number; pct: number
+  level: 'off' | 'ok' | 'warn' | 'over'; updated_at: string | null
+}
+export async function getStorageOverview(): Promise<StorageOverview> { return get('/api/storage/overview') }
+export async function getStorageCategory(feature: string, top = 12): Promise<StorageCategoryDetail> {
+  return get(`/api/storage/category/${encodeURIComponent(feature)}?top=${top}`)
+}
+export async function runStorageScan(scope: 'db' | 'fs' | 'all' = 'all', forceDeps = false): Promise<{ scan: unknown; overview: StorageOverview }> {
+  return request(`/api/storage/scan?scope=${scope}&force_deps=${forceDeps}`, { method: 'POST' })
+}
+export async function getUsageOverview(range: 'day' | 'week' | 'month' | 'all' = 'month'): Promise<UsageOverview> {
+  return get(`/api/usage/overview?range=${range}`)
+}
+export async function getUsageCalls(opts: { limit?: number; offset?: number; q?: string; surface?: string; model?: string } = {}): Promise<{ total: number; limit: number; offset: number; calls: UsageCall[] }> {
+  const p = new URLSearchParams()
+  if (opts.limit) p.set('limit', String(opts.limit))
+  if (opts.offset) p.set('offset', String(opts.offset))
+  if (opts.q) p.set('q', opts.q)
+  if (opts.surface) p.set('surface', opts.surface)
+  if (opts.model) p.set('model', opts.model)
+  return get(`/api/usage/calls?${p.toString()}`)
+}
+export async function getUsagePlans(): Promise<{ plans: UsagePlan[] }> { return get('/api/usage/plans') }
+export async function setUsagePlans(plans: UsagePlan[]): Promise<{ plans: UsagePlan[] }> {
+  return request('/api/usage/plans', { method: 'POST', body: JSON.stringify({ plans }) })
+}
+export async function getUsageBudget(): Promise<UsageBudget> { return get('/api/usage/budget') }
+export async function setUsageBudget(monthly_cap_usd: number, alert_pct = 80): Promise<UsageBudget> {
+  return request('/api/usage/budget', { method: 'POST', body: JSON.stringify({ monthly_cap_usd, alert_pct }) })
+}

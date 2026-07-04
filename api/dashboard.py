@@ -1978,6 +1978,14 @@ async def api_health_deep():
 @app.on_event("startup")
 async def startup():
     init_database()
+    # Storage & Usage (#10): load the price table so per-call cost estimates use
+    # config/llm_prices.yaml from the very first LLM call [S14].
+    try:
+        from core import usage_meter
+        usage_meter.sync_prices()
+    except Exception as e:
+        import logging
+        logging.getLogger("tobi.dashboard").warning("Price-table sync skipped: %s", e)
     # Auto-connect previously-connected integrations — re-inject vault secrets into
     # os.environ at boot using the cached key, with NO master-password prompt.
     try:
@@ -4533,6 +4541,98 @@ def llm_usage(days: int = 7):
 def llm_usage_recent(limit: int = 50):
     from core import usage
     return {"calls": usage.recent(limit=limit)}
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Storage & Usage (#10) — storage scan + LLM usage analytics [S3: read-only,
+# except the manual scan trigger and the owner's own plan/budget config]
+# ════════════════════════════════════════════════════════════════════════════
+class UsagePlansReq(BaseModel):
+    plans: list[dict] = Field(default_factory=list)
+
+
+class UsageBudgetReq(BaseModel):
+    monthly_cap_usd: float = 0.0
+    alert_pct: int = 80
+
+
+@app.get("/api/storage/overview")
+def storage_overview():
+    """KPIs + per-feature breakdown + growth trend. Scans lazily on first visit
+    so the page is never empty, then serves snapshots (instant loads) [S4]."""
+    from core import storage_scan
+    ov = storage_scan.overview()
+    if not ov["scanned_at"]["db"]:
+        storage_scan.run_scan("all")
+        ov = storage_scan.overview()
+    return ov
+
+
+@app.get("/api/storage/category/{feature}")
+def storage_category(feature: str, top: int = 12):
+    """Drill-down: biggest DB tables + biggest files/dirs for one feature [S9]."""
+    from core import storage_scan
+    return storage_scan.category_detail(feature, top_n=max(3, min(top, 50)))
+
+
+@app.post("/api/storage/scan")
+def storage_scan_now(scope: str = "all", force_deps: bool = False):
+    """Manual "Scan now" [S4]. scope: db | fs | all."""
+    from core import storage_scan
+    if scope not in ("db", "fs", "all"):
+        raise HTTPException(400, "scope must be db | fs | all")
+    res = storage_scan.run_scan(scope, force_deps=force_deps)
+    return {"scan": res, "overview": storage_scan.overview()}
+
+
+@app.get("/api/usage/overview")
+def usage_overview(range: str = "month"):
+    """Cost/tokens/requests/latency by provider·model·surface·agent + daily trend [S15][S19]."""
+    from core import usage_meter
+    if range not in usage_meter.RANGES:
+        raise HTTPException(400, "range must be day | week | month | all")
+    return usage_meter.overview(range)
+
+
+@app.get("/api/usage/calls")
+def usage_calls(limit: int = 50, offset: int = 0, q: str = "", surface: str = "",
+                model: str = ""):
+    """Paginated, filterable per-call log inspector [S20]."""
+    from core import usage_meter
+    return usage_meter.calls(limit=limit, offset=offset, q=q, surface=surface, model=model)
+
+
+@app.get("/api/usage/plans")
+def usage_plans_get():
+    from core import usage_meter
+    return {"plans": usage_meter.get_plans()}
+
+
+@app.post("/api/usage/plans")
+def usage_plans_set(body: UsagePlansReq):
+    """Configure provider plans/quotas → usage-vs-limit bars [S17]."""
+    from core import usage_meter
+    return {"plans": usage_meter.set_plans(body.plans)}
+
+
+@app.get("/api/usage/budget")
+def usage_budget_get():
+    from core import usage_meter
+    return usage_meter.get_budget()
+
+
+@app.post("/api/usage/budget")
+def usage_budget_set(body: UsageBudgetReq):
+    """Set the monthly $ cap + alert threshold [S18]."""
+    from core import usage_meter
+    return usage_meter.set_budget(body.monthly_cap_usd, body.alert_pct)
+
+
+@app.get("/api/usage/prices")
+def usage_prices():
+    """The active price table (config/llm_prices.yaml mirrored to DB) [S14]."""
+    from core import usage_meter
+    return {"prices": usage_meter.get_prices()}
 
 
 class LlmConfigReq(BaseModel):

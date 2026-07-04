@@ -442,6 +442,25 @@ def job_brain_decay():
         logger.error(f"Brain decay error: {e}")
 
 
+def job_storage_scan_db():
+    """Hourly-ish DB storage snapshot (cheap) — Storage & Usage (#10) [S21]."""
+    try:
+        from core.storage_scan import run_scan
+        run_scan("db")
+    except Exception as e:
+        logger.error(f"Storage DB scan error: {e}")
+
+
+def job_storage_scan_fs():
+    """Daily filesystem storage snapshot (expensive walk) — Storage & Usage (#10) [S21]."""
+    try:
+        from core.storage_scan import run_scan
+        res = run_scan("fs")
+        logger.info(f"💾 Storage fs scan: {res}")
+    except Exception as e:
+        logger.error(f"Storage fs scan error: {e}")
+
+
 def job_graph_sync():
     """Periodic Graph View refresh: register internal nodes (memory/task/project), mirror
     connected integrations, rebuild semantic + tag edges, recompute degree."""
@@ -478,10 +497,12 @@ def setup_schedules():
     schedule.every(30).minutes.do(job_brain_sweep)
     schedule.every().day.at("04:00").do(job_brain_decay)
     schedule.every(45).minutes.do(job_graph_sync)
+    schedule.every().hour.do(job_storage_scan_db)
+    schedule.every().day.at("04:30").do(job_storage_scan_fs)
     schedule.every().day.at("09:00").do(
         lambda: run_async(job_ceo_review()) if datetime.now().day == 1 else None
     )
-    logger.info("📅 Schedules: daily 08:00 report | every 6h execution | sunday 20:00 research+reflection | brain sweep 30m + decay 04:00 | monthly CEO review")
+    logger.info("📅 Schedules: daily 08:00 report | every 6h execution | sunday 20:00 research+reflection | brain sweep 30m + decay 04:00 | storage scan db 1h + fs 04:30 | monthly CEO review")
 
 
 # ─────────────────────────────────────────
