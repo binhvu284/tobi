@@ -1,8 +1,9 @@
 # Storage & Usage — Feature Spec & Requirements
 
-> **Status:** 🟡 Queued — Phase 1 (Requirements) COMPLETE. 30 locked decisions (S1–S30) from a
-> single UI-picker question round. **Not built.** Portable handover in the same format as the other
-> queue specs; paste into a fresh session to build, gated behind Thomas's approval.
+> **Status:** ✅ Done (v1, M1–M3, 2026-07-04) — built per the 30 locked decisions (S1–S30).
+> See the [QUEUE.md](QUEUE.md) row #10 for the full build notes. Still open from §7: Thomas's
+> real plan values + budget cap (both editable in-page on `/storage`); the price table ships
+> pre-seeded in `config/llm_prices.yaml`.
 >
 > **Owner:** Thomas (sole principal). **Head agent:** TOBI. **Date:** 2026-06-26.
 >

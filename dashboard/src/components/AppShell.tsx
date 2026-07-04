@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Network, Zap, Building2, Kanban, HeartPulse, Settings,
   Menu, X, Bell, Command, Palette, Circle, FolderKanban, TrendingUp,
   ChevronsLeft, ChevronsRight, ChevronUp, ChevronDown, Brain, MessagesSquare,
-  Share2, KeyRound, Inbox, FileText, Code2, Workflow, History, Cpu,
+  Share2, KeyRound, Inbox, FileText, Code2, Workflow, History, Cpu, HardDrive,
 } from 'lucide-react'
 import { useTheme, THEMES, THEME_META } from '../context/ThemeProvider'
 import { useToast } from '../context/ToastProvider'
@@ -47,6 +47,7 @@ const ALL_LINKS = NAV.flatMap(g => g.links)
 const BOTTOM_MENU: { to?: string; icon: typeof Settings; label: string; soon?: boolean }[] = [
   { to: '/settings', icon: Settings, label: 'Setting' },
   { to: '/models', icon: Cpu, label: 'Models' },
+  { to: '/storage', icon: HardDrive, label: 'Storage' },
   { icon: FileText, label: 'Document', soon: true },
   { to: '/integrations', icon: KeyRound, label: 'Integrations' },
   { to: '/mcp', icon: Workflow, label: 'MCP' },

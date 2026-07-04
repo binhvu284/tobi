@@ -25,6 +25,8 @@ import Actions from './pages/Actions'
 const Graph = lazy(() => import('./pages/Graph'))
 // Office embeds the Phaser game engine (~1.2MB) — lazy-load so it stays out of the main bundle.
 const Office = lazy(() => import('./pages/Office'))
+// Storage carries Recharts — lazy-load so it stays out of the main bundle.
+const Storage = lazy(() => import('./pages/Storage'))
 
 export default function App() {
   return (
@@ -57,6 +59,9 @@ export default function App() {
               <Route path="/health" element={<Health />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/models" element={<Models />} />
+              <Route path="/storage" element={
+                <Suspense fallback={<PageLoader />}><Storage /></Suspense>
+              } />
             </Routes>
             </AppShell>
           </ToastProvider>

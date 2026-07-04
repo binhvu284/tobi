@@ -1,0 +1,24 @@
+# LLM price table [S14] — USD per 1M tokens (input / output).
+# Source of truth for cost estimates; mirrored into the `llm_prices` DB table on
+# load. Pattern-matched on the bare model name (longest fragment wins).
+# Edit freely — no secrets live here. Unknown models cost $0.
+prices:
+  - { model: claude-opus,      in: 15.0,  out: 75.0 }
+  - { model: claude-sonnet,    in: 3.0,   out: 15.0 }
+  - { model: claude-haiku,     in: 0.80,  out: 4.0 }
+  - { model: claude,           in: 3.0,   out: 15.0 }
+  - { model: gpt-4o-mini,      in: 0.15,  out: 0.60 }
+  - { model: gpt-4o,           in: 2.50,  out: 10.0 }
+  - { model: gpt-4.1,          in: 2.0,   out: 8.0 }
+  - { model: gpt-5,            in: 5.0,   out: 15.0 }
+  - { model: o3-mini,          in: 1.10,  out: 4.40 }
+  - { model: o3,               in: 2.0,   out: 8.0 }
+  - { model: o4,               in: 2.0,   out: 8.0 }
+  - { model: gemini-2.5-pro,   in: 1.25,  out: 10.0 }
+  - { model: gemini-2.5-flash, in: 0.30,  out: 2.50 }
+  - { model: gemini,           in: 0.50,  out: 3.0 }
+  - { model: grok-4,           in: 5.0,   out: 15.0 }
+  - { model: grok-3-mini,      in: 0.30,  out: 0.50 }
+  - { model: grok,             in: 3.0,   out: 15.0 }
+  - { model: ":free",          in: 0.0,   out: 0.0 }
+  - { model: nemotron,         in: 0.0,   out: 0.0 }
