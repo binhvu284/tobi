@@ -938,6 +938,11 @@ def init_database() -> None:
     _ensure_vault_schema(conn)
     _ensure_mcp_schema(conn)
     _ensure_chat_schema(conn)
+    try:
+        from core import explore
+        explore.ensure_schema(conn)
+    except Exception:
+        pass
     conn.commit()
     conn.close()
     print(f"✅ Database ready: {DB_PATH}")

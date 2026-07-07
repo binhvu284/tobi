@@ -7,6 +7,7 @@ import {
   Menu, X, Bell, Command, Palette, Circle, FolderKanban, TrendingUp,
   ChevronsLeft, ChevronsRight, ChevronUp, ChevronDown, Brain, MessagesSquare,
   Share2, KeyRound, Inbox, FileText, Code2, Workflow, History, Cpu, HardDrive,
+  Newspaper,
 } from 'lucide-react'
 import { useTheme, THEMES, THEME_META } from '../context/ThemeProvider'
 import { useToast } from '../context/ToastProvider'
@@ -26,6 +27,9 @@ const NAV = [
     { to: '/inbox', icon: Inbox, label: 'Inbox' },
     { to: '/chat', icon: MessagesSquare, label: 'Chat' },
     { to: '/actions', icon: History, label: 'Actions' },
+  ] },
+  { group: 'Explore', links: [
+    { to: '/news', icon: Newspaper, label: 'News' },
   ] },
   { group: 'Persona', links: [
     { to: '/brain', icon: Brain, label: 'Brain' },

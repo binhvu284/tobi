@@ -474,6 +474,39 @@ def job_graph_sync():
         logger.error(f"Graph sync error: {e}")
 
 
+# ── Explore → News (#9): per-pillar tuned cadence [E24] ───────────────────────
+def job_explore_news():
+    try:
+        from core import explore
+        logger.info(f"📰 Explore news: {explore.refresh('news')}")
+    except Exception as e:
+        logger.error(f"Explore news error: {e}")
+
+
+def job_explore_tools():
+    try:
+        from core import explore
+        logger.info(f"🛠️ Explore tools: {explore.refresh('tools')}")
+    except Exception as e:
+        logger.error(f"Explore tools error: {e}")
+
+
+def job_explore_social():
+    try:
+        from core import explore
+        logger.info(f"💬 Explore social: {explore.refresh('social')}")
+    except Exception as e:
+        logger.error(f"Explore social error: {e}")
+
+
+def job_explore_models():
+    try:
+        from core import explore
+        logger.info(f"🏆 Explore models: {explore.refresh_models()}")
+    except Exception as e:
+        logger.error(f"Explore models error: {e}")
+
+
 # ─────────────────────────────────────────
 # Scheduler bridge
 # ─────────────────────────────────────────
@@ -499,10 +532,15 @@ def setup_schedules():
     schedule.every(45).minutes.do(job_graph_sync)
     schedule.every().hour.do(job_storage_scan_db)
     schedule.every().day.at("04:30").do(job_storage_scan_fs)
+    # Explore → News (#9): per-pillar tuned cadence [E24]
+    schedule.every().hour.do(job_explore_news)
+    schedule.every(3).hours.do(job_explore_tools)
+    schedule.every(6).hours.do(job_explore_social)
+    schedule.every().day.at("03:30").do(job_explore_models)
     schedule.every().day.at("09:00").do(
         lambda: run_async(job_ceo_review()) if datetime.now().day == 1 else None
     )
-    logger.info("📅 Schedules: daily 08:00 report | every 6h execution | sunday 20:00 research+reflection | brain sweep 30m + decay 04:00 | storage scan db 1h + fs 04:30 | monthly CEO review")
+    logger.info("📅 Schedules: daily 08:00 report | every 6h execution | sunday 20:00 research+reflection | brain sweep 30m + decay 04:00 | storage scan db 1h + fs 04:30 | explore news 1h / tools 3h / social 6h / models 03:30 | monthly CEO review")
 
 
 # ─────────────────────────────────────────

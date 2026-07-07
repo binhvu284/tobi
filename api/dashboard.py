@@ -4951,6 +4951,95 @@ def graph_sync(source: str):
     return res
 
 
+# ── Explore → News (#9) ───────────────────────────────────────────────────────
+class ExploreConfigReq(BaseModel):
+    updates: dict = Field(default_factory=dict)
+
+
+class ExploreSourceToggleReq(BaseModel):
+    enabled: bool
+    weight: float | None = None
+
+
+class ExploreRefreshReq(BaseModel):
+    pillar: str = "all"  # models | tools | social | news | all
+
+
+@app.get("/api/explore/status")
+def explore_status():
+    from core import explore
+    return explore.status()
+
+
+@app.get("/api/explore/news")
+def explore_news(limit: int = 20):
+    from core import explore
+    return explore.news_payload(limit)
+
+
+@app.get("/api/explore/models")
+def explore_models(limit: int = 60):
+    from core import explore
+    return explore.models_payload(limit)
+
+
+@app.get("/api/explore/tools")
+def explore_tools(limit: int = 40):
+    from core import explore
+    return explore.tools_payload(limit)
+
+
+@app.get("/api/explore/social")
+def explore_social(limit: int = 40):
+    from core import explore
+    return explore.social_payload(limit)
+
+
+@app.post("/api/explore/refresh")
+def explore_refresh(body: ExploreRefreshReq):
+    from core import explore
+    pillar = (body.pillar or "all").strip()
+    results = {}
+    if pillar in ("news", "all"):
+        results["news"] = explore.refresh("news")
+    if pillar in ("tools", "all"):
+        results["tools"] = explore.refresh("tools")
+    if pillar in ("social", "all"):
+        results["social"] = explore.refresh("social")
+    if pillar in ("models", "all"):
+        results["models"] = explore.refresh_models()
+    return {"ok": True, "results": results, "status": explore.status()}
+
+
+@app.get("/api/explore/config")
+def explore_config_get():
+    from core import explore
+    return {"config": explore.load_config(), "sources": explore._sources_view()}
+
+
+@app.post("/api/explore/config")
+def explore_config_save(body: ExploreConfigReq):
+    from core import explore
+    cfg = explore.save_config(body.updates or {})
+    return {"ok": True, "config": cfg, "sources": explore._sources_view()}
+
+
+@app.post("/api/explore/sources/{name}")
+def explore_source_set(name: str, body: ExploreSourceToggleReq):
+    from core import explore
+    explore.set_source_enabled(name, body.enabled)
+    if body.weight is not None:
+        explore.set_source_weight(name, body.weight)
+    return {"ok": True, "sources": explore._sources_view()}
+
+
+@app.post("/api/explore/digest")
+def explore_digest(days: int = 1):
+    """Editorial "TOBI's take" digest — surfaced on-request via Conductor #7."""
+    from core import explore
+    return {"text": explore.digest(days)}
+
+
 # ── Serve React static files (MUST be last — catch-all shadows all routes above) ──
 _NO_CACHE_HEADERS = {"Cache-Control": "no-cache, must-revalidate", "Pragma": "no-cache"}
 

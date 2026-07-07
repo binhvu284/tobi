@@ -1457,3 +1457,67 @@ export async function getUsageBudget(): Promise<UsageBudget> { return get('/api/
 export async function setUsageBudget(monthly_cap_usd: number, alert_pct = 80): Promise<UsageBudget> {
   return request('/api/usage/budget', { method: 'POST', body: JSON.stringify({ monthly_cap_usd, alert_pct }) })
 }
+
+// ── Explore → News (#9) ───────────────────────────────────────────────────────
+export type ExploreSource = {
+  id: number; pillar: string; name: string; kind: string
+  enabled: boolean; weight: number; status: string; last_scan_at: string | null
+}
+export type ExploreItem = {
+  pillar: string; source_name: string; ext_id: string; title: string; url: string | null
+  summary: string | null; tobi_take: string | null; score: number; engagement: number
+  published_at: string | null; first_seen_at: string; freshness: string | null; ts: string
+}
+export type ExploreModel = {
+  model_id: string; provider: string | null; owner: string | null
+  intelligence: number | null; elo: number | null; popularity: number | null
+  price_in: number | null; price_out: number | null; speed: number | null; latency: number | null
+  context: number | null; released_at: string | null; composite: number; updated_at: string
+}
+export type ExploreConfig = {
+  model_weights: { intelligence: number; elo: number; popularity: number }
+  source_weights: Record<string, number>
+  recency_vs_engagement: number
+  keyword_include: string[]
+  keyword_exclude: string[]
+  interest_prompt: string
+  muted_categories: string[]
+  x_enabled: boolean
+  x_cap_usd: number
+  reddit_subs: string[]
+  monthly_budget_usd: number
+}
+export type ExploreStatus = {
+  last_scan: Record<string, string | null>
+  budget: { spent_usd: number; cap_usd: number; ok: boolean }
+  sources: ExploreSource[]
+}
+
+export async function getExploreStatus(): Promise<ExploreStatus> { return get('/api/explore/status') }
+export async function getExploreNews(limit = 20): Promise<{ items: ExploreItem[]; sources: ExploreSource[] }> {
+  return get(`/api/explore/news?limit=${limit}`)
+}
+export async function getExploreModels(limit = 60): Promise<{ models: ExploreModel[]; weights: ExploreConfig['model_weights'] }> {
+  return get(`/api/explore/models?limit=${limit}`)
+}
+export async function getExploreTools(limit = 40): Promise<{ items: ExploreItem[]; sources: ExploreSource[] }> {
+  return get(`/api/explore/tools?limit=${limit}`)
+}
+export async function getExploreSocial(limit = 40): Promise<{ items: ExploreItem[]; sources: ExploreSource[] }> {
+  return get(`/api/explore/social?limit=${limit}`)
+}
+export async function refreshExplore(pillar: 'models' | 'tools' | 'social' | 'news' | 'all' = 'all'): Promise<{ ok: boolean; results: Record<string, unknown>; status: ExploreStatus }> {
+  return request('/api/explore/refresh', { method: 'POST', body: JSON.stringify({ pillar }) })
+}
+export async function getExploreConfig(): Promise<{ config: ExploreConfig; sources: ExploreSource[] }> {
+  return get('/api/explore/config')
+}
+export async function saveExploreConfig(updates: Partial<ExploreConfig>): Promise<{ ok: boolean; config: ExploreConfig; sources: ExploreSource[] }> {
+  return request('/api/explore/config', { method: 'POST', body: JSON.stringify({ updates }) })
+}
+export async function setExploreSource(name: string, enabled: boolean, weight?: number): Promise<{ ok: boolean; sources: ExploreSource[] }> {
+  return request(`/api/explore/sources/${name}`, { method: 'POST', body: JSON.stringify({ enabled, weight: weight ?? null }) })
+}
+export async function exploreDigest(days = 1): Promise<{ text: string }> {
+  return request('/api/explore/digest', { method: 'POST', body: JSON.stringify({}) })
+}

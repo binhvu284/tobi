@@ -199,6 +199,20 @@ REGISTRY: list[dict] = [
         "abilities_unlocked": [],
         "test": _test_codex,
     },
+    {
+        "id": "explore", "label": "Explore (News) sources", "category": "tools", "required": False,
+        "icon": "newspaper", "available": True,
+        "blurb": "API keys for the Explore → News page (#9). Free sources (OpenRouter, HN, GDELT, RSS, Reddit) work without keys — add these to light up more.",
+        "fields": [
+            {"name": "NEWSDATA_API_KEY", "label": "NewsData.io key", "type": "api_key", "help_url": "https://newsdata.io/register"},
+            {"name": "GNEWS_API_KEY", "label": "GNews key", "type": "api_key", "help_url": "https://gnews.io/register"},
+            {"name": "PRODUCTHUNT_API_TOKEN", "label": "Product Hunt token", "type": "api_key", "help_url": "https://api.producthunt.com/v2/docs"},
+            {"name": "TAVILY_API_KEY", "label": "Tavily key", "type": "api_key", "help_url": "https://tavily.com"},
+            {"name": "X_BEARER_TOKEN", "label": "X/Twitter bearer (opt-in)", "type": "api_key", "help_url": "https://developer.x.com"},
+        ],
+        "abilities_unlocked": [],
+        "test": None,
+    },
     # ── forward-looking placeholders (configurable now, activated in Awakening) ──
     {
         "id": "google", "label": "Google Workspace", "category": "coming_soon", "required": False,

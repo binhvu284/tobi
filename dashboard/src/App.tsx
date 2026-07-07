@@ -27,6 +27,8 @@ const Graph = lazy(() => import('./pages/Graph'))
 const Office = lazy(() => import('./pages/Office'))
 // Storage carries Recharts — lazy-load so it stays out of the main bundle.
 const Storage = lazy(() => import('./pages/Storage'))
+// News (Explore) carries Recharts too — lazy-load so it stays out of the main bundle.
+const News = lazy(() => import('./pages/News'))
 
 export default function App() {
   return (
@@ -61,6 +63,9 @@ export default function App() {
               <Route path="/models" element={<Models />} />
               <Route path="/storage" element={
                 <Suspense fallback={<PageLoader />}><Storage /></Suspense>
+              } />
+              <Route path="/news" element={
+                <Suspense fallback={<PageLoader />}><News /></Suspense>
               } />
             </Routes>
             </AppShell>
