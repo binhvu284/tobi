@@ -75,6 +75,28 @@ export default function Models() {
     const provs = { ...cfg.providers, [pid]: { ...(cfg.providers[pid] || {}), [field]: value } }
     patchCfg({ providers: provs })
   }
+  const toggleProvider = async (pid: string) => {
+    // The enable/disable switch is the one setting that should persist instantly —
+    // otherwise a reload silently reverts it. Fold in pending base_url edits, flip
+    // the flag, optimistic-update, then save (revert on failure).
+    if (!cfg) return
+    const prev = cfg
+    const currentlyEnabled = cfg.providers[pid]?.enabled ?? true
+    const provs = { ...cfg.providers }
+    providers.forEach(p => { if (p.editable_base_url && baseUrls[p.id] != null) provs[p.id] = { ...(provs[p.id] || {}), base_url: baseUrls[p.id] } })
+    provs[pid] = { ...(provs[pid] || {}), enabled: !currentlyEnabled }
+    const newCfg = { ...cfg, providers: provs }
+    setCfg(newCfg)
+    setSaving(true)
+    try {
+      const r = await saveLlmConfig(newCfg)
+      setCfg(r.config); setProviders(r.providers); setModels(r.models)
+      toast({ kind: 'success', title: currentlyEnabled ? 'Provider disabled' : 'Provider enabled' })
+    } catch (e) {
+      setCfg(prev)
+      toast({ kind: 'error', title: 'Save failed', detail: (e as Error).message })
+    } finally { setSaving(false) }
+  }
   const addFallback = (model: string) => { if (cfg && model && !cfg.fallback.includes(model)) patchCfg({ fallback: [...cfg.fallback, model] }) }
   const moveFallback = (i: number, dir: -1 | 1) => {
     if (!cfg) return
@@ -154,8 +176,8 @@ export default function Models() {
                       {connected ? <span className="flex shrink-0 items-center gap-1 text-[10px] text-success"><CheckCircle2 size={11} /> {p.needs_key ? 'Key set' : 'Ready'}</span>
                         : <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted"><Circle size={11} /> No key</span>}
                     </div>
-                    <button onClick={() => setProviderField(p.id, 'enabled', !enabled)}
-                      className={`relative h-5 w-9 shrink-0 rounded-full border transition-colors ${enabled ? 'border-accent/50 bg-accent/30' : 'border-border bg-bg'}`}>
+                    <button onClick={() => toggleProvider(p.id)} disabled={saving}
+                      className={`relative h-5 w-9 shrink-0 rounded-full border transition-colors disabled:opacity-50 ${enabled ? 'border-accent/50 bg-accent/30' : 'border-border bg-bg'}`}>
                       <span className={`absolute top-0.5 h-3.5 w-3.5 rounded-full bg-text transition-all ${enabled ? 'left-[18px]' : 'left-0.5'}`} />
                     </button>
                   </div>
