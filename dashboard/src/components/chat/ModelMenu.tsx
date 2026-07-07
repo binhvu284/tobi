@@ -61,9 +61,9 @@ function Badges({ id, context }: { id: string; context?: number }) {
   )
 }
 
-export default function ModelMenu({ models, value, onChange, open: openProp, onOpenChange }: {
+export default function ModelMenu({ models, value, onChange, open: openProp, onOpenChange, direction = 'down' }: {
   models: AvailableModel[]; value: string | null; onChange: (id: string) => void
-  open?: boolean; onOpenChange?: (o: boolean) => void
+  open?: boolean; onOpenChange?: (o: boolean) => void; direction?: 'down' | 'up'
 }) {
   const [openState, setOpenState] = useState(false)
   const open = openProp ?? openState
@@ -100,9 +100,9 @@ export default function ModelMenu({ models, value, onChange, open: openProp, onO
 
       <AnimatePresence>
         {open && (
-          <motion.div initial={{ opacity: 0, y: -4, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.98 }}
+          <motion.div initial={{ opacity: 0, y: direction === 'up' ? 4 : -4, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: direction === 'up' ? 4 : -4, scale: 0.98 }}
             transition={{ duration: 0.13 }}
-            className="absolute right-0 z-30 mt-1.5 max-h-[60vh] w-80 max-w-[88vw] overflow-y-auto rounded-xl border border-border bg-surface p-1.5 shadow-2xl">
+            className={`absolute right-0 z-30 max-h-[60vh] w-80 max-w-[88vw] overflow-y-auto rounded-xl border border-border bg-surface p-1.5 shadow-2xl ${direction === 'up' ? 'bottom-full mb-1.5' : 'mt-1.5'}`}>
             <button onClick={() => pick('')}
               className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-bg/60 ${!value ? 'text-accent' : 'text-text'}`}>
               <span className="flex h-[23px] w-[23px] items-center justify-center rounded-md bg-accent/15 text-accent"><Zap size={13} /></span>

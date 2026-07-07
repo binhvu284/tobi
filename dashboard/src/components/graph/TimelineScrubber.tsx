@@ -38,9 +38,9 @@ export default function TimelineScrubber({ events, onScrub }: {
   const label = atNow ? 'now' : new Date(stamps[Math.max(0, idx)]).toLocaleDateString()
 
   return (
-    <div className="absolute bottom-3 left-1/2 z-10 flex w-[min(560px,80vw)] -translate-x-1/2 items-center gap-3 rounded-xl border border-border bg-surface/85 px-3 py-2 backdrop-blur">
+    <div className="absolute bottom-4 left-1/2 z-10 flex w-[min(620px,80vw)] -translate-x-1/2 items-center gap-3 rounded-2xl border border-accent/15 bg-[#07101d]/82 px-3 py-2 shadow-[0_18px_70px_rgb(0_0_0/0.24),0_0_32px_rgb(var(--accent)/0.07)] backdrop-blur-xl">
       <button onClick={() => { setPlaying(p => !p); if (idx >= stamps.length) { setIdx(0); onScrub(stamps[0]) } }}
-        className="text-accent hover:text-heading" title={playing ? 'Pause' : 'Replay growth'}>
+        className="flex h-7 w-7 items-center justify-center rounded-lg border border-accent/35 bg-accent/10 text-accent hover:text-heading" title={playing ? 'Pause' : 'Replay growth'}>
         {playing ? <Pause size={15} /> : <Play size={15} />}
       </button>
       <Clock size={13} className="text-muted" />

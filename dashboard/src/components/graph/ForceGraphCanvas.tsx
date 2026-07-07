@@ -1,6 +1,6 @@
 import { useRef, useEffect, useMemo, useCallback, useImperativeHandle, forwardRef } from 'react'
 import ForceGraph2D from 'react-force-graph-2d'
-import { forceCollide, forceX, forceY } from 'd3-force'
+import { forceCollide, forceRadial, forceX, forceY } from 'd3-force'
 import type { GraphData, GraphNode, GraphEdge } from '../../api'
 
 /* The single isolated renderer for the knowledge graph. All canvas/force-graph logic
@@ -13,6 +13,31 @@ const EDGE_COLOR: Record<string, string> = {
   semantic: 'rgba(167,139,250,',
   tag:      'rgba(45,212,191,',
   manual:   'rgba(244,114,182,',
+}
+
+const DOMAIN_ANCHOR: Record<string, number> = {
+  memory: -2.72,
+  project: -1.85,
+  task: -0.92,
+  github: -0.08,
+  notion: 0.72,
+  gdrive: 1.42,
+  local: 2.18,
+  manual: 2.82,
+}
+
+const seeded = (v: number) => {
+  const x = Math.sin(v * 12.9898) * 43758.5453
+  return x - Math.floor(x)
+}
+
+const brainPoint = (angle: number, radius: number) => {
+  const wave = 1 + Math.sin(angle * 3.1) * 0.08 + Math.cos(angle * 5.3) * 0.05
+  const side = Math.sign(Math.cos(angle)) || 1
+  return {
+    x: Math.cos(angle) * radius * 1.18 * wave + side * 24,
+    y: Math.sin(angle) * radius * 0.82 * wave + Math.sin(angle * 2) * 18,
+  }
 }
 
 /** Node radius from degree — shared by drawing, hit-testing, and collision. */
@@ -39,6 +64,22 @@ function makeClusterForce(strength = 0.14) {
       if (!c) continue
       n.vx += (c.x - n.x) * s
       n.vy += (c.y - n.y) * s
+    }
+  }
+  ;(force as any).initialize = (n: any[]) => { nodes = n }
+  return force
+}
+
+function makeBrainForce(strength = 0.05) {
+  let nodes: any[] = []
+  const force = (alpha: number) => {
+    const s = strength * alpha
+    for (const n of nodes) {
+      const deg = Math.max(0, n.degree || 0)
+      const hubPull = Math.min(0.55, Math.sqrt(deg) * 0.035)
+      const target = brainPoint(n.__angle || 0, (n.__radius || 300) * (1 - hubPull))
+      n.vx += (target.x - n.x) * s
+      n.vy += (target.y - n.y) * s
     }
   }
   ;(force as any).initialize = (n: any[]) => { nodes = n }
@@ -91,14 +132,24 @@ const ForceGraphCanvas = forwardRef<CanvasHandle, Props>(function ForceGraphCanv
   const graphData = useMemo(() => {
     const comms = Array.from(new Set(data.nodes.map(n => n.community ?? -1)))
     const slot = new Map(comms.map((c, i) => [c, i]))
-    const R = 120 + data.nodes.length * 6
+    const grouped = new Map<string, number>()
+    const R = Math.max(220, Math.min(620, 160 + Math.sqrt(Math.max(1, data.nodes.length)) * 34))
     const nodes = data.nodes.map(n => {
       const o: any = { ...n }
       if (n.pinned && n.x != null && n.y != null) { o.fx = n.x; o.fy = n.y }
       else {
-        const ang = ((slot.get(n.community ?? -1) ?? 0) / Math.max(1, comms.length)) * 2 * Math.PI
-        o.x = Math.cos(ang) * R + (Math.random() - 0.5) * 60
-        o.y = Math.sin(ang) * R + (Math.random() - 0.5) * 60
+        const community = String(n.community ?? n.domain ?? -1)
+        const order = grouped.get(community) || 0
+        grouped.set(community, order + 1)
+        const base = DOMAIN_ANCHOR[n.domain] ?? (((slot.get(n.community ?? -1) ?? 0) / Math.max(1, comms.length)) * 2 * Math.PI - Math.PI)
+        const local = order * 2.399963 + seeded(n.id) * 0.7
+        const ring = Math.sqrt(order + 1) * (10 + seeded(n.id + 11) * 8)
+        const angle = base + (seeded(n.id + 7) - 0.5) * 0.42
+        const anchor = brainPoint(angle, R * (0.48 + seeded(n.id + 19) * 0.22))
+        o.__angle = angle
+        o.__radius = R * (0.55 + seeded(n.id + 31) * 0.28)
+        o.x = anchor.x + Math.cos(local) * ring
+        o.y = anchor.y + Math.sin(local) * ring
       }
       return o
     })
@@ -133,18 +184,20 @@ const ForceGraphCanvas = forwardRef<CanvasHandle, Props>(function ForceGraphCanv
   useEffect(() => {
     const fg = fgRef.current
     if (!fg) return
-    fg.d3Force('charge')?.strength(-140).distanceMax(800)
+    fg.d3Force('charge')?.strength(performance ? -95 : -175).distanceMax(900)
     const link = fg.d3Force('link')
     // weak links: the cluster force (below) does the grouping, so edges don't collapse
     // everything into one ball — they just hint structure.
-    if (link) link.distance((l: any) => 50 + (1 - Math.min(1, l.weight || 0.4)) * 60).strength(0.03)
+    if (link) link.distance((l: any) => 64 + (1 - Math.min(1, l.weight || 0.4)) * 84).strength(0.022)
     fg.d3Force('center', null)
-    fg.d3Force('x', forceX(0).strength(0.01))
-    fg.d3Force('y', forceY(0).strength(0.01))
-    fg.d3Force('collide', forceCollide((n: any) => nodeRadius(n) + 6).strength(0.9).iterations(2))
-    fg.d3Force('cluster', makeClusterForce(0.16))
+    fg.d3Force('x', forceX(0).strength(0.018))
+    fg.d3Force('y', forceY(0).strength(0.018))
+    fg.d3Force('radial', forceRadial((n: any) => n.__radius || 260, 0, 0).strength(0.025))
+    fg.d3Force('brain', makeBrainForce(performance ? 0.035 : 0.055))
+    fg.d3Force('collide', forceCollide((n: any) => nodeRadius(n) + 8).strength(0.95).iterations(2))
+    fg.d3Force('cluster', makeClusterForce(performance ? 0.12 : 0.18))
     fg.d3ReheatSimulation?.()
-  }, [])
+  }, [performance])
 
   // Gentle one-time fit + freeze physics once the engine settles (graphify does this too).
   const onEngineStop = useCallback(() => {
@@ -173,6 +226,15 @@ const ForceGraphCanvas = forwardRef<CanvasHandle, Props>(function ForceGraphCanv
     ctx.globalAlpha = dim ? 0.18 : 1
 
     if (!performance) {
+      const pulse = 1 + Math.sin(Date.now() / 900 + node.id) * 0.08
+      ctx.shadowColor = color
+      ctx.shadowBlur = (isFocus ? 26 : 12) + r
+      ctx.beginPath()
+      ctx.arc(node.x, node.y, r * (2.1 + pulse), 0, 2 * Math.PI)
+      ctx.fillStyle = color.replace(')', ',0.08)')
+      ctx.globalAlpha = dim ? 0.04 : 0.12
+      ctx.fill()
+      ctx.globalAlpha = dim ? 0.18 : 1
       ctx.shadowColor = color
       ctx.shadowBlur = (isFocus ? 24 : 14) + r
     }
@@ -184,8 +246,14 @@ const ForceGraphCanvas = forwardRef<CanvasHandle, Props>(function ForceGraphCanv
     // bright core
     ctx.beginPath()
     ctx.arc(node.x, node.y, r * 0.45, 0, 2 * Math.PI)
-    ctx.fillStyle = 'rgba(255,255,255,0.85)'
+    ctx.fillStyle = 'rgba(244,252,255,0.88)'
     ctx.fill()
+    if (!performance && r > 7) {
+      ctx.beginPath()
+      ctx.arc(node.x - r * 0.18, node.y - r * 0.2, r * 0.18, 0, 2 * Math.PI)
+      ctx.fillStyle = 'rgba(34,211,238,0.9)'
+      ctx.fill()
+    }
     if (isFocus) {
       ctx.strokeStyle = '#ffffff'
       ctx.lineWidth = 1.5 / scale
@@ -194,8 +262,8 @@ const ForceGraphCanvas = forwardRef<CanvasHandle, Props>(function ForceGraphCanv
     // label only when zoomed in enough (level-of-detail)
     if (scale > 1.4 && !dim) {
       const label = String(node.title || '').slice(0, 24)
-      ctx.font = `${Math.max(3, 4.5)}px ui-sans-serif, system-ui`
-      ctx.fillStyle = 'rgba(230,237,243,0.85)'
+      ctx.font = `600 ${Math.max(3, 4.5)}px ui-sans-serif, system-ui`
+      ctx.fillStyle = 'rgba(230,248,255,0.9)'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'top'
       ctx.fillText(label, node.x, node.y + r + 2)
@@ -212,6 +280,36 @@ const ForceGraphCanvas = forwardRef<CanvasHandle, Props>(function ForceGraphCanv
   // around member positions, expanded from the centroid, filled translucent + stroked,
   // with the community label floated above. Drawn behind nodes via onRenderFramePre.
   const onRenderFramePre = useCallback((ctx: CanvasRenderingContext2D, globalScale: number) => {
+    if (!performance) {
+      const t = Date.now() / 4200
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      ctx.translate(0, 0)
+      const rings = [180, 300, 430, 560]
+      for (let i = 0; i < rings.length; i++) {
+        ctx.beginPath()
+        ctx.ellipse(0, 0, rings[i] * 1.22, rings[i] * 0.84, Math.sin(t + i) * 0.02, 0, 2 * Math.PI)
+        ctx.strokeStyle = `rgba(88,166,255,${0.08 - i * 0.012})`
+        ctx.lineWidth = 1.2 / globalScale
+        ctx.stroke()
+      }
+      for (let i = 0; i < 4; i++) {
+        const a = t + i * Math.PI * 0.5
+        ctx.beginPath()
+        ctx.arc(0, 0, 255 + i * 64, a, a + 0.52)
+        ctx.strokeStyle = i % 2 ? 'rgba(45,212,191,0.18)' : 'rgba(244,114,182,0.14)'
+        ctx.lineWidth = 2.2 / globalScale
+        ctx.stroke()
+      }
+      ctx.beginPath()
+      ctx.moveTo(0, -520)
+      ctx.bezierCurveTo(-42, -230, 56, -110, -18, 0)
+      ctx.bezierCurveTo(48, 128, -42, 260, 0, 530)
+      ctx.strokeStyle = 'rgba(230,248,255,0.08)'
+      ctx.lineWidth = 1.5 / globalScale
+      ctx.stroke()
+      ctx.restore()
+    }
     if (performance) return
     const groups = new Map<string, any[]>()
     for (const n of graphData.nodes as any[]) {
@@ -235,8 +333,11 @@ const ForceGraphCanvas = forwardRef<CanvasHandle, Props>(function ForceGraphCanv
       ctx.moveTo(hull[0].x, hull[0].y)
       for (let i = 1; i < hull.length; i++) ctx.lineTo(hull[i].x, hull[i].y)
       ctx.closePath()
-      ctx.globalAlpha = 0.08; ctx.fillStyle = col; ctx.fill()
-      ctx.globalAlpha = 0.28; ctx.lineWidth = 1.4 / globalScale; ctx.strokeStyle = col; ctx.stroke()
+      ctx.shadowColor = col
+      ctx.shadowBlur = 22 / globalScale
+      ctx.globalAlpha = 0.075; ctx.fillStyle = col; ctx.fill()
+      ctx.globalAlpha = 0.34; ctx.lineWidth = 1.5 / globalScale; ctx.strokeStyle = col; ctx.stroke()
+      ctx.shadowBlur = 0
       // community label floated near the top of the hull, constant on-screen size
       let topY = Infinity, topX = cx
       for (const p of hull) if (p.y < topY) { topY = p.y; topX = p.x }
