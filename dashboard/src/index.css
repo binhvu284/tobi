@@ -7,6 +7,7 @@
    a pixel-for-pixel no-op of the original palette). Other themes override the vars
    via [data-theme="..."]. Office pins itself to data-theme="dark" to stay cyberpunk. */
 :root, [data-theme="dark"] {
+  color-scheme: dark;
   --bg: 13 17 23;        --surface: 22 27 34;   --border: 48 54 61;
   --muted: 139 148 158;  --text: 201 209 217;   --heading: 240 246 252;
   --accent: 88 166 255;  --success: 63 185 80;  --warning: 210 153 34;
@@ -14,42 +15,49 @@
   --font-scale: 1;
 }
 [data-theme="light"] {
+  color-scheme: light;
   --bg: 247 249 252;     --surface: 255 255 255; --border: 209 217 224;
   --muted: 90 100 110;   --text: 30 41 59;       --heading: 15 23 42;
   --accent: 37 99 235;   --success: 22 163 74;   --warning: 202 138 4;
   --danger: 220 38 38;   --purple: 124 58 237;
 }
 [data-theme="midnight"] {
+  color-scheme: dark;
   --bg: 8 8 14;          --surface: 16 16 28;    --border: 40 30 60;
   --muted: 130 130 160;  --text: 210 220 240;    --heading: 240 245 255;
   --accent: 34 211 238;  --success: 52 211 153;  --warning: 250 204 21;
   --danger: 244 63 94;   --purple: 217 70 239;
 }
 [data-theme="contrast"] {
+  color-scheme: dark;
   --bg: 0 0 0;           --surface: 18 18 18;    --border: 96 96 96;
   --muted: 184 184 184;  --text: 240 240 240;    --heading: 255 255 255;
   --accent: 0 200 255;   --success: 0 230 100;   --warning: 255 200 0;
   --danger: 255 70 70;   --purple: 200 120 255;
 }
 [data-theme="warm"] {
+  color-scheme: dark;
   --bg: 0 43 54;         --surface: 7 54 66;     --border: 88 110 117;
   --muted: 131 148 150;  --text: 162 176 176;    --heading: 238 232 213;
   --accent: 38 139 210;  --success: 133 153 0;   --warning: 181 137 0;
   --danger: 220 50 47;   --purple: 108 113 196;
 }
 [data-theme="gaming"] {
+  color-scheme: dark;
   --bg: 10 10 16;        --surface: 20 18 30;    --border: 60 40 80;
   --muted: 150 140 170;  --text: 220 215 235;    --heading: 245 240 255;
   --accent: 124 58 237;  --success: 57 255 20;   --warning: 255 170 0;
   --danger: 255 45 85;   --purple: 168 85 247;
 }
 [data-theme="hightech"] {
+  color-scheme: dark;
   --bg: 11 18 32;        --surface: 17 27 46;    --border: 42 58 86;
   --muted: 130 150 180;  --text: 200 215 235;    --heading: 235 245 255;
   --accent: 56 189 248;  --success: 45 212 191;  --warning: 245 191 66;
   --danger: 248 113 113; --purple: 129 140 248;
 }
 [data-theme="scientific"] {
+  color-scheme: light;
   --bg: 248 250 252;     --surface: 255 255 255; --border: 203 213 225;
   --muted: 100 116 139;  --text: 51 65 85;       --heading: 15 23 42;
   --accent: 14 165 233;  --success: 16 185 129;  --warning: 217 119 6;
@@ -78,6 +86,21 @@
   .scroll-subtle::-webkit-scrollbar-thumb { background: transparent; border-radius: 9999px; }
   .scroll-subtle:hover::-webkit-scrollbar-thumb { background: rgb(var(--border) / 0.7); }
   .scroll-subtle:hover::-webkit-scrollbar-thumb:hover { background: rgb(var(--muted) / 0.6); }
+
+  /* Native form controls follow color-scheme above. Pin <option> + autofill to the
+     theme tokens so dark dropdowns/autofilled fields never flash white. */
+  option { background-color: rgb(var(--surface)); color: rgb(var(--text)); }
+  option:checked { background-color: rgb(var(--accent) / 0.25); }
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-text-fill-color: rgb(var(--text));
+    -webkit-box-shadow: 0 0 0 1000px rgb(var(--bg)) inset;
+    caret-color: rgb(var(--text));
+    transition: background-color 9999s ease-in-out 0s;
+  }
 }
 
 @layer utilities {
