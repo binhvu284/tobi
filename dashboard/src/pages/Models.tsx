@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react'
 import {
-  Cpu, KeyRound, Lock, Unlock, RefreshCw, Save, Plus, ArrowUp, ArrowDown, Trash2,
+  Cpu, Lock, Unlock, RefreshCw, Save, Plus, ArrowUp, ArrowDown, Trash2,
   CheckCircle2, Circle, Zap, Server, BarChart3, Send,
 } from 'lucide-react'
 import {
   type LlmConfig, type LlmProvider, type AvailableModel, type HermesPush, type VaultStatus,
   type UsageSummary,
-  getLlmConfig, saveLlmConfig, setLlmProviderKey, discoverLlmModels, pushHermesConfig,
+  getLlmConfig, saveLlmConfig, discoverLlmModels, pushHermesConfig,
   getVaultStatus, vaultUnlock, getLlmUsage,
 } from '../api'
 import { useToast } from '../context/ToastProvider'
 import { AmbientField } from '../components/motion'
+import LlmLogo from '../components/LlmLogo'
+import KeySlots from '../components/KeySlots'
 
 const TASKS: { id: string; label: string }[] = [
   { id: 'simple', label: 'Simple / chat' },
@@ -27,7 +29,6 @@ export default function Models() {
   const [providers, setProviders] = useState<LlmProvider[]>([])
   const [models, setModels] = useState<AvailableModel[]>([])
   const [vault, setVault] = useState<VaultStatus | null>(null)
-  const [keyInputs, setKeyInputs] = useState<Record<string, string>>({})
   const [baseUrls, setBaseUrls] = useState<Record<string, string>>({})
   const [master, setMaster] = useState('')
   const [saving, setSaving] = useState(false)
@@ -49,20 +50,6 @@ export default function Models() {
   const unlock = async () => {
     try { await vaultUnlock(master); setMaster(''); toast({ kind: 'success', title: 'Vault unlocked' }); load() }
     catch (e) { toast({ kind: 'error', title: 'Unlock failed', detail: (e as Error).message }) }
-  }
-
-  const saveKey = async (pid: string) => {
-    const value = (keyInputs[pid] || '').trim()
-    if (!value) return
-    try {
-      const r = await setLlmProviderKey(pid, value)
-      setProviders(r.providers); setModels(r.models)
-      setKeyInputs(k => ({ ...k, [pid]: '' }))
-      toast({ kind: 'success', title: 'Key saved & live' })
-    } catch (e) {
-      const err = e as Error & { status?: number }
-      toast({ kind: 'error', title: err.status === 401 || err.status === 403 ? 'Unlock the vault first' : 'Save failed', detail: err.message })
-    }
   }
 
   const discover = async (pid: string) => {
@@ -161,24 +148,23 @@ export default function Models() {
               return (
                 <div key={p.id} className="rounded-xl border border-border bg-surface/50 p-3.5">
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-heading">{p.label}</span>
-                      {connected ? <span className="flex items-center gap-1 text-[10px] text-success"><CheckCircle2 size={11} /> {p.needs_key ? 'Key set' : 'Ready'}</span>
-                        : <span className="flex items-center gap-1 text-[10px] text-muted"><Circle size={11} /> No key</span>}
+                    <div className="flex min-w-0 items-center gap-2">
+                      <LlmLogo provider={p.id} size={16} />
+                      <span className="truncate text-sm font-semibold text-heading">{p.label}</span>
+                      {connected ? <span className="flex shrink-0 items-center gap-1 text-[10px] text-success"><CheckCircle2 size={11} /> {p.needs_key ? 'Key set' : 'Ready'}</span>
+                        : <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted"><Circle size={11} /> No key</span>}
                     </div>
                     <button onClick={() => setProviderField(p.id, 'enabled', !enabled)}
-                      className={`relative h-5 w-9 rounded-full border transition-colors ${enabled ? 'border-accent/50 bg-accent/30' : 'border-border bg-bg'}`}>
+                      className={`relative h-5 w-9 shrink-0 rounded-full border transition-colors ${enabled ? 'border-accent/50 bg-accent/30' : 'border-border bg-bg'}`}>
                       <span className={`absolute top-0.5 h-3.5 w-3.5 rounded-full bg-text transition-all ${enabled ? 'left-[18px]' : 'left-0.5'}`} />
                     </button>
                   </div>
 
-                  {p.needs_key && (
-                    <div className="mb-2 flex gap-1.5">
-                      <input type="password" value={keyInputs[p.id] || ''} onChange={e => setKeyInputs(k => ({ ...k, [p.id]: e.target.value }))}
-                        placeholder={connected ? '•••• update key' : `${p.key_env}`} disabled={locked}
-                        className="min-w-0 flex-1 rounded-lg border border-border bg-bg px-2.5 py-1.5 text-xs text-text outline-none focus:border-accent/50 disabled:opacity-50" />
-                      <button onClick={() => saveKey(p.id)} disabled={locked || !(keyInputs[p.id] || '').trim()}
-                        className="flex items-center gap-1 rounded-lg border border-border px-2 py-1.5 text-xs text-muted hover:border-accent/40 hover:text-accent disabled:opacity-40"><KeyRound size={12} /></button>
+                  {/* multi-key: several accounts per provider, one active at a time */}
+                  {p.needs_key && p.key_env && (
+                    <div className="mb-2">
+                      <KeySlots name={p.key_env} locked={locked} envLast4={p.key_last4}
+                        onChanged={r => { setProviders(r.providers); setModels(r.models) }} />
                     </div>
                   )}
 

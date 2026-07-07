@@ -351,19 +351,162 @@ def reveal(conn: sqlite3.Connection, name: str, master: str, profile: str | None
 # ── env injection (consumption) ─────────────────────────────────────────
 def inject_env(conn: sqlite3.Connection, profile: str | None = None) -> int:
     """Overlay the active profile's secrets onto os.environ (vault wins; .env is the
-    fallback for anything not in the vault). Idempotent. Requires an unlocked vault."""
+    fallback for anything not in the vault). Idempotent. Requires an unlocked vault.
+    Key-slot alternates (names containing '::') are storage-only and are skipped —
+    only the plain, active secret for each env var is injected."""
     if _key is None:
         raise VaultLocked("Vault is locked.")
     prof = profile or active_profile(conn)
     rows = conn.execute("SELECT name, ciphertext, nonce FROM vault_secrets WHERE profile=?", (prof,)).fetchall()
     n = 0
     for name, ct, nonce in rows:
+        if SLOT_SEP in name:
+            continue
         try:
             os.environ[name] = _decrypt(_key, name, ct, nonce)
             n += 1
         except Exception:
             pass
     return n
+
+
+# ── key slots: multiple values per secret, one active at a time ──────────
+# Each alternate account key for a secret NAME is stored as its own encrypted
+# secret named "NAME::<label>". The plain secret NAME always holds the ACTIVE
+# value (so inject_env / model_router / integrations stay unchanged); which
+# label is active is tracked in owner_settings under "vault.active_slot.NAME".
+SLOT_SEP = "::"
+
+
+def _slot_setting_key(name: str) -> str:
+    return f"vault.active_slot.{name}"
+
+
+def _ensure_owner_settings(conn: sqlite3.Connection) -> None:
+    conn.execute("CREATE TABLE IF NOT EXISTS owner_settings (key TEXT PRIMARY KEY, value TEXT)")
+
+
+def _get_active_label(conn: sqlite3.Connection, name: str) -> Optional[str]:
+    _ensure_owner_settings(conn)
+    row = conn.execute("SELECT value FROM owner_settings WHERE key=?", (_slot_setting_key(name),)).fetchone()
+    return row[0] if row else None
+
+
+def _set_active_label(conn: sqlite3.Connection, name: str, label: Optional[str]) -> None:
+    _ensure_owner_settings(conn)
+    if label is None:
+        conn.execute("DELETE FROM owner_settings WHERE key=?", (_slot_setting_key(name),))
+    else:
+        conn.execute(
+            "INSERT INTO owner_settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (_slot_setting_key(name), label),
+        )
+    conn.commit()
+
+
+def _migrate_plain_to_slot(conn: sqlite3.Connection, name: str, profile: str | None = None) -> None:
+    """If a lone pre-multi-key secret exists (plain NAME, no slots), copy it into
+    slot 'Key 1' and mark that active — so the owner's first key shows in the list."""
+    prof = profile or active_profile(conn)
+    slots = [s for s in list_secrets(conn, prof) if s["name"].startswith(name + SLOT_SEP)]
+    if slots:
+        return
+    val = get_secret(conn, name, prof)
+    if val is None:
+        return
+    set_secret(conn, f"{name}{SLOT_SEP}Key 1", val, integration_id="keyslot",
+               secret_type="api_key", profile=prof)
+    _set_active_label(conn, name, "Key 1")
+
+
+def list_key_slots(conn: sqlite3.Connection, name: str, profile: str | None = None) -> list[dict]:
+    """Metadata for every stored key of NAME (never values). Migrates a lone plain
+    secret into 'Key 1' first, so pre-existing single keys appear in the list."""
+    if _key is None:
+        raise VaultLocked("Vault is locked.")
+    prof = profile or active_profile(conn)
+    _migrate_plain_to_slot(conn, name, prof)
+    active = _get_active_label(conn, name)
+    plain_present = conn.execute(
+        "SELECT 1 FROM vault_secrets WHERE profile=? AND name=?", (prof, name)).fetchone() is not None
+    out = []
+    for s in list_secrets(conn, prof):
+        if not s["name"].startswith(name + SLOT_SEP):
+            continue
+        label = s["name"][len(name) + len(SLOT_SEP):]
+        out.append({
+            "label": label, "last4": s["last4"], "env": False,
+            "active": plain_present and label == active,
+            "added_at": s["added_at"], "updated_at": s["updated_at"],
+        })
+    # A key that lives only in .env (os.environ, never stored in the vault) has no slot
+    # above — surface it as a read-only ACTIVE entry so it's visible/censored in the UI.
+    # Skip when a vault slot is already active (that value overrides the env one).
+    if not any(o["active"] for o in out):
+        envval = os.environ.get(name)
+        if envval:
+            out.insert(0, {"label": "Current (.env)", "last4": envval[-4:], "env": True,
+                           "active": True, "added_at": None, "updated_at": None})
+    return out
+
+
+def add_key_slot(conn: sqlite3.Connection, name: str, value: str, label: str | None = None,
+                 activate: bool = False, profile: str | None = None) -> str:
+    """Store an additional key for NAME under a label ('Key N' if omitted). Activates it
+    when asked — or automatically when it's the only key. Returns the label used."""
+    if _key is None:
+        raise VaultLocked("Vault is locked.")
+    prof = profile or active_profile(conn)
+    _migrate_plain_to_slot(conn, name, prof)
+    existing = {s["label"] for s in list_key_slots(conn, name, prof)}
+    label = (label or "").strip().replace(SLOT_SEP, " ")
+    if not label:
+        n = 1
+        while f"Key {n}" in existing:
+            n += 1
+        label = f"Key {n}"
+    set_secret(conn, f"{name}{SLOT_SEP}{label}", value, integration_id="keyslot",
+               secret_type="api_key", profile=prof)
+    if activate or not existing:  # first key ever → it's the active one
+        activate_key_slot(conn, name, label, prof)
+    return label
+
+
+def activate_key_slot(conn: sqlite3.Connection, name: str, label: str, profile: str | None = None) -> None:
+    """One active at a time: copy the slot's value into the plain secret NAME (which
+    inject_env feeds to os.environ) and point the active marker at this label."""
+    prof = profile or active_profile(conn)
+    val = get_secret(conn, f"{name}{SLOT_SEP}{label}", prof)
+    if val is None:
+        raise VaultError(f"No key labeled '{label}' for {name}.")
+    set_secret(conn, name, val, integration_id="llm", secret_type="api_key", profile=prof)
+    _set_active_label(conn, name, label)
+    os.environ[name] = val
+    _audit(conn, "slot_activate", name=f"{name}{SLOT_SEP}{label}", ok=True)
+
+
+def deactivate_key_slots(conn: sqlite3.Connection, name: str, profile: str | None = None) -> None:
+    """Turn the active key OFF without deleting it — removes the plain secret + live
+    env var, so the provider reads as disconnected until another slot is activated."""
+    prof = profile or active_profile(conn)
+    delete_secret(conn, name, integration_id="keyslot", profile=prof)
+    _set_active_label(conn, name, None)
+
+
+def delete_key_slot(conn: sqlite3.Connection, name: str, label: str, profile: str | None = None) -> None:
+    """Remove a stored key. Deleting the active one promotes the first remaining
+    slot (keeps the provider working) or fully deactivates when none remain."""
+    prof = profile or active_profile(conn)
+    was_active = _get_active_label(conn, name) == label
+    delete_secret(conn, f"{name}{SLOT_SEP}{label}", integration_id="keyslot", profile=prof)
+    if was_active:
+        # Clear the plain (live) copy FIRST — otherwise the migration shim in
+        # list_key_slots would see it and resurrect the just-deleted key as a slot.
+        deactivate_key_slots(conn, name, prof)
+        remaining = [s for s in list_secrets(conn, prof) if s["name"].startswith(name + SLOT_SEP)]
+        if remaining:
+            activate_key_slot(conn, name, remaining[0]["name"][len(name) + len(SLOT_SEP):], prof)
 
 
 def reload(conn: sqlite3.Connection) -> int:

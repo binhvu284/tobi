@@ -2,18 +2,21 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   KeyRound, Lock, Unlock, ShieldCheck, Eye, EyeOff, Check, X, RefreshCw, Plus, Trash2,
   ExternalLink, AlertTriangle, ScrollText, Download, Upload, Loader2, Sparkles, Copy,
-  Wand2, SkipForward,
+  Wand2, SkipForward, ChevronDown, Cpu,
 } from 'lucide-react'
 import {
   getIntegrations, vaultSetup, vaultUnlock, vaultLock, vaultReload, getVaultAudit,
   vaultExport, vaultImport, createVaultProfile, connectIntegration, testIntegration,
-  revealSecret, addCustomSecret, removeIntegration,
-  type IntegrationsResponse, type Integration, type IntegrationField, type AuditEntry, type GenesisStatus,
+  revealSecret, addCustomSecret, removeIntegration, getLlmConfig,
+  type IntegrationsResponse, type Integration, type IntegrationField, type AuditEntry,
+  type GenesisStatus, type LlmProvider,
 } from '../api'
 import { useToast } from '../context/ToastProvider'
 import { useSound } from '../hooks/useSound'
 import PageLoader from '../components/PageLoader'
 import BrandLogo from '../components/BrandLogo'
+import LlmLogo from '../components/LlmLogo'
+import KeySlots from '../components/KeySlots'
 
 const CAT_LABEL: Record<string, string> = {
   core: 'Core prerequisites', tools: 'Tools', coming_soon: 'Coming in Awakening',
@@ -23,6 +26,7 @@ export default function Integrations() {
   const { toast } = useToast()
   const sfx = useSound()
   const [data, setData] = useState<IntegrationsResponse | null>(null)
+  const [providers, setProviders] = useState<LlmProvider[]>([])   // LLM/model providers → vault keys
   const [loading, setLoading] = useState(true)
   const [session, setSession] = useState(false)        // unlocked *this* browser session
   const [showAudit, setShowAudit] = useState(false)
@@ -34,6 +38,7 @@ export default function Integrations() {
     try { setData(await getIntegrations()) }
     catch (e) { toast({ kind: 'error', title: 'Could not load integrations', detail: (e as Error).message }) }
     finally { setLoading(false) }
+    try { setProviders((await getLlmConfig()).providers) } catch { /* models optional */ }
   }, [toast])
 
   useEffect(() => { load() }, [load])
@@ -66,6 +71,10 @@ export default function Integrations() {
 
   const genesis = data!.genesis
   const groups = (cat: string) => data!.integrations.filter(i => i.category === cat)
+  // Keys already surfaced by a registry integration above (e.g. Anthropic/OpenRouter in
+  // the "LLM Provider" card) shouldn't appear twice — the AI Models section shows the rest.
+  const coveredKeys = new Set(data!.integrations.flatMap(i => i.fields.map(f => f.name)))
+  const modelProviders = providers.filter(p => p.needs_key && p.key_env && !coveredKeys.has(p.key_env))
 
   return (
     <div className="h-full overflow-y-auto">
@@ -88,7 +97,7 @@ export default function Integrations() {
         {/* Genesis progress */}
         <GenesisHeader genesis={genesis} onStartWizard={() => setWizardOpen(true)} />
 
-        {/* Sections */}
+        {/* Sections — full-width collapsible rows, one integration per line */}
         {(['core', 'tools', 'coming_soon'] as const).map(cat => {
           const items = groups(cat)
           if (!items.length) return null
@@ -97,7 +106,7 @@ export default function Integrations() {
               <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-muted">
                 {cat === 'core' && <ShieldCheck size={13} className="text-accent" />} {CAT_LABEL[cat]}
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
                 {items.map(it => (
                   <IntegrationCard key={it.id} it={it}
                     onChanged={(g) => { celebrate(g); load() }} onLocked={onLocked} />
@@ -106,6 +115,20 @@ export default function Integrations() {
             </section>
           )
         })}
+
+        {/* AI Models — providers from the Models page, keys stored in this same vault */}
+        {modelProviders.length > 0 && (
+          <section className="mt-6">
+            <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-muted">
+              <Cpu size={13} className="text-accent" /> AI Models
+            </div>
+            <div className="space-y-2">
+              {modelProviders.map(p => (
+                <ModelProviderRow key={p.id} p={p} onChanged={() => load()} />
+              ))}
+            </div>
+          </section>
+        )}
 
         <CustomSecrets onAdded={(g) => { celebrate(g); load() }} onLocked={onLocked} />
 
@@ -379,13 +402,55 @@ function GenesisWizard({ integrations, genesis, onChanged, onClose, onLocked }: 
   )
 }
 
-// ── Integration card ────────────────────────────────────────────────
+// ── Row shell: a full-width, one-line header that expands to reveal keys ──
+function RowShell({ logo, title, badges, subtitle, pill, open, onToggle, accent, dim, children }: {
+  logo: React.ReactNode; title: string; badges?: React.ReactNode; subtitle?: string
+  pill?: React.ReactNode; open: boolean; onToggle: () => void; accent?: boolean; dim?: boolean
+  children?: React.ReactNode
+}) {
+  return (
+    <div className={`overflow-hidden rounded-xl border bg-surface transition-colors ${dim ? 'border-border opacity-70' : accent ? 'border-accent/40' : 'border-border'}`}>
+      <button onClick={onToggle} className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left">
+        {logo}
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="truncate text-sm font-semibold text-heading">{title}</span>
+          {badges}
+        </div>
+        {pill}
+        <ChevronDown size={16} className={`shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="border-t border-border/60 px-3.5 pb-3.5 pt-3">
+          {subtitle && <p className="mb-2.5 text-[11px] leading-snug text-muted">{subtitle}</p>}
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AbilityChips({ abilities }: { abilities: Integration['abilities'] }) {
+  if (!abilities.length) return null
+  return (
+    <div className="mb-2.5 flex flex-wrap gap-1">
+      {abilities.map(a => (
+        <span key={a.id} className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] ${a.active ? 'bg-success/15 text-success' : 'bg-border/40 text-muted'}`}>
+          {a.active ? <Check size={9} /> : <span className="h-1.5 w-1.5 rounded-full bg-current opacity-50" />}{a.name}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+// ── Integration row (full-width, collapsible; API keys → multi-key vault slots) ──
 function IntegrationCard({ it, onChanged, onLocked }: { it: Integration; onChanged: (g?: GenesisStatus) => void; onLocked: () => void }) {
   const { toast } = useToast()
   const [vals, setVals] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<'' | 'connect' | 'test' | 'remove'>('')
   const [err, setErr] = useState<string | null>(null)
+  const [open, setOpen] = useState(it.available && !it.connected)   // needs attention → start open
   const locked = !it.available
+  const formFields = it.fields.filter(f => f.type !== 'api_key')    // url/oauth/webhook still use Connect
 
   const connect = async () => {
     const fields = Object.fromEntries(Object.entries(vals).filter(([, v]) => v.trim()))
@@ -413,46 +478,66 @@ function IntegrationCard({ it, onChanged, onLocked }: { it: Integration; onChang
   }
 
   return (
-    <div className={`flex flex-col rounded-xl border bg-surface p-3.5 ${locked ? 'border-border opacity-70' : it.connected ? 'border-accent/40' : 'border-border'}`}>
-      <div className="mb-1 flex items-start gap-2.5">
-        <BrandLogo id={it.id} label={it.label} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold text-heading">{it.label}</span>
-            {it.required && <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-accent">Required</span>}
-            {locked && <span className="rounded bg-muted/20 px-1.5 py-0.5 text-[9px] uppercase text-muted">{it.coming_in}</span>}
-          </div>
-          <p className="mt-0.5 text-[11px] leading-snug text-muted">{it.blurb}</p>
-        </div>
-        <StatusPill it={it} />
-      </div>
-
-      {/* abilities unlocked */}
-      {it.abilities.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-1">
-          {it.abilities.map(a => (
-            <span key={a.id} className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] ${a.active ? 'bg-success/15 text-success' : 'bg-border/40 text-muted'}`}>
-              {a.active ? <Check size={9} /> : <span className="h-1.5 w-1.5 rounded-full bg-current opacity-50" />}{a.name}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {!locked && (
-        <div className="mt-auto space-y-2">
+    <RowShell open={open} onToggle={() => setOpen(o => !o)} accent={it.connected} dim={locked}
+      logo={<BrandLogo id={it.id} label={it.label} />} title={it.label} subtitle={it.blurb || undefined} pill={<StatusPill it={it} />}
+      badges={<>
+        {it.required && <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[9px] font-bold uppercase text-accent">Required</span>}
+        {locked && <span className="rounded bg-muted/20 px-1.5 py-0.5 text-[9px] uppercase text-muted">{it.coming_in}</span>}
+      </>}>
+      <AbilityChips abilities={it.abilities} />
+      {locked ? (
+        <p className="text-[11px] text-muted">Configurable when {it.coming_in || 'a later tier'} lands.</p>
+      ) : (
+        <div className="space-y-2.5">
           {it.fields.map(f => (
-            <SecretField key={f.name} field={f} value={vals[f.name] || ''} onChange={v => setVals(s => ({ ...s, [f.name]: v }))} />
+            f.type === 'api_key'
+              ? (
+                <div key={f.name}>
+                  <FieldLabel field={f} />
+                  <KeySlots name={f.name} locked={false} envLast4={f.last4} onChanged={() => onChanged()} />
+                </div>
+              )
+              : (
+                <SecretField key={f.name} field={f} value={vals[f.name] || ''}
+                  onChange={v => setVals(s => ({ ...s, [f.name]: v }))} />
+              )
           ))}
           {err && <div className="rounded border border-danger/30 bg-danger/10 px-2 py-1 text-[11px] text-danger">{err}</div>}
           <div className="flex items-center gap-1.5 pt-0.5">
-            <button onClick={connect} disabled={!!busy} className={cardBtn('accent')}>
-              {busy === 'connect' ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} {it.connected ? 'Update' : 'Connect'}
-            </button>
+            {formFields.length > 0 && (
+              <button onClick={connect} disabled={!!busy} className={cardBtn('accent')}>
+                {busy === 'connect' ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} {it.connected ? 'Update' : 'Connect'}
+              </button>
+            )}
             {it.connected && <button onClick={test} disabled={!!busy} className={cardBtn()}>{busy === 'test' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Test</button>}
-            {it.connected && <button onClick={remove} disabled={!!busy} className={cardBtn('danger')}><Trash2 size={12} /></button>}
+            {it.connected && <button onClick={remove} disabled={!!busy} className={cardBtn('danger')}><Trash2 size={12} /> Remove</button>}
           </div>
         </div>
       )}
+    </RowShell>
+  )
+}
+
+// ── AI Model provider row (Models-page providers, keys in this same vault) ──
+function ModelProviderRow({ p, onChanged }: { p: LlmProvider; onChanged: () => void }) {
+  const [open, setOpen] = useState(!p.key_present)
+  const pill = p.key_present
+    ? <span className="shrink-0 rounded-full bg-success/15 px-2 py-0.5 text-[10px] text-success">Key set</span>
+    : <span className="shrink-0 rounded-full bg-border/40 px-2 py-0.5 text-[10px] text-muted">No key</span>
+  return (
+    <RowShell open={open} onToggle={() => setOpen(o => !o)} accent={p.key_present}
+      logo={<LlmLogo provider={p.id} size={18} />} title={p.label} pill={pill}
+      badges={<span className="rounded bg-muted/15 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted">{p.models.length} model{p.models.length === 1 ? '' : 's'}</span>}>
+      <KeySlots name={p.key_env!} locked={false} envLast4={p.key_last4} onChanged={onChanged} />
+    </RowShell>
+  )
+}
+
+function FieldLabel({ field }: { field: IntegrationField }) {
+  return (
+    <div className="mb-1 flex items-center justify-between">
+      <span className="text-[10px] uppercase tracking-wide text-muted">{field.label}</span>
+      {field.help_url && <a href={field.help_url} target="_blank" rel="noreferrer" className="flex items-center gap-0.5 text-[10px] text-accent hover:underline">get key <ExternalLink size={9} /></a>}
     </div>
   )
 }
@@ -465,7 +550,9 @@ function StatusPill({ it }: { it: Integration }) {
   return <span className="shrink-0 rounded-full bg-success/15 px-2 py-0.5 text-[10px] text-success">Connected</span>
 }
 
-function SecretField({ field, value, onChange }: { field: IntegrationField; value: string; onChange: (v: string) => void }) {
+function SecretField({ field, value, onChange }: {
+  field: IntegrationField; value: string; onChange: (v: string) => void
+}) {
   const { toast } = useToast()
   const [revealed, setRevealed] = useState<string | null>(null)
   const [asking, setAsking] = useState(false)
@@ -505,7 +592,7 @@ function SecretField({ field, value, onChange }: { field: IntegrationField; valu
           )}
           <button onClick={() => (revealed ? setRevealed(null) : setAsking(true))} title={revealed ? 'Hide' : 'Reveal'}
             className="rounded border border-border p-1.5 text-muted transition-colors hover:text-accent">{revealed ? <EyeOff size={12} /> : <Eye size={12} />}</button>
-          <input type="password" value={value} onChange={e => onChange(e.target.value)} placeholder="replace…" className="w-20 rounded border border-border bg-bg px-2 py-1.5 text-[11px] text-text outline-none focus:border-accent/60" />
+          <input type="password" value={value} onChange={e => onChange(e.target.value)} placeholder="replace…" className="w-24 rounded border border-border bg-bg px-2 py-1.5 text-[11px] text-text outline-none focus:border-accent/60" />
         </div>
       ) : (
         <input type="password" value={value} onChange={e => onChange(e.target.value)} placeholder={field.name} className="w-full rounded border border-border bg-bg px-2 py-1.5 text-[11px] text-text outline-none focus:border-accent/60" />

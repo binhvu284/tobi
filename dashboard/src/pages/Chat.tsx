@@ -6,6 +6,7 @@ import {
   Paperclip, Globe, Image as ImageIcon, FileText, ThumbsUp, ThumbsDown, Activity,
   GitBranch, Lightbulb, Plug, Layers, PanelLeftClose, PanelLeftOpen, AlertTriangle, Zap, Quote,
   Terminal, Search, Briefcase, Wrench, ShieldCheck, CheckCircle2, XCircle, ListChecks, Radio, Gauge,
+  ChevronUp, MessagesSquare,
 } from 'lucide-react'
 import {
   type PendingAction, type ChatSession, type AvailableModel, type ChatUsage,
@@ -157,6 +158,7 @@ export default function Chat() {
   const [compacting, setCompacting] = useState(false)
   const [picker, setPicker] = useState<ChatPicker | null>(null)  // Feature 3 wizard
   const [dragOver, setDragOver] = useState(false)                // Feature 8 drag & drop
+  const [headerCollapsed, setHeaderCollapsed] = useState(() => { try { return localStorage.getItem('tobi.chat.header') === '0' } catch { return false } })
   const [mode, setMode] = useState<ChatMode>(() => { try { return (localStorage.getItem('tobi.chat.mode') as ChatMode) || 'chat' } catch { return 'chat' } })
   const [objective, setObjective] = useState('')
   const [objectiveEditing, setObjectiveEditing] = useState(false)
@@ -552,6 +554,8 @@ export default function Chat() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
   }
 
+  const toggleHeader = () => setHeaderCollapsed(c => { const n = !c; try { localStorage.setItem('tobi.chat.header', n ? '0' : '1') } catch { /* ignore */ } return n })
+
   // TOBI's avatar = his evolving tier emblem (falls back to a bot glyph until tier loads)
   const tobiMark = (size: number, state: 'normal' | 'current' = 'normal') => tier
     ? <TierEmblem tier={tier.tier} colorKey={tier.colorKey} size={size} state={state} className="shrink-0" />
@@ -571,9 +575,6 @@ export default function Chat() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* picker wizard (Feature 3) */}
-      {picker && <PickerWizard picker={picker} onSubmit={submitPicker} onCancel={() => setPicker(null)} />}
 
       {/* sessions sidebar — collapsible icon rail (persisted, default open) */}
       {sidebarOpen ? (
@@ -615,10 +616,18 @@ export default function Chat() {
       )}
 
       {/* conversation */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="border-b border-border bg-bg/80 px-4 py-2.5 backdrop-blur sm:px-5">
-          <div className="flex min-w-0 items-center gap-3">
-            <span title={tier ? `TOBI - Tier ${tier.roman} - ${tier.name}` : 'TOBI'} className="leading-none">{tobiMark(38, 'current')}</span>
+      <div className="relative flex min-w-0 flex-1 flex-col">
+        {/* ── collapsible HUD header — collapse control on the LEFT; closes fully ── */}
+        {!headerCollapsed && (
+        <div className="relative border-b border-border bg-bg/80 px-4 py-2 backdrop-blur sm:px-5">
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-accent/25 to-transparent" />
+          <div className="flex min-w-0 items-center gap-2.5">
+            {/* collapse — left edge, hides the header completely */}
+            <button onClick={toggleHeader} title="Collapse header"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border text-muted transition-colors hover:border-accent/40 hover:text-accent">
+              <ChevronUp size={16} />
+            </button>
+            <span title={tier ? `TOBI - Tier ${tier.roman} - ${tier.name}` : 'TOBI'} className="leading-none">{tobiMark(36, 'current')}</span>
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-2">
                 {titleEditing ? (
@@ -635,11 +644,6 @@ export default function Chat() {
                 <span className={`hidden items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium sm:flex ${busy ? 'border-accent/40 bg-accent/10 text-accent' : queuedTurns.length ? 'border-warning/40 bg-warning/10 text-warning' : 'border-border text-muted'}`}>
                   <Radio size={10} className={busy ? 'animate-pulse' : ''} /> {runState}
                 </span>
-                {queuedTurns.length > 0 && (
-                  <button onClick={clearQueuedTurns} className="hidden rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning hover:bg-warning/20 sm:inline-flex">
-                    {queuedTurns.length} queued - clear
-                  </button>
-                )}
               </div>
               <div className="mt-1 flex min-w-0 items-center gap-2">
                 <activeMode.Icon size={12} className="shrink-0 text-accent" />
@@ -657,34 +661,45 @@ export default function Chat() {
                 )}
               </div>
             </div>
-            <button onClick={toggleActivity} title="Run inspector" className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${activityOpen ? 'border-accent/50 bg-accent/10 text-accent' : 'border-border text-muted hover:text-accent'}`}><Activity size={16} /></button>
-          </div>
-          <div className="hidden">
-          {/* left — TOBI's evolving tier avatar */}
-          <div className="flex min-w-0 items-center">
-            <span title={tier ? `TOBI · Tier ${tier.roman} · ${tier.name}` : 'TOBI'} className="leading-none">{tobiMark(36, 'current')}</span>
-          </div>
-          {/* center — session title, click to rename */}
-          <div className="flex min-w-0 items-center justify-center">
-            {titleEditing ? (
-              <input autoFocus value={titleVal} onChange={e => setTitleVal(e.target.value)} onBlur={commitHeaderTitle}
-                onKeyDown={e => { if (e.key === 'Enter') commitHeaderTitle(); if (e.key === 'Escape') setTitleEditing(false) }}
-                className="w-48 max-w-[42vw] rounded-lg border border-accent/40 bg-bg px-2.5 py-1 text-center text-sm font-semibold text-text outline-none" />
-            ) : (
-              <button onClick={startTitleEdit} title="Click to rename"
-                className="group/title flex min-w-0 items-center gap-1.5 rounded-lg px-2.5 py-1 transition-colors hover:bg-surface/70">
-                <span className="truncate text-sm font-bold text-heading">{activeTitle}</span>
-                <Pencil size={11} className="shrink-0 text-muted opacity-0 transition-opacity group-hover/title:opacity-100" />
-              </button>
-            )}
-          </div>
-          {/* right — actions (the model picker lives in the composer bar) */}
-          <div className="flex items-center justify-end gap-1.5">
-            <button onClick={toggleActivity} title="Activity log" className={`flex h-8 w-8 items-center justify-center rounded-lg border ${activityOpen ? 'border-accent/50 bg-accent/10 text-accent' : 'border-border text-muted hover:text-accent'}`}><Activity size={15} /></button>
-          </div>
-        </div>
 
+            {/* right cluster — status chips · context meter · run inspector */}
+            <div className="flex shrink-0 items-center gap-2">
+              {(webResearch || thinkingOn || connectors.length > 0) && (
+                <div className="hidden items-center gap-1 lg:flex">
+                  {webResearch && <span className="flex items-center gap-1 rounded-full border border-accent/35 bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent"><Globe size={10} /> Web</span>}
+                  {thinkingOn && <span className="flex items-center gap-1 rounded-full border border-purple/35 bg-purple/10 px-2 py-0.5 text-[10px] font-medium text-purple"><Lightbulb size={10} /> Reasoning</span>}
+                  {connectors.length > 0 && <span className="flex items-center gap-1 rounded-full border border-success/35 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success"><Plug size={10} /> {connectors.length}</span>}
+                </div>
+              )}
+              {messages.length > 1 && (
+                <div className={`hidden items-center gap-2 rounded-full border bg-surface/70 px-2.5 py-1 sm:flex ${ctxHot ? 'border-warning/40' : 'border-border'}`}
+                  title={`Context ~${ctxPct}% of ${(ctxLimit / 1000).toFixed(0)}K tokens`}>
+                  <div className="relative h-1.5 w-14 overflow-hidden rounded-full bg-bg/60">
+                    <div className={`h-full rounded-full transition-all ${ctxHot ? 'bg-warning' : 'bg-accent/60'}`} style={{ width: `${ctxPct}%` }} />
+                    {compacting && <div className="absolute inset-0 animate-pulse rounded-full bg-accent/30" />}
+                  </div>
+                  <span className={`text-[10px] tabular-nums ${ctxHot ? 'text-warning' : 'text-muted'}`}>{ctxPct}%</span>
+                  <span className="h-3 w-px bg-border" />
+                  <button onClick={doCompact} disabled={compacting}
+                    className={`flex items-center gap-1 text-[10px] disabled:opacity-50 ${ctxHot ? 'text-warning hover:opacity-80' : 'text-muted hover:text-accent'}`}>
+                    <Layers size={11} /> {compacting ? 'Compacting…' : 'Compact'}
+                  </button>
+                </div>
+              )}
+              <button onClick={toggleActivity} title="Run inspector" className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${activityOpen ? 'border-accent/50 bg-accent/10 text-accent' : 'border-border text-muted hover:text-accent'}`}><Activity size={16} /></button>
+            </div>
+          </div>
         </div>
+        )}
+
+        {/* floating restore chip — chat-specific glyph, distinct from the main header's */}
+        {headerCollapsed && (
+          <button onClick={toggleHeader} title="Show chat header"
+            className="absolute left-3 top-2 z-30 flex h-7 items-center gap-1 rounded-full border border-accent/30 bg-surface/85 px-2.5 text-muted shadow-lg backdrop-blur transition-colors hover:border-accent/50 hover:text-accent">
+            <MessagesSquare size={14} className="text-accent" />
+            <ChevronDown size={12} />
+          </button>
+        )}
 
         <div className="relative flex min-h-0 flex-1">
           <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-6 sm:px-8">
@@ -944,136 +959,131 @@ export default function Chat() {
           </div>
         )}
 
-        {/* context chip — tiny bar + % with Compact merged in (always subtle) */}
-        {messages.length > 1 && (
-          <div className="px-3 pt-2 sm:px-4">
-            <div className={`${COLUMN} flex justify-end`}>
-              <div className={`flex items-center gap-2 rounded-full border bg-surface/70 px-2.5 py-1 ${ctxHot ? 'border-warning/40' : 'border-border'}`} title={`Context ~${ctxPct}% of ${(ctxLimit / 1000).toFixed(0)}K tokens`}>
-                <span className="text-[10px] text-muted">Context</span>
-                <div className="relative h-1.5 w-16 overflow-hidden rounded-full bg-bg/60">
-                  <div className={`h-full rounded-full transition-all ${ctxHot ? 'bg-warning' : 'bg-accent/60'}`} style={{ width: `${ctxPct}%` }} />
-                  {compacting && <div className="absolute inset-0 animate-pulse rounded-full bg-accent/30" />}
-                </div>
-                <span className={`text-[10px] tabular-nums ${ctxHot ? 'text-warning' : 'text-muted'}`}>{ctxPct}%</span>
-                <span className="h-3 w-px bg-border" />
-                <button onClick={doCompact} disabled={compacting}
-                  className={`flex items-center gap-1 text-[10px] disabled:opacity-50 ${ctxHot ? 'text-warning hover:opacity-80' : 'text-muted hover:text-accent'}`}>
-                  <Layers size={11} /> {compacting ? 'Compacting…' : 'Compact'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* composer */}
-        <div className="border-t border-border p-3 sm:p-4">
+        {/* composer — one unified HUD card: mode strip · textarea · toolbar */}
+        <div className="p-3 sm:p-4">
           <div className={`${COLUMN}`}>
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-1">
-                {CHAT_MODES.map(({ id, label, hint, Icon }) => (
-                  <button key={id} onClick={() => { setMode(id); if (id === 'research') setWebResearch(true) }}
-                    title={hint}
-                    className={`flex h-7 items-center gap-1.5 rounded-lg border px-2 text-[11px] font-medium transition-colors ${mode === id ? 'border-accent/50 bg-accent/10 text-accent shadow-[0_0_18px_rgb(var(--accent)/0.10)]' : 'border-border bg-surface/55 text-muted hover:border-accent/40 hover:text-text'}`}>
-                    <Icon size={12} /> <span className="hidden sm:inline">{label}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center gap-1.5 text-[10px] text-muted">
-                {webResearch && <span className="rounded-full border border-accent/35 bg-accent/10 px-2 py-0.5 text-accent">Web</span>}
-                {thinkingOn && <span className="rounded-full border border-purple/35 bg-purple/10 px-2 py-0.5 text-purple">Reasoning</span>}
-                {connectors.length > 0 && <span className="rounded-full border border-success/35 bg-success/10 px-2 py-0.5 text-success">{connectors.length} connectors</span>}
-              </div>
-            </div>
+            {/* picker wizard (Feature 3) — floats directly above the input, Claude-style */}
+            <AnimatePresence>
+              {picker && <PickerWizard key="picker" picker={picker} onSubmit={submitPicker} onCancel={() => setPicker(null)} />}
+            </AnimatePresence>
             {queuedTurns.length > 0 && (
               <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-warning/35 bg-warning/5 px-3 py-1.5">
                 <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-warning"><ListChecks size={12} /> <span className="truncate">{queuedTurns.length} follow-up{queuedTurns.length > 1 ? 's' : ''} queued</span></span>
                 <button onClick={clearQueuedTurns} className="text-[10px] text-muted hover:text-warning">Clear</button>
               </div>
             )}
-            <div className="flex items-end gap-2 rounded-2xl border border-border bg-surface/80 p-2 shadow-[0_-18px_60px_rgb(0_0_0/0.16)]">
             <input ref={fileRef} type="file" multiple hidden onChange={e => { if (e.target.files) addFiles(Array.from(e.target.files)); e.target.value = '' }} />
-            <div className="relative">
-              <button onClick={() => setPlusOpen(o => !o)} title="Tools & attachments"
-                className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border ${plusOpen || activeFlags ? 'border-accent/50 bg-accent/10 text-accent' : 'border-border text-muted hover:text-accent'}`}>
-                <Plus size={18} className={`transition-transform ${plusOpen ? 'rotate-45' : ''}`} />
-                {activeFlags > 0 && !plusOpen && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-bold text-bg">{activeFlags}</span>}
-              </button>
-              <AnimatePresence>
-                {plusOpen && (
-                  <motion.div initial={{ opacity: 0, y: 6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6, scale: 0.97 }} transition={{ duration: 0.14 }}
-                    className="absolute bottom-12 left-0 z-20 w-60 rounded-xl border border-border bg-surface p-1.5 shadow-xl">
-                    <button onClick={() => { fileRef.current?.click(); setPlusOpen(false) }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><Paperclip size={15} className="text-muted" /> Upload file</button>
-                    <button onClick={() => { fileRef.current?.click(); setPlusOpen(false) }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><ImageIcon size={15} className="text-muted" /> Attach image <span className="ml-auto text-[10px] text-muted">or paste</span></button>
-                    <button onClick={() => setWebResearch(v => !v)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><Globe size={15} className={webResearch ? 'text-accent' : 'text-muted'} /> Web research <span className={`ml-auto text-[10px] ${webResearch ? 'text-accent' : 'text-muted'}`}>{webResearch ? 'On' : 'Off'}</span></button>
-                    <button onClick={() => setThinkingOn(v => !v)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><Lightbulb size={15} className={thinkingOn ? 'text-accent' : 'text-muted'} /> Show thinking <span className={`ml-auto text-[10px] ${thinkingOn ? 'text-accent' : 'text-muted'}`}>{thinkingOn ? 'On' : 'Off'}</span></button>
-                    <button onClick={() => { setPicker(DEFAULT_DETAIL_PICKER); setPlusOpen(false) }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><Sparkles size={15} className="text-muted" /> Tell TOBI about you <span className="ml-auto text-[10px] text-muted">picker</span></button>
-                    <button disabled className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-muted/60"><FileText size={15} /> Choose from Drive <span className="ml-auto text-[10px]">soon</span></button>
-                    {connectorOpts.length > 0 && <div className="mt-1 border-t border-border pt-1">
-                      <div className="px-2.5 py-1 text-[10px] uppercase tracking-wide text-muted">Connectors → live tools</div>
-                      {connectorOpts.map(c => (
-                        <button key={c.id} onClick={() => toggleConnector(c.id)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-text hover:bg-bg/60"><Plug size={14} className={connectors.includes(c.id) ? 'text-accent' : 'text-muted'} /> {c.label} <span className={`ml-auto text-[10px] ${connectors.includes(c.id) ? 'text-accent' : 'text-muted'}`}>{connectors.includes(c.id) ? 'On' : 'Off'}</span></button>
+            <div className="relative rounded-2xl border border-border bg-surface/70 shadow-[0_-18px_60px_rgb(0_0_0/0.16)] transition-all focus-within:border-accent/45 focus-within:shadow-[0_0_0_1px_rgb(var(--accent)/0.22),0_-18px_70px_rgb(0_0_0/0.22)]">
+              {/* HUD energy hairline across the top edge */}
+              <div className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-accent/45 to-transparent" />
+
+              {/* mode pills strip — borderless, active pill glows */}
+              <div className="flex flex-wrap items-center gap-0.5 px-2 pt-2">
+                {CHAT_MODES.map(({ id, label, hint, Icon }) => (
+                  <button key={id} onClick={() => { setMode(id); if (id === 'research') setWebResearch(true) }} title={hint}
+                    className={`flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-medium transition-all ${mode === id ? 'bg-accent/12 text-accent shadow-[0_0_16px_rgb(var(--accent)/0.18)] ring-1 ring-accent/30' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
+                    <Icon size={12} className={mode === id ? '' : 'opacity-70'} /> <span className="hidden sm:inline">{label}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* textarea — transparent, the card is the surface */}
+              <div className="relative px-3 pt-1.5">
+                <AnimatePresence>
+                  {slashOpen && (
+                    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }} transition={{ duration: 0.12 }}
+                      className="absolute bottom-full left-2 z-20 mb-2 w-64 overflow-hidden rounded-xl border border-border bg-surface p-1.5 shadow-xl">
+                      <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted">Commands</div>
+                      {slashMatches.map((c, i) => (
+                        <button key={c.cmd} onMouseEnter={() => setSlashIdx(i)} onClick={() => runSlash(c)}
+                          className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm ${i === Math.min(slashIdx, slashMatches.length - 1) ? 'bg-accent/10 text-accent' : 'text-text hover:bg-bg/60'}`}>
+                          <c.icon size={14} className="shrink-0 opacity-70" />
+                          <span className="font-medium">/{c.cmd}</span>
+                          <span className="ml-auto text-[10px] text-muted">{c.desc}</span>
+                        </button>
                       ))}
-                    </div>}
-                    <div className="mt-1 border-t border-border pt-1">
-                      <div className="px-2.5 py-1 text-[10px] uppercase tracking-wide text-muted">Confirmations · when TOBI acts</div>
-                      {([
-                        { v: 'ask', label: 'Ask every time', Icon: ShieldAlert },
-                        { v: 'session', label: 'Auto-accept this chat', Icon: Check },
-                        { v: 'always', label: 'Always auto-accept', Icon: Zap },
-                      ] as const).map(({ v, label, Icon }) => {
-                        const active = confirmMode === 'auto' ? v === 'always' : autoAcceptChat ? v === 'session' : v === 'ask'
-                        return (
-                          <button key={v} onClick={() => {
-                            if (v === 'ask') { setConfirmMode('ask'); setAutoAcceptChat(false) }
-                            else if (v === 'session') { setConfirmMode('ask'); setAutoAcceptChat(true) }
-                            else { setConfirmMode('auto'); setAutoAcceptChat(false) }
-                          }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-text hover:bg-bg/60">
-                            <Icon size={14} className={active ? 'text-accent' : 'text-muted'} /> {label}
-                            <span className={`ml-auto h-2 w-2 rounded-full ${active ? 'bg-accent' : 'border border-border'}`} />
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                <textarea ref={taRef} value={input} onChange={e => setInput(e.target.value)} onPaste={onPaste}
+                  onKeyDown={onComposerKey}
+                  rows={1} placeholder={`${modePlaceholder}  (Enter to send - / for commands)`}
+                  className="block max-h-[200px] w-full resize-none overflow-y-auto bg-transparent py-1 text-sm leading-relaxed text-text outline-none placeholder:text-muted/55" />
+              </div>
+
+              {/* bottom toolbar — tools left · model + send right */}
+              <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-1">
+                <div className="flex items-center gap-0.5">
+                  <div className="relative">
+                    <button onClick={() => setPlusOpen(o => !o)} title="Tools & attachments"
+                      className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${plusOpen ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
+                      <Plus size={18} className={`transition-transform ${plusOpen ? 'rotate-45' : ''}`} />
+                      {connectors.length > 0 && !plusOpen && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-bold text-bg">{connectors.length}</span>}
+                    </button>
+                    <AnimatePresence>
+                      {plusOpen && (
+                        <motion.div initial={{ opacity: 0, y: 6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6, scale: 0.97 }} transition={{ duration: 0.14 }}
+                          className="absolute bottom-11 left-0 z-20 w-60 rounded-xl border border-border bg-surface p-1.5 shadow-xl">
+                          <button onClick={() => { fileRef.current?.click(); setPlusOpen(false) }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><Paperclip size={15} className="text-muted" /> Upload file</button>
+                          <button onClick={() => { fileRef.current?.click(); setPlusOpen(false) }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><ImageIcon size={15} className="text-muted" /> Attach image <span className="ml-auto text-[10px] text-muted">or paste</span></button>
+                          <button onClick={() => setWebResearch(v => !v)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><Globe size={15} className={webResearch ? 'text-accent' : 'text-muted'} /> Web research <span className={`ml-auto text-[10px] ${webResearch ? 'text-accent' : 'text-muted'}`}>{webResearch ? 'On' : 'Off'}</span></button>
+                          <button onClick={() => setThinkingOn(v => !v)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><Lightbulb size={15} className={thinkingOn ? 'text-accent' : 'text-muted'} /> Show thinking <span className={`ml-auto text-[10px] ${thinkingOn ? 'text-accent' : 'text-muted'}`}>{thinkingOn ? 'On' : 'Off'}</span></button>
+                          <button onClick={() => { setPicker(DEFAULT_DETAIL_PICKER); setPlusOpen(false) }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><Sparkles size={15} className="text-muted" /> Tell TOBI about you <span className="ml-auto text-[10px] text-muted">picker</span></button>
+                          <button disabled className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-muted/60"><FileText size={15} /> Choose from Drive <span className="ml-auto text-[10px]">soon</span></button>
+                          {connectorOpts.length > 0 && <div className="mt-1 border-t border-border pt-1">
+                            <div className="px-2.5 py-1 text-[10px] uppercase tracking-wide text-muted">Connectors → live tools</div>
+                            {connectorOpts.map(c => (
+                              <button key={c.id} onClick={() => toggleConnector(c.id)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-text hover:bg-bg/60"><Plug size={14} className={connectors.includes(c.id) ? 'text-accent' : 'text-muted'} /> {c.label} <span className={`ml-auto text-[10px] ${connectors.includes(c.id) ? 'text-accent' : 'text-muted'}`}>{connectors.includes(c.id) ? 'On' : 'Off'}</span></button>
+                            ))}
+                          </div>}
+                          <div className="mt-1 border-t border-border pt-1">
+                            <div className="px-2.5 py-1 text-[10px] uppercase tracking-wide text-muted">Confirmations · when TOBI acts</div>
+                            {([
+                              { v: 'ask', label: 'Ask every time', Icon: ShieldAlert },
+                              { v: 'session', label: 'Auto-accept this chat', Icon: Check },
+                              { v: 'always', label: 'Always auto-accept', Icon: Zap },
+                            ] as const).map(({ v, label, Icon }) => {
+                              const active = confirmMode === 'auto' ? v === 'always' : autoAcceptChat ? v === 'session' : v === 'ask'
+                              return (
+                                <button key={v} onClick={() => {
+                                  if (v === 'ask') { setConfirmMode('ask'); setAutoAcceptChat(false) }
+                                  else if (v === 'session') { setConfirmMode('ask'); setAutoAcceptChat(true) }
+                                  else { setConfirmMode('auto'); setAutoAcceptChat(false) }
+                                }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-text hover:bg-bg/60">
+                                  <Icon size={14} className={active ? 'text-accent' : 'text-muted'} /> {label}
+                                  <span className={`ml-auto h-2 w-2 rounded-full ${active ? 'bg-accent' : 'border border-border'}`} />
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                  {/* quick per-turn toggles — light up when active */}
+                  <button onClick={() => setWebResearch(v => !v)} title="Web research"
+                    className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${webResearch ? 'bg-accent/15 text-accent shadow-[0_0_14px_rgb(var(--accent)/0.15)]' : 'text-muted hover:bg-white/5 hover:text-text'}`}><Globe size={16} /></button>
+                  <button onClick={() => setThinkingOn(v => !v)} title="Show thinking"
+                    className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${thinkingOn ? 'bg-purple/15 text-purple shadow-[0_0_14px_rgb(147_112_219/0.18)]' : 'text-muted hover:bg-white/5 hover:text-text'}`}><Lightbulb size={16} /></button>
+                  {attachments.length > 0 && (
+                    <span className="ml-0.5 flex items-center gap-1 rounded-md bg-accent/10 px-1.5 py-1.5 text-[10px] font-medium text-accent"><Paperclip size={11} /> {attachments.length}</span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <ModelMenu models={models} value={model} onChange={changeModel} open={modelMenuOpen} onOpenChange={setModelMenuOpen} direction="up" />
+                  {busy && (
+                    <button onClick={send} disabled={!input.trim() && !attachments.length} title="Queue next turn" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-warning/45 bg-warning/10 text-warning hover:bg-warning/20 disabled:opacity-40"><ListChecks size={15} /></button>
+                  )}
+                  {busy ? (
+                    <button onClick={stop} title="Stop" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-danger/50 bg-danger/15 text-danger hover:bg-danger/25"><Square size={15} /></button>
+                  ) : (
+                    <button onClick={send} disabled={!input.trim() && !attachments.length} title="Send" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-accent/50 bg-accent/15 text-accent shadow-[0_0_18px_rgb(var(--accent)/0.18)] transition-colors hover:bg-accent/25 disabled:opacity-40 disabled:shadow-none"><Send size={16} /></button>
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="relative flex-1">
-              <AnimatePresence>
-                {slashOpen && (
-                  <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }} transition={{ duration: 0.12 }}
-                    className="absolute bottom-full left-0 z-20 mb-2 w-64 overflow-hidden rounded-xl border border-border bg-surface p-1.5 shadow-xl">
-                    <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted">Commands</div>
-                    {slashMatches.map((c, i) => (
-                      <button key={c.cmd} onMouseEnter={() => setSlashIdx(i)} onClick={() => runSlash(c)}
-                        className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm ${i === Math.min(slashIdx, slashMatches.length - 1) ? 'bg-accent/10 text-accent' : 'text-text hover:bg-bg/60'}`}>
-                        <c.icon size={14} className="shrink-0 opacity-70" />
-                        <span className="font-medium">/{c.cmd}</span>
-                        <span className="ml-auto text-[10px] text-muted">{c.desc}</span>
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-              <textarea ref={taRef} value={input} onChange={e => setInput(e.target.value)} onPaste={onPaste}
-                onKeyDown={onComposerKey}
-                rows={1} placeholder={`${modePlaceholder}  (Enter to send - / for commands)`}
-                className="block max-h-[200px] w-full resize-none overflow-y-auto rounded-xl border border-transparent bg-bg/45 px-3.5 py-2.5 text-sm leading-relaxed text-text outline-none focus:border-accent/40" />
-            </div>
-            {/* model picker — lives in the input bar, opens upward */}
-            <div className="shrink-0 self-end pb-0.5">
-              <ModelMenu models={models} value={model} onChange={changeModel} open={modelMenuOpen} onOpenChange={setModelMenuOpen} direction="up" />
-            </div>
-            {busy && (
-              <button onClick={send} disabled={!input.trim() && !attachments.length} title="Queue next turn" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-warning/45 bg-warning/10 text-warning hover:bg-warning/20 disabled:opacity-40"><ListChecks size={15} /></button>
-            )}
-            {busy ? (
-              <button onClick={stop} title="Stop" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-danger/50 bg-danger/15 text-danger hover:bg-danger/25"><Square size={15} /></button>
-            ) : (
-              <button onClick={send} disabled={!input.trim() && !attachments.length} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-accent/50 bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-40"><Send size={16} /></button>
-            )}
           </div>
-        </div>
         </div>
       </div>
     </div>

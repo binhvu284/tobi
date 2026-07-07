@@ -224,7 +224,7 @@ function SidebarContent({ onNavigate, collapsed = false, onToggleCollapse, openS
       {/* Sections (scroll) — LayoutGroup namespaces the sliding nav-active pill
           per instance so the desktop + mobile sidebars never share a layoutId. */}
       <LayoutGroup id={idScope}>
-        <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden">
+        <div className="scroll-subtle mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden">
           {NAV.map(g => (
             <NavSection key={g.group} group={g.group} links={g.links} collapsed={collapsed}
               onNavigate={onNavigate} open={openSections[g.group] ?? true} onToggle={() => toggleSection(g.group)} />
@@ -318,7 +318,7 @@ function Stat({ value, label, tone }: { value: string; label: string; tone: stri
   )
 }
 
-function TopBar({ onMenu, stats }: { onMenu: () => void; stats: OfficeStats | null }) {
+function TopBar({ onMenu, stats, onHide }: { onMenu: () => void; stats: OfficeStats | null; onHide: () => void }) {
   const s = stats?.stats
   return (
     <header className="relative z-40 flex h-12 shrink-0 items-center justify-between border-b border-border bg-surface/60 px-3 backdrop-blur">
@@ -345,10 +345,15 @@ function TopBar({ onMenu, stats }: { onMenu: () => void; stats: OfficeStats | nu
         <div className="hidden h-4 w-px bg-border sm:block" />
         <ThemeQuickSwitch />
         <BellInbox />
+        <button onClick={onHide} title="Hide header" className="rounded-md p-1.5 text-muted transition-colors hover:text-text">
+          <ChevronUp size={15} />
+        </button>
       </div>
     </header>
   )
 }
+
+const SB_MIN = 176; const SB_MAX = 320; const SB_DEFAULT = 224
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const [drawer, setDrawer] = useState(false)
@@ -360,6 +365,30 @@ export default function AppShell({ children }: { children: ReactNode }) {
   })
   const [stats, setStats] = useState<OfficeStats | null>(null)
   const [evo, setEvo] = useState<EvolutionReport | null>(null)
+  // header collapse — hide fully, floating chip restores (persisted)
+  const [headerHidden, setHeaderHidden] = useState(() => {
+    try { return localStorage.getItem('tobi.header.hidden') === '1' } catch { return false }
+  })
+  useEffect(() => { try { localStorage.setItem('tobi.header.hidden', headerHidden ? '1' : '0') } catch { /* ignore */ } }, [headerHidden])
+  // sidebar width — drag the right edge to resize (persisted)
+  const [sbWidth, setSbWidth] = useState(() => {
+    try { const v = parseInt(localStorage.getItem('tobi.sidebar.w') || '', 10); return Number.isFinite(v) ? Math.min(SB_MAX, Math.max(SB_MIN, v)) : SB_DEFAULT } catch { return SB_DEFAULT }
+  })
+  const [dragging, setDragging] = useState(false)
+  useEffect(() => {
+    if (!dragging) return
+    const onMove = (e: MouseEvent) => setSbWidth(Math.min(SB_MAX, Math.max(SB_MIN, e.clientX)))
+    const onUp = () => setDragging(false)
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    document.body.style.userSelect = 'none'; document.body.style.cursor = 'col-resize'
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.style.userSelect = ''; document.body.style.cursor = ''
+    }
+  }, [dragging])
+  useEffect(() => { if (!dragging) try { localStorage.setItem('tobi.sidebar.w', String(sbWidth)) } catch { /* ignore */ } }, [dragging, sbWidth])
   const loc = useLocation()
   useEffect(() => { setDrawer(false) }, [loc.pathname])
   useEffect(() => { try { localStorage.setItem('tobi.sidebar', collapsed ? '1' : '0') } catch { /* ignore */ } }, [collapsed])
@@ -381,10 +410,15 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-bg text-text">
-      {/* desktop sidebar */}
-      <aside className={`hidden shrink-0 flex-col border-r border-border bg-surface px-3 py-4 transition-[width] duration-200 md:flex ${collapsed ? 'w-16' : 'w-56'}`}>
+      {/* desktop sidebar — drag the right edge to resize */}
+      <aside style={{ width: collapsed ? 64 : sbWidth }}
+        className={`relative hidden shrink-0 flex-col border-r border-border bg-surface px-3 py-4 md:flex ${dragging ? '' : 'transition-[width] duration-200'}`}>
         <SidebarContent collapsed={collapsed} onToggleCollapse={() => setCollapsed(c => !c)}
           openSections={openSections} toggleSection={toggleSection} evo={evo} idScope="desktop" />
+        {!collapsed && (
+          <div onMouseDown={e => { e.preventDefault(); setDragging(true) }} title="Drag to resize"
+            className={`absolute inset-y-0 -right-0.5 z-10 w-1.5 cursor-col-resize transition-colors ${dragging ? 'bg-accent/50' : 'hover:bg-accent/30'}`} />
+        )}
       </aside>
 
       {/* mobile drawer */}
@@ -401,8 +435,15 @@ export default function AppShell({ children }: { children: ReactNode }) {
         )}
       </AnimatePresence>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar onMenu={() => setDrawer(true)} stats={stats} />
+      <div className="relative flex min-w-0 flex-1 flex-col">
+        {!headerHidden && <TopBar onMenu={() => setDrawer(true)} stats={stats} onHide={() => setHeaderHidden(true)} />}
+        {/* floating restore chip — the only trace of the hidden header */}
+        {headerHidden && (
+          <button onClick={() => setHeaderHidden(false)} title="Show header"
+            className="absolute right-3 top-2 z-50 flex h-6 w-8 items-center justify-center rounded-full border border-border bg-surface/80 text-muted shadow-lg backdrop-blur transition-colors hover:border-accent/50 hover:text-accent">
+            <ChevronDown size={13} />
+          </button>
+        )}
         <main className="relative flex-1 overflow-y-auto pb-16 md:pb-0">
           {/* HUD panel-boot per route (slide-up + fade + one-shot scanline sweep).
               Keyed by path with no AnimatePresence exit gating — the incoming page

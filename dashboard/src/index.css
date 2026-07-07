@@ -69,6 +69,15 @@
   ::-webkit-scrollbar-track { background: rgb(var(--bg)); }
   ::-webkit-scrollbar-thumb { background: rgb(var(--border)); border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: rgb(var(--muted)); }
+
+  /* Subtle scrollbar — near-invisible until you hover the scroll area (sidebar & co). */
+  .scroll-subtle { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+  .scroll-subtle:hover { scrollbar-color: rgb(var(--border) / 0.7) transparent; }
+  .scroll-subtle::-webkit-scrollbar { width: 4px; height: 4px; }
+  .scroll-subtle::-webkit-scrollbar-track { background: transparent; }
+  .scroll-subtle::-webkit-scrollbar-thumb { background: transparent; border-radius: 9999px; }
+  .scroll-subtle:hover::-webkit-scrollbar-thumb { background: rgb(var(--border) / 0.7); }
+  .scroll-subtle:hover::-webkit-scrollbar-thumb:hover { background: rgb(var(--muted) / 0.6); }
 }
 
 @layer utilities {
