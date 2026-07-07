@@ -86,6 +86,36 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         """
     )
     _seed_defaults(conn)
+    _seed_sources(conn)   # boot-only: seed the source catalog once
+
+
+# Schema is created at boot by ``init_database``; to stay safe when the module
+# is imported directly (tests, ad-hoc), we run ``ensure_schema`` at most once per
+# process. Repeatedly seeding defaults/sources on every read would acquire a
+# write lock on the hot path and conflict with the live server ("database is
+# locked").
+_SCHEMA_READY = False
+
+
+def _ensure_once() -> None:
+    global _SCHEMA_READY
+    if _SCHEMA_READY:
+        return
+    from core.database import get_connection
+    conn = get_connection()
+    try:
+        # Read-only existence check first — after boot the tables already exist
+        # (created by init_database), so we never acquire a write lock on the hot
+        # path. Only create+seed if genuinely missing.
+        exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='explore_config'"
+        ).fetchone()
+        if not exists:
+            ensure_schema(conn)
+            conn.commit()
+        _SCHEMA_READY = True
+    finally:
+        conn.close()
 
 
 # ── algorithm knobs (explore_config) ────────────────────────────────────────
@@ -122,10 +152,10 @@ def _seed_defaults(conn: sqlite3.Connection) -> None:
 
 
 def load_config() -> dict:
+    _ensure_once()
     from core.database import get_connection
     conn = get_connection()
     try:
-        ensure_schema(conn)
         cfg = {k: v for k, v in _DEFAULT_CONFIG.items()}
         for key, val in conn.execute("SELECT key, value_json FROM explore_config").fetchall():
             try:
@@ -138,10 +168,10 @@ def load_config() -> dict:
 
 
 def save_config(updates: dict) -> dict:
+    _ensure_once()
     from core.database import get_connection
     conn = get_connection()
     try:
-        ensure_schema(conn)
         for k, v in (updates or {}).items():
             conn.execute(
                 "INSERT INTO explore_config (key, value_json) VALUES (?, ?) "
@@ -452,12 +482,10 @@ def _source_status(name: str) -> str:
 
 
 def _sources_view() -> list[dict]:
+    _ensure_once()
     from core.database import get_connection
     conn = get_connection()
     try:
-        ensure_schema(conn)
-        _seed_sources(conn)
-        conn.commit()
         rows = conn.execute("SELECT * FROM explore_sources ORDER BY pillar, name").fetchall()
         cols = [c[0] for c in conn.execute("SELECT * FROM explore_sources LIMIT 1").description]
         out = []
@@ -472,10 +500,10 @@ def _sources_view() -> list[dict]:
 
 
 def set_source_enabled(name: str, enabled: bool) -> None:
+    _ensure_once()
     from core.database import get_connection
     conn = get_connection()
     try:
-        ensure_schema(conn)
         conn.execute("UPDATE explore_sources SET enabled=? WHERE name=?", (1 if enabled else 0, name))
         conn.commit()
     finally:
@@ -483,10 +511,10 @@ def set_source_enabled(name: str, enabled: bool) -> None:
 
 
 def set_source_weight(name: str, weight: float) -> None:
+    _ensure_once()
     from core.database import get_connection
     conn = get_connection()
     try:
-        ensure_schema(conn)
         conn.execute("UPDATE explore_sources SET weight=? WHERE name=?", (float(weight), name))
         conn.commit()
     finally:
@@ -669,62 +697,82 @@ def _dedupe(items: list[RawItem]) -> list[RawItem]:
 # Refresh orchestrator (tools / social / news)
 # ════════════════════════════════════════════════════════════════════════════
 def refresh(pillar: str) -> dict:
-    """fetch → dedupe → summarize → score → store for one non-models pillar."""
+    """fetch → dedupe → summarize → score → store for one non-models pillar.
+
+    Connection-safe: all network/LLM work happens with NO DB connection held,
+    then every write runs in one short transaction at the end. (Holding a write
+    transaction open across slow fetches/summarization was the "database is
+    locked" cause — it blocked the live server for >busy_timeout.)
+    """
     if pillar not in ("news", "tools", "social"):
         return {"ok": False, "error": "bad pillar"}
-    from core.database import get_connection
-    cfg = load_config()
-    conn = get_connection()
+    _ensure_once()
+    cfg = load_config()                       # quick open/close (read)
+    sources = _sources_view()                 # quick open/close (read)
     now = datetime.now(timezone.utc).isoformat()
-    sources = _sources_view()
     enabled = [s for s in sources if s["pillar"] == pillar and s["enabled"] and s["status"] in ("ready", "opt_in_required")]
+
+    # 1) fetch (network) — no connection held
     raw: list[RawItem] = []
-    scan_stats = {}
+    scan_stats: dict = {}
     for s in enabled:
         items = _fetch_source(s["name"])
         scan_stats[s["name"]] = len(items)
-        conn.execute(
-            "UPDATE explore_sources SET status=?, last_scan_at=? WHERE name=?",
-            (_source_status(s["name"]), now, s["name"]),
-        )
         for it in items:
             it["source_name"] = s["name"]
             it["_weight"] = float(s.get("weight") or 1.0) * float(cfg.get("source_weights", {}).get(s["name"], 1.0))
         raw.extend(items)
     raw = _dedupe(raw)
+
+    # 2) summarize (LLM, slow) — no connection held
     if pillar in ("tools", "social"):
         _summarize(raw, pillar)
-    # score + upsert
-    written = 0
+
+    # 3) score in memory
+    scored = []
     for it in raw:
         ext_id = (it.get("ext_id") or it.get("url") or it.get("title") or
                   hashlib.sha1((it.get("title") or "").encode()).hexdigest())
+        it["ext_id"] = ext_id
         sc = _score(it, it.get("_weight", 1.0), cfg)
         if sc <= 0:
             continue  # muted by keyword exclude
+        it["_score"] = sc
+        scored.append(it)
+
+    # 4) ONE short write transaction — open, write everything, close
+    from core.database import get_connection
+    conn = get_connection()
+    try:
+        for s in enabled:
+            conn.execute(
+                "UPDATE explore_sources SET status=?, last_scan_at=? WHERE name=?",
+                (_source_status(s["name"]), now, s["name"]),
+            )
+        for it in scored:
+            conn.execute(
+                "INSERT INTO explore_items (pillar, source_name, ext_id, title, url, summary, raw_json, "
+                "score, engagement, published_at, first_seen_at, freshness, ts) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(pillar, ext_id) DO UPDATE SET title=excluded.title, url=excluded.url, "
+                "summary=COALESCE(excluded.summary, explore_items.summary), raw_json=excluded.raw_json, "
+                "score=excluded.score, engagement=excluded.engagement, published_at=excluded.published_at, "
+                "freshness=excluded.freshness, ts=excluded.ts",
+                (pillar, it.get("source_name"), it["ext_id"], it.get("title"), it.get("url"),
+                 it.get("summary"), json.dumps(it.get("raw") or {}, ensure_ascii=False),
+                 it["_score"], int(it.get("engagement") or 0), it.get("published_at"), now,
+                 _freshness(it.get("published_at"), int(it.get("engagement") or 0)), now),
+            )
+        # prune: keep top 200 per pillar
         conn.execute(
-            "INSERT INTO explore_items (pillar, source_name, ext_id, title, url, summary, raw_json, "
-            "score, engagement, published_at, first_seen_at, freshness, ts) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) "
-            "ON CONFLICT(pillar, ext_id) DO UPDATE SET title=excluded.title, url=excluded.url, "
-            "summary=COALESCE(excluded.summary, explore_items.summary), raw_json=excluded.raw_json, "
-            "score=excluded.score, engagement=excluded.engagement, published_at=excluded.published_at, "
-            "freshness=excluded.freshness, ts=excluded.ts",
-            (pillar, it.get("source_name"), ext_id, it.get("title"), it.get("url"),
-             it.get("summary"), json.dumps(it.get("raw") or {}, ensure_ascii=False),
-             sc, int(it.get("engagement") or 0), it.get("published_at"), now,
-             _freshness(it.get("published_at"), int(it.get("engagement") or 0)), now),
+            "DELETE FROM explore_items WHERE pillar=? AND id NOT IN "
+            "(SELECT id FROM explore_items WHERE pillar=? ORDER BY score DESC LIMIT 200)",
+            (pillar, pillar),
         )
-        written += 1
-    # prune: keep top 200 per pillar
-    conn.execute(
-        "DELETE FROM explore_items WHERE pillar=? AND id NOT IN "
-        "(SELECT id FROM explore_items WHERE pillar=? ORDER BY score DESC LIMIT 200)",
-        (pillar, pillar),
-    )
-    conn.commit()
-    conn.close()
-    return {"ok": True, "pillar": pillar, "sources": scan_stats, "items": written, "ts": now}
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "pillar": pillar, "sources": scan_stats, "items": len(scored), "ts": now}
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -753,15 +801,15 @@ def _price_per_tok(pricing: dict, key: str) -> float:
 
 def refresh_models() -> dict:
     """Rebuild the frontier leaderboard from OpenRouter's live list + composite score."""
-    from core.database import get_connection
+    _ensure_once()
     cfg = load_config()
-    data = _f_openrouter_models()
+    data = _f_openrouter_models()           # network — no connection held
     if not data:
         return {"ok": False, "error": "openrouter unreachable"}
     now = datetime.now(timezone.utc).isoformat()
+    from core.database import get_connection
     conn = get_connection()
     try:
-        ensure_schema(conn)
         w = cfg.get("model_weights", {})
         wi = float(w.get("intelligence", 0.5)); we = float(w.get("elo", 0.3)); wp = float(w.get("popularity", 0.2))
         wsum = wi + we + wp or 1.0
@@ -819,6 +867,7 @@ def refresh_models() -> dict:
 # Reads (for the API)
 # ════════════════════════════════════════════════════════════════════════════
 def _items(pillar: str, limit: int = 40) -> list[dict]:
+    _ensure_once()
     from core.database import get_connection
     conn = get_connection()
     try:
@@ -847,6 +896,7 @@ def social_payload(limit: int = 40) -> dict:
 
 
 def models_payload(limit: int = 60) -> dict:
+    _ensure_once()
     from core.database import get_connection
     conn = get_connection()
     try:

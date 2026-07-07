@@ -28,9 +28,6 @@ const NAV = [
     { to: '/chat', icon: MessagesSquare, label: 'Chat' },
     { to: '/actions', icon: History, label: 'Actions' },
   ] },
-  { group: 'Explore', links: [
-    { to: '/news', icon: Newspaper, label: 'News' },
-  ] },
   { group: 'Persona', links: [
     { to: '/brain', icon: Brain, label: 'Brain' },
     { to: '/graph', icon: Share2, label: 'Graph' },
@@ -43,6 +40,9 @@ const NAV = [
     { to: '/office', icon: Building2, label: 'Office' },
     { to: '/projects', icon: FolderKanban, label: 'Projects' },
     { to: '/task', icon: Kanban, label: 'Tasks' },
+  ] },
+  { group: 'Explore', links: [
+    { to: '/news', icon: Newspaper, label: 'News' },
   ] },
 ]
 const ALL_LINKS = NAV.flatMap(g => g.links)
