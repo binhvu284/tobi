@@ -85,7 +85,9 @@ export function BrandMark({ brand, size = 15, className = '' }: { brand: Brand; 
   )
 }
 
-/** Brand mark in a rounded, brand-tinted tile — the standard logo chip. */
+/** Brand mark in a rounded, brand-tinted tile — the standard logo chip.
+ *  Tile uses color-mix so the brand tint stays legible on both dark and light themes
+ *  (a flat 12.5% tint vanishes in light mode). */
 export default function LlmLogo({ model, provider, size = 15, className = '' }: {
   model?: string | null; provider?: string | null; size?: number; className?: string
 }) {
@@ -93,7 +95,11 @@ export default function LlmLogo({ model, provider, size = 15, className = '' }: 
   const m = BRAND_META[brand]
   return (
     <span title={m.name} className={`flex shrink-0 items-center justify-center rounded-md text-heading ${className}`}
-      style={{ width: size + 9, height: size + 9, background: `${m.color}20` }}>
+      style={{
+        width: size + 9, height: size + 9,
+        background: `color-mix(in srgb, ${m.color} 16%, rgb(var(--surface)))`,
+        boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${m.color} 30%, transparent)`,
+      }}>
       <BrandMark brand={brand} size={size} />
     </span>
   )
