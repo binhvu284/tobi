@@ -583,11 +583,18 @@ def _budget_ok() -> tuple[bool, float, float]:
 # ════════════════════════════════════════════════════════════════════════════
 # Summarize + score
 # ════════════════════════════════════════════════════════════════════════════
-def _summarize(items: list[RawItem], pillar: str) -> None:
-    """Bulk-summarize items that have no summary yet (Haiku-equivalent). Mutates in place.
+def _summarize_iter(items: list[RawItem], pillar: str):
+    """Bulk-summarize items that have no summary yet (Haiku-equivalent). Mutates in
+    place. **Generator** — yields ``{"done": i, "total": n, "title": ...}`` after
+    each item so callers (the SSE scout stream) can report per-item progress.
     Honours the monthly budget — stops summarizing once over cap."""
+    todo = [it for it in items if not it.get("summary")]
+    total = len(todo)
+    if total == 0:
+        return
     ok, _spent, _cap = _budget_ok()
-    if not ok or not items:
+    if not ok:
+        yield {"done": 0, "total": total, "title": "", "skipped": "budget"}
         return
     try:
         from core.model_router import set_usage_context, get_llm
@@ -597,26 +604,33 @@ def _summarize(items: list[RawItem], pillar: str) -> None:
     try:
         client = get_llm("simple")
     except Exception:
-        set_usage_context(prev["surface"], prev["feature"]); return
+        set_usage_context(prev["surface"], prev["feature"])
+        return
     sys = ("You are TOBI, an AI-news editor. Write ONE concise neutral sentence (<= 30 words) "
            "summarizing the item for a busy founder. No hype, no first person. English.")
-    for it in items:
-        if it.get("summary"):
-            continue
+    done = 0
+    for it in todo:
         body = it.get("title", "")
         if it.get("raw"):
             body += "\n" + json.dumps(it["raw"], ensure_ascii=False)[:600]
-        if not body.strip():
-            continue
-        try:
-            text = client.complete([{"role": "user", "content": body[:1500]}], system=sys, max_tokens=80)
-            it["summary"] = (text or "").strip()[:400]
-        except Exception:
-            continue
+        if body.strip():
+            try:
+                text = client.complete([{"role": "user", "content": body[:1500]}], system=sys, max_tokens=80)
+                it["summary"] = (text or "").strip()[:400]
+            except Exception:
+                pass
+        done += 1
+        yield {"done": done, "total": total, "title": (it.get("title") or "")[:60]}
         ok, _s, _c = _budget_ok()
         if not ok:
             break
     set_usage_context(prev["surface"], prev["feature"])
+
+
+def _summarize(items: list[RawItem], pillar: str) -> None:
+    """Sync wrapper around the generator (for callers that don't care about progress)."""
+    for _ in _summarize_iter(items, pillar):
+        pass
 
 
 def _keyword_factor(text: str, cfg: dict) -> float:
@@ -696,39 +710,51 @@ def _dedupe(items: list[RawItem]) -> list[RawItem]:
 # ════════════════════════════════════════════════════════════════════════════
 # Refresh orchestrator (tools / social / news)
 # ════════════════════════════════════════════════════════════════════════════
-def refresh(pillar: str) -> dict:
-    """fetch → dedupe → summarize → score → store for one non-models pillar.
+def refresh_iter(pillar: str):
+    """fetch → dedupe → summarize → score → store. **Generator** yielding progress
+    events for the SSE scout stream::
+
+        {"phase": "start", "pillar", "total_sources"}
+        {"phase": "fetch", "source", "status": "start"|"done", "items"?}
+        {"phase": "summarize", "done", "total", "title"?}
+        {"phase": "score"}
+        {"phase": "done", "items", "sources", "ts"}
 
     Connection-safe: all network/LLM work happens with NO DB connection held,
-    then every write runs in one short transaction at the end. (Holding a write
-    transaction open across slow fetches/summarization was the "database is
-    locked" cause — it blocked the live server for >busy_timeout.)
+    then every write runs in one short transaction at the end.
     """
     if pillar not in ("news", "tools", "social"):
-        return {"ok": False, "error": "bad pillar"}
+        yield {"phase": "error", "error": "bad pillar"}
+        return
     _ensure_once()
     cfg = load_config()                       # quick open/close (read)
     sources = _sources_view()                 # quick open/close (read)
     now = datetime.now(timezone.utc).isoformat()
     enabled = [s for s in sources if s["pillar"] == pillar and s["enabled"] and s["status"] in ("ready", "opt_in_required")]
+    yield {"phase": "start", "pillar": pillar, "total_sources": len(enabled)}
 
     # 1) fetch (network) — no connection held
     raw: list[RawItem] = []
     scan_stats: dict = {}
     for s in enabled:
+        yield {"phase": "fetch", "source": s["name"], "status": "start"}
         items = _fetch_source(s["name"])
         scan_stats[s["name"]] = len(items)
+        yield {"phase": "fetch", "source": s["name"], "status": "done", "items": len(items)}
         for it in items:
             it["source_name"] = s["name"]
             it["_weight"] = float(s.get("weight") or 1.0) * float(cfg.get("source_weights", {}).get(s["name"], 1.0))
         raw.extend(items)
     raw = _dedupe(raw)
 
-    # 2) summarize (LLM, slow) — no connection held
+    # 2) summarize (LLM, slow) — no connection held; stream per-item progress
     if pillar in ("tools", "social"):
-        _summarize(raw, pillar)
+        yield {"phase": "summarize", "done": 0, "total": sum(1 for r in raw if not r.get("summary"))}
+        for ev in _summarize_iter(raw, pillar):
+            yield ev
 
     # 3) score in memory
+    yield {"phase": "score"}
     scored = []
     for it in raw:
         ext_id = (it.get("ext_id") or it.get("url") or it.get("title") or
@@ -772,7 +798,19 @@ def refresh(pillar: str) -> dict:
         conn.commit()
     finally:
         conn.close()
-    return {"ok": True, "pillar": pillar, "sources": scan_stats, "items": len(scored), "ts": now}
+    yield {"phase": "done", "items": len(scored), "sources": scan_stats, "ts": now}
+
+
+def refresh(pillar: str) -> dict:
+    """Sync wrapper around ``refresh_iter`` — drains the generator, returns the
+    final ``done`` payload (used by the scheduler + the non-stream endpoint)."""
+    result = {"ok": True, "pillar": pillar, "sources": {}, "items": 0, "ts": ""}
+    for ev in refresh_iter(pillar):
+        if ev.get("phase") == "done":
+            result.update({"sources": ev.get("sources", {}), "items": ev.get("items", 0), "ts": ev.get("ts", "")})
+        elif ev.get("phase") == "error":
+            return {"ok": False, "error": ev.get("error")}
+    return result
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -799,13 +837,20 @@ def _price_per_tok(pricing: dict, key: str) -> float:
         return 0.0
 
 
-def refresh_models() -> dict:
-    """Rebuild the frontier leaderboard from OpenRouter's live list + composite score."""
+def refresh_models_iter():
+    """Rebuild the frontier leaderboard from OpenRouter's live list. **Generator**
+    yielding scout events (single virtual 'openrouter' source)."""
     _ensure_once()
     cfg = load_config()
+    yield {"phase": "start", "pillar": "models", "total_sources": 1}
+    yield {"phase": "fetch", "source": "openrouter", "status": "start"}
     data = _f_openrouter_models()           # network — no connection held
     if not data:
-        return {"ok": False, "error": "openrouter unreachable"}
+        yield {"phase": "fetch", "source": "openrouter", "status": "done", "items": 0}
+        yield {"phase": "error", "error": "openrouter unreachable"}
+        return
+    yield {"phase": "fetch", "source": "openrouter", "status": "done", "items": len(data)}
+    yield {"phase": "score"}
     now = datetime.now(timezone.utc).isoformat()
     from core.database import get_connection
     conn = get_connection()
@@ -858,9 +903,20 @@ def refresh_models() -> dict:
             ((datetime.now(timezone.utc) - timedelta(days=7)).isoformat(),),
         )
         conn.commit()
-        return {"ok": True, "models": kept, "ts": now}
     finally:
         conn.close()
+    yield {"phase": "done", "items": kept, "sources": {"openrouter": len(data)}, "ts": now}
+
+
+def refresh_models() -> dict:
+    """Sync wrapper around ``refresh_models_iter``."""
+    result = {"ok": True, "models": 0, "ts": ""}
+    for ev in refresh_models_iter():
+        if ev.get("phase") == "done":
+            result.update({"models": ev.get("items", 0), "ts": ev.get("ts", "")})
+        elif ev.get("phase") == "error":
+            return {"ok": False, "error": ev.get("error")}
+    return result
 
 
 # ════════════════════════════════════════════════════════════════════════════

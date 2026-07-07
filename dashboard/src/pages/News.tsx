@@ -1,23 +1,44 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Newspaper, Trophy, Wrench, MessageCircle, RefreshCw, Sparkles, Settings2,
-  ExternalLink, Eye, Flame, Clock, Filter, X, ChevronDown, Loader2, Zap, Globe,
+  ExternalLink, Eye, Flame, Clock, Filter, X, ChevronDown, Loader2, Zap, Globe, Check,
 } from 'lucide-react'
 import {
-  ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip,
+  ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, Cell,
   ResponsiveContainer,
 } from 'recharts'
 import {
   type ExploreItem, type ExploreModel, type ExploreConfig, type ExploreSource, type ExploreStatus,
+  type ScoutEvent,
   getExploreStatus, getExploreNews, getExploreModels, getExploreTools, getExploreSocial,
-  refreshExplore, getExploreConfig, saveExploreConfig, setExploreSource, exploreDigest,
+  getExploreConfig, saveExploreConfig, setExploreSource, exploreDigest,
+  streamExploreRefresh,
 } from '../api'
 import { useToast } from '../context/ToastProvider'
-import LlmLogo, { brandForModel } from '../components/LlmLogo'
+import LlmLogo, { brandForModel, BRAND_META, brandForProvider } from '../components/LlmLogo'
+import SourceLogo, { sourceMeta } from '../components/SourceLogo'
 import RadarChart from '../components/RadarChart'
 
 type Tab = 'models' | 'tools' | 'social'
+
+type ScoutLog = { id: string; line: React.ReactNode; source?: string }
+type ScoutState = {
+  pillar: string
+  logs: ScoutLog[]
+  pct: number
+  done: boolean
+  phase: 'start' | 'fetch' | 'summarize' | 'score'
+  pillarLabel?: string
+  pillarIndex?: number
+  pillarTotal?: number
+  pillarSourcesTotal?: number
+  pillarSourcesDone?: number
+  sumDone?: number
+  sumTotal?: number
+  finalStatus?: ExploreStatus
+  error?: string
+}
 
 export default function News() {
   const { toast } = useToast()
@@ -34,6 +55,8 @@ export default function News() {
   const [showConfig, setShowConfig] = useState(false)
   const [digest, setDigest] = useState<string | null>(null)
   const [digesting, setDigesting] = useState(false)
+  const [scout, setScout] = useState<ScoutState | null>(null)
+  const scoutAbort = useRef<AbortController | null>(null)
 
   const load = async () => {
     // One batched Promise.all so the whole page renders at once (no wave-by-wave
@@ -52,21 +75,74 @@ export default function News() {
   useEffect(() => { load() }, [])
 
   const refresh = async (pillar: 'models' | 'tools' | 'social' | 'news' | 'all') => {
+    // Stream the scout via SSE — the ScoutPanel shows real per-source / per-item
+    // progress. Falls back to the sync endpoint if the stream fails to open.
     setRefreshing(pillar)
+    const ac = new AbortController(); scoutAbort.current = ac
+    setScout({ pillar, logs: [], pct: 0, done: false, phase: 'start' })
+    const appendLog = (line: React.ReactNode, source?: string) =>
+      setScout(s => s ? { ...s, logs: [...s.logs, { id: crypto.randomUUID(), line, source }] } : s)
+
     try {
-      const r = await refreshExplore(pillar)
-      setStatus(r.status)
-      // Re-fetch the touched pillars in parallel — keep stale data until all land,
-      // so nothing blanks out mid-refresh.
+      await streamExploreRefresh(pillar, (ev) => {
+        setScout(s => {
+          if (!s) return s
+          const next = { ...s }
+          switch (ev.phase) {
+            case 'pillar':
+              next.pillarLabel = `${ev.pillar} (${ev.index + 1}/${ev.total})`
+              next.pillarTotal = ev.total; next.pillarIndex = ev.index
+              next.pct = Math.round((ev.index / ev.total) * 100)
+              next.phase = 'fetch'
+              break
+            case 'start':
+              next.pillarSourcesTotal = ev.total_sources; next.pillarSourcesDone = 0
+              appendLog(<><SourceLogo name={ev.pillar === 'models' ? 'openrouter' : ''} size={11} variant="inline" /> <b className="capitalize">{ev.pillar}</b> — scouting {ev.total_sources} source{ev.total_sources === 1 ? '' : 's'}…</>)
+              break
+            case 'fetch':
+              if (ev.status === 'start') {
+                appendLog(<><Loader2 size={11} className="animate-spin text-muted" /> <SourceLogo name={ev.source} size={11} variant="inline" /> fetching {sourceMeta(ev.source).label}…</>, ev.source)
+              } else {
+                next.pillarSourcesDone = (next.pillarSourcesDone || 0) + 1
+                appendLog(<><Check size={11} className="text-success" /> <SourceLogo name={ev.source} size={11} variant="inline" /> {sourceMeta(ev.source).label} — <b className="text-text">{ev.items ?? 0}</b> items</>, ev.source)
+              }
+              break
+            case 'summarize':
+              next.phase = 'summarize'; next.sumDone = ev.done; next.sumTotal = ev.total
+              if (ev.done === 1) appendLog(<><Sparkles size={11} className="text-accent" /> summarizing {ev.total} items with the LLM…</>)
+              break
+            case 'score':
+              next.phase = 'score'
+              break
+            case 'done':
+              appendLog(<><Check size={11} className="text-success" /> wrote <b className="text-text">{ev.items}</b> {ev.pillar === 'models' ? 'models' : 'items'}</>)
+              break
+            case 'complete':
+              next.done = true; next.pct = 100; next.finalStatus = ev.status
+              break
+            case 'error':
+              next.error = ev.detail || ev.error
+              appendLog(<><X size={11} className="text-danger" /> {ev.detail || ev.error}</>)
+              break
+          }
+          return next
+        })
+      }, ac.signal)
+
+      // stream resolved → reload page data (keep stale until all land)
       const tasks: Promise<unknown>[] = []
       if (pillar === 'all' || pillar === 'news') tasks.push(getExploreNews(12).then(x => setNews(x.items)))
       if (pillar === 'all' || pillar === 'models') tasks.push(getExploreModels(60).then(x => setModels(x.models)))
       if (pillar === 'all' || pillar === 'tools') tasks.push(getExploreTools(40).then(x => setTools(x.items)))
       if (pillar === 'all' || pillar === 'social') tasks.push(getExploreSocial(40).then(x => setSocial(x.items)))
       await Promise.all(tasks)
-      toast({ kind: 'success', title: 'Refreshed', detail: pillar === 'all' ? 'All pillars' : pillar })
-    } catch (e) { toast({ kind: 'error', title: 'Refresh failed', detail: (e as Error).message }) }
-    finally { setRefreshing(null) }
+      setStatus(await getExploreStatus())
+      toast({ kind: 'success', title: 'Scout complete', detail: pillar === 'all' ? 'All pillars' : pillar })
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') return
+      toast({ kind: 'error', title: 'Refresh failed', detail: (e as Error).message })
+      setScout(s => s ? { ...s, error: (e as Error).message } : s)
+    } finally { setRefreshing(null) }
   }
 
   const runDigest = async () => {
@@ -168,6 +244,67 @@ export default function News() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Scout panel — live progress + console log */}
+      {scout && (
+        <ScoutPanel state={scout}
+          onClose={() => { scoutAbort.current?.abort(); setScout(null) }}
+          onDismissDone={() => setScout(null)} />
+      )}
+    </div>
+  )
+}
+
+// ── ScoutPanel ───────────────────────────────────────────────────────────────
+function ScoutPanel({ state, onClose, onDismissDone }: {
+  state: ScoutState; onClose: () => void; onDismissDone: () => void
+}) {
+  const logRef = useRef<HTMLDivElement>(null)
+  useEffect(() => { logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: 'smooth' }) }, [state.logs])
+
+  // Within a pillar: fetch sources (0-60%), summarize (60-90%), score/write (90-100%).
+  const pillarFrac = state.pillarTotal && state.pillarTotal > 0
+    ? (state.pillarIndex || 0) / state.pillarTotal : 0
+  let inPillar = 0
+  if (state.phase === 'summarize' && state.sumTotal) {
+    inPillar = 0.6 + 0.3 * ((state.sumDone || 0) / state.sumTotal)
+  } else if (state.phase === 'score' || state.done) {
+    inPillar = 1
+  } else if (state.pillarSourcesTotal) {
+    inPillar = 0.6 * ((state.pillarSourcesDone || 0) / state.pillarSourcesTotal)
+  }
+  const pct = state.done ? 100 : Math.round((pillarFrac + inPillar / (state.pillarTotal || 1)) * 100)
+
+  return (
+    <div className="fixed bottom-4 right-4 z-[110] w-80 max-w-[92vw] overflow-hidden rounded-xl border border-accent/30 bg-surface shadow-2xl ring-1 ring-accent/10">
+      {/* header */}
+      <div className="flex items-center justify-between border-b border-border px-3 py-2">
+        <div className="flex items-center gap-2 text-xs font-semibold text-heading">
+          {state.done ? <Check size={14} className="text-success" /> : <Loader2 size={14} className="animate-spin text-accent" />}
+          Scout {state.pillarLabel ? `· ${state.pillarLabel}` : ''}
+        </div>
+        <div className="flex items-center gap-1">
+          {state.done
+            ? <button onClick={onDismissDone} className="text-[11px] text-accent hover:underline">Done</button>
+            : <button onClick={onClose} className="text-muted hover:text-danger" title="Cancel"><X size={14} /></button>}
+        </div>
+      </div>
+      {/* progress bar */}
+      <div className="px-3 pt-2.5">
+        <div className="mb-1 flex items-center justify-between text-[10px] text-muted">
+          <span className="capitalize">{state.error ? 'failed' : state.done ? 'complete' : state.phase}</span>
+          <span className="tabular-nums">{pct}%</span>
+        </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-bg/60">
+          <motion.div className={`h-full rounded-full ${state.error ? 'bg-danger' : state.done ? 'bg-success' : 'bg-accent'}`}
+            animate={{ width: `${pct}%` }} transition={{ duration: 0.3 }} />
+        </div>
+      </div>
+      {/* live log */}
+      <div ref={logRef} className="max-h-44 space-y-0.5 overflow-y-auto px-3 py-2.5 font-mono text-[10.5px] leading-relaxed">
+        {state.logs.map(l => <div key={l.id} className="flex items-center gap-1 text-muted">{l.line}</div>)}
+        {state.error && <div className="text-danger">{state.error}</div>}
+      </div>
     </div>
   )
 }
@@ -178,7 +315,10 @@ function HeadlineCard({ item }: { item: ExploreItem }) {
     <a href={item.url || '#'} target="_blank" rel="noreferrer"
       className="block w-64 shrink-0 rounded-lg border border-border bg-surface p-2.5 transition-colors hover:border-accent/40">
       <div className="mb-1 flex items-center gap-1.5 text-[10px] text-muted">
-        <span className="rounded bg-bg/60 px-1 py-0.5">{item.source_name}</span>
+        <span className="flex items-center gap-1">
+          <SourceLogo name={item.source_name} size={11} variant="inline" />
+          <span>{sourceMeta(item.source_name).label}</span>
+        </span>
         {item.freshness && <FreshnessBadge f={item.freshness} />}
       </div>
       <div className="line-clamp-2 text-xs font-medium text-text">{item.title}</div>
@@ -238,7 +378,11 @@ function ModelsTab({ models }: { models: ExploreModel[] }) {
               <ZAxis type="number" dataKey="z" range={[40, 360]} />
               <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ background: 'rgb(var(--surface))', border: '1px solid rgb(var(--border))', borderRadius: 8, fontSize: 11 }}
                 formatter={(_v, _n, p: any) => [`${p.payload.label}`, 'Model']} labelFormatter={() => ''} />
-              <Scatter data={scatter} fill="rgb(var(--accent))" fillOpacity={0.55} />
+              <Scatter data={scatter} fillOpacity={0.7}>
+                {scatter.map((d, i) => (
+                  <Cell key={i} fill={BRAND_META[brandForProvider(d.provider)].color} />
+                ))}
+              </Scatter>
             </ScatterChart>
           </ResponsiveContainer>
         </div>
@@ -280,6 +424,7 @@ function ModelsTab({ models }: { models: ExploreModel[] }) {
                   <td className="px-2 py-1.5 text-muted">{i + 1}</td>
                   <td className="px-2 py-1.5">
                     <div className="flex items-center gap-1.5">
+                      <LlmLogo model={m.model_id} size={13} />
                       <span className="text-heading" title={m.model_id}>{m.model_id.split('/').pop()}</span>
                       {selected && <span className="text-[9px] text-accent">●</span>}
                     </div>
@@ -327,7 +472,11 @@ function ToolsTab({ items, muted }: { items: ExploreItem[]; muted: string[] }) {
       <div className="mb-2.5 flex flex-wrap items-center gap-1.5">
         <span className="flex items-center gap-1 text-[11px] text-muted"><Filter size={11} /> Source:</span>
         <button onClick={() => setFilter(null)} className={chipCls(!filter)}>All</button>
-        {cats.map(c => <button key={c} onClick={() => setFilter(c)} className={chipCls(filter === c)}>{c}</button>)}
+        {cats.map(c => (
+          <button key={c} onClick={() => setFilter(c)} className={`flex items-center gap-1 ${chipCls(filter === c)}`}>
+            <SourceLogo name={c} size={10} variant="inline" /> {sourceMeta(c).label}
+          </button>
+        ))}
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
         {shown.map((it, i) => <ToolCard key={it.ext_id + i} item={it} muted={muted} />)}
@@ -341,7 +490,9 @@ function ToolCard({ item, muted }: { item: ExploreItem; muted: string[] }) {
   return (
     <div className="rounded-xl border border-border bg-surface p-3">
       <div className="mb-1 flex items-center gap-1.5">
-        <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">{item.source_name}</span>
+        <span className="flex items-center gap-1 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+          <SourceLogo name={item.source_name} size={10} variant="inline" /> {sourceMeta(item.source_name).label}
+        </span>
         {item.freshness && <FreshnessBadge f={item.freshness} />}
         {item.engagement > 0 && <span className="ml-auto flex items-center gap-0.5 text-[10px] text-muted"><Flame size={10} /> {item.engagement.toLocaleString()}</span>}
       </div>
@@ -375,7 +526,9 @@ function SocialRow({ item, rank }: { item: ExploreItem; rank: number }) {
         <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded bg-accent/10 text-[10px] font-bold text-accent">{rank}</span>
         <div className="min-w-0 flex-1">
           <div className="mb-0.5 flex flex-wrap items-center gap-1.5">
-            <span className="rounded bg-bg/60 px-1 py-0.5 text-[10px] text-muted">{item.source_name}</span>
+            <span className="flex items-center gap-1 rounded bg-bg/60 px-1 py-0.5 text-[10px] text-muted">
+              <SourceLogo name={item.source_name} size={10} variant="inline" /> {sourceMeta(item.source_name).label}
+            </span>
             {item.freshness && <FreshnessBadge f={item.freshness} />}
             {item.engagement > 0 && <span className="flex items-center gap-0.5 text-[10px] text-muted"><Flame size={10} /> {item.engagement.toLocaleString()}</span>}
             {item.published_at && <span className="flex items-center gap-0.5 text-[10px] text-muted"><Clock size={10} /> {timeAgo(item.published_at)}</span>}
@@ -427,16 +580,19 @@ function ConfigDrawer({ cfg, sources, onClose, onChanged }: {
           <Section title="Sources">
             {sources.map(s => (
               <div key={s.name} className="flex items-center justify-between py-1 text-xs">
-                <div className="min-w-0">
-                  <div className="font-medium text-text">{s.name} <span className="text-muted">· {s.pillar}</span></div>
-                  <div className="text-[10px]">
-                    {s.status === 'ready'
-                      ? <span className="text-success">ready</span>
-                      : s.status === 'needs_key'
-                        ? <a href="/integrations" className="text-accent hover:underline">needs key → add in Integrations</a>
-                        : s.status === 'opt_in_required'
-                          ? <span className="text-warning">opt-in (enable X below)</span>
-                          : <span className="text-muted">{s.status}</span>}
+                <div className="flex min-w-0 items-center gap-2">
+                  <SourceLogo name={s.name} size={14} />
+                  <div className="min-w-0">
+                    <div className="truncate font-medium text-text">{sourceMeta(s.name).label} <span className="text-muted">· {s.pillar}</span></div>
+                    <div className="text-[10px]">
+                      {s.status === 'ready'
+                        ? <span className="text-success">ready</span>
+                        : s.status === 'needs_key'
+                          ? <a href="/integrations" className="text-accent hover:underline">needs key → add in Integrations</a>
+                          : s.status === 'opt_in_required'
+                            ? <span className="text-warning">opt-in (enable X below)</span>
+                            : <span className="text-muted">{s.status}</span>}
+                    </div>
                   </div>
                 </div>
                 <button onClick={() => toggleSrc(s, !s.enabled)} disabled={s.status === 'opt_in_required'}

@@ -1,6 +1,7 @@
 import {
   SiAnthropic, SiTelegram, SiGithub, SiNotion, SiVercel, SiSupabase,
-  SiGoogle, SiGmail, SiStripe, type IconType,
+  SiGoogle, SiGmail, SiStripe, SiYcombinator, SiReddit, SiOpenrouter,
+  type IconType,
 } from '@icons-pack/react-simple-icons'
 import codexSvg from '@lobehub/icons-static-svg/icons/codex-color.svg?raw'
 
@@ -22,6 +23,7 @@ const BRANDS: Record<string, Brand> = {
 }
 
 const CODEX_COLOR = '#10A37F'
+const EXPLORE_COLOR = '#22a3e0'
 
 export default function BrandLogo({ id, label }: { id: string; label?: string }) {
   // Codex ships its own colored mark via @lobehub (no Simple Icons entry).
@@ -31,6 +33,26 @@ export default function BrandLogo({ id, label }: { id: string; label?: string })
         style={{ boxShadow: `inset 0 0 12px ${CODEX_COLOR}1f` }}
         aria-label={label || 'Codex'}
         dangerouslySetInnerHTML={{ __html: `<span style="display:inline-flex;font-size:18px;color:${CODEX_COLOR}">${codexSvg}</span>` }} />
+    )
+  }
+  // Explore (News) — composite of 4 overlapping source marks (HN + Reddit + GitHub
+  // + OpenRouter) to signal "scouts many sources" without a single brand.
+  if (id === 'explore') {
+    const layers: { Icon: IconType; color: string; style: React.CSSProperties }[] = [
+      { Icon: SiYcombinator, color: '#FF6600', style: { top: 3, left: 3, zIndex: 4 } },
+      { Icon: SiReddit, color: '#FF4500', style: { top: 3, right: 3, zIndex: 3 } },
+      { Icon: SiGithub, color: '#f0f6fc', style: { bottom: 3, left: 3, zIndex: 2 } },
+      { Icon: SiOpenrouter, color: '#8B7CF6', style: { bottom: 3, right: 3, zIndex: 1 } },
+    ]
+    return (
+      <span className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-bg"
+        style={{ boxShadow: `inset 0 0 12px ${EXPLORE_COLOR}1f` }} aria-label={label || 'Explore'}>
+        {layers.map(({ Icon, color, style }, i) => (
+          <span key={i} className="absolute" style={style}>
+            <Icon size={11} color={color} />
+          </span>
+        ))}
+      </span>
     )
   }
   const brand = BRANDS[id]

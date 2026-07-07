@@ -5011,6 +5011,31 @@ def explore_refresh(body: ExploreRefreshReq):
     return {"ok": True, "results": results, "status": explore.status()}
 
 
+@app.post("/api/explore/refresh/stream")
+def explore_refresh_stream(pillar: str = "all"):
+    """SSE scout stream — yields real per-step progress (fetch/summarize/score/done)
+    per pillar so the UI can show a progress bar + live log. Mirrors the chat SSE."""
+    from core import explore
+
+    def gen():
+        order = ["models", "news", "tools", "social"] if pillar == "all" else [pillar]
+        # multi-pillar: weight each pillar equally in the overall bar
+        try:
+            yield f": stream open\n\n"
+            for idx, p in enumerate(order):
+                yield f"event: pillar\ndata: {json.dumps({'pillar': p, 'index': idx, 'total': len(order)})}\n\n"
+                it = explore.refresh_models_iter() if p == "models" else explore.refresh_iter(p)
+                for ev in it:
+                    ev["pillar"] = p
+                    yield f"event: {ev.get('phase', 'progress')}\ndata: {json.dumps(ev)}\n\n"
+            yield f"event: complete\ndata: {json.dumps({'status': explore.status()})}\n\n"
+        except Exception as e:  # never let an exception kill the stream silently
+            yield f"event: error\ndata: {json.dumps({'detail': str(e)[:200]})}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.get("/api/explore/config")
 def explore_config_get():
     from core import explore

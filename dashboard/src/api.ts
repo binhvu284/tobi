@@ -1521,3 +1521,47 @@ export async function setExploreSource(name: string, enabled: boolean, weight?: 
 export async function exploreDigest(days = 1): Promise<{ text: string }> {
   return request('/api/explore/digest', { method: 'POST', body: JSON.stringify({}) })
 }
+
+// ── Explore scout stream: real per-step refresh progress (SSE) ─────────────────
+export type ScoutEvent =
+  | { phase: 'pillar'; pillar: string; index: number; total: number }
+  | { phase: 'start'; pillar: string; total_sources: number }
+  | { phase: 'fetch'; pillar?: string; source: string; status: 'start' | 'done'; items?: number }
+  | { phase: 'summarize'; pillar?: string; done: number; total: number; title?: string }
+  | { phase: 'score'; pillar?: string }
+  | { phase: 'done'; pillar?: string; items: number; sources: Record<string, number>; ts: string }
+  | { phase: 'complete'; status: ExploreStatus }
+  | { phase: 'error'; detail?: string; error?: string }
+
+/** Stream the scout refresh; `onEvent` fires per SSE event, resolves on `complete`. */
+export async function streamExploreRefresh(
+  pillar: 'models' | 'tools' | 'social' | 'news' | 'all',
+  onEvent: (ev: ScoutEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`/api/explore/refresh/stream?pillar=${pillar}`, {
+    method: 'POST', signal,
+  })
+  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let idx: number
+    // SSE frames are separated by a blank line
+    while ((idx = buffer.indexOf('\n\n')) >= 0) {
+      const frame = buffer.slice(0, idx)
+      buffer = buffer.slice(idx + 2)
+      let event = 'progress'; let data = ''
+      for (const line of frame.split('\n')) {
+        if (line.startsWith('event:')) event = line.slice(6).trim()
+        else if (line.startsWith('data:')) data += line.slice(5).trim()
+      }
+      if (!data) continue
+      try { onEvent({ phase: event, ...JSON.parse(data) } as ScoutEvent) } catch { /* ignore */ }
+    }
+  }
+}
