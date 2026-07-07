@@ -1075,7 +1075,7 @@ export async function streamChatSession(
 
 export type LlmProvider = {
   id: string; label: string; kind: string; key_env: string | null
-  needs_key: boolean; key_present: boolean; editable_base_url: boolean
+  needs_key: boolean; key_present: boolean; key_last4?: string | null; editable_base_url: boolean
   base_url: string; enabled: boolean; models: string[]
 }
 export type LlmConfig = {
@@ -1095,6 +1095,23 @@ export async function saveLlmConfig(config: LlmConfig): Promise<LlmConfigRespons
 }
 export async function setLlmProviderKey(provider: string, value: string): Promise<{ ok: boolean; providers: LlmProvider[]; models: AvailableModel[] }> {
   return vreq(`/api/llm/provider/${provider}/key`, { method: 'POST', body: JSON.stringify({ value }) })
+}
+
+// ── multi-key slots: several accounts per provider/secret, one active at a time ──
+export type KeySlot = { label: string; last4: string | null; active: boolean; env?: boolean; added_at: string | null; updated_at: string | null }
+export type KeySlotsResponse = { ok: boolean; name: string; slots: KeySlot[]; providers: LlmProvider[]; models: AvailableModel[] }
+export async function listKeySlots(name: string): Promise<KeySlotsResponse> { return vreq(`/api/keys/${name}`) }
+export async function addKeySlot(name: string, value: string, label?: string, activate = false): Promise<KeySlotsResponse> {
+  return vreq(`/api/keys/${name}`, { method: 'POST', body: JSON.stringify({ value, label: label || null, activate }) })
+}
+export async function activateKeySlot(name: string, label: string): Promise<KeySlotsResponse> {
+  return vreq(`/api/keys/${name}/activate`, { method: 'POST', body: JSON.stringify({ label }) })
+}
+export async function deactivateKeySlots(name: string): Promise<KeySlotsResponse> {
+  return vreq(`/api/keys/${name}/deactivate`, { method: 'POST' })
+}
+export async function deleteKeySlot(name: string, label: string): Promise<KeySlotsResponse> {
+  return vreq(`/api/keys/${name}/delete`, { method: 'POST', body: JSON.stringify({ label }) })
 }
 export async function discoverLlmModels(provider: string): Promise<{ ok: boolean; models: string[] }> {
   return request(`/api/llm/discover/${provider}`, { method: 'POST' })

@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@icons-pack/react-simple-icons": "^13.11.1",
+    "@lobehub/icons-static-svg": "^1.91.0",
     "d3-force": "^3.0.0",
     "easystarjs": "^0.4.4",
     "framer-motion": "^11.0.0",

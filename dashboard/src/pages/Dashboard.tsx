@@ -11,9 +11,9 @@ import PageLoader from '../components/PageLoader'
 import { AmbientField, CountUp, SpotlightCard, TraceButton } from '../components/motion'
 import { useReducedMotionPref } from '../context/MotionProvider'
 import {
-  getStatus, getProjects, getLessons, getHealth, markDone, runEngine, pmGetStats,
+  getStatus, getProjects, getLessons, getHealth, markDone, runEngine, pmGetStats, pmListProjects,
   getStorageOverview, getUsageOverview, getUsageBudget,
-  type Project, type Lesson, type Todo, type HealthReport, type EngineName, type PMStats,
+  type Project, type Lesson, type Todo, type HealthReport, type EngineName, type PMStats, type PMProject,
   type StorageOverview, type UsageOverview, type UsageBudget,
 } from '../api'
 import { fmtBytes, fmtUsd } from '../lib/format'
@@ -56,13 +56,13 @@ function HeroBoot() {
   )
 }
 
-const STATUS_COLOR: Record<string, string> = {
-  active: 'bg-accent/20 text-accent', pending: 'bg-warning/20 text-warning', approved: 'bg-warning/20 text-warning',
-  completed: 'bg-success/20 text-success', failed: 'bg-danger/20 text-danger', paused: 'bg-muted/20 text-muted',
+const PM_STATUS_COLOR: Record<string, string> = {
+  idea: 'bg-purple/20 text-purple', active: 'bg-accent/20 text-accent',
+  done: 'bg-success/20 text-success', archived: 'bg-muted/20 text-muted',
 }
 const LESSON_EMOJI: Record<string, string> = { success: '✅', failure: '❌', insight: '💡', warning: '⚠️' }
 
-const DEFAULT_ORDER = ['launchpad', 'health', 'storage', 'kpis', 'pm_projects', 'projects', 'activity', 'todos']
+const DEFAULT_ORDER = ['launchpad', 'health', 'storage', 'kpis', 'pm_projects', 'activity', 'todos']
 type DashCfg = { order: string[]; hidden: string[] }
 const loadCfg = (): DashCfg => {
   try {
@@ -80,6 +80,7 @@ export default function Dashboard() {
   const [todos, setTodos] = useState<Todo[]>([])
   const [health, setHealth] = useState<HealthReport | null>(null)
   const [pmStats, setPmStats] = useState<PMStats | null>(null)
+  const [pmProjects, setPmProjects] = useState<PMProject[]>([])
   const [storage, setStorage] = useState<StorageOverview | null>(null)
   const [usage, setUsage] = useState<UsageOverview | null>(null)
   const [budget, setBudget] = useState<UsageBudget | null>(null)
@@ -101,6 +102,7 @@ export default function Dashboard() {
     } catch { /* keep prior */ } finally { setLoading(false) }
     getHealth().then(setHealth).catch(() => {})
     pmGetStats().then(setPmStats).catch(() => {})
+    pmListProjects().then(r => setPmProjects(r.items)).catch(() => {})
     getStorageOverview().then(setStorage).catch(() => {})
     getUsageOverview('month').then(setUsage).catch(() => {})
     getUsageBudget().then(setBudget).catch(() => {})
@@ -211,39 +213,12 @@ export default function Dashboard() {
         </div>
       ),
     },
-    projects: {
-      title: 'Projects', node: (
-        <div className="overflow-hidden rounded-xl border border-border bg-surface">
-          <div className="border-b border-border px-5 py-3 text-sm font-semibold text-heading">📁 Projects</div>
-          {projects.length === 0 ? (
-            <div className="py-8 text-center text-sm text-muted">No projects yet — <Link to="/office" className="text-accent">run research →</Link></div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead><tr className="text-xs uppercase tracking-wider text-muted">
-                {['Name', 'Type', 'Progress', 'Revenue', 'Status'].map(h => <th key={h} className="border-b border-border px-5 py-3 text-left">{h}</th>)}
-              </tr></thead>
-              <tbody>{projects.map((p, i) => (
-                <tr key={p.id} className={i % 2 ? 'bg-white/[0.015]' : ''}>
-                  <td className="px-5 py-3 font-medium text-heading">{p.name}</td>
-                  <td className="px-5 py-3 text-muted">{p.type}</td>
-                  <td className="px-5 py-3"><div className="flex items-center gap-2">
-                    <div className="h-1.5 w-20 overflow-hidden rounded-full bg-border"><div className="h-full rounded-full bg-accent" style={{ width: `${p.progress_pct ?? 0}%` }} /></div>
-                    <span className="text-xs text-muted">{p.progress_pct ?? 0}%</span></div></td>
-                  <td className="px-5 py-3 text-success">${(p.revenue_total || 0).toFixed(2)}</td>
-                  <td className="px-5 py-3"><span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLOR[p.status] || 'bg-muted/20 text-muted'}`}>{p.status}</span></td>
-                </tr>
-              ))}</tbody>
-            </table>
-          )}
-        </div>
-      ),
-    },
     pm_projects: {
       title: 'My Projects', node: (
-        <Link to="/projects" className="block overflow-hidden rounded-xl border border-border bg-surface hover:border-accent/40 transition-colors">
+        <div className="overflow-hidden rounded-xl border border-border bg-surface">
           <div className="flex items-center justify-between border-b border-border px-5 py-3">
             <span className="flex items-center gap-2 text-sm font-semibold text-heading"><FolderKanban size={15} className="text-accent" /> My Projects</span>
-            <span className="text-xs text-muted">Open →</span>
+            <Link to="/projects" className="text-xs text-muted hover:text-accent transition-colors">Open all →</Link>
           </div>
           {!pmStats ? (
             <Loader size={28} label="Loading…" />
@@ -263,12 +238,46 @@ export default function Dashboard() {
               </div>
             </div>
           )}
+          {pmProjects.length > 0 ? (
+            <div className="divide-y divide-border border-t border-border">
+              {pmProjects.slice(0, 6).map(p => (
+                <Link key={p.id} to="/projects" className="flex items-center gap-3 px-5 py-2.5 hover:bg-white/[0.02] transition-colors">
+                  <span className="text-lg leading-none">{p.emoji_icon}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-text">{p.name}</div>
+                    <div className="flex items-center gap-2 text-[11px] text-muted">
+                      <span>{p.task_done}/{p.task_count} tasks</span>
+                      {p.category && <span className="truncate">· {p.category}</span>}
+                    </div>
+                  </div>
+                  <div className="flex w-24 items-center gap-2 shrink-0">
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-border">
+                      <div className="h-full rounded-full" style={{ width: `${p.progress_pct}%`, background: p.accent_color || 'rgb(var(--accent))' }} />
+                    </div>
+                    <span className="text-[11px] tabular-nums text-muted">{p.progress_pct}%</span>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${PM_STATUS_COLOR[p.status] || 'bg-muted/20 text-muted'}`}>
+                    {p.status}
+                  </span>
+                </Link>
+              ))}
+              {pmProjects.length > 6 && (
+                <Link to="/projects" className="block px-5 py-2 text-center text-xs text-muted hover:text-accent transition-colors">
+                  +{pmProjects.length - 6} more project{pmProjects.length - 6 === 1 ? '' : 's'} →
+                </Link>
+              )}
+            </div>
+          ) : (
+            <div className="border-t border-border px-5 py-3 text-center text-xs text-muted">
+              No projects yet — <Link to="/projects" className="text-accent">create one →</Link>
+            </div>
+          )}
           {pmStats?.last_mission && (
             <div className="border-t border-border px-5 py-2 text-xs text-muted truncate">
               ⚡ Last mission: {pmStats.last_mission.prompt.slice(0, 60)}…
             </div>
           )}
-        </Link>
+        </div>
       ),
     },
     activity: {

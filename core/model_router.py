@@ -163,19 +163,27 @@ class OpenRouterClient(BaseLLMClient):
         if system:
             messages = [{"role": "system", "content": system}] + messages
         self.last_finish_reason = None
+        self.last_usage = {}
+        t0 = time.time(); acc = ""
         try:
             stream = self.client.chat.completions.create(
                 model=self.model, messages=messages, max_tokens=max_tokens,
                 extra_headers=self._HEADERS, stream=True,
+                stream_options={"include_usage": True},
             )
             for chunk in stream:
+                if getattr(chunk, "usage", None):     # final usage-only chunk (include_usage)
+                    self.last_usage = _usage_dict(chunk)
                 if not chunk.choices:
                     continue
                 if chunk.choices[0].finish_reason:
                     self.last_finish_reason = _norm_finish(chunk.choices[0].finish_reason)
                 delta = chunk.choices[0].delta.content
                 if delta:
+                    acc += delta
                     yield delta
+            if acc or self.last_usage:
+                self._log_usage(t0, acc)
         except Exception:
             yield self.complete(messages, max_tokens=max_tokens)
 
@@ -216,15 +224,23 @@ class ClaudeClient(BaseLLMClient):
         if system:
             kwargs["system"] = system
         self.last_finish_reason = None
+        self.last_usage = {}
+        t0 = time.time(); acc = ""
         try:
             with self.client.messages.stream(**kwargs) as stream:
                 for text in stream.text_stream:
                     if text:
+                        acc += text
                         yield text
                 try:
-                    self.last_finish_reason = _norm_finish(stream.get_final_message().stop_reason)
+                    final = stream.get_final_message()
+                    self.last_finish_reason = _norm_finish(final.stop_reason)
+                    self.last_usage = {"prompt_tokens": final.usage.input_tokens,
+                                       "completion_tokens": final.usage.output_tokens}
                 except Exception:
                     pass
+            if acc or self.last_usage:  # streaming path must log too (else chat/GLM go untracked)
+                self._log_usage(t0, acc)
         except Exception:
             yield self.complete(messages, system=system, max_tokens=max_tokens)
 
@@ -261,19 +277,34 @@ class OpenAICompatibleClient(BaseLLMClient):
         if system:
             messages = [{"role": "system", "content": system}] + messages
         self.last_finish_reason = None
+        self.last_usage = {}
+        t0 = time.time(); acc = ""
+
+        def _open(with_usage: bool):
+            opts = dict(model=self.model, messages=messages, max_tokens=max_tokens,
+                        extra_headers=self.extra_headers, stream=True)
+            if with_usage:
+                opts["stream_options"] = {"include_usage": True}
+            return self.client.chat.completions.create(**opts)
+
         try:
-            stream = self.client.chat.completions.create(
-                model=self.model, messages=messages, max_tokens=max_tokens,
-                extra_headers=self.extra_headers, stream=True,
-            )
+            try:
+                stream = _open(True)
+            except Exception:
+                stream = _open(False)  # some local/compat servers (e.g. older Ollama) reject stream_options
             for chunk in stream:
+                if getattr(chunk, "usage", None):     # final usage-only chunk (include_usage)
+                    self.last_usage = _usage_dict(chunk)
                 if not chunk.choices:
                     continue
                 if chunk.choices[0].finish_reason:
                     self.last_finish_reason = _norm_finish(chunk.choices[0].finish_reason)
                 delta = chunk.choices[0].delta.content
                 if delta:
+                    acc += delta
                     yield delta
+            if acc or self.last_usage:
+                self._log_usage(t0, acc)
         except Exception:
             yield self.complete(messages, max_tokens=max_tokens)
 
@@ -646,13 +677,15 @@ def provider_catalog() -> list[dict]:
     for pid, spec in PROVIDERS.items():
         saved = (cfg.get("providers") or {}).get(pid, {})
         key_env = spec.get("key_env")
+        _kv = os.getenv(key_env) if key_env else None
         out.append({
             "id": pid,
             "label": spec["label"],
             "kind": spec["kind"],
             "key_env": key_env,
             "needs_key": spec["needs_key"],
-            "key_present": bool(os.getenv(key_env)) if key_env else True,
+            "key_present": bool(_kv) if key_env else True,
+            "key_last4": _kv[-4:] if _kv else None,   # censored active key for the card
             "editable_base_url": spec["editable_base_url"],
             "base_url": saved.get("base_url") or spec.get("base_url") or "",
             "enabled": saved.get("enabled", True),
