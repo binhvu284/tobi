@@ -30,19 +30,24 @@ export default function News() {
   const [cfg, setCfg] = useState<ExploreConfig | null>(null)
   const [sources, setSources] = useState<ExploreSource[]>([])
   const [refreshing, setRefreshing] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
   const [showConfig, setShowConfig] = useState(false)
   const [digest, setDigest] = useState<string | null>(null)
   const [digesting, setDigesting] = useState(false)
 
   const load = async () => {
+    // One batched Promise.all so the whole page renders at once (no wave-by-wave
+    // pop-in). Keeps existing data on refresh — only the very first load gates UI.
     try {
-      const [s, n] = await Promise.all([getExploreStatus(), getExploreNews(12)])
-      setStatus(s); setNews(n.items)
-      const m = await getExploreModels(60); setModels(m.models)
-      const t = await getExploreTools(40); setTools(t.items)
-      const so = await getExploreSocial(40); setSocial(so.items)
+      const [s, n, m, t, so, c] = await Promise.all([
+        getExploreStatus(), getExploreNews(12), getExploreModels(60),
+        getExploreTools(40), getExploreSocial(40), getExploreConfig().catch(() => null),
+      ])
+      setStatus(s); setNews(n.items); setModels(m.models)
+      setTools(t.items); setSocial(so.items)
+      if (c) { setCfg(c.config); setSources(c.sources) }
     } catch (e) { toast({ kind: 'error', title: 'Load failed', detail: (e as Error).message }) }
-    try { const c = await getExploreConfig(); setCfg(c.config); setSources(c.sources) } catch { /* ignore */ }
+    finally { setLoading(false) }
   }
   useEffect(() => { load() }, [])
 
@@ -51,10 +56,14 @@ export default function News() {
     try {
       const r = await refreshExplore(pillar)
       setStatus(r.status)
-      if (pillar === 'all' || pillar === 'news') setNews((await getExploreNews(12)).items)
-      if (pillar === 'all' || pillar === 'models') setModels((await getExploreModels(60)).models)
-      if (pillar === 'all' || pillar === 'tools') setTools((await getExploreTools(40)).items)
-      if (pillar === 'all' || pillar === 'social') setSocial((await getExploreSocial(40)).items)
+      // Re-fetch the touched pillars in parallel — keep stale data until all land,
+      // so nothing blanks out mid-refresh.
+      const tasks: Promise<unknown>[] = []
+      if (pillar === 'all' || pillar === 'news') tasks.push(getExploreNews(12).then(x => setNews(x.items)))
+      if (pillar === 'all' || pillar === 'models') tasks.push(getExploreModels(60).then(x => setModels(x.models)))
+      if (pillar === 'all' || pillar === 'tools') tasks.push(getExploreTools(40).then(x => setTools(x.items)))
+      if (pillar === 'all' || pillar === 'social') tasks.push(getExploreSocial(40).then(x => setSocial(x.items)))
+      await Promise.all(tasks)
       toast({ kind: 'success', title: 'Refreshed', detail: pillar === 'all' ? 'All pillars' : pillar })
     } catch (e) { toast({ kind: 'error', title: 'Refresh failed', detail: (e as Error).message }) }
     finally { setRefreshing(null) }
@@ -124,10 +133,14 @@ export default function News() {
           ))}
         </div>
 
-        {/* Tab content */}
-        {tab === 'models' && <ModelsTab models={models} />}
-        {tab === 'tools' && <ToolsTab items={tools} muted={cfg?.muted_categories || []} />}
-        {tab === 'social' && <SocialTab items={social} />}
+        {/* Tab content — single loading gate so nothing flashes empty before data lands */}
+        {loading ? <TabLoader /> : (
+          <>
+            {tab === 'models' && <ModelsTab models={models} />}
+            {tab === 'tools' && <ToolsTab items={tools} muted={cfg?.muted_categories || []} />}
+            {tab === 'social' && <SocialTab items={social} />}
+          </>
+        )}
       </div>
 
       {/* Config drawer */}
@@ -414,12 +427,20 @@ function ConfigDrawer({ cfg, sources, onClose, onChanged }: {
           <Section title="Sources">
             {sources.map(s => (
               <div key={s.name} className="flex items-center justify-between py-1 text-xs">
-                <div>
+                <div className="min-w-0">
                   <div className="font-medium text-text">{s.name} <span className="text-muted">· {s.pillar}</span></div>
-                  <div className="text-[10px] text-muted">{s.status === 'ready' ? 'ready' : s.status === 'needs_key' ? 'needs key (Integrations)' : s.status === 'opt_in_required' ? 'opt-in (X)' : s.status}</div>
+                  <div className="text-[10px]">
+                    {s.status === 'ready'
+                      ? <span className="text-success">ready</span>
+                      : s.status === 'needs_key'
+                        ? <a href="/integrations" className="text-accent hover:underline">needs key → add in Integrations</a>
+                        : s.status === 'opt_in_required'
+                          ? <span className="text-warning">opt-in (enable X below)</span>
+                          : <span className="text-muted">{s.status}</span>}
+                  </div>
                 </div>
                 <button onClick={() => toggleSrc(s, !s.enabled)} disabled={s.status === 'opt_in_required'}
-                  className={`relative h-4 w-7 rounded-full border transition-colors disabled:opacity-40 ${s.enabled ? 'border-accent/50 bg-accent/30' : 'border-border bg-bg'}`}>
+                  className={`relative h-4 w-7 shrink-0 rounded-full border transition-colors disabled:opacity-40 ${s.enabled ? 'border-accent/50 bg-accent/30' : 'border-border bg-bg'}`}>
                   <span className={`absolute top-0.5 h-2.5 w-2.5 rounded-full bg-text transition-all ${s.enabled ? 'left-[14px]' : 'left-0.5'}`} />
                 </button>
               </div>
@@ -523,6 +544,25 @@ function Empty({ kind }: { kind: string }) {
       <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-border bg-surface text-muted"><Newspaper size={22} /></div>
       <div className="text-sm font-semibold text-heading">No {kind} data yet</div>
       <p className="max-w-xs text-xs text-muted">Hit “All” or “This tab” refresh in the header to run the first scan. Free sources work without keys; key-gated sources activate when you add them in Integrations.</p>
+    </div>
+  )
+}
+
+function TabLoader() {
+  // Skeleton placeholder shown during the initial load so the tab never flashes
+  // an "empty" state before data arrives.
+  return (
+    <div className="space-y-2">
+      {[0, 1, 2, 3, 4, 5].map(i => (
+        <div key={i} className="flex items-center gap-3 rounded-lg border border-border bg-surface p-3">
+          <div className="h-8 w-8 shrink-0 animate-pulse rounded-md bg-bg/60" />
+          <div className="flex-1 space-y-1.5">
+            <div className="h-3 w-2/3 animate-pulse rounded bg-bg/60" />
+            <div className="h-2.5 w-1/3 animate-pulse rounded bg-bg/40" />
+          </div>
+          <div className="h-3 w-12 shrink-0 animate-pulse rounded bg-bg/40" />
+        </div>
+      ))}
     </div>
   )
 }
