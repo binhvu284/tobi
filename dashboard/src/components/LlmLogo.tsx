@@ -15,15 +15,17 @@ import deepseekSvg from '@lobehub/icons-static-svg/icons/deepseek-color.svg?raw'
 import qwenSvg from '@lobehub/icons-static-svg/icons/qwen-color.svg?raw'
 import mistralSvg from '@lobehub/icons-static-svg/icons/mistral-color.svg?raw'
 import metaSvg from '@lobehub/icons-static-svg/icons/meta-color.svg?raw'
+import codexSvg from '@lobehub/icons-static-svg/icons/codex-color.svg?raw'
 
 export type Brand =
   | 'claude' | 'openai' | 'zhipu' | 'grok' | 'gemini' | 'openrouter'
-  | 'ollama' | 'deepseek' | 'qwen' | 'mistral' | 'meta' | 'custom'
+  | 'ollama' | 'deepseek' | 'qwen' | 'mistral' | 'meta' | 'codex' | 'custom'
 
 const SVGS: Record<Exclude<Brand, 'custom'>, string> = {
   claude: claudeSvg, openai: openaiSvg, zhipu: zhipuSvg, grok: grokSvg,
   gemini: geminiSvg, openrouter: openrouterSvg, ollama: ollamaSvg,
   deepseek: deepseekSvg, qwen: qwenSvg, mistral: mistralSvg, meta: metaSvg,
+  codex: codexSvg,
 }
 
 // accent used for the rounded tile behind the mark
@@ -39,6 +41,7 @@ export const BRAND_META: Record<Brand, { name: string; color: string }> = {
   qwen:       { name: 'Qwen',        color: '#615CED' },
   mistral:    { name: 'Mistral',     color: '#FA520F' },
   meta:       { name: 'Meta Llama',  color: '#0668E1' },
+  codex:      { name: 'Codex',       color: '#10A37F' },
   custom:     { name: 'Custom',      color: '#8B949E' },
 }
 
@@ -47,6 +50,7 @@ export function brandForProvider(pid?: string | null): Brand {
   switch ((pid || '').toLowerCase()) {
     case 'anthropic': return 'claude'
     case 'openai': return 'openai'
+    case 'codex': return 'codex'
     case 'glm': case 'zai': case 'zhipu': return 'zhipu'
     case 'gemini': case 'google': return 'gemini'
     case 'grok': case 'xai': return 'grok'
@@ -59,6 +63,8 @@ export function brandForProvider(pid?: string | null): Brand {
 /** Model id (e.g. "openrouter:deepseek/deepseek-r1") → the model's own brand. */
 export function brandForModel(id?: string | null): Brand {
   const s = (id || '').toLowerCase()
+  if (s.startsWith('codex:')) return 'codex'
+  if (/codex/.test(s)) return 'codex'
   if (/claude/.test(s)) return 'claude'
   if (/gpt|chatgpt|o[134](-|$|\b)|davinci|openai\//.test(s)) return 'openai'
   if (/glm|zhipu|z-ai|zai\//.test(s)) return 'zhipu'

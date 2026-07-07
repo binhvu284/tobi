@@ -309,6 +309,115 @@ class OpenAICompatibleClient(BaseLLMClient):
             yield self.complete(messages, max_tokens=max_tokens)
 
 
+class CodexClient(BaseLLMClient):
+    """ChatGPT Plus subscription's Codex quota via the chatgpt.com backend Responses
+    API. Auth uses the ``access_token`` from ``codex login`` (stored in
+    ``~/.codex/auth.json``) — paste it into the vault as ``CODEX_ACCESS_TOKEN``.
+    Optional ``CODEX_CHATGPT_ACCOUNT_ID`` routes the call to a specific workspace."""
+
+    BASE_URL = "https://chatgpt.com/backend-api/codex"
+
+    def __init__(self, model: str, api_key: Optional[str] = None,
+                 account_id: Optional[str] = None):
+        from openai import OpenAI
+        token = api_key or os.getenv("CODEX_ACCESS_TOKEN")
+        if not token:
+            raise ValueError(
+                "CODEX_ACCESS_TOKEN missing — run `codex login`, then paste the "
+                "access_token from ~/.codex/auth.json into the vault."
+            )
+        self.account_id = (account_id or os.getenv("CODEX_CHATGPT_ACCOUNT_ID") or "").strip() or None
+        default_headers = {"chatgpt-account-id": self.account_id} if self.account_id else None
+        # The OpenAI SDK appends /responses to base_url, landing on the codex backend.
+        self.client = OpenAI(base_url=self.BASE_URL, api_key=token,
+                             default_headers=default_headers)
+        self.model = model
+        self.provider = "codex"
+        self.last_usage = {}
+
+    @staticmethod
+    def _to_input(messages: list) -> list:
+        items = []
+        for m in messages:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            if isinstance(content, list):
+                # Convert OpenAI chat-format blocks → Responses API blocks
+                # (text → input_text, image_url → input_image).
+                converted = []
+                for block in content:
+                    btype = block.get("type")
+                    if btype == "text":
+                        converted.append({"type": "input_text", "text": block.get("text", "")})
+                    elif btype == "image_url":
+                        url = (block.get("image_url") or {}).get("url", "")
+                        converted.append({"type": "input_image", "image_url": url})
+                    else:
+                        converted.append(block)
+                items.append({"role": role, "content": converted})
+            else:
+                items.append({"role": role, "content": [{"type": "input_text", "text": str(content)}]})
+        return items
+
+    def complete(self, messages, system=None, max_tokens=2000) -> str:
+        t0 = time.time()
+        kwargs = {
+            "model": self.model,
+            "input": self._to_input(messages),
+            "max_output_tokens": max_tokens,
+        }
+        if system:
+            kwargs["instructions"] = system
+        r = self.client.responses.create(**kwargs)
+        try:
+            self.last_usage = {
+                "prompt_tokens": getattr(r.usage, "input_tokens", 0),
+                "completion_tokens": getattr(r.usage, "output_tokens", 0),
+            }
+        except Exception:
+            self.last_usage = {}
+        self.last_finish_reason = _norm_finish(getattr(r, "status", None))
+        text = getattr(r, "output_text", "") or ""
+        self._log_usage(t0, text)
+        return text
+
+    def complete_stream(self, messages, system=None, max_tokens=2000):
+        kwargs = {
+            "model": self.model,
+            "input": self._to_input(messages),
+            "max_output_tokens": max_tokens,
+            "stream": True,
+        }
+        if system:
+            kwargs["instructions"] = system
+        self.last_finish_reason = None
+        self.last_usage = {}
+        t0 = time.time(); acc = ""
+        try:
+            stream = self.client.responses.create(**kwargs)
+            for event in stream:
+                et = getattr(event, "type", "")
+                if et == "response.output_text.delta":
+                    delta = getattr(event, "delta", "") or ""
+                    if delta:
+                        acc += delta
+                        yield delta
+                elif et == "response.completed":
+                    final = getattr(event, "response", None)
+                    try:
+                        self.last_usage = {
+                            "prompt_tokens": getattr(final.usage, "input_tokens", 0),
+                            "completion_tokens": getattr(final.usage, "output_tokens", 0),
+                        }
+                    except Exception:
+                        pass
+                    self.last_finish_reason = "stop"
+            if acc or self.last_usage:
+                self._log_usage(t0, acc)
+        except Exception:
+            yield self.complete(messages, system=system, max_tokens=max_tokens)
+
+
 class FallbackClient(BaseLLMClient):
     """Try each client in order; on failure fall through to the next. The first to
     answer wins. Powers the configured ordered fallback chain (try A→B→C)."""
@@ -404,6 +513,13 @@ PROVIDERS: dict[str, dict] = {
         "base_url": "https://api.x.ai/v1", "needs_key": True, "editable_base_url": False,
         "models": ["grok-4", "grok-3", "grok-3-mini"],
     },
+    "codex": {
+        # OpenAI Codex via the ChatGPT Plus subscription — uses the chatgpt.com backend
+        # Responses API with the access_token from `codex login` (no API key needed).
+        "label": "Codex (ChatGPT Plus)", "kind": "codex", "key_env": "CODEX_ACCESS_TOKEN",
+        "base_url": "https://chatgpt.com/backend-api/codex", "needs_key": True, "editable_base_url": False,
+        "models": ["gpt-5-codex", "gpt-5"],
+    },
     "ollama": {
         "label": "Ollama (local)", "kind": "openai", "key_env": None,
         "base_url": "http://localhost:11434/v1", "needs_key": False, "editable_base_url": True,
@@ -420,7 +536,7 @@ PROVIDERS: dict[str, dict] = {
 _CONTEXT_LIMITS = [
     ("claude", 200000), ("gpt-4o", 128000), ("o3", 200000), ("gemini", 1000000),
     ("grok", 131072), ("nemotron", 131072), ("qwen", 32768), ("llama", 131072),
-    ("glm-4.6", 200000), ("glm", 131072),
+    ("glm-4.6", 200000), ("glm", 131072), ("gpt-5", 200000), ("codex", 200000),
 ]
 
 
@@ -503,6 +619,8 @@ def _provider_of(model_id: str) -> tuple[str, str]:
     name = model_id.lower()
     if name.startswith("glm"):
         return "glm", model_id
+    if "codex" in name:
+        return "codex", model_id
     if name.startswith("claude"):
         return "anthropic", model_id
     if name.startswith("gpt") or name.startswith("o1") or name.startswith("o3"):
@@ -534,6 +652,9 @@ def build_client(model_id: str, cfg: Optional[dict] = None):
     if spec["kind"] == "anthropic":
         key = os.getenv(spec["key_env"]) if spec.get("key_env") else None
         return ClaudeClient(model, base_url=spec.get("base_url") or None, api_key=key, provider=provider)
+    if spec["kind"] == "codex":
+        key = os.getenv(spec["key_env"]) if spec.get("key_env") else None
+        return CodexClient(model, api_key=key)
     if spec["kind"] == "openrouter":
         return OpenRouterClient(model=model)
     key = os.getenv(spec["key_env"]) if spec.get("key_env") else None

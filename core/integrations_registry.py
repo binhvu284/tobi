@@ -72,6 +72,32 @@ def _test_llm() -> tuple[bool, str]:
     return False, "Provide an Anthropic or OpenRouter API key."
 
 
+def _test_codex() -> tuple[bool, str]:
+    """Validate the Codex access_token by issuing a 1-token request against the
+    chatgpt.com backend Responses API (uses Plus subscription quota)."""
+    import requests
+    tok = os.getenv("CODEX_ACCESS_TOKEN")
+    if not tok:
+        return False, "Paste the access_token from ~/.codex/auth.json (run `codex login` first)."
+    headers = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
+    aid = os.getenv("CODEX_CHATGPT_ACCOUNT_ID")
+    if aid:
+        headers["chatgpt-account-id"] = aid
+    try:
+        r = requests.post(
+            "https://chatgpt.com/backend-api/codex/responses",
+            headers=headers, timeout=20,
+            json={"model": "gpt-5-codex", "input": "ping", "max_output_tokens": 1},
+        )
+        if r.status_code == 200:
+            return True, "Codex token valid — Plus subscription linked."
+        if r.status_code in (401, 403):
+            return False, f"Codex rejected the token (HTTP {r.status_code}) — re-run `codex login` and refresh it."
+        return False, f"Codex backend returned HTTP {r.status_code}."
+    except Exception:
+        return False, "Could not reach the Codex backend — check your connection."
+
+
 def _test_telegram() -> tuple[bool, str]:
     import requests
     tok = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -159,6 +185,19 @@ REGISTRY: list[dict] = [
         ],
         "abilities_unlocked": ["supabase_integration"],
         "test": _test_supabase,
+    },
+    {
+        "id": "codex", "label": "OpenAI Codex (ChatGPT Plus)", "category": "tools", "required": False,
+        "icon": "codex", "available": True,
+        "blurb": "Use your ChatGPT Plus subscription's Codex quota. Run `codex login` locally, then paste the access_token from ~/.codex/auth.json.",
+        "fields": [
+            {"name": "CODEX_ACCESS_TOKEN", "label": "Codex access token", "type": "api_key",
+             "help_url": "https://chatgpt.com/codex"},
+            {"name": "CODEX_CHATGPT_ACCOUNT_ID", "label": "ChatGPT account ID (optional)", "type": "api_key",
+             "help_url": "https://chatgpt.com/codex"},
+        ],
+        "abilities_unlocked": [],
+        "test": _test_codex,
     },
     # ── forward-looking placeholders (configurable now, activated in Awakening) ──
     {
