@@ -101,14 +101,15 @@ export default function ModelMenu({ models, value, onChange, open: openProp, onO
             {groups.length === 0 && (
               <div className="px-2 py-3 text-center text-[11px] text-muted">No models yet — add a provider key in Models.</div>
             )}
-            {groups.map(g => (
-              <div key={g.provider} className="mt-1">
-                <div className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
-                  <ProviderLogo provider={g.provider} size={12} /> {meta(g.provider).name}
+            {groups.map((g, i) => (
+              <div key={g.provider} className={i === 0 ? 'mt-1.5' : 'mt-2 border-t border-border/50 pt-2'}>
+                <div className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wider"
+                  style={{ background: `color-mix(in srgb, ${meta(g.provider).color} 14%, rgb(var(--surface)))`, color: meta(g.provider).color }}>
+                  <ProviderLogo provider={g.provider} size={11} /> {meta(g.provider).name}
                 </div>
                 {g.items.map(m => (
                   <button key={m.id} onClick={() => pick(m.id)}
-                    className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-bg/60 ${value === m.id ? 'bg-accent/10 text-text' : 'text-text'}`}>
+                    className={`mt-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] hover:bg-bg/60 ${value === m.id ? 'bg-accent/10 text-text' : 'text-text'}`}>
                     <LlmLogo model={m.id} size={13} />
                     <span className="truncate">{m.model}</span>
                     <Badges id={m.id} context={m.context} />
