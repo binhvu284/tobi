@@ -4,10 +4,11 @@ import {
   Send, Sparkles, Bot, User, ShieldAlert, Check, X, Plus, Trash2, Pencil,
   Square, RotateCcw, Copy, ChevronDown, Cpu, Brain as BrainIcon, MessageSquarePlus,
   Paperclip, Globe, Image as ImageIcon, FileText, ThumbsUp, ThumbsDown, Activity,
-  GitBranch, Lightbulb, Plug, Layers, PanelLeftClose, PanelLeftOpen, AlertTriangle, Zap, Quote,
+  GitBranch, Plug, Layers, PanelLeftClose, PanelLeftOpen, AlertTriangle, Zap, Quote,
   Terminal, Search, Briefcase, Wrench, ShieldCheck, CheckCircle2, XCircle, ListChecks, Radio, Gauge,
-  ChevronUp, MessagesSquare,
+  ChevronUp, MessagesSquare, ChevronRight, Pin,
 } from 'lucide-react'
+import { SiGithub, SiGoogle, SiNotion, type IconType } from '@icons-pack/react-simple-icons'
 import {
   type PendingAction, type ChatSession, type AvailableModel, type ChatUsage,
   type ChatStoredMessage, type ChatAttachment, type ConductorAction, type ChatPicker,
@@ -20,7 +21,6 @@ import { Link } from 'react-router-dom'
 import { useToast } from '../context/ToastProvider'
 import { useReducedMotionPref } from '../context/MotionProvider'
 import MarkdownView from '../components/chat/MarkdownView'
-import { ThinkingOrb } from '../components/chat/ThinkingOrb'
 import TierEmblem from '../components/TierEmblem'
 import ModelMenu from '../components/chat/ModelMenu'
 import PickerWizard, { type PickerAnswer } from '../components/chat/PickerWizard'
@@ -30,9 +30,10 @@ type TierMark = { tier: number; colorKey: string; roman: string; name: string }
 type Meta = { elapsedMs?: number; tokens?: number; tools?: string[] }
 type Msg = { id?: number; role: string; content: string; model?: string | null; meta?: Meta; thinking?: string | null; feedback?: number | null; created_at?: string }
 type ChatMode = 'chat' | 'agent' | 'terminal' | 'research' | 'project'
+type TurnOpts = { attachments?: ChatAttachment[]; web_research?: boolean; connectors?: string[] }
 type QueuedTurn = {
   text: string
-  opts: { attachments?: ChatAttachment[]; web_research?: boolean; thinking?: boolean; connectors?: string[] }
+  opts: TurnOpts
   mode: ChatMode
 }
 
@@ -44,6 +45,52 @@ const CHAT_MODES: { id: ChatMode; label: string; hint: string; Icon: typeof Mess
   { id: 'research', label: 'Research', hint: 'Web-backed answers', Icon: Search },
   { id: 'project', label: 'Project', hint: 'PM-aware work', Icon: Briefcase },
 ]
+
+type ConnectorCatalogItem = {
+  id: string
+  label: string
+  desc: string
+  match: string[]
+  color: string
+  Icon?: IconType
+  CustomIcon?: (props: { size?: number }) => JSX.Element
+}
+
+function SlackLogo({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="6.8" y="1" width="2.4" height="6.1" rx="1.2" fill="#36C5F0" />
+      <rect x="1" y="6.8" width="6.1" height="2.4" rx="1.2" fill="#2EB67D" />
+      <rect x="6.8" y="8.9" width="2.4" height="6.1" rx="1.2" fill="#ECB22E" />
+      <rect x="8.9" y="6.8" width="6.1" height="2.4" rx="1.2" fill="#E01E5A" />
+      <circle cx="5.2" cy="5.2" r="1.2" fill="#2EB67D" />
+      <circle cx="10.8" cy="5.2" r="1.2" fill="#36C5F0" />
+      <circle cx="5.2" cy="10.8" r="1.2" fill="#ECB22E" />
+      <circle cx="10.8" cy="10.8" r="1.2" fill="#E01E5A" />
+    </svg>
+  )
+}
+
+const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
+  { id: 'github', label: 'GitHub', desc: 'Repos, PRs, issues', match: ['github'], color: '#F0F6FC', Icon: SiGithub },
+  { id: 'google', label: 'Google Workspace', desc: 'Drive, Gmail, Calendar', match: ['google', 'gmail', 'drive', 'calendar'], color: '#4285F4', Icon: SiGoogle },
+  { id: 'notion', label: 'Notion', desc: 'Docs and knowledge base', match: ['notion'], color: '#F0F0F0', Icon: SiNotion },
+  { id: 'slack', label: 'Slack', desc: 'Team messages and channels', match: ['slack'], color: '#E01E5A', CustomIcon: SlackLogo },
+]
+
+function connectorMatches(item: ConnectorCatalogItem, opt: { id: string; label: string }) {
+  const haystack = `${opt.id} ${opt.label}`.toLowerCase()
+  return item.match.some(m => haystack.includes(m))
+}
+
+function ConnectorMark({ item, size = 15 }: { item: ConnectorCatalogItem; size?: number }) {
+  const Icon = item.Icon
+  return (
+    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-bg/50">
+      {Icon ? <Icon size={size} color={item.color} /> : item.CustomIcon ? <item.CustomIcon size={size} /> : <span className="text-[10px] font-bold" style={{ color: item.color }}>{item.label.slice(0, 1)}</span>}
+    </span>
+  )
+}
 // Manual picker (Feature 3): the owner asks TOBI to "ask me for my details" → this default
 // context set. TOBI can also raise a tailored picker itself via the ask_owner_details tool.
 const DEFAULT_DETAIL_PICKER: ChatPicker = {
@@ -112,6 +159,28 @@ function ThoughtFor({ meta, thinking }: { meta?: Meta; thinking?: string | null 
   )
 }
 
+function ChatLoadingPulse() {
+  return (
+    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }}
+      className="group flex gap-3">
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-accent/25 bg-accent/10 text-accent">
+        <Bot size={13} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface/65 px-3 py-1.5 text-xs text-muted shadow-[0_12px_34px_rgb(0_0_0/0.12)]">
+          <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
+          <span>TOBI is composing</span>
+          <span className="flex items-center gap-1">
+            <span className="h-1 w-1 rounded-full bg-muted/60 animate-pulse" />
+            <span className="h-1 w-1 rounded-full bg-muted/60 animate-pulse [animation-delay:120ms]" />
+            <span className="h-1 w-1 rounded-full bg-muted/60 animate-pulse [animation-delay:240ms]" />
+          </span>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
 const readDataURL = (f: File) => new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result as string); r.onerror = rej; r.readAsDataURL(f) })
 
 export default function Chat() {
@@ -127,7 +196,6 @@ export default function Chat() {
   const [sending, setSending] = useState(false)
   const [streaming, setStreaming] = useState(false)
   const [pending, setPending] = useState<PendingAction | null>(null)
-  const [think, setThink] = useState<{ phase: string; tools: string[]; startedAt: number } | null>(null)
   const [renaming, setRenaming] = useState<number | null>(null)
   const [renameVal, setRenameVal] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(() => { try { return localStorage.getItem('tobi.chat.sidebar') !== '0' } catch { return true } })
@@ -147,8 +215,8 @@ export default function Chat() {
   // attachments / tools
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [plusOpen, setPlusOpen] = useState(false)
+  const [plusPanel, setPlusPanel] = useState<'connectors' | 'confirmations' | null>('connectors')
   const [webResearch, setWebResearch] = useState(false)
-  const [thinkingOn, setThinkingOn] = useState(false)
   const [connectors, setConnectors] = useState<string[]>([])
   const [connectorOpts, setConnectorOpts] = useState<{ id: string; label: string }[]>([])
   const [editing, setEditing] = useState<number | null>(null)
@@ -160,13 +228,20 @@ export default function Chat() {
   const [dragOver, setDragOver] = useState(false)                // Feature 8 drag & drop
   const [headerCollapsed, setHeaderCollapsed] = useState(() => { try { return localStorage.getItem('tobi.chat.header') === '0' } catch { return false } })
   const [mode, setMode] = useState<ChatMode>(() => { try { return (localStorage.getItem('tobi.chat.mode') as ChatMode) || 'chat' } catch { return 'chat' } })
+  const [modeOpen, setModeOpen] = useState(false)
   const [objective, setObjective] = useState('')
   const [objectiveEditing, setObjectiveEditing] = useState(false)
   const [queuedTurns, setQueuedTurns] = useState<QueuedTurn[]>([])
+  const [pinnedIds, setPinnedIds] = useState<number[]>(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('tobi.chat.pinned') || '[]') as number[]
+      return Array.isArray(raw) ? raw.filter(Number.isFinite) : []
+    } catch { return [] }
+  })
 
   const endRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
-  const lastTurnRef = useRef<{ text: string; opts: { attachments?: ChatAttachment[]; web_research?: boolean; thinking?: boolean; connectors?: string[] } }>({ text: '', opts: {} })
+  const lastTurnRef = useRef<{ text: string; opts: TurnOpts }>({ text: '', opts: {} })
   const lastMetaRef = useRef<Meta>({})
   const activeIdRef = useRef<number | null>(null)
   const queuedTurnsRef = useRef<QueuedTurn[]>([])
@@ -184,6 +259,8 @@ export default function Chat() {
   }
   const fileRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const plusRef = useRef<HTMLDivElement>(null)
+  const modeRef = useRef<HTMLDivElement>(null)
 
   const storedToMsg = (m: ChatStoredMessage): Msg => ({
     id: m.id, role: m.role, content: m.content, model: m.model, thinking: m.thinking,
@@ -226,6 +303,25 @@ export default function Chat() {
   useEffect(() => { try { localStorage.setItem('tobi.chat.confirmMode', confirmMode) } catch { /* ignore */ } }, [confirmMode])
   useEffect(() => { activeIdRef.current = activeId }, [activeId])
   useEffect(() => { try { localStorage.setItem('tobi.chat.mode', mode) } catch { /* ignore */ } }, [mode])
+  useEffect(() => { try { localStorage.setItem('tobi.chat.pinned', JSON.stringify(pinnedIds)) } catch { /* ignore */ } }, [pinnedIds])
+  useEffect(() => {
+    if (!plusOpen && !modeOpen) return
+    const onDoc = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (plusOpen && plusRef.current && !plusRef.current.contains(target)) { setPlusOpen(false); setPlusPanel(null) }
+      if (modeOpen && modeRef.current && !modeRef.current.contains(target)) setModeOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setPlusOpen(false); setPlusPanel(null); setModeOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [modeOpen, plusOpen])
   useEffect(() => {
     if (activeId == null) return
     try { if (objective.trim()) localStorage.setItem(`tobi.chat.objective.${activeId}`, objective); else localStorage.removeItem(`tobi.chat.objective.${activeId}`) } catch { /* ignore */ }
@@ -243,7 +339,7 @@ export default function Chat() {
   useEffect(() => { autoGrow(); setSlashIdx(0) }, [input])
 
   const openSession = async (id: number, list?: ChatSession[]) => {
-    setActiveId(id); setPending(null); setThink(null); setActivityOpen(false); setModelIssue(false); setAutoAcceptChat(false)
+    setActiveId(id); setPending(null); setActivityOpen(false); setModelIssue(false); setAutoAcceptChat(false)
     const s = (list || sessions).find(x => x.id === id)
     setModel(s?.model ?? null)
     try { setInput(localStorage.getItem(`tobi.chat.draft.${id}`) || '') } catch { setInput('') }
@@ -275,10 +371,12 @@ export default function Chat() {
   const removeSession = async (id: number) => {
     try {
       await deleteChatSession(id)
+      setPinnedIds(p => p.filter(x => x !== id))
       const next = sessions.filter(s => s.id !== id); setSessions(next)
       if (activeId === id) { if (next.length) openSession(next[0].id, next); else { const s = await createChatSession(); setSessions([s]); openSession(s.id, [s]) } }
     } catch (e) { toast({ kind: 'error', title: 'Delete failed', detail: (e as Error).message }) }
   }
+  const togglePin = (id: number) => setPinnedIds(p => p.includes(id) ? p.filter(x => x !== id) : [id, ...p])
   const commitRename = async (id: number) => {
     const title = renameVal.trim(); setRenaming(null); if (!title) return
     setSessions(p => p.map(s => s.id === id ? { ...s, title } : s))
@@ -302,6 +400,8 @@ export default function Chat() {
 
   // ── header session-title rename (click-to-edit) ──
   const activeTitle = sessions.find(s => s.id === activeId)?.title || 'New chat'
+  const pinnedSessions = pinnedIds.map(id => sessions.find(s => s.id === id)).filter(Boolean) as ChatSession[]
+  const recentSessions = sessions.filter(s => !pinnedIds.includes(s.id))
   const startTitleEdit = () => { if (activeId == null) return; setTitleVal(activeTitle); setTitleEditing(true) }
   const commitHeaderTitle = async () => {
     const t = titleVal.trim(); setTitleEditing(false)
@@ -329,18 +429,17 @@ export default function Chat() {
   }
 
   // ── turn ──
-  const runTurn = async (text: string, sid: number, opts: { attachments?: ChatAttachment[]; web_research?: boolean; thinking?: boolean; connectors?: string[] }) => {
+  const runTurn = async (text: string, sid: number, opts: TurnOpts) => {
     lastTurnRef.current = { text, opts }; lastMetaRef.current = {}
     const tag = opts.attachments?.length ? `  📎×${opts.attachments.length}` : ''
     setMessages(m => [...m, { role: 'user', content: text + tag }])
     setSending(true); setPending(null); setModelIssue(false)
-    setThink({ phase: '', tools: [], startedAt: Date.now() })
     const ac = new AbortController(); abortRef.current = ac
     let streamed = false; let toolsSeen: string[] = []
     const startAssistant = () => { if (streamed) return; streamed = true; setSending(false); setStreaming(true); setMessages(m => [...m, { role: 'assistant', content: '', meta: {} }]) }
     try {
       await streamChatSession(sid, text, model, {
-        onThinking: (phase, tools) => { if (tools?.length) toolsSeen = tools; setThink(t => t ? { ...t, phase, tools: tools || t.tools } : t) },
+        onThinking: (_phase, tools) => { if (tools?.length) toolsSeen = tools },
         onDelta: (delta) => {
           startAssistant()
           deltaBufRef.current += delta
@@ -371,7 +470,7 @@ export default function Chat() {
     } finally {
       if (deltaRafRef.current != null) { cancelAnimationFrame(deltaRafRef.current); deltaRafRef.current = null }
       flushDelta()
-      setSending(false); setStreaming(false); setThink(null); abortRef.current = null
+      setSending(false); setStreaming(false); abortRef.current = null
       reloadMessages(sid); refreshSessions(); if (activityOpen) loadActivity(sid)
       const queued = activeIdRef.current === sid ? shiftQueuedTurn() : undefined
       if (queued) {
@@ -387,7 +486,6 @@ export default function Chat() {
     const opts = {
       attachments,
       web_research: webResearch || mode === 'research',
-      thinking: thinkingOn || mode === 'agent' || mode === 'terminal' || mode === 'project',
       connectors,
     }
     setInput(''); setAttachments([]); setPlusOpen(false)
@@ -399,7 +497,7 @@ export default function Chat() {
     }
     runTurn(text, activeId, opts)
   }
-  const stop = () => { abortRef.current?.abort(); setSending(false); setStreaming(false); setThink(null) }
+  const stop = () => { abortRef.current?.abort(); setSending(false); setStreaming(false) }
   const regenerate = () => {
     if (sending || streaming || activeId == null || !lastTurnRef.current.text) return
     setMessages(m => (m.length && m[m.length - 1].role === 'assistant') ? m.slice(0, -1) : m)
@@ -474,7 +572,7 @@ export default function Chat() {
   }
 
   const toggleConnector = (id: string) => setConnectors(c => c.includes(id) ? c.filter(x => x !== id) : [...c, id])
-  const activeFlags = (webResearch ? 1 : 0) + (thinkingOn ? 1 : 0) + connectors.length + attachments.length
+  const activeFlags = (webResearch ? 1 : 0) + connectors.length + attachments.length
 
   // ── picker wizard (Feature 3) — answers go back to TOBI as the owner's next message ──
   const submitPicker = (answers: PickerAnswer[]) => {
@@ -524,6 +622,31 @@ export default function Chat() {
           ? 'Ask about a project, task, owner input, or roadmap...'
           : 'Message TOBI...'
   const objectiveLabel = objective.trim() || 'Set objective'
+  const connectorRows = [
+    ...CONNECTOR_CATALOG.map(item => {
+      const live = connectorOpts.find(opt => connectorMatches(item, opt))
+      return { item, id: live?.id ?? item.id, label: live?.label ?? item.label, connected: !!live }
+    }),
+    ...connectorOpts
+      .filter(opt => !CONNECTOR_CATALOG.some(item => connectorMatches(item, opt)))
+      .map(opt => ({
+        item: { id: opt.id, label: opt.label, desc: 'Connected tool provider', match: [opt.id], color: '#58a6ff' } as ConnectorCatalogItem,
+        id: opt.id,
+        label: opt.label,
+        connected: true,
+      })),
+  ]
+  const reviewMode = confirmMode === 'auto' ? 'always' : autoAcceptChat ? 'session' : 'ask'
+  const setReviewMode = (v: 'ask' | 'session' | 'always') => {
+    if (v === 'ask') { setConfirmMode('ask'); setAutoAcceptChat(false) }
+    else if (v === 'session') { setConfirmMode('ask'); setAutoAcceptChat(true) }
+    else { setConfirmMode('auto'); setAutoAcceptChat(false) }
+  }
+  const selectMode = (id: ChatMode) => {
+    setMode(id)
+    if (id === 'research') setWebResearch(true)
+    setModeOpen(false)
+  }
 
   // ── slash commands (/model /compact /web /new /clear) ──
   const slashCmds: { cmd: string; desc: string; icon: typeof Cpu; run: () => void }[] = [
@@ -561,6 +684,29 @@ export default function Chat() {
     ? <TierEmblem tier={tier.tier} colorKey={tier.colorKey} size={size} state={state} className="shrink-0" />
     : <span className="flex shrink-0 items-center justify-center rounded-full border border-purple/30 bg-purple/10 text-purple" style={{ width: size, height: size }}><Bot size={Math.round(size * 0.5)} /></span>
 
+  const renderSessionRow = (s: ChatSession) => {
+    const pinned = pinnedIds.includes(s.id)
+    return (
+      <div key={s.id} className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm transition-colors ${activeId === s.id ? 'bg-accent/10 text-text' : 'text-muted hover:bg-surface/60'}`}>
+        {renaming === s.id ? (
+          <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)} onBlur={() => commitRename(s.id)}
+            onKeyDown={e => { if (e.key === 'Enter') commitRename(s.id); if (e.key === 'Escape') setRenaming(null) }}
+            className="w-full rounded border border-accent/40 bg-bg px-1.5 py-0.5 text-xs text-text outline-none" />
+        ) : (
+          <>
+            <button onClick={() => openSession(s.id)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+              {pinned ? <Pin size={13} className="shrink-0 text-accent" /> : s.title?.startsWith('\u21b3') ? <GitBranch size={13} className="shrink-0 opacity-60" /> : <MessageSquarePlus size={13} className="shrink-0 opacity-60" />}
+              <span className="truncate">{s.title || 'New chat'}</span>
+            </button>
+            <button onClick={() => togglePin(s.id)} title={pinned ? 'Unpin chat' : 'Pin chat'} className={`transition-opacity hover:text-accent ${pinned ? 'text-accent opacity-100' : 'opacity-0 group-hover:opacity-100'}`}><Pin size={11} /></button>
+            <button onClick={() => { setRenaming(s.id); setRenameVal(s.title || '') }} className="opacity-0 transition-opacity hover:text-accent group-hover:opacity-100"><Pencil size={11} /></button>
+            <button onClick={() => removeSession(s.id)} className="opacity-0 transition-opacity hover:text-danger group-hover:opacity-100"><Trash2 size={11} /></button>
+          </>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="relative flex h-full" onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
       {/* drag & drop overlay (Feature 8) */}
@@ -586,8 +732,15 @@ export default function Chat() {
               <button onClick={() => setSidebarOpen(false)} title="Collapse sidebar" className="flex h-6 w-6 items-center justify-center rounded-md border border-border text-muted hover:border-accent/50 hover:text-accent"><PanelLeftClose size={13} /></button>
             </div>
           </div>
-          <div className="scroll-subtle flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">
-            {sessions.map(s => (
+          <div className="scroll-subtle flex-1 space-y-1.5 overflow-y-auto px-2 pb-3">
+            {pinnedSessions.length > 0 && (
+              <div className="space-y-0.5">
+                <div className="px-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted/70">Pinned</div>
+                {pinnedSessions.map(renderSessionRow)}
+              </div>
+            )}
+            <div className="px-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted/70">Recent</div>
+            {recentSessions.map(s => (
               <div key={s.id} className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm transition-colors ${activeId === s.id ? 'bg-accent/10 text-text' : 'text-muted hover:bg-surface/60'}`}>
                 {renaming === s.id ? (
                   <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)} onBlur={() => commitRename(s.id)}
@@ -599,6 +752,7 @@ export default function Chat() {
                       {s.title?.startsWith('↳') ? <GitBranch size={13} className="shrink-0 opacity-60" /> : <MessageSquarePlus size={13} className="shrink-0 opacity-60" />}
                       <span className="truncate">{s.title || 'New chat'}</span>
                     </button>
+                    <button onClick={() => togglePin(s.id)} title="Pin chat" className="opacity-0 transition-opacity hover:text-accent group-hover:opacity-100"><Pin size={11} /></button>
                     <button onClick={() => { setRenaming(s.id); setRenameVal(s.title || '') }} className="opacity-0 transition-opacity hover:text-accent group-hover:opacity-100"><Pencil size={11} /></button>
                     <button onClick={() => removeSession(s.id)} className="opacity-0 transition-opacity hover:text-danger group-hover:opacity-100"><Trash2 size={11} /></button>
                   </>
@@ -664,10 +818,9 @@ export default function Chat() {
 
             {/* right cluster — status chips · context meter · run inspector */}
             <div className="flex shrink-0 items-center gap-2">
-              {(webResearch || thinkingOn || connectors.length > 0) && (
+              {(webResearch || connectors.length > 0) && (
                 <div className="hidden items-center gap-1 lg:flex">
                   {webResearch && <span className="flex items-center gap-1 rounded-full border border-accent/35 bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent"><Globe size={10} /> Web</span>}
-                  {thinkingOn && <span className="flex items-center gap-1 rounded-full border border-purple/35 bg-purple/10 px-2 py-0.5 text-[10px] font-medium text-purple"><Lightbulb size={10} /> Reasoning</span>}
                   {connectors.length > 0 && <span className="flex items-center gap-1 rounded-full border border-success/35 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success"><Plug size={10} /> {connectors.length}</span>}
                 </div>
               )}
@@ -761,7 +914,6 @@ export default function Chat() {
                   <motion.div key={m.id ?? i} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="group flex gap-3">
                     <div className="pt-0.5">{tobiMark(28)}</div>
                     <div className="min-w-0 flex-1">
-                      <ThoughtFor meta={m.meta} thinking={m.thinking} />
                       <div className="tobi-answer max-w-none text-[15px] leading-relaxed">
                         {m.content ? <MarkdownView content={m.content} /> : <span className="text-sm text-muted">…</span>}
                         {streaming && isLast && <span className={`ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] bg-accent align-middle ${reduced ? '' : 'chat-caret'}`} />}
@@ -793,7 +945,7 @@ export default function Chat() {
                 )
               })}
 
-              <AnimatePresence>{sending && think && <ThinkingOrb phase={think.phase} tools={think.tools} startedAt={think.startedAt} />}</AnimatePresence>
+              <AnimatePresence>{sending && <ChatLoadingPulse />}</AnimatePresence>
 
               {/* model-issue notice — one-tap switch */}
               {modelIssue && !busy && (
@@ -978,17 +1130,17 @@ export default function Chat() {
               <div className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-accent/45 to-transparent" />
 
               {/* mode pills strip — borderless, active pill glows */}
-              <div className="flex flex-wrap items-center gap-0.5 px-2 pt-2">
+              {false && <div className="flex flex-wrap items-center gap-0.5 px-2 pt-2">
                 {CHAT_MODES.map(({ id, label, hint, Icon }) => (
                   <button key={id} onClick={() => { setMode(id); if (id === 'research') setWebResearch(true) }} title={hint}
                     className={`flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-medium transition-all ${mode === id ? 'bg-accent/12 text-accent shadow-[0_0_16px_rgb(var(--accent)/0.18)] ring-1 ring-accent/30' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
                     <Icon size={12} className={mode === id ? '' : 'opacity-70'} /> <span className="hidden sm:inline">{label}</span>
                   </button>
                 ))}
-              </div>
+              </div>}
 
               {/* textarea — transparent, the card is the surface */}
-              <div className="relative px-3 pt-1.5">
+              <div className="relative px-3 pt-2.5">
                 <AnimatePresence>
                   {slashOpen && (
                     <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }} transition={{ duration: 0.12 }}
@@ -1014,7 +1166,37 @@ export default function Chat() {
               {/* bottom toolbar — tools left · model + send right */}
               <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-1">
                 <div className="flex items-center gap-0.5">
-                  <div className="relative">
+                  <div className="relative" ref={modeRef}>
+                    <button onClick={() => setModeOpen(o => !o)} title="Message mode"
+                      className={`flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors ${modeOpen ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
+                      <activeMode.Icon size={15} />
+                      <span className="hidden sm:inline">{activeMode.label}</span>
+                      <ChevronDown size={12} className={`transition-transform ${modeOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    <AnimatePresence>
+                      {modeOpen && (
+                        <motion.div initial={{ opacity: 0, y: 6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6, scale: 0.97 }} transition={{ duration: 0.14 }}
+                          className="absolute bottom-11 left-0 z-30 w-72 rounded-xl border border-border bg-surface p-1.5 shadow-xl">
+                          <div className="px-2.5 py-1 text-[10px] uppercase tracking-wide text-muted">Mode for next message</div>
+                          {CHAT_MODES.map(({ id, label, hint, Icon }) => {
+                            const selected = mode === id
+                            return (
+                              <button key={id} onClick={() => selectMode(id)}
+                                className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors ${selected ? 'bg-accent/10 text-accent' : 'text-text hover:bg-bg/60'}`}>
+                                <Icon size={15} className="shrink-0" />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block text-sm font-medium">{label}</span>
+                                  <span className="block truncate text-[11px] text-muted">{hint}</span>
+                                </span>
+                                {selected && <Check size={14} className="shrink-0" />}
+                              </button>
+                            )
+                          })}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                  <div className="relative" ref={plusRef}>
                     <button onClick={() => setPlusOpen(o => !o)} title="Tools & attachments"
                       className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${plusOpen ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
                       <Plus size={18} className={`transition-transform ${plusOpen ? 'rotate-45' : ''}`} />
@@ -1027,16 +1209,17 @@ export default function Chat() {
                           <button onClick={() => { fileRef.current?.click(); setPlusOpen(false) }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><Paperclip size={15} className="text-muted" /> Upload file</button>
                           <button onClick={() => { fileRef.current?.click(); setPlusOpen(false) }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><ImageIcon size={15} className="text-muted" /> Attach image <span className="ml-auto text-[10px] text-muted">or paste</span></button>
                           <button onClick={() => setWebResearch(v => !v)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><Globe size={15} className={webResearch ? 'text-accent' : 'text-muted'} /> Web research <span className={`ml-auto text-[10px] ${webResearch ? 'text-accent' : 'text-muted'}`}>{webResearch ? 'On' : 'Off'}</span></button>
-                          <button onClick={() => setThinkingOn(v => !v)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><Lightbulb size={15} className={thinkingOn ? 'text-accent' : 'text-muted'} /> Show thinking <span className={`ml-auto text-[10px] ${thinkingOn ? 'text-accent' : 'text-muted'}`}>{thinkingOn ? 'On' : 'Off'}</span></button>
+                          <button onMouseEnter={() => setPlusPanel('connectors')} onClick={() => setPlusPanel('connectors')} className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-bg/60 ${plusPanel === 'connectors' ? 'bg-accent/10 text-accent' : 'text-text'}`}><Plug size={15} className="text-muted" /> Connectors <span className="ml-auto flex items-center gap-1 text-[10px] text-muted">{connectors.length || 'Live'} <ChevronRight size={12} /></span></button>
+                          <button onMouseEnter={() => setPlusPanel('confirmations')} onClick={() => setPlusPanel('confirmations')} className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-bg/60 ${plusPanel === 'confirmations' ? 'bg-accent/10 text-accent' : 'text-text'}`}><ShieldCheck size={15} className="text-muted" /> Human review <span className="ml-auto flex items-center gap-1 text-[10px] text-muted">{reviewMode} <ChevronRight size={12} /></span></button>
                           <button onClick={() => { setPicker(DEFAULT_DETAIL_PICKER); setPlusOpen(false) }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><Sparkles size={15} className="text-muted" /> Tell TOBI about you <span className="ml-auto text-[10px] text-muted">picker</span></button>
                           <button disabled className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-muted/60"><FileText size={15} /> Choose from Drive <span className="ml-auto text-[10px]">soon</span></button>
-                          {connectorOpts.length > 0 && <div className="mt-1 border-t border-border pt-1">
+                          {connectorOpts.length > 0 && <div className="hidden">
                             <div className="px-2.5 py-1 text-[10px] uppercase tracking-wide text-muted">Connectors → live tools</div>
                             {connectorOpts.map(c => (
                               <button key={c.id} onClick={() => toggleConnector(c.id)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm text-text hover:bg-bg/60"><Plug size={14} className={connectors.includes(c.id) ? 'text-accent' : 'text-muted'} /> {c.label} <span className={`ml-auto text-[10px] ${connectors.includes(c.id) ? 'text-accent' : 'text-muted'}`}>{connectors.includes(c.id) ? 'On' : 'Off'}</span></button>
                             ))}
                           </div>}
-                          <div className="mt-1 border-t border-border pt-1">
+                          <div className="hidden">
                             <div className="px-2.5 py-1 text-[10px] uppercase tracking-wide text-muted">Confirmations · when TOBI acts</div>
                             {([
                               { v: 'ask', label: 'Ask every time', Icon: ShieldAlert },
@@ -1056,6 +1239,54 @@ export default function Chat() {
                               )
                             })}
                           </div>
+                          <AnimatePresence mode="wait">
+                            {plusPanel === 'connectors' && (
+                              <motion.div key="connectors" initial={{ opacity: 0, x: -6, scale: 0.98 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: -6, scale: 0.98 }} transition={{ duration: 0.13 }}
+                                className="absolute bottom-0 left-[calc(100%+8px)] w-72 rounded-xl border border-border bg-surface p-2 shadow-xl">
+                                <div className="mb-1 px-1 text-[10px] uppercase tracking-wide text-muted">Connectors</div>
+                                <div className="space-y-1">
+                                  {connectorRows.map(({ item, id, label, connected }) => {
+                                    const active = connectors.includes(id)
+                                    return (
+                                      <button key={item.id} disabled={!connected} onClick={() => connected && toggleConnector(id)}
+                                        className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors ${connected ? 'text-text hover:bg-bg/60' : 'cursor-not-allowed text-muted/50'} ${active ? 'bg-accent/10' : ''}`}>
+                                        <ConnectorMark item={item} />
+                                        <span className="min-w-0 flex-1">
+                                          <span className="block truncate text-sm font-medium">{label}</span>
+                                          <span className="block truncate text-[11px] text-muted">{item.desc}</span>
+                                        </span>
+                                        <span className={`text-[10px] ${active ? 'text-accent' : connected ? 'text-muted' : 'text-muted/50'}`}>{active ? 'On' : connected ? 'Off' : 'Soon'}</span>
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                              </motion.div>
+                            )}
+                            {plusPanel === 'confirmations' && (
+                              <motion.div key="confirmations" initial={{ opacity: 0, x: -6, scale: 0.98 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: -6, scale: 0.98 }} transition={{ duration: 0.13 }}
+                                className="absolute bottom-0 left-[calc(100%+8px)] w-72 rounded-xl border border-border bg-surface p-2 shadow-xl">
+                                <div className="mb-1 px-1 text-[10px] uppercase tracking-wide text-muted">Human review checkpoints</div>
+                                {([
+                                  { v: 'ask', label: 'Ask before action', desc: 'Review every tool action first.', Icon: ShieldAlert },
+                                  { v: 'session', label: 'Trust this chat', desc: 'Auto-accept only until this chat changes.', Icon: Check },
+                                  { v: 'always', label: 'Autonomous approval', desc: 'Let TOBI proceed without prompts.', Icon: Zap },
+                                ] as const).map(({ v, label, desc, Icon }) => {
+                                  const active = reviewMode === v
+                                  return (
+                                    <button key={v} onClick={() => setReviewMode(v)}
+                                      className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors ${active ? 'bg-accent/10 text-accent' : 'text-text hover:bg-bg/60'}`}>
+                                      <Icon size={15} className="shrink-0" />
+                                      <span className="min-w-0 flex-1">
+                                        <span className="block text-sm font-medium">{label}</span>
+                                        <span className="block truncate text-[11px] text-muted">{desc}</span>
+                                      </span>
+                                      {active && <Check size={14} className="shrink-0" />}
+                                    </button>
+                                  )
+                                })}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
                         </motion.div>
                       )}
                     </AnimatePresence>
@@ -1063,8 +1294,6 @@ export default function Chat() {
                   {/* quick per-turn toggles — light up when active */}
                   <button onClick={() => setWebResearch(v => !v)} title="Web research"
                     className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${webResearch ? 'bg-accent/15 text-accent shadow-[0_0_14px_rgb(var(--accent)/0.15)]' : 'text-muted hover:bg-white/5 hover:text-text'}`}><Globe size={16} /></button>
-                  <button onClick={() => setThinkingOn(v => !v)} title="Show thinking"
-                    className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${thinkingOn ? 'bg-purple/15 text-purple shadow-[0_0_14px_rgb(147_112_219/0.18)]' : 'text-muted hover:bg-white/5 hover:text-text'}`}><Lightbulb size={16} /></button>
                   {attachments.length > 0 && (
                     <span className="ml-0.5 flex items-center gap-1 rounded-md bg-accent/10 px-1.5 py-1.5 text-[10px] font-medium text-accent"><Paperclip size={11} /> {attachments.length}</span>
                   )}
