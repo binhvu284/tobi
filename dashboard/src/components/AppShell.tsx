@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { NavLink, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion'
@@ -7,11 +7,11 @@ import {
   Menu, X, Bell, Command, Palette, Circle, FolderKanban, TrendingUp,
   ChevronsLeft, ChevronsRight, ChevronUp, ChevronDown, Brain, MessagesSquare,
   Share2, KeyRound, Inbox, FileText, Code2, Workflow, History, Cpu, HardDrive,
-  Newspaper, GripVertical, Activity,
+  Newspaper, Activity, Plus,
 } from 'lucide-react'
 import { useTheme, THEMES, THEME_META } from '../context/ThemeProvider'
 import { useToast } from '../context/ToastProvider'
-import { MAX_WORKSPACE_TABS, getWorkspaceRouteMeta, useWorkspaceTabs } from '../context/WorkspaceTabsContext'
+import { WORKSPACE_ROUTES, getWorkspaceRouteMeta, useWorkspaceTabs } from '../context/WorkspaceTabsContext'
 import { getOfficeStats, getEvolution, type OfficeStats, type EvolutionReport } from '../api'
 import CommandPalette from './CommandPalette'
 import TierEmblem from './TierEmblem'
@@ -321,17 +321,56 @@ function Stat({ value, label, tone }: { value: string; label: string; tone: stri
   )
 }
 
+function NewTabButton({ openTab, openRoutes }: { openTab: (r: string) => void; openRoutes: string[] }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey) }
+  }, [open])
+
+  const pick = (route: string) => { openTab(route); setOpen(false) }
+
+  return (
+    <div className="relative shrink-0" ref={ref}>
+      <button onClick={() => setOpen(o => !o)} title="Open new tab"
+        className={`flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface/70 hover:text-text ${open ? 'bg-surface/70 text-text' : ''}`}>
+        <Plus size={16} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-9 z-50 w-56 overflow-hidden rounded-xl border border-border bg-surface/95 p-1 shadow-2xl backdrop-blur">
+          <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">Open in new tab</div>
+          <div className="scroll-subtle max-h-[min(60vh,360px)] overflow-y-auto">
+            {WORKSPACE_ROUTES.map(r => {
+              const isOpen = openRoutes.includes(r.route)
+              const Icon = r.Icon
+              return (
+                <button key={r.route} onClick={() => pick(r.route)}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-text transition-colors hover:bg-bg/60">
+                  <Icon size={14} className={isOpen ? 'shrink-0 text-accent' : 'shrink-0 text-muted'} />
+                  <span className="flex-1 truncate font-medium">{r.label}</span>
+                  {isOpen && <span className="text-[10px] text-muted">Open</span>}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function WorkspaceTabsBar() {
-  const { tabs, activeId, focusTab, closeTab, reorderTabs } = useWorkspaceTabs()
+  const { tabs, activeId, focusTab, closeTab, reorderTabs, openTab } = useWorkspaceTabs()
   const [dragId, setDragId] = useState<string | null>(null)
 
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2">
-      <div className="hidden shrink-0 items-center gap-1 rounded-full border border-border/70 bg-bg/35 px-2 py-1 text-[10px] font-medium text-muted lg:flex">
-        <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_12px_rgb(var(--accent)/0.65)]" />
-        {tabs.length}/{MAX_WORKSPACE_TABS}
-      </div>
-      <div className="scroll-subtle flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+    <div className="flex min-w-0 flex-1 items-center gap-1">
+      <div className="scroll-subtle flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
         {tabs.map(tab => {
           const meta = getWorkspaceRouteMeta(tab.route)
           const Icon = meta.Icon
@@ -342,20 +381,21 @@ function WorkspaceTabsBar() {
               onDragEnd={() => setDragId(null)}
               onDragOver={e => e.preventDefault()}
               onDrop={e => { e.preventDefault(); if (dragId) reorderTabs(dragId, tab.id); setDragId(null) }}
-              className={`group flex h-8 min-w-[120px] max-w-[190px] shrink-0 items-center gap-1 rounded-lg border px-1.5 transition-all ${
+              className={`group flex h-8 min-w-[120px] max-w-[180px] shrink-0 items-center gap-1.5 rounded-md px-2.5 transition-colors ${
                 active
-                  ? 'border-accent/35 bg-bg/70 text-text shadow-[0_0_22px_rgb(var(--accent)/0.10)]'
-                  : 'border-border/70 bg-surface/35 text-muted hover:border-accent/30 hover:bg-bg/45 hover:text-text'
+                  ? 'bg-surface text-text'
+                  : 'text-muted hover:bg-surface/60 hover:text-text'
               } ${dragId === tab.id ? 'opacity-45' : ''}`}>
-              <GripVertical size={11} className="shrink-0 cursor-grab text-muted/45 transition-colors group-hover:text-muted" />
               <button onClick={() => focusTab(tab.id)} title={meta.label}
                 className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
-                <Icon size={14} className={active ? 'shrink-0 text-accent' : 'shrink-0 opacity-75'} />
+                <Icon size={13} className={active ? 'shrink-0 text-accent' : 'shrink-0 opacity-70'} />
                 <span className="truncate text-xs font-medium">{meta.label}</span>
               </button>
               {tabs.length > 1 && (
                 <button onClick={() => closeTab(tab.id)} title={`Close ${meta.label}`}
-                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted opacity-0 transition-opacity hover:bg-white/5 hover:text-danger group-hover:opacity-100">
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-white/5 hover:text-danger ${
+                    active ? 'opacity-70' : 'opacity-0 group-hover:opacity-100'
+                  }`}>
                   <X size={11} />
                 </button>
               )}
@@ -363,6 +403,7 @@ function WorkspaceTabsBar() {
           )
         })}
       </div>
+      <NewTabButton openTab={openTab} openRoutes={tabs.map(t => t.route)} />
     </div>
   )
 }

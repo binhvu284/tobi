@@ -55,6 +55,7 @@ type WorkspaceTabsContextValue = {
   focusTab: (id: string) => void
   closeTab: (id: string) => void
   reorderTabs: (fromId: string, toId: string) => void
+  openTab: (route: string) => void
 }
 
 const WorkspaceTabsContext = createContext<WorkspaceTabsContextValue | null>(null)
@@ -108,19 +109,16 @@ export function WorkspaceTabsProvider({ children }: { children: ReactNode }) {
     }
     const route = normalizeWorkspaceRoute(loc.pathname)
     if (!ROUTE_META.has(route)) return
-    if (tabs.some(t => t.route === route)) {
-      if (activeId !== route) setActiveId(route)
+    if (route === activeId) return
+    const existing = tabs.find(t => t.route === route)
+    if (existing) {
+      setActiveId(existing.id)
       return
     }
-    if (tabs.length >= MAX_WORKSPACE_TABS) {
-      const fallback = tabs.find(t => t.id === activeId)?.route ?? tabs[0]?.route ?? '/dashboard'
-      toast({ kind: 'info', title: 'Three tabs maximum', detail: 'Close a tab before opening another page.' })
-      if (fallback !== route) navigate(fallback, { replace: true })
-      return
-    }
-    setTabs(prev => [...prev, makeTab(route)])
+    // No tab for this route: navigate the active tab in place instead of spawning a new one.
+    setTabs(prev => prev.map(t => (t.id === activeId ? makeTab(route) : t)))
     setActiveId(route)
-  }, [activeId, loc.pathname, navigate, tabs, toast])
+  }, [activeId, loc.pathname, navigate, tabs])
 
   useEffect(() => {
     try {
@@ -132,6 +130,23 @@ export function WorkspaceTabsProvider({ children }: { children: ReactNode }) {
   const value = useMemo<WorkspaceTabsContextValue>(() => ({
     tabs,
     activeId,
+    openTab: (route) => {
+      const clean = normalizeWorkspaceRoute(route)
+      if (!ROUTE_META.has(clean)) return
+      const existing = tabs.find(t => t.route === clean)
+      if (existing) {
+        setActiveId(existing.id)
+        navigate(clean)
+        return
+      }
+      if (tabs.length >= MAX_WORKSPACE_TABS) {
+        toast({ kind: 'info', title: 'Three tabs maximum', detail: 'Close a tab before opening another page.' })
+        return
+      }
+      setTabs(prev => [...prev, makeTab(clean)])
+      setActiveId(clean)
+      navigate(clean)
+    },
     focusTab: (id) => {
       const tab = tabs.find(t => t.id === id)
       if (!tab) return
