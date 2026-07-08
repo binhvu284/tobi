@@ -187,7 +187,7 @@ REGISTRY: list[dict] = [
         "test": _test_supabase,
     },
     {
-        "id": "codex", "label": "OpenAI Codex (ChatGPT Plus)", "category": "tools", "required": False,
+        "id": "codex", "label": "Codex", "category": "tools", "required": False,
         "icon": "codex", "available": True,
         "blurb": "Use your ChatGPT Plus subscription's Codex quota. Run `codex login` locally, then paste the access_token from ~/.codex/auth.json.",
         "fields": [

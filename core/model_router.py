@@ -516,7 +516,7 @@ PROVIDERS: dict[str, dict] = {
     "codex": {
         # OpenAI Codex via the ChatGPT Plus subscription — uses the chatgpt.com backend
         # Responses API with the access_token from `codex login` (no API key needed).
-        "label": "Codex (ChatGPT Plus)", "kind": "codex", "key_env": "CODEX_ACCESS_TOKEN",
+        "label": "Codex", "kind": "codex", "key_env": "CODEX_ACCESS_TOKEN",
         "base_url": "https://chatgpt.com/backend-api/codex", "needs_key": True, "editable_base_url": False,
         "models": ["gpt-5-codex", "gpt-5"],
     },
