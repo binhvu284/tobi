@@ -336,13 +336,13 @@ function NewTabButton({ openTab, openRoutes }: { openTab: (r: string) => void; o
   const pick = (route: string) => { openTab(route); setOpen(false) }
 
   return (
-    <div className="relative mb-1 ml-1 shrink-0 self-end" ref={ref}>
+    <div className="relative ml-0.5 shrink-0" ref={ref}>
       <motion.button
         onClick={() => setOpen(o => !o)}
-        whileHover={{ scale: 1.09 }} whileTap={{ scale: 0.9 }}
+        whileHover={{ scale: 1.08 }} whileTap={{ scale: 0.9 }}
         transition={SPRING.pop}
         title="Open new tab" aria-label="Open new tab" aria-haspopup="menu" aria-expanded={open}
-        className={`flex h-7 w-7 items-center justify-center rounded-lg text-muted transition-colors duration-200 hover:bg-white/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${open ? 'bg-white/[0.06] text-text' : ''}`}>
+        className={`flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors duration-200 hover:bg-white/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${open ? 'bg-white/[0.06] text-text' : ''}`}>
         <Plus size={15} />
       </motion.button>
       <AnimatePresence>
@@ -351,7 +351,7 @@ function NewTabButton({ openTab, openRoutes }: { openTab: (r: string) => void; o
             initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.97 }}
             transition={{ duration: DUR.sm, ease: EASE.out }}
-            className="absolute left-0 top-full z-50 mt-1 w-60 overflow-hidden rounded-xl border border-border bg-surface/95 p-1 shadow-2xl ring-1 ring-white/[0.03] backdrop-blur-xl">
+            className="absolute left-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-2xl border border-border bg-surface/95 p-1.5 shadow-[0_10px_44px_-10px_rgba(0,0,0,0.55)] ring-1 ring-white/[0.04] backdrop-blur-xl">
             <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">Open in new tab</div>
             <div className="scroll-subtle max-h-[min(60vh,360px)] overflow-y-auto">
               {WORKSPACE_ROUTES.map(r => {
@@ -359,10 +359,10 @@ function NewTabButton({ openTab, openRoutes }: { openTab: (r: string) => void; o
                 const Icon = r.Icon
                 return (
                   <button key={r.route} onClick={() => pick(r.route)}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-xs text-text transition-colors duration-150 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
-                    <Icon size={14} className={isOpen ? 'shrink-0 text-accent' : 'shrink-0 text-muted'} />
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs text-text transition-colors duration-150 hover:bg-bg/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
+                    <Icon size={15} className={isOpen ? 'shrink-0 text-accent' : 'shrink-0 text-muted'} />
                     <span className="flex-1 truncate font-medium">{r.label}</span>
-                    {isOpen && <span className="text-[10px] font-medium text-accent/80">Open</span>}
+                    {isOpen && <span className="rounded-full bg-accent/12 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">Open</span>}
                   </button>
                 )
               })}
@@ -379,58 +379,61 @@ function WorkspaceTabsBar() {
   const [dragId, setDragId] = useState<string | null>(null)
 
   return (
-    <nav aria-label="Workspace tabs" className="scroll-subtle flex min-w-0 max-w-full flex-1 items-end gap-0.5 overflow-x-auto px-2">
+    <nav aria-label="Workspace tabs" className="min-w-0 flex-1">
       <LayoutGroup id="wsTabs">
-        <div role="tablist" aria-label="Open pages" className="flex min-w-0 items-end gap-0.5">
-          <AnimatePresence initial={false}>
-            {tabs.map(tab => {
-              const meta = getWorkspaceRouteMeta(tab.route)
-              const Icon = meta.Icon
-              const active = tab.id === activeId
-              return (
-                <motion.div
-                  key={tab.id} layout
-                  initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 8, scale: 0.96 }}
-                  transition={SPRING.snappy}
-                  draggable
-                  onDragStart={() => setDragId(tab.id)}
-                  onDragEnd={() => setDragId(null)}
-                  onDragOver={e => e.preventDefault()}
-                  onDrop={e => { e.preventDefault(); if (dragId) reorderTabs(dragId, tab.id); setDragId(null) }}
-                  role="tab" aria-selected={active}
-                  style={{ minWidth: 130, maxWidth: 188 }}
-                  className={`group relative flex h-9 shrink-0 items-center gap-1.5 rounded-t-[10px] pl-3 pr-1.5 transition-colors duration-200 active:translate-y-px ${
-                    active
-                      ? 'bg-bg text-text'
-                      : 'text-muted hover:bg-white/[0.035] hover:text-text'
-                  } ${dragId === tab.id ? 'opacity-50' : ''}`}>
-                  {active && (
-                    <>
-                      <motion.span layoutId="wsTabAccent" transition={SPRING.snappy} aria-hidden
-                        className="pointer-events-none absolute inset-x-0 top-0 h-[2px] rounded-t-[10px] bg-accent" />
-                      <span aria-hidden className="pointer-events-none absolute inset-0 rounded-t-[10px] [box-shadow:inset_0_1px_0_rgb(255_255_255/0.05),0_-4px_14px_-10px_rgb(0_0_0/0.8)]" />
-                    </>
-                  )}
-                  <button onClick={() => focusTab(tab.id)} title={meta.label}
-                    className="relative z-10 flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-inset rounded-t-[10px]">
-                    <Icon size={13} className={`shrink-0 transition-colors duration-200 ${active ? 'text-accent' : 'text-muted opacity-80'}`} />
-                    <span className="truncate text-xs font-medium">{meta.label}</span>
-                  </button>
-                  {tabs.length > 1 && (
-                    <button onClick={() => closeTab(tab.id)} title={`Close ${meta.label}`} aria-label={`Close ${meta.label}`}
-                      className={`relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted transition-all duration-200 hover:bg-white/10 hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
-                        active ? 'opacity-70' : 'opacity-0 group-hover:opacity-100'
-                      }`}>
-                      <X size={11} />
+        {/* Soft recessed track — grounds the tabs (Arc / Vercel segmented feel). No
+            overflow here so the NewTabButton dropdown can escape into the content area. */}
+        <div className="flex min-w-0 items-center gap-1 rounded-xl bg-bg/40 p-1 ring-1 ring-inset ring-border/40">
+          {/* Horizontal scroll isolated to the tabs only (py gives soft shadows room). */}
+          <div role="tablist" aria-label="Open pages"
+            className="scroll-subtle flex min-w-0 items-center gap-1 overflow-x-auto py-1">
+            <AnimatePresence initial={false}>
+              {tabs.map(tab => {
+                const meta = getWorkspaceRouteMeta(tab.route)
+                const Icon = meta.Icon
+                const active = tab.id === activeId
+                return (
+                  <motion.div
+                    key={tab.id} layout
+                    initial={{ opacity: 0, scale: 0.92 }} animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.92 }}
+                    transition={SPRING.snappy}
+                    draggable
+                    onDragStart={() => setDragId(tab.id)}
+                    onDragEnd={() => setDragId(null)}
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={e => { e.preventDefault(); if (dragId) reorderTabs(dragId, tab.id); setDragId(null) }}
+                    role="tab" aria-selected={active}
+                    style={{ minWidth: 132, maxWidth: 184 }}
+                    className={`group relative flex h-8 shrink-0 items-center gap-1.5 rounded-lg pl-2.5 pr-1.5 transition-colors duration-200 active:translate-y-px ${
+                      active ? '' : 'hover:bg-white/[0.05]'
+                    } ${dragId === tab.id ? 'opacity-60' : ''}`}>
+                    {active && (
+                      <motion.span layoutId="wsTabActive" transition={SPRING.snappy} aria-hidden
+                        className="pointer-events-none absolute inset-0 rounded-lg bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.08),0_6px_16px_-10px_rgba(0,0,0,0.6)] ring-1 ring-white/[0.05]" />
+                    )}
+                    <button onClick={() => focusTab(tab.id)} title={meta.label}
+                      className="relative z-10 flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-lg">
+                      <Icon size={13} className={`shrink-0 transition-colors duration-200 ${active ? 'text-accent' : 'text-muted opacity-80 group-hover:opacity-100'}`} />
+                      <span className={`truncate text-xs font-medium transition-colors duration-200 ${active ? 'text-text' : 'text-muted group-hover:text-text'}`}>
+                        {meta.label}
+                      </span>
                     </button>
-                  )}
-                </motion.div>
-              )
-            })}
-          </AnimatePresence>
+                    {tabs.length > 1 && (
+                      <button onClick={() => closeTab(tab.id)} title={`Close ${meta.label}`} aria-label={`Close ${meta.label}`}
+                        className={`relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted transition-all duration-200 hover:bg-black/20 hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
+                          active ? 'opacity-60' : 'opacity-0 group-hover:opacity-100'
+                        }`}>
+                        <X size={11} />
+                      </button>
+                    )}
+                  </motion.div>
+                )
+              })}
+            </AnimatePresence>
+          </div>
+          <NewTabButton openTab={openTab} openRoutes={tabs.map(t => t.route)} />
         </div>
-        <NewTabButton openTab={openTab} openRoutes={tabs.map(t => t.route)} />
       </LayoutGroup>
     </nav>
   )
@@ -476,26 +479,25 @@ function StatusIndicator({ stats }: { stats: OfficeStats | null }) {
 
 function TopBar({ onMenu, stats, onHide }: { onMenu: () => void; stats: OfficeStats | null; onHide: () => void }) {
   return (
-    <header className="relative z-40 flex h-12 shrink-0 items-stretch justify-between border-b border-border bg-surface/60 backdrop-blur">
-      <div className="flex min-w-0 flex-1 items-stretch">
+    <header className="relative z-40 flex h-14 shrink-0 items-stretch justify-between border-b border-border/60 bg-surface/70 backdrop-blur-xl">
+      <div className="flex min-w-0 flex-1 items-center gap-2 pl-3">
         <button onClick={onMenu} aria-label="Open menu"
-          className="self-center rounded-md p-1.5 text-muted transition-colors hover:bg-white/5 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 md:hidden">
+          className="shrink-0 rounded-lg p-2 text-muted transition-colors hover:bg-white/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 md:hidden">
           <Menu size={18} />
         </button>
         <WorkspaceTabsBar />
-        <div aria-hidden className="hidden w-px self-stretch bg-border/60 sm:block" />
       </div>
-      <div className="flex shrink-0 items-center gap-1.5 px-3">
+      <div className="flex shrink-0 items-center gap-1.5 border-l border-border/60 pl-3 pr-3">
         <StatusIndicator stats={stats} />
         <button onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
-          className="hidden items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-xs text-muted transition-colors hover:border-accent/40 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 sm:flex">
+          className="hidden items-center gap-1.5 rounded-lg border border-border px-2 py-1.5 text-xs text-muted transition-colors hover:border-accent/40 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 sm:flex">
           <Command size={13} /> <span>K</span>
         </button>
         <ClockCalendar />
         <ThemeQuickSwitch />
         <BellInbox />
         <button onClick={onHide} title="Hide header" aria-label="Hide header"
-          className="rounded-md p-1.5 text-muted transition-colors hover:bg-white/5 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
+          className="rounded-lg p-2 text-muted transition-colors hover:bg-white/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
           <ChevronUp size={15} />
         </button>
       </div>
