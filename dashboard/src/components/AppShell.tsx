@@ -386,10 +386,11 @@ function WorkspaceTabsBar() {
       <div role="tablist" aria-label="Open pages" className="flex min-w-0 items-end gap-1 px-2">
         <LayoutGroup id="wsTabs">
           <AnimatePresence initial={false}>
-            {tabs.map(tab => {
+            {tabs.map((tab, i) => {
               const meta = getWorkspaceRouteMeta(tab.route)
               const Icon = meta.Icon
               const active = tab.id === activeId
+              const showDivider = !active && i < tabs.length - 1 && tabs[i + 1].id !== activeId
               return (
                 <motion.div
                   key={tab.id} layout role="tab" aria-selected={active}
@@ -421,6 +422,10 @@ function WorkspaceTabsBar() {
                       <X size={11} />
                     </button>
                   )}
+                  {/* Subtle divider between adjacent inactive tabs — fades on hover,
+                      and never shows next to the active tab or its curved feet. */}
+                  <span aria-hidden
+                    className={`pointer-events-none absolute right-[-2px] top-1/2 h-5 w-px -translate-y-1/2 bg-border/60 transition-opacity duration-200 group-hover:opacity-0 ${showDivider ? 'opacity-100' : 'opacity-0'}`} />
                 </motion.div>
               )
             })}
