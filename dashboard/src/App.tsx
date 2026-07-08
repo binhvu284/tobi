@@ -3,7 +3,10 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ThemeProvider } from './context/ThemeProvider'
 import { MotionProvider } from './context/MotionProvider'
 import { ToastProvider } from './context/ToastProvider'
+import { WorkspaceTabsProvider, useWorkspaceTabs } from './context/WorkspaceTabsContext'
 import AppShell from './components/AppShell'
+import ErrorBoundary from './components/ErrorBoundary'
+import PageBoot from './components/motion/PageBoot'
 import PageLoader from './components/PageLoader'
 import Dashboard from './pages/Dashboard'
 import Architecture from './pages/Architecture'
@@ -28,42 +31,68 @@ const Office = lazy(() => import('./pages/Office'))
 // Storage carries Recharts — lazy-load so it stays out of the main bundle.
 const Storage = lazy(() => import('./pages/Storage'))
 
+function RouteSet({ location }: { location?: string }) {
+  return (
+    <Routes location={location}>
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/inbox" element={<Inbox />} />
+      <Route path="/brain" element={<Brain />} />
+      <Route path="/chat" element={<Chat />} />
+      <Route path="/actions" element={<Actions />} />
+      <Route path="/graph" element={
+        <Suspense fallback={<PageLoader preset="graph" />}><Graph /></Suspense>
+      } />
+      <Route path="/architecture" element={<Architecture />} />
+      <Route path="/ability" element={<Ability />} />
+      <Route path="/evolution" element={<Evolution />} />
+      <Route path="/office" element={
+        <Suspense fallback={<PageLoader preset="office" />}><Office /></Suspense>
+      } />
+      <Route path="/task" element={<Task />} />
+      <Route path="/projects" element={<Projects />} />
+      <Route path="/control" element={<ControlRoom />} />
+      <Route path="/integrations" element={<Integrations />} />
+      <Route path="/mcp" element={<Mcp />} />
+      <Route path="/health" element={<Health />} />
+      <Route path="/settings" element={<Settings />} />
+      <Route path="/models" element={<Models />} />
+      <Route path="/storage" element={
+        <Suspense fallback={<PageLoader />}><Storage /></Suspense>
+      } />
+    </Routes>
+  )
+}
+
+function WorkspaceRoutePanes() {
+  const { tabs, activeId } = useWorkspaceTabs()
+  return (
+    <div className="relative h-full">
+      {tabs.map(tab => (
+        <section key={tab.id} data-state-key={tab.stateKey}
+          className={`absolute inset-0 overflow-y-auto pb-16 md:pb-0 ${tab.id === activeId ? 'block' : 'hidden'}`}>
+          <PageBoot>
+            <ErrorBoundary key={tab.id}>
+              <RouteSet location={tab.route} />
+            </ErrorBoundary>
+          </PageBoot>
+        </section>
+      ))}
+    </div>
+  )
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <ThemeProvider>
         <MotionProvider>
           <ToastProvider>
-            <AppShell>
-            <Routes>
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/inbox" element={<Inbox />} />
-              <Route path="/brain" element={<Brain />} />
-              <Route path="/chat" element={<Chat />} />
-              <Route path="/actions" element={<Actions />} />
-              <Route path="/graph" element={
-                <Suspense fallback={<PageLoader preset="graph" />}><Graph /></Suspense>
-              } />
-              <Route path="/architecture" element={<Architecture />} />
-              <Route path="/ability" element={<Ability />} />
-              <Route path="/evolution" element={<Evolution />} />
-              <Route path="/office" element={
-                <Suspense fallback={<PageLoader preset="office" />}><Office /></Suspense>
-              } />
-              <Route path="/task" element={<Task />} />
-              <Route path="/projects" element={<Projects />} />
-              <Route path="/control" element={<ControlRoom />} />
-              <Route path="/integrations" element={<Integrations />} />
-              <Route path="/mcp" element={<Mcp />} />
-              <Route path="/health" element={<Health />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/models" element={<Models />} />
-              <Route path="/storage" element={
-                <Suspense fallback={<PageLoader />}><Storage /></Suspense>
-              } />
-            </Routes>
-            </AppShell>
+            <WorkspaceTabsProvider>
+              <AppShell>
+                <WorkspaceRoutePanes />
+              </AppShell>
+            </WorkspaceTabsProvider>
           </ToastProvider>
         </MotionProvider>
       </ThemeProvider>

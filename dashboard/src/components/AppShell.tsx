@@ -7,14 +7,14 @@ import {
   Menu, X, Bell, Command, Palette, Circle, FolderKanban, TrendingUp,
   ChevronsLeft, ChevronsRight, ChevronUp, ChevronDown, Brain, MessagesSquare,
   Share2, KeyRound, Inbox, FileText, Code2, Workflow, History, Cpu, HardDrive,
+  GripVertical, Activity,
 } from 'lucide-react'
 import { useTheme, THEMES, THEME_META } from '../context/ThemeProvider'
 import { useToast } from '../context/ToastProvider'
+import { MAX_WORKSPACE_TABS, getWorkspaceRouteMeta, useWorkspaceTabs } from '../context/WorkspaceTabsContext'
 import { getOfficeStats, getEvolution, type OfficeStats, type EvolutionReport } from '../api'
 import CommandPalette from './CommandPalette'
-import ErrorBoundary from './ErrorBoundary'
 import TierEmblem from './TierEmblem'
-import PageBoot from './motion/PageBoot'
 import ClockCalendar from './ClockCalendar'
 import { SPRING } from '../lib/motion'
 
@@ -318,25 +318,99 @@ function Stat({ value, label, tone }: { value: string; label: string; tone: stri
   )
 }
 
-function TopBar({ onMenu, stats, onHide }: { onMenu: () => void; stats: OfficeStats | null; onHide: () => void }) {
-  const s = stats?.stats
+function WorkspaceTabsBar() {
+  const { tabs, activeId, focusTab, closeTab, reorderTabs } = useWorkspaceTabs()
+  const [dragId, setDragId] = useState<string | null>(null)
+
   return (
-    <header className="relative z-40 flex h-12 shrink-0 items-center justify-between border-b border-border bg-surface/60 px-3 backdrop-blur">
-      <div className="flex items-center gap-3">
-        <button onClick={onMenu} className="rounded-md p-1.5 text-muted hover:text-text md:hidden"><Menu size={18} /></button>
-        <div className="flex items-center gap-2 text-xs">
-          <Circle size={8} className="fill-success text-success" />
-          <span className="font-semibold text-heading">Tobi</span>
-          <span className="hidden text-muted sm:inline">online</span>
-        </div>
-        <div className="hidden h-4 w-px bg-border sm:block" />
-        <div className="hidden items-center gap-1.5 sm:flex">
-          <Stat value={String(s?.missions_running ?? 0)} label="running" tone="text-accent" />
-          <Stat value={(s?.tokens_total ?? 0).toLocaleString()} label="tok" tone="text-warning" />
-          <Stat value={String(s?.agents_active ?? 0)} label="agents" tone="text-success" />
-        </div>
+    <div className="flex min-w-0 flex-1 items-center gap-2">
+      <div className="hidden shrink-0 items-center gap-1 rounded-full border border-border/70 bg-bg/35 px-2 py-1 text-[10px] font-medium text-muted lg:flex">
+        <span className="h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_12px_rgb(var(--accent)/0.65)]" />
+        {tabs.length}/{MAX_WORKSPACE_TABS}
       </div>
-      <div className="flex items-center gap-2">
+      <div className="scroll-subtle flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+        {tabs.map(tab => {
+          const meta = getWorkspaceRouteMeta(tab.route)
+          const Icon = meta.Icon
+          const active = tab.id === activeId
+          return (
+            <div key={tab.id} draggable
+              onDragStart={() => setDragId(tab.id)}
+              onDragEnd={() => setDragId(null)}
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => { e.preventDefault(); if (dragId) reorderTabs(dragId, tab.id); setDragId(null) }}
+              className={`group flex h-8 min-w-[120px] max-w-[190px] shrink-0 items-center gap-1 rounded-lg border px-1.5 transition-all ${
+                active
+                  ? 'border-accent/35 bg-bg/70 text-text shadow-[0_0_22px_rgb(var(--accent)/0.10)]'
+                  : 'border-border/70 bg-surface/35 text-muted hover:border-accent/30 hover:bg-bg/45 hover:text-text'
+              } ${dragId === tab.id ? 'opacity-45' : ''}`}>
+              <GripVertical size={11} className="shrink-0 cursor-grab text-muted/45 transition-colors group-hover:text-muted" />
+              <button onClick={() => focusTab(tab.id)} title={meta.label}
+                className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+                <Icon size={14} className={active ? 'shrink-0 text-accent' : 'shrink-0 opacity-75'} />
+                <span className="truncate text-xs font-medium">{meta.label}</span>
+              </button>
+              {tabs.length > 1 && (
+                <button onClick={() => closeTab(tab.id)} title={`Close ${meta.label}`}
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted opacity-0 transition-opacity hover:bg-white/5 hover:text-danger group-hover:opacity-100">
+                  <X size={11} />
+                </button>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function StatusIndicator({ stats }: { stats: OfficeStats | null }) {
+  const [open, setOpen] = useState(false)
+  const s = stats?.stats
+
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(o => !o)} title="Mission status"
+        className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 text-xs transition-colors ${open ? 'border-accent/45 bg-accent/10 text-accent' : 'border-border bg-bg/35 text-muted hover:border-accent/35 hover:text-text'}`}>
+        <Circle size={8} className="fill-success text-success" />
+        <span className="hidden font-medium sm:inline">Live</span>
+      </button>
+      <AnimatePresence>
+        {open && (
+          <>
+            <div className="fixed inset-0 z-[85]" onClick={() => setOpen(false)} />
+            <motion.div initial={{ opacity: 0, y: -6, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.98 }}
+              transition={{ duration: 0.14 }}
+              className="absolute right-0 z-[86] mt-2 w-72 rounded-xl border border-border bg-surface/95 p-3 shadow-2xl ring-1 ring-accent/10 backdrop-blur-xl">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-heading"><Activity size={14} className="text-accent" /> TOBI online</div>
+                  <div className="mt-0.5 text-[11px] text-muted">Mission telemetry is still available here.</div>
+                </div>
+                <span className="rounded-full border border-success/35 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">Running</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5">
+                <Stat value={String(s?.missions_running ?? 0)} label="running" tone="text-accent" />
+                <Stat value={(s?.tokens_total ?? 0).toLocaleString()} label="tokens" tone="text-warning" />
+                <Stat value={String(s?.agents_active ?? 0)} label="agents" tone="text-success" />
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function TopBar({ onMenu, stats, onHide }: { onMenu: () => void; stats: OfficeStats | null; onHide: () => void }) {
+  return (
+    <header className="relative z-40 flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border bg-surface/60 px-3 backdrop-blur">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <button onClick={onMenu} className="rounded-md p-1.5 text-muted hover:text-text md:hidden"><Menu size={18} /></button>
+        <WorkspaceTabsBar />
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <StatusIndicator stats={stats} />
         <button onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
           className="hidden items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-xs text-muted hover:text-text sm:flex">
           <Command size={13} /> <span>K</span>
@@ -444,15 +518,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
             <ChevronDown size={13} />
           </button>
         )}
-        <main className="relative flex-1 overflow-y-auto pb-16 md:pb-0">
+        <main className="relative flex-1 overflow-hidden">
           {/* HUD panel-boot per route (slide-up + fade + one-shot scanline sweep).
               Keyed by path with no AnimatePresence exit gating — the incoming page
               always mounts immediately, so navigation can never leave a blank view. */}
-          <PageBoot key={loc.pathname}>
-            <ErrorBoundary key={loc.pathname}>
-              {children}
-            </ErrorBoundary>
-          </PageBoot>
+          {children}
         </main>
       </div>
 
