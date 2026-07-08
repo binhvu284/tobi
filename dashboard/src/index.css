@@ -306,6 +306,24 @@
 }
 .trace-btn:hover::after { opacity: 1; animation: border-trace 0.7s var(--ease-out); }
 
+/* ── Chrome-style active tab: literal curved "feet" ──────────────────────────
+   Two pseudo-elements bulge the tab color out at the bottom corners,
+   producing the classic browser-tab silhouette (concave from the strip's
+   side). --tab-fill tracks the active fill (defaults to surface token). The
+   host element must be position: relative (the tab already is). */
+.chrome-tab::before,
+.chrome-tab::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  width: 8px;
+  height: 8px;
+  background: var(--tab-fill, rgb(var(--surface)));
+  pointer-events: none;
+}
+.chrome-tab::before { left: -8px;  border-top-left-radius: 8px; }
+.chrome-tab::after  { right: -8px; border-top-right-radius: 8px; }
+
 /* ── Count-up accent flash on change ── */
 @keyframes count-flash { 0% { color: rgb(var(--accent)); text-shadow: 0 0 10px rgb(var(--accent) / 0.55); } 100% { color: inherit; text-shadow: none; } }
 .count-flash { animation: count-flash 0.6s var(--ease-out); }

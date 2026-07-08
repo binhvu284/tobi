@@ -336,7 +336,7 @@ function NewTabButton({ openTab, openRoutes }: { openTab: (r: string) => void; o
   const pick = (route: string) => { openTab(route); setOpen(false) }
 
   return (
-    <div className="relative mb-1.5 ml-1 shrink-0 self-end" ref={ref}>
+    <div className="relative mb-0.5 ml-0.5 shrink-0" ref={ref}>
       <motion.button
         onClick={() => setOpen(o => !o)}
         whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.88 }}
@@ -379,13 +379,12 @@ function WorkspaceTabsBar() {
   const [dragId, setDragId] = useState<string | null>(null)
 
   return (
-    <nav aria-label="Workspace tabs" className="flex min-w-0 flex-1 items-end gap-1 pl-2">
-      <LayoutGroup id="wsTabs">
-        {/* Connected browser-tab strip. The nav itself never clips (no overflow) so the
-            + button's dropdown can render into the content area. Horizontal scroll is
-            isolated to the inner tabs wrapper; pt gives the active tab's lift shadow room. */}
-        <div role="tablist" aria-label="Open pages"
-          className="scroll-subtle flex min-w-0 items-end gap-0.5 overflow-x-auto pt-1">
+    <nav aria-label="Workspace tabs" className="min-w-0 flex-1">
+      {/* The tablist never scrolls/clips, so the + button's dropdown can escape
+          into the content area. Tabs flex-grow (few tabs = wide / full titles;
+          many or long titles = shrink to a floor + truncate, Chrome-style). */}
+      <div role="tablist" aria-label="Open pages" className="flex min-w-0 items-end gap-1 px-2">
+        <LayoutGroup id="wsTabs">
           <AnimatePresence initial={false}>
             {tabs.map(tab => {
               const meta = getWorkspaceRouteMeta(tab.route)
@@ -393,28 +392,22 @@ function WorkspaceTabsBar() {
               const active = tab.id === activeId
               return (
                 <motion.div
-                  key={tab.id} layout
-                  initial={{ opacity: 0, scale: 0.9, y: 4 }} animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.9, y: 4 }}
+                  key={tab.id} layout role="tab" aria-selected={active}
+                  initial={{ opacity: 0, scale: 0.92, y: 4 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.92, y: 4 }}
                   transition={SPRING.snappy}
                   draggable
                   onDragStart={() => setDragId(tab.id)}
                   onDragEnd={() => setDragId(null)}
                   onDragOver={e => e.preventDefault()}
                   onDrop={e => { e.preventDefault(); if (dragId) reorderTabs(dragId, tab.id); setDragId(null) }}
-                  role="tab" aria-selected={active}
-                  style={{ minWidth: 148, maxWidth: 208 }}
-                  className={`group relative flex h-9 shrink-0 items-center gap-1.5 rounded-t-[12px] pl-3 pr-1.5 transition-colors duration-200 active:translate-y-px ${
+                  className={`group relative -mb-px flex h-8 min-w-[120px] max-w-[240px] flex-1 items-center gap-1.5 rounded-t-[8px] pl-3 pr-1.5 transition-colors duration-200 active:translate-y-px ${
                     active
-                      ? 'bg-bg text-text'
+                      ? 'chrome-tab bg-surface text-text shadow-[0_1px_0_rgb(255_255_255/0.05)_inset]'
                       : 'text-muted hover:bg-white/[0.05] hover:text-text'
                   } ${dragId === tab.id ? 'opacity-60' : ''}`}>
-                  {active && (
-                    <span aria-hidden
-                      className="pointer-events-none absolute inset-0 rounded-t-[12px] [box-shadow:inset_0_1px_0_rgb(255_255_255/0.05),0_-3px_12px_-6px_rgb(0_0_0/0.7)]" />
-                  )}
                   <button onClick={() => focusTab(tab.id)} title={meta.label}
-                    className="relative z-10 flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-t-[12px]">
+                    className="relative z-10 flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-t-[8px]">
                     <Icon size={13} className={`shrink-0 transition-colors duration-200 ${active ? 'text-accent' : 'text-muted opacity-80 group-hover:opacity-100'}`} />
                     <span className={`truncate text-xs font-medium transition-colors duration-200 ${active ? 'text-text' : 'text-muted group-hover:text-text'}`}>
                       {meta.label}
@@ -432,9 +425,9 @@ function WorkspaceTabsBar() {
               )
             })}
           </AnimatePresence>
-        </div>
-        <NewTabButton openTab={openTab} openRoutes={tabs.map(t => t.route)} />
-      </LayoutGroup>
+          <NewTabButton openTab={openTab} openRoutes={tabs.map(t => t.route)} />
+        </LayoutGroup>
+      </div>
     </nav>
   )
 }
@@ -479,15 +472,15 @@ function StatusIndicator({ stats }: { stats: OfficeStats | null }) {
 
 function TopBar({ onMenu, stats, onHide }: { onMenu: () => void; stats: OfficeStats | null; onHide: () => void }) {
   return (
-    <header className="relative z-40 flex h-14 shrink-0 items-stretch justify-between border-b border-border bg-surface/55 backdrop-blur-xl">
+    <header className="relative z-40 flex h-11 shrink-0 items-stretch justify-between bg-panel">
       <div className="flex min-w-0 flex-1 items-end">
         <button onClick={onMenu} aria-label="Open menu"
-          className="self-center shrink-0 rounded-lg p-2 text-muted transition-colors hover:bg-white/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 md:hidden">
+          className="self-center shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-white/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 md:hidden">
           <Menu size={18} />
         </button>
         <WorkspaceTabsBar />
       </div>
-      <div className="flex shrink-0 items-center gap-1.5 border-l border-border/40 pl-3 pr-3">
+      <div className="flex shrink-0 items-center gap-1.5 pl-2 pr-2.5">
         <StatusIndicator stats={stats} />
         <button onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
           className="hidden items-center gap-1.5 rounded-lg border border-border px-2 py-1.5 text-xs text-muted transition-colors hover:border-accent/40 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 sm:flex">
@@ -497,7 +490,7 @@ function TopBar({ onMenu, stats, onHide }: { onMenu: () => void; stats: OfficeSt
         <ThemeQuickSwitch />
         <BellInbox />
         <button onClick={onHide} title="Hide header" aria-label="Hide header"
-          className="rounded-lg p-2 text-muted transition-colors hover:bg-white/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
+          className="rounded-lg p-1.5 text-muted transition-colors hover:bg-white/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
           <ChevronUp size={15} />
         </button>
       </div>
