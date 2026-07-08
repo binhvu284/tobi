@@ -16,7 +16,7 @@ import { getOfficeStats, getEvolution, type OfficeStats, type EvolutionReport } 
 import CommandPalette from './CommandPalette'
 import TierEmblem from './TierEmblem'
 import ClockCalendar from './ClockCalendar'
-import { SPRING } from '../lib/motion'
+import { SPRING, DUR, EASE } from '../lib/motion'
 
 const APP_VERSION = 'v3.0'
 
@@ -336,30 +336,41 @@ function NewTabButton({ openTab, openRoutes }: { openTab: (r: string) => void; o
   const pick = (route: string) => { openTab(route); setOpen(false) }
 
   return (
-    <div className="relative shrink-0" ref={ref}>
-      <button onClick={() => setOpen(o => !o)} title="Open new tab"
-        className={`flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface/70 hover:text-text ${open ? 'bg-surface/70 text-text' : ''}`}>
-        <Plus size={16} />
-      </button>
-      {open && (
-        <div className="absolute left-0 top-9 z-50 w-56 overflow-hidden rounded-xl border border-border bg-surface/95 p-1 shadow-2xl backdrop-blur">
-          <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">Open in new tab</div>
-          <div className="scroll-subtle max-h-[min(60vh,360px)] overflow-y-auto">
-            {WORKSPACE_ROUTES.map(r => {
-              const isOpen = openRoutes.includes(r.route)
-              const Icon = r.Icon
-              return (
-                <button key={r.route} onClick={() => pick(r.route)}
-                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-text transition-colors hover:bg-bg/60">
-                  <Icon size={14} className={isOpen ? 'shrink-0 text-accent' : 'shrink-0 text-muted'} />
-                  <span className="flex-1 truncate font-medium">{r.label}</span>
-                  {isOpen && <span className="text-[10px] text-muted">Open</span>}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
+    <div className="relative ml-0.5 shrink-0" ref={ref}>
+      <motion.button
+        onClick={() => setOpen(o => !o)}
+        whileHover={{ scale: 1.08 }} whileTap={{ scale: 0.92 }}
+        transition={SPRING.pop}
+        title="Open new tab"
+        aria-label="Open new tab"
+        className={`flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors duration-200 hover:bg-white/[0.06] hover:text-text ${open ? 'bg-white/[0.06] text-text' : ''}`}>
+        <Plus size={15} />
+      </motion.button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.97 }}
+            transition={{ duration: DUR.sm, ease: EASE.out }}
+            className="absolute left-0 top-9 z-50 w-60 overflow-hidden rounded-xl border border-border bg-surface/95 p-1 shadow-2xl backdrop-blur">
+            <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">Open in new tab</div>
+            <div className="scroll-subtle max-h-[min(60vh,360px)] overflow-y-auto">
+              {WORKSPACE_ROUTES.map(r => {
+                const isOpen = openRoutes.includes(r.route)
+                const Icon = r.Icon
+                return (
+                  <button key={r.route} onClick={() => pick(r.route)}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-xs text-text transition-colors duration-150 hover:bg-white/[0.06]">
+                    <Icon size={14} className={isOpen ? 'shrink-0 text-accent' : 'shrink-0 text-muted'} />
+                    <span className="flex-1 truncate font-medium">{r.label}</span>
+                    {isOpen && <span className="text-[10px] font-medium text-accent/80">Open</span>}
+                  </button>
+                )
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
@@ -369,41 +380,57 @@ function WorkspaceTabsBar() {
   const [dragId, setDragId] = useState<string | null>(null)
 
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-1">
-      <div className="scroll-subtle flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
-        {tabs.map(tab => {
-          const meta = getWorkspaceRouteMeta(tab.route)
-          const Icon = meta.Icon
-          const active = tab.id === activeId
-          return (
-            <div key={tab.id} draggable
-              onDragStart={() => setDragId(tab.id)}
-              onDragEnd={() => setDragId(null)}
-              onDragOver={e => e.preventDefault()}
-              onDrop={e => { e.preventDefault(); if (dragId) reorderTabs(dragId, tab.id); setDragId(null) }}
-              className={`group flex h-8 min-w-[120px] max-w-[180px] shrink-0 items-center gap-1.5 rounded-md px-2.5 transition-colors ${
-                active
-                  ? 'bg-surface text-text'
-                  : 'text-muted hover:bg-surface/60 hover:text-text'
-              } ${dragId === tab.id ? 'opacity-45' : ''}`}>
-              <button onClick={() => focusTab(tab.id)} title={meta.label}
-                className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
-                <Icon size={13} className={active ? 'shrink-0 text-accent' : 'shrink-0 opacity-70'} />
-                <span className="truncate text-xs font-medium">{meta.label}</span>
-              </button>
-              {tabs.length > 1 && (
-                <button onClick={() => closeTab(tab.id)} title={`Close ${meta.label}`}
-                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-white/5 hover:text-danger ${
-                    active ? 'opacity-70' : 'opacity-0 group-hover:opacity-100'
-                  }`}>
-                  <X size={11} />
-                </button>
-              )}
-            </div>
-          )
-        })}
-      </div>
-      <NewTabButton openTab={openTab} openRoutes={tabs.map(t => t.route)} />
+    <div className="flex min-w-0 flex-1 items-center">
+      <LayoutGroup id="wsTabs">
+        <div className="scroll-subtle flex min-w-0 max-w-full items-center gap-0.5 overflow-x-auto py-1">
+          <AnimatePresence initial={false}>
+            {tabs.map(tab => {
+              const meta = getWorkspaceRouteMeta(tab.route)
+              const Icon = meta.Icon
+              const active = tab.id === activeId
+              return (
+                <motion.div
+                  key={tab.id} layout
+                  initial={{ opacity: 0, scale: 0.92 }} animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.92 }}
+                  transition={SPRING.snappy}
+                  draggable
+                  onDragStart={() => setDragId(tab.id)}
+                  onDragEnd={() => setDragId(null)}
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => { e.preventDefault(); if (dragId) reorderTabs(dragId, tab.id); setDragId(null) }}
+                  style={{ minWidth: 124, maxWidth: 184 }}
+                  className={`group relative flex h-8 shrink-0 items-center gap-1.5 overflow-hidden rounded-md pl-2.5 pr-1.5 transition-colors duration-200 ${
+                    active ? '' : 'hover:bg-white/[0.05]'
+                  } ${dragId === tab.id ? 'opacity-50' : ''}`}>
+                  {active && (
+                    <motion.span layoutId="wsTabActive" transition={SPRING.snappy}
+                      className="absolute inset-0 rounded-md bg-surface ring-1 ring-border [box-shadow:0_-1px_8px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.04)]" />
+                  )}
+                  <button onClick={() => focusTab(tab.id)} title={meta.label}
+                    className="relative z-10 flex min-w-0 flex-1 items-center gap-1.5 text-left">
+                    <motion.span whileHover={{ scale: 1.16 }} transition={SPRING.pop} className="flex shrink-0 items-center">
+                      <Icon size={13} className={active ? 'text-accent' : 'text-muted opacity-80'} />
+                    </motion.span>
+                    <span className={`truncate text-xs font-medium transition-colors duration-200 ${active ? 'text-text' : 'text-muted group-hover:text-text'}`}>
+                      {meta.label}
+                    </span>
+                  </button>
+                  {tabs.length > 1 && (
+                    <button onClick={() => closeTab(tab.id)} title={`Close ${meta.label}`}
+                      className={`relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted transition-all duration-200 hover:bg-white/10 hover:text-danger ${
+                        active ? 'opacity-70' : 'opacity-0 group-hover:opacity-100'
+                      }`}>
+                      <X size={11} />
+                    </button>
+                  )}
+                </motion.div>
+              )
+            })}
+          </AnimatePresence>
+        </div>
+        <NewTabButton openTab={openTab} openRoutes={tabs.map(t => t.route)} />
+      </LayoutGroup>
     </div>
   )
 }
