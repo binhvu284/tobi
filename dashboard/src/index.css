@@ -318,7 +318,7 @@
   bottom: 0;
   width: 8px;
   height: 8px;
-  background: var(--tab-fill, rgb(var(--surface)));
+  background: var(--tab-fill, rgb(var(--bg)));
   pointer-events: none;
 }
 .chrome-tab::before { left: -8px;  border-top-left-radius: 8px; }

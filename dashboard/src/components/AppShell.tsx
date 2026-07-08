@@ -401,10 +401,10 @@ function WorkspaceTabsBar() {
                   onDragEnd={() => setDragId(null)}
                   onDragOver={e => e.preventDefault()}
                   onDrop={e => { e.preventDefault(); if (dragId) reorderTabs(dragId, tab.id); setDragId(null) }}
-                  className={`group relative -mb-px flex h-8 min-w-[120px] max-w-[240px] flex-1 items-center gap-1.5 rounded-t-[8px] pl-3 pr-1.5 transition-colors duration-200 active:translate-y-px ${
+                  className={`group relative -mb-px flex h-9 min-w-[120px] max-w-[240px] flex-1 items-center gap-1.5 rounded-t-[8px] pl-3 pr-1.5 transition-colors duration-200 active:translate-y-px ${
                     active
-                      ? 'chrome-tab bg-surface text-text shadow-[0_1px_0_rgb(255_255_255/0.05)_inset]'
-                      : 'text-muted hover:bg-white/[0.05] hover:text-text'
+                      ? 'chrome-tab bg-bg text-text shadow-[0_1px_0_rgb(255_255_255/0.06)_inset]'
+                      : 'text-muted hover:bg-black/[0.06] hover:text-text'
                   } ${dragId === tab.id ? 'opacity-60' : ''}`}>
                   <button onClick={() => focusTab(tab.id)} title={meta.label}
                     className="relative z-10 flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-t-[8px]">
@@ -472,7 +472,7 @@ function StatusIndicator({ stats }: { stats: OfficeStats | null }) {
 
 function TopBar({ onMenu, stats, onHide }: { onMenu: () => void; stats: OfficeStats | null; onHide: () => void }) {
   return (
-    <header className="relative z-40 flex h-11 shrink-0 items-stretch justify-between bg-panel">
+    <header className="relative z-40 flex h-11 shrink-0 items-stretch justify-between bg-surface">
       <div className="flex min-w-0 flex-1 items-end">
         <button onClick={onMenu} aria-label="Open menu"
           className="self-center shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-white/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 md:hidden">
