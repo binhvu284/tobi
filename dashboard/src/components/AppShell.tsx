@@ -336,14 +336,13 @@ function NewTabButton({ openTab, openRoutes }: { openTab: (r: string) => void; o
   const pick = (route: string) => { openTab(route); setOpen(false) }
 
   return (
-    <div className="relative ml-0.5 shrink-0" ref={ref}>
+    <div className="relative mb-1 ml-1 shrink-0 self-end" ref={ref}>
       <motion.button
         onClick={() => setOpen(o => !o)}
-        whileHover={{ scale: 1.08 }} whileTap={{ scale: 0.92 }}
+        whileHover={{ scale: 1.09 }} whileTap={{ scale: 0.9 }}
         transition={SPRING.pop}
-        title="Open new tab"
-        aria-label="Open new tab"
-        className={`flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors duration-200 hover:bg-white/[0.06] hover:text-text ${open ? 'bg-white/[0.06] text-text' : ''}`}>
+        title="Open new tab" aria-label="Open new tab" aria-haspopup="menu" aria-expanded={open}
+        className={`flex h-7 w-7 items-center justify-center rounded-lg text-muted transition-colors duration-200 hover:bg-white/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${open ? 'bg-white/[0.06] text-text' : ''}`}>
         <Plus size={15} />
       </motion.button>
       <AnimatePresence>
@@ -352,7 +351,7 @@ function NewTabButton({ openTab, openRoutes }: { openTab: (r: string) => void; o
             initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.97 }}
             transition={{ duration: DUR.sm, ease: EASE.out }}
-            className="absolute left-0 top-9 z-50 w-60 overflow-hidden rounded-xl border border-border bg-surface/95 p-1 shadow-2xl backdrop-blur">
+            className="absolute left-0 top-full z-50 mt-1 w-60 overflow-hidden rounded-xl border border-border bg-surface/95 p-1 shadow-2xl ring-1 ring-white/[0.03] backdrop-blur-xl">
             <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">Open in new tab</div>
             <div className="scroll-subtle max-h-[min(60vh,360px)] overflow-y-auto">
               {WORKSPACE_ROUTES.map(r => {
@@ -360,7 +359,7 @@ function NewTabButton({ openTab, openRoutes }: { openTab: (r: string) => void; o
                 const Icon = r.Icon
                 return (
                   <button key={r.route} onClick={() => pick(r.route)}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-xs text-text transition-colors duration-150 hover:bg-white/[0.06]">
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-xs text-text transition-colors duration-150 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
                     <Icon size={14} className={isOpen ? 'shrink-0 text-accent' : 'shrink-0 text-muted'} />
                     <span className="flex-1 truncate font-medium">{r.label}</span>
                     {isOpen && <span className="text-[10px] font-medium text-accent/80">Open</span>}
@@ -380,9 +379,9 @@ function WorkspaceTabsBar() {
   const [dragId, setDragId] = useState<string | null>(null)
 
   return (
-    <div className="flex min-w-0 flex-1 items-center">
+    <nav aria-label="Workspace tabs" className="scroll-subtle flex min-w-0 max-w-full flex-1 items-end gap-0.5 overflow-x-auto px-2">
       <LayoutGroup id="wsTabs">
-        <div className="scroll-subtle flex min-w-0 max-w-full items-center gap-0.5 overflow-x-auto py-1">
+        <div role="tablist" aria-label="Open pages" className="flex min-w-0 items-end gap-0.5">
           <AnimatePresence initial={false}>
             {tabs.map(tab => {
               const meta = getWorkspaceRouteMeta(tab.route)
@@ -391,34 +390,36 @@ function WorkspaceTabsBar() {
               return (
                 <motion.div
                   key={tab.id} layout
-                  initial={{ opacity: 0, scale: 0.92 }} animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.92 }}
+                  initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.96 }}
                   transition={SPRING.snappy}
                   draggable
                   onDragStart={() => setDragId(tab.id)}
                   onDragEnd={() => setDragId(null)}
                   onDragOver={e => e.preventDefault()}
                   onDrop={e => { e.preventDefault(); if (dragId) reorderTabs(dragId, tab.id); setDragId(null) }}
-                  style={{ minWidth: 124, maxWidth: 184 }}
-                  className={`group relative flex h-8 shrink-0 items-center gap-1.5 overflow-hidden rounded-md pl-2.5 pr-1.5 transition-colors duration-200 ${
-                    active ? '' : 'hover:bg-white/[0.05]'
+                  role="tab" aria-selected={active}
+                  style={{ minWidth: 130, maxWidth: 188 }}
+                  className={`group relative flex h-9 shrink-0 items-center gap-1.5 rounded-t-[10px] pl-3 pr-1.5 transition-colors duration-200 active:translate-y-px ${
+                    active
+                      ? 'bg-bg text-text'
+                      : 'text-muted hover:bg-white/[0.035] hover:text-text'
                   } ${dragId === tab.id ? 'opacity-50' : ''}`}>
                   {active && (
-                    <motion.span layoutId="wsTabActive" transition={SPRING.snappy}
-                      className="absolute inset-0 rounded-md bg-surface ring-1 ring-border [box-shadow:0_-1px_8px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.04)]" />
+                    <>
+                      <motion.span layoutId="wsTabAccent" transition={SPRING.snappy} aria-hidden
+                        className="pointer-events-none absolute inset-x-0 top-0 h-[2px] rounded-t-[10px] bg-accent" />
+                      <span aria-hidden className="pointer-events-none absolute inset-0 rounded-t-[10px] [box-shadow:inset_0_1px_0_rgb(255_255_255/0.05),0_-4px_14px_-10px_rgb(0_0_0/0.8)]" />
+                    </>
                   )}
                   <button onClick={() => focusTab(tab.id)} title={meta.label}
-                    className="relative z-10 flex min-w-0 flex-1 items-center gap-1.5 text-left">
-                    <motion.span whileHover={{ scale: 1.16 }} transition={SPRING.pop} className="flex shrink-0 items-center">
-                      <Icon size={13} className={active ? 'text-accent' : 'text-muted opacity-80'} />
-                    </motion.span>
-                    <span className={`truncate text-xs font-medium transition-colors duration-200 ${active ? 'text-text' : 'text-muted group-hover:text-text'}`}>
-                      {meta.label}
-                    </span>
+                    className="relative z-10 flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 focus-visible:ring-inset rounded-t-[10px]">
+                    <Icon size={13} className={`shrink-0 transition-colors duration-200 ${active ? 'text-accent' : 'text-muted opacity-80'}`} />
+                    <span className="truncate text-xs font-medium">{meta.label}</span>
                   </button>
                   {tabs.length > 1 && (
-                    <button onClick={() => closeTab(tab.id)} title={`Close ${meta.label}`}
-                      className={`relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted transition-all duration-200 hover:bg-white/10 hover:text-danger ${
+                    <button onClick={() => closeTab(tab.id)} title={`Close ${meta.label}`} aria-label={`Close ${meta.label}`}
+                      className={`relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted transition-all duration-200 hover:bg-white/10 hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
                         active ? 'opacity-70' : 'opacity-0 group-hover:opacity-100'
                       }`}>
                       <X size={11} />
@@ -431,7 +432,7 @@ function WorkspaceTabsBar() {
         </div>
         <NewTabButton openTab={openTab} openRoutes={tabs.map(t => t.route)} />
       </LayoutGroup>
-    </div>
+    </nav>
   )
 }
 
@@ -475,22 +476,26 @@ function StatusIndicator({ stats }: { stats: OfficeStats | null }) {
 
 function TopBar({ onMenu, stats, onHide }: { onMenu: () => void; stats: OfficeStats | null; onHide: () => void }) {
   return (
-    <header className="relative z-40 flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border bg-surface/60 px-3 backdrop-blur">
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <button onClick={onMenu} className="rounded-md p-1.5 text-muted hover:text-text md:hidden"><Menu size={18} /></button>
+    <header className="relative z-40 flex h-12 shrink-0 items-stretch justify-between border-b border-border bg-surface/60 backdrop-blur">
+      <div className="flex min-w-0 flex-1 items-stretch">
+        <button onClick={onMenu} aria-label="Open menu"
+          className="self-center rounded-md p-1.5 text-muted transition-colors hover:bg-white/5 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 md:hidden">
+          <Menu size={18} />
+        </button>
         <WorkspaceTabsBar />
+        <div aria-hidden className="hidden w-px self-stretch bg-border/60 sm:block" />
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1.5 px-3">
         <StatusIndicator stats={stats} />
         <button onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
-          className="hidden items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-xs text-muted hover:text-text sm:flex">
+          className="hidden items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-xs text-muted transition-colors hover:border-accent/40 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 sm:flex">
           <Command size={13} /> <span>K</span>
         </button>
         <ClockCalendar />
-        <div className="hidden h-4 w-px bg-border sm:block" />
         <ThemeQuickSwitch />
         <BellInbox />
-        <button onClick={onHide} title="Hide header" className="rounded-md p-1.5 text-muted transition-colors hover:text-text">
+        <button onClick={onHide} title="Hide header" aria-label="Hide header"
+          className="rounded-md p-1.5 text-muted transition-colors hover:bg-white/5 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
           <ChevronUp size={15} />
         </button>
       </div>
