@@ -8,7 +8,7 @@ import {
   Terminal, Search, Briefcase, Wrench, ShieldCheck, CheckCircle2, XCircle, ListChecks, Radio, Gauge,
   ChevronUp, MessagesSquare, ChevronRight, Pin,
 } from 'lucide-react'
-import { SiGithub, SiGoogle, SiNotion, type IconType } from '@icons-pack/react-simple-icons'
+import { SiGithub, SiGoogle, SiNotion, SiVercel, SiSupabase, type IconType } from '@icons-pack/react-simple-icons'
 import {
   type PendingAction, type ChatSession, type AvailableModel, type ChatUsage,
   type ChatStoredMessage, type ChatAttachment, type ConductorAction, type ChatPicker,
@@ -23,6 +23,7 @@ import { useReducedMotionPref } from '../context/MotionProvider'
 import MarkdownView from '../components/chat/MarkdownView'
 import TierEmblem from '../components/TierEmblem'
 import ModelMenu from '../components/chat/ModelMenu'
+import ThinkingOrb from '../components/chat/ThinkingOrb'
 import PickerWizard, { type PickerAnswer } from '../components/chat/PickerWizard'
 
 type TierMark = { tier: number; colorKey: string; roman: string; name: string }
@@ -75,6 +76,8 @@ const CONNECTOR_CATALOG: ConnectorCatalogItem[] = [
   { id: 'github', label: 'GitHub', desc: 'Repos, PRs, issues', match: ['github'], color: '#F0F6FC', Icon: SiGithub },
   { id: 'google', label: 'Google Workspace', desc: 'Drive, Gmail, Calendar', match: ['google', 'gmail', 'drive', 'calendar'], color: '#4285F4', Icon: SiGoogle },
   { id: 'notion', label: 'Notion', desc: 'Docs and knowledge base', match: ['notion'], color: '#F0F0F0', Icon: SiNotion },
+  { id: 'vercel', label: 'Vercel', desc: 'Deploys & previews', match: ['vercel'], color: 'currentColor', Icon: SiVercel },
+  { id: 'supabase', label: 'Supabase', desc: 'Database & auth', match: ['supabase'], color: '#3FCF8E', Icon: SiSupabase },
   { id: 'slack', label: 'Slack', desc: 'Team messages and channels', match: ['slack'], color: '#E01E5A', CustomIcon: SlackLogo },
 ]
 
@@ -83,11 +86,17 @@ function connectorMatches(item: ConnectorCatalogItem, opt: { id: string; label: 
   return item.match.some(m => haystack.includes(m))
 }
 
-function ConnectorMark({ item, size = 15 }: { item: ConnectorCatalogItem; size?: number }) {
+function ConnectorGlyph({ item, size = 15 }: { item: ConnectorCatalogItem; size?: number }) {
   const Icon = item.Icon
+  if (Icon) return <Icon size={size} color={item.color} />
+  if (item.CustomIcon) return <item.CustomIcon size={size} />
+  return <span className="text-[10px] font-bold" style={{ color: item.color }}>{item.label.slice(0, 1)}</span>
+}
+
+function ConnectorMark({ item, size = 15 }: { item: ConnectorCatalogItem; size?: number }) {
   return (
     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-bg/50">
-      {Icon ? <Icon size={size} color={item.color} /> : item.CustomIcon ? <item.CustomIcon size={size} /> : <span className="text-[10px] font-bold" style={{ color: item.color }}>{item.label.slice(0, 1)}</span>}
+      <ConnectorGlyph item={item} size={size} />
     </span>
   )
 }
@@ -159,28 +168,6 @@ function ThoughtFor({ meta, thinking }: { meta?: Meta; thinking?: string | null 
   )
 }
 
-function ChatLoadingPulse() {
-  return (
-    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }}
-      className="group flex gap-3">
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-accent/25 bg-accent/10 text-accent">
-        <Bot size={13} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface/65 px-3 py-1.5 text-xs text-muted shadow-[0_12px_34px_rgb(0_0_0/0.12)]">
-          <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
-          <span>TOBI is composing</span>
-          <span className="flex items-center gap-1">
-            <span className="h-1 w-1 rounded-full bg-muted/60 animate-pulse" />
-            <span className="h-1 w-1 rounded-full bg-muted/60 animate-pulse [animation-delay:120ms]" />
-            <span className="h-1 w-1 rounded-full bg-muted/60 animate-pulse [animation-delay:240ms]" />
-          </span>
-        </div>
-      </div>
-    </motion.div>
-  )
-}
-
 const readDataURL = (f: File) => new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result as string); r.onerror = rej; r.readAsDataURL(f) })
 
 export default function Chat() {
@@ -219,6 +206,9 @@ export default function Chat() {
   const [webResearch, setWebResearch] = useState(false)
   const [connectors, setConnectors] = useState<string[]>([])
   const [connectorOpts, setConnectorOpts] = useState<{ id: string; label: string }[]>([])
+  const [thinkingPhase, setThinkingPhase] = useState('')
+  const [thinkingTools, setThinkingTools] = useState<string[]>([])
+  const [thinkingStartedAt, setThinkingStartedAt] = useState(0)
   const [editing, setEditing] = useState<number | null>(null)
   const [editVal, setEditVal] = useState('')
   const [activityOpen, setActivityOpen] = useState(false)
@@ -286,7 +276,7 @@ export default function Chat() {
       } catch { /* ignore */ }
       try {
         const r = await getIntegrations()
-        setConnectorOpts(r.integrations.filter(i => i.connected && i.category === 'tools').map(i => ({ id: i.id, label: i.label })))
+        setConnectorOpts(r.integrations.filter(i => i.connected && i.category === 'tools' && !['codex', 'explore'].includes(i.id)).map(i => ({ id: i.id, label: i.label })))
       } catch { /* ignore */ }
       try {
         const r = await getChatSessions()
@@ -434,12 +424,13 @@ export default function Chat() {
     const tag = opts.attachments?.length ? `  📎×${opts.attachments.length}` : ''
     setMessages(m => [...m, { role: 'user', content: text + tag }])
     setSending(true); setPending(null); setModelIssue(false)
+    setThinkingPhase(''); setThinkingTools([]); setThinkingStartedAt(Date.now())
     const ac = new AbortController(); abortRef.current = ac
     let streamed = false; let toolsSeen: string[] = []
     const startAssistant = () => { if (streamed) return; streamed = true; setSending(false); setStreaming(true); setMessages(m => [...m, { role: 'assistant', content: '', meta: {} }]) }
     try {
       await streamChatSession(sid, text, model, {
-        onThinking: (_phase, tools) => { if (tools?.length) toolsSeen = tools },
+        onThinking: (phase, tools) => { if (phase) setThinkingPhase(phase); if (tools?.length) { toolsSeen = tools; setThinkingTools(tools) } },
         onDelta: (delta) => {
           startAssistant()
           deltaBufRef.current += delta
@@ -945,7 +936,7 @@ export default function Chat() {
                 )
               })}
 
-              <AnimatePresence>{sending && <ChatLoadingPulse />}</AnimatePresence>
+              <AnimatePresence>{sending && <ThinkingOrb key="orb" phase={thinkingPhase} tools={thinkingTools} startedAt={thinkingStartedAt} />}</AnimatePresence>
 
               {/* model-issue notice — one-tap switch */}
               {modelIssue && !busy && (
@@ -1129,15 +1120,32 @@ export default function Chat() {
               {/* HUD energy hairline across the top edge */}
               <div className="pointer-events-none absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-accent/45 to-transparent" />
 
-              {/* mode pills strip — borderless, active pill glows */}
-              {false && <div className="flex flex-wrap items-center gap-0.5 px-2 pt-2">
-                {CHAT_MODES.map(({ id, label, hint, Icon }) => (
-                  <button key={id} onClick={() => { setMode(id); if (id === 'research') setWebResearch(true) }} title={hint}
-                    className={`flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-medium transition-all ${mode === id ? 'bg-accent/12 text-accent shadow-[0_0_16px_rgb(var(--accent)/0.18)] ring-1 ring-accent/30' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
-                    <Icon size={12} className={mode === id ? '' : 'opacity-70'} /> <span className="hidden sm:inline">{label}</span>
-                  </button>
-                ))}
-              </div>}
+              {/* selected connectors — removable chips above the textarea */}
+              <AnimatePresence>
+                {connectors.length > 0 && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.18 }}
+                    className="overflow-hidden">
+                    <div className="flex flex-wrap items-center gap-1.5 px-3 pt-2.5">
+                      {connectors.map(cid => {
+                        const row = connectorRows.find(r => r.id === cid)
+                          ?? connectorRows.find(r => connectorMatches(r.item, { id: cid, label: cid }))
+                        const item = row?.item ?? { id: cid, label: cid, desc: '', color: '#58a6ff' } as ConnectorCatalogItem
+                        const label = row?.label ?? cid
+                        return (
+                          <motion.span key={cid} layout initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
+                            transition={{ duration: 0.16 }}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-bg/50 py-1 pl-1 pr-1.5 text-xs text-text">
+                            <span className="flex h-5 w-5 items-center justify-center rounded-md bg-bg/60"><ConnectorGlyph item={item} size={12} /></span>
+                            <span className="font-medium">{label}</span>
+                            <button onClick={() => toggleConnector(cid)} aria-label={`Remove ${label}`} title={`Remove ${label}`}
+                              className="ml-0.5 flex h-4 w-4 items-center justify-center rounded text-muted transition-colors hover:bg-white/10 hover:text-danger"><X size={11} /></button>
+                          </motion.span>
+                        )
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* textarea — transparent, the card is the surface */}
               <div className="relative px-3 pt-2.5">
@@ -1166,36 +1174,6 @@ export default function Chat() {
               {/* bottom toolbar — tools left · model + send right */}
               <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-1">
                 <div className="flex items-center gap-0.5">
-                  <div className="relative" ref={modeRef}>
-                    <button onClick={() => setModeOpen(o => !o)} title="Message mode"
-                      className={`flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors ${modeOpen ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
-                      <activeMode.Icon size={15} />
-                      <span className="hidden sm:inline">{activeMode.label}</span>
-                      <ChevronDown size={12} className={`transition-transform ${modeOpen ? 'rotate-180' : ''}`} />
-                    </button>
-                    <AnimatePresence>
-                      {modeOpen && (
-                        <motion.div initial={{ opacity: 0, y: 6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6, scale: 0.97 }} transition={{ duration: 0.14 }}
-                          className="absolute bottom-11 left-0 z-30 w-72 rounded-xl border border-border bg-surface p-1.5 shadow-xl">
-                          <div className="px-2.5 py-1 text-[10px] uppercase tracking-wide text-muted">Mode for next message</div>
-                          {CHAT_MODES.map(({ id, label, hint, Icon }) => {
-                            const selected = mode === id
-                            return (
-                              <button key={id} onClick={() => selectMode(id)}
-                                className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors ${selected ? 'bg-accent/10 text-accent' : 'text-text hover:bg-bg/60'}`}>
-                                <Icon size={15} className="shrink-0" />
-                                <span className="min-w-0 flex-1">
-                                  <span className="block text-sm font-medium">{label}</span>
-                                  <span className="block truncate text-[11px] text-muted">{hint}</span>
-                                </span>
-                                {selected && <Check size={14} className="shrink-0" />}
-                              </button>
-                            )
-                          })}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
                   <div className="relative" ref={plusRef}>
                     <button onClick={() => setPlusOpen(o => !o)} title="Tools & attachments"
                       className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${plusOpen ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
@@ -1300,6 +1278,36 @@ export default function Chat() {
                 </div>
 
                 <div className="flex items-center gap-1.5">
+                  <div className="relative" ref={modeRef}>
+                    <button onClick={() => setModeOpen(o => !o)} title="Message mode"
+                      className={`flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors ${modeOpen ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
+                      <activeMode.Icon size={15} />
+                      <span className="hidden sm:inline">{activeMode.label}</span>
+                      <ChevronDown size={12} className={`transition-transform ${modeOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    <AnimatePresence>
+                      {modeOpen && (
+                        <motion.div initial={{ opacity: 0, y: 6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6, scale: 0.97 }} transition={{ duration: 0.14 }}
+                          className="absolute bottom-11 right-0 z-30 w-72 rounded-xl border border-border bg-surface p-1.5 shadow-xl">
+                          <div className="px-2.5 py-1 text-[10px] uppercase tracking-wide text-muted">Mode for next message</div>
+                          {CHAT_MODES.map(({ id, label, hint, Icon }) => {
+                            const selected = mode === id
+                            return (
+                              <button key={id} onClick={() => selectMode(id)}
+                                className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors ${selected ? 'bg-accent/10 text-accent' : 'text-text hover:bg-bg/60'}`}>
+                                <Icon size={15} className="shrink-0" />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block text-sm font-medium">{label}</span>
+                                  <span className="block truncate text-[11px] text-muted">{hint}</span>
+                                </span>
+                                {selected && <Check size={14} className="shrink-0" />}
+                              </button>
+                            )
+                          })}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
                   <ModelMenu models={models} value={model} onChange={changeModel} open={modelMenuOpen} onOpenChange={setModelMenuOpen} direction="up" />
                   {busy && (
                     <button onClick={send} disabled={!input.trim() && !attachments.length} title="Queue next turn" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-warning/45 bg-warning/10 text-warning hover:bg-warning/20 disabled:opacity-40"><ListChecks size={15} /></button>
