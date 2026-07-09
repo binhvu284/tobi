@@ -9,7 +9,8 @@ import {
   Share2, KeyRound, Inbox, FileText, Code2, Workflow, History, Cpu, HardDrive,
   Newspaper, Activity, Plus,
 } from 'lucide-react'
-import { useTheme, THEMES, THEME_META } from '../context/ThemeProvider'
+import { useTheme } from '../context/ThemeProvider'
+import { ACTIVE_THEMES, THEME_DEFS } from '../context/themeTokens'
 import { useToast } from '../context/ToastProvider'
 import { WORKSPACE_ROUTES, MAX_WORKSPACE_TABS, getWorkspaceRouteMeta, useWorkspaceTabs } from '../context/WorkspaceTabsContext'
 import { getOfficeStats, getEvolution, type OfficeStats, type EvolutionReport } from '../api'
@@ -321,23 +322,30 @@ function SidebarContent({ onNavigate, collapsed = false, onToggleCollapse, openS
 function ThemeQuickSwitch() {
   const { theme, set } = useTheme()
   const [open, setOpen] = useState(false)
+  // Guarded lookup: stored values are migrated at load, but never crash the header.
+  const current = THEME_DEFS[theme]
   return (
     <div className="relative">
       <button onClick={() => setOpen(o => !o)} className="flex items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-xs text-muted hover:text-text" title="Theme">
-        <Palette size={14} /> <span className="hidden sm:inline">{THEME_META[theme].label}</span>
+        <Palette size={14} /> <span className="hidden sm:inline">{current?.label ?? 'Theme'}</span>
       </button>
       <AnimatePresence>
         {open && (
           <>
             <div className="fixed inset-0 z-[90]" onClick={() => setOpen(false)} />
             <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
-              className="absolute right-0 z-[91] mt-2 w-44 overflow-hidden rounded-xl border border-border bg-surface/95 shadow-2xl ring-1 ring-accent/10 backdrop-blur-xl">
-              {THEMES.map(t => (
-                <button key={t} onClick={() => { set({ theme: t }); setOpen(false) }}
-                  className={`block w-full px-3 py-2 text-left text-xs ${t === theme ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
-                  {THEME_META[t].label}
-                </button>
-              ))}
+              className="tv2-popover absolute right-0 z-[91] mt-2 w-48 overflow-hidden border border-border bg-surface/95 ring-1 ring-accent/10 backdrop-blur-xl">
+              {ACTIVE_THEMES.map(t => {
+                const def = THEME_DEFS[t]
+                const Icon = def.icon
+                return (
+                  <button key={t} onClick={() => { set({ theme: t }); setOpen(false) }}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs ${t === theme ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
+                    <Icon size={13} className={t === theme ? 'text-accent' : 'text-muted'} />
+                    {def.label}
+                  </button>
+                )
+              })}
             </motion.div>
           </>
         )}
@@ -454,7 +462,7 @@ function NewTabButton({ openTab, openRoutes }: { openTab: (r: string) => void; o
 }
 
 function WorkspaceTabsBar() {
-  const { tabs, activeId, tabLabels, focusTab, closeTab, reorderTabs, openTab } = useWorkspaceTabs()
+  const { tabs, activeId, tabLabels, tabIcons, focusTab, closeTab, reorderTabs, openTab } = useWorkspaceTabs()
   const [dragId, setDragId] = useState<string | null>(null)
 
   return (
@@ -468,6 +476,7 @@ function WorkspaceTabsBar() {
             {tabs.map((tab, i) => {
               const base = getWorkspaceRouteMeta(tab.route)
               const meta = { ...base, label: tabLabels[tab.id] ?? base.label }
+              const emoji = tabIcons[tab.id]
               const Icon = meta.Icon
               const active = tab.id === activeId
               const showDivider = !active && i < tabs.length - 1 && tabs[i + 1].id !== activeId
@@ -489,7 +498,9 @@ function WorkspaceTabsBar() {
                   } ${dragId === tab.id ? 'opacity-60' : ''}`}>
                   <button onClick={() => focusTab(tab.id)} title={meta.label}
                     className="relative z-10 flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-t-[8px]">
-                    <Icon size={13} className={`shrink-0 transition-colors duration-200 ${active ? 'text-accent' : 'text-muted opacity-80 group-hover:opacity-100'}`} />
+                    {emoji
+                      ? <span className={`shrink-0 text-[14px] leading-none transition-opacity duration-200 ${active ? '' : 'opacity-80 group-hover:opacity-100'}`}>{emoji}</span>
+                      : <Icon size={13} className={`shrink-0 transition-colors duration-200 ${active ? 'text-accent' : 'text-muted opacity-80 group-hover:opacity-100'}`} />}
                     <span className={`truncate text-xs font-medium transition-colors duration-200 ${active ? 'text-text' : 'text-muted group-hover:text-text'}`}>
                       {meta.label}
                     </span>

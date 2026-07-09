@@ -40,7 +40,7 @@ export default function ProjectWorkspace() {
   const pid = Number(projectId)
   const navigate = useNavigate()
   const { toast } = useToast()
-  const { setTabLabel } = useWorkspaceTabs()
+  const { setTabLabel, setTabIcon } = useWorkspaceTabs()
 
   const tab: TabId = (TABS.some(t => t.id === splat) ? splat : 'overview') as TabId
   const setTab = (t: TabId) => navigate(`/projects/${pid}/${t}`)
@@ -73,9 +73,10 @@ export default function ProjectWorkspace() {
     if (!p || registered.current) return
     registered.current = true
     const key = projectTabKey(`/projects/${pid}`)
-    if (key) setTabLabel(key, p.name)
-    pushRecentProject({ id: p.id, name: p.name, icon: (p.icon_type === 'emoji' || !p.icon_type) ? (p.icon_value || p.emoji_icon || '📁') : '📁' })
-  }, [ov, pid, setTabLabel])
+    const emoji = (p.icon_type === 'emoji' || !p.icon_type) ? (p.icon_value || p.emoji_icon || '📁') : '📁'
+    if (key) { setTabLabel(key, p.name); setTabIcon(key, emoji) }
+    pushRecentProject({ id: p.id, name: p.name, icon: emoji })
+  }, [ov, pid, setTabLabel, setTabIcon])
   useEffect(() => { registered.current = false }, [pid])
 
   // Tasks drawer state lives here so Overview's active-task list can open it too.

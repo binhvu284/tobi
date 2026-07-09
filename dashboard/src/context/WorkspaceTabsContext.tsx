@@ -49,16 +49,19 @@ const ROUTE_META = new Map(WORKSPACE_ROUTES.map(r => [r.route, r]))
 const TABS_KEY = 'tobi.workspace.tabs.v2'
 const ACTIVE_KEY = 'tobi.workspace.activeTab.v2'
 const LABELS_KEY = 'tobi.workspace.tabLabels.v1'
+const ICONS_KEY = 'tobi.workspace.tabIcons.v1'
 
 type WorkspaceTabsContextValue = {
   tabs: WorkspaceTab[]
   activeId: string
   tabLabels: Record<string, string>
+  tabIcons: Record<string, string>
   focusTab: (id: string) => void
   closeTab: (id: string) => void
   reorderTabs: (fromId: string, toId: string) => void
   openTab: (route: string) => void
   setTabLabel: (id: string, label: string) => void
+  setTabIcon: (id: string, icon: string) => void
 }
 
 const WorkspaceTabsContext = createContext<WorkspaceTabsContextValue | null>(null)
@@ -98,6 +101,9 @@ export function getWorkspaceRouteMeta(route: string): WorkspaceRouteMeta {
 function loadLabels(): Record<string, string> {
   try { return JSON.parse(localStorage.getItem(LABELS_KEY) || '{}') } catch { return {} }
 }
+function loadIcons(): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(ICONS_KEY) || '{}') } catch { return {} }
+}
 
 function makeTab(route: string): WorkspaceTab {
   const clean = normalizeWorkspaceRoute(route)
@@ -133,6 +139,7 @@ export function WorkspaceTabsProvider({ children }: { children: ReactNode }) {
   const [tabs, setTabs] = useState<WorkspaceTab[]>(initial.tabs)
   const [activeId, setActiveId] = useState(initial.activeId)
   const [tabLabels, setTabLabels] = useState<Record<string, string>>(loadLabels)
+  const [tabIcons, setTabIcons] = useState<Record<string, string>>(loadIcons)
 
   useEffect(() => {
     if (loc.pathname === '/') {
@@ -169,6 +176,7 @@ export function WorkspaceTabsProvider({ children }: { children: ReactNode }) {
     tabs,
     activeId,
     tabLabels,
+    tabIcons,
     openTab: (route) => {
       const clean = normalizeWorkspaceRoute(route)
       if (!isTabbable(clean)) return
@@ -227,7 +235,15 @@ export function WorkspaceTabsProvider({ children }: { children: ReactNode }) {
         return next
       })
     },
-  }), [activeId, navigate, tabLabels, tabs, toast])
+    setTabIcon: (id, icon) => {
+      setTabIcons(prev => {
+        if (prev[id] === icon) return prev
+        const next = { ...prev, [id]: icon }
+        try { localStorage.setItem(ICONS_KEY, JSON.stringify(next)) } catch { /* ignore */ }
+        return next
+      })
+    },
+  }), [activeId, navigate, tabIcons, tabLabels, tabs, toast])
 
   return <WorkspaceTabsContext.Provider value={value}>{children}</WorkspaceTabsContext.Provider>
 }
