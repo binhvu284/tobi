@@ -75,6 +75,9 @@ function NavSection({ group, links, collapsed, onNavigate, open, onToggle }: {
   open: boolean
   onToggle: () => void
 }) {
+  const recents = useRecentProjects()
+  const [projectsOpen, setProjectsOpen] = useState(() => { try { return localStorage.getItem('tobi.sidebar.projects') !== '0' } catch { return true } })
+  useEffect(() => { try { localStorage.setItem('tobi.sidebar.projects', projectsOpen ? '1' : '0') } catch { /* ignore */ } }, [projectsOpen])
   if (collapsed) {
     return (
       <div>
@@ -102,29 +105,50 @@ function NavSection({ group, links, collapsed, onNavigate, open, onToggle }: {
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18 }} className="overflow-hidden">
             <div className="mt-0.5 space-y-0.5">
-              {links.map(({ to, icon: Icon, label }) => (
-                <div key={to}>
-                  <NavLink to={to} onClick={onNavigate}
-                    className={({ isActive }) => `relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
-                      isActive ? 'text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
-                    {({ isActive }) => (
-                      <>
-                        {/* Sliding active pill — one shared layoutId per sidebar instance */}
-                        {isActive && (
-                          <motion.span layoutId="navActive" transition={SPRING.snappy}
-                            className="absolute inset-0 z-0 rounded-md bg-accent/15 ring-1 ring-accent/20" />
-                        )}
-                        <motion.span whileHover={{ scale: 1.18 }} transition={SPRING.pop} className="relative z-10 shrink-0">
-                          <Icon size={16} />
-                        </motion.span>
-                        <span className="relative z-10">{label}</span>
-                      </>
+              {links.map(({ to, icon: Icon, label }) => {
+                const showToggle = to === '/projects' && recents.length > 0
+                return (
+                  <div key={to} className="relative">
+                    <NavLink to={to} onClick={onNavigate}
+                      className={({ isActive }) => `relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${showToggle ? 'pr-9' : ''} ${
+                        isActive ? 'text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
+                      {({ isActive }) => (
+                        <>
+                          {/* Sliding active pill — one shared layoutId per sidebar instance */}
+                          {isActive && (
+                            <motion.span layoutId="navActive" transition={SPRING.snappy}
+                              className="absolute inset-0 z-0 rounded-md bg-accent/15 ring-1 ring-accent/20" />
+                          )}
+                          <motion.span whileHover={{ scale: 1.18 }} transition={SPRING.pop} className="relative z-10 shrink-0">
+                            <Icon size={16} />
+                          </motion.span>
+                          <span className="relative z-10">{label}</span>
+                        </>
+                      )}
+                    </NavLink>
+                    {/* Projects expands to recently-opened workspaces — toggle to collapse */}
+                    {showToggle && (
+                      <button
+                        onClick={() => setProjectsOpen(o => !o)}
+                        aria-label={projectsOpen ? 'Collapse projects' : 'Expand projects'}
+                        aria-expanded={projectsOpen} title="Recent projects"
+                        className="absolute right-1 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted transition-colors hover:bg-white/10 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
+                        <ChevronDown size={14} className={`transition-transform duration-200 ${projectsOpen ? '' : '-rotate-90'}`} />
+                      </button>
                     )}
-                  </NavLink>
-                  {/* Projects expands to recently-opened workspaces (#12 D10) */}
-                  {to === '/projects' && <ProjectRecents onNavigate={onNavigate} />}
-                </div>
-              ))}
+                    {to === '/projects' && (
+                      <AnimatePresence initial={false}>
+                        {projectsOpen && recents.length > 0 && (
+                          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18 }} className="overflow-hidden">
+                            <ProjectRecents items={recents} onNavigate={onNavigate} />
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </motion.div>
         )}
@@ -147,9 +171,8 @@ export function pushRecentProject(p: RecentProject) {
   } catch { /* ignore */ }
 }
 
-function ProjectRecents({ onNavigate }: { onNavigate?: () => void }) {
+function useRecentProjects(): RecentProject[] {
   const [items, setItems] = useState<RecentProject[]>([])
-  const loc = useLocation()
   useEffect(() => {
     const load = () => {
       try { setItems(JSON.parse(localStorage.getItem(RECENTS_KEY) || '[]')) } catch { setItems([]) }
@@ -158,6 +181,11 @@ function ProjectRecents({ onNavigate }: { onNavigate?: () => void }) {
     window.addEventListener('tobi:recent-projects', load)
     return () => window.removeEventListener('tobi:recent-projects', load)
   }, [])
+  return items
+}
+
+function ProjectRecents({ items, onNavigate }: { items: RecentProject[]; onNavigate?: () => void }) {
+  const loc = useLocation()
   if (!items.length) return null
   return (
     <div className="ml-6 space-y-0.5 border-l border-border/50 pl-2">
