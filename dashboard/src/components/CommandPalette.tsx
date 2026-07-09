@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, ArrowRight, Play, Palette, LayoutDashboard, Network, Zap, Building2, Kanban, HeartPulse, Terminal, Settings, type LucideIcon } from 'lucide-react'
-import { useTheme, THEMES, THEME_META, type Theme } from '../context/ThemeProvider'
+import { Search, ArrowRight, Play, LayoutDashboard, Network, Zap, Building2, Kanban, HeartPulse, Terminal, Settings, type LucideIcon } from 'lucide-react'
+import { useTheme } from '../context/ThemeProvider'
+import { ACTIVE_THEMES, THEME_DEFS, type ThemeId } from '../context/themeTokens'
 import { useToast } from '../context/ToastProvider'
 import { Stagger } from './motion'
 import { staggerChild, SPRING, useReducedMotionPref } from '../lib/motion'
@@ -51,7 +52,9 @@ export default function CommandPalette() {
     { id: 'run-report', label: 'Generate daily report', group: 'Run', icon: Play, run: () => runEng('report', 'Generate report') },
     { id: 'run-ceo', label: 'Run CEO strategy review', group: 'Run', icon: Play, run: () => runEng('ceo', 'CEO review') },
     { id: 'run-execute', label: 'Run execution cycle', group: 'Run', icon: Play, run: () => runEng('execute', 'Execution cycle') },
-    ...THEMES.map((t: Theme) => ({ id: `theme-${t}`, label: `Theme: ${THEME_META[t].label}`, group: 'Theme', icon: Palette, run: () => set({ theme: t }) })),
+    // Theme v2 (#13): only active themes appear; removed IDs are migrated at load
+    // and THEME_DEFS lookups here can never see an unknown value.
+    ...ACTIVE_THEMES.map((t: ThemeId) => ({ id: `theme-${t}`, label: `Theme: ${THEME_DEFS[t].label}`, group: 'Theme', icon: THEME_DEFS[t].icon, run: () => set({ theme: t }) })),
   ], [nav, set]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = useMemo(() => {

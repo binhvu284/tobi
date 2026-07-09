@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Check, Volume2, VolumeX, RotateCcw, Type, Rows, Palette, Sparkles, Globe, Save } from 'lucide-react'
-import { useTheme, THEMES, THEME_META, type Theme } from '../context/ThemeProvider'
+import {
+  Check, Volume2, VolumeX, RotateCcw, Type, Rows, Palette, Sparkles, Globe, Save,
+  SlidersHorizontal, FileUp,
+} from 'lucide-react'
+import { useTheme, type Theme } from '../context/ThemeProvider'
+import {
+  ACTIVE_THEMES, THEME_DEFS, ACCENT_PRESETS,
+  type RadiusPreset, type CardStyle, type ButtonStyle, type BackgroundStyle,
+  type ShadowDepth, type TypographyPreset, type MotionIntensity,
+} from '../context/themeTokens'
 import { useMotion, type MotionSetting } from '../context/MotionProvider'
 import { sfx } from '../hooks/useSound'
 import { getOwnerSettings, patchOwnerSettings } from '../api'
@@ -26,9 +34,108 @@ function ThemeSwatch({ t }: { t: Theme }) {
 
 function Section({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-border bg-surface p-5">
+    <div className="tv2-card p-5">
       <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-heading">{icon}{title}</div>
       {children}
+    </div>
+  )
+}
+
+/* ── Theme v2 guided customization (#13 §9) — presets, not freeform ────────── */
+
+function Chip<T extends string>({ value, active, onPick }: { value: T; active: boolean; onPick: (v: T) => void }) {
+  return (
+    <button onClick={() => onPick(value)}
+      className={`rounded-full border px-2.5 py-1 text-[11px] capitalize transition-colors ${
+        active ? 'border-accent/40 bg-accent/15 text-accent' : 'border-border text-muted hover:text-text'}`}>
+      {value}
+    </button>
+  )
+}
+
+function ControlRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 py-1.5">
+      <span className="w-24 shrink-0 text-[11px] text-muted">{label}</span>
+      {children}
+    </div>
+  )
+}
+
+const RADIUS_OPTS: RadiusPreset[] = ['sharp', 'soft', 'rounded']
+const CARD_OPTS: CardStyle[] = ['flat', 'outlined', 'glass', 'layered']
+const BUTTON_OPTS: ButtonStyle[] = ['solid', 'ghost', 'outline', 'glass']
+const BG_OPTS: BackgroundStyle[] = ['plain', 'grid', 'gradient', 'paper', 'hud']
+const SHADOW_OPTS: ShadowDepth[] = ['flat', 'soft', 'deep', 'glow']
+const TYPO_OPTS: TypographyPreset[] = ['default', 'technical', 'calm']
+const ANIM_OPTS: MotionIntensity[] = ['quiet', 'standard', 'expressive']
+const CONTRAST_OPTS = ['standard', 'boosted'] as const
+
+function ThemeCustomizer() {
+  const { theme, custom, customByTheme, setCustom, resetCustom } = useTheme()
+  const def = THEME_DEFS[theme]
+  const dirty = Object.keys(customByTheme[theme] ?? {}).length > 0
+
+  return (
+    <div className="mt-4 border-t border-border/60 pt-3">
+      <div className="mb-1 flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
+          <SlidersHorizontal size={12} /> Customize {def.label}
+        </div>
+        <button onClick={resetCustom} disabled={!dirty}
+          className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-muted transition-colors hover:text-text disabled:cursor-default disabled:opacity-40">
+          <RotateCcw size={11} /> Reset theme
+        </button>
+      </div>
+
+      <ControlRow label="Accent">
+        <button onClick={() => setCustom({ accent: null })} title={`${def.label} default`}
+          className={`flex h-6 items-center gap-1 rounded-full border px-2 text-[10px] transition-colors ${
+            custom.accent === null ? 'border-accent/50 text-accent' : 'border-border text-muted hover:text-text'}`}>
+          <span className="h-3 w-3 rounded-full" style={{ background: `rgb(${def.tokens.color.accent})` }} /> Default
+        </button>
+        {ACCENT_PRESETS.map(a => (
+          <button key={a.value} onClick={() => setCustom({ accent: a.value })} title={a.label}
+            className={`h-6 w-6 rounded-full border-2 transition-transform hover:scale-110 ${
+              custom.accent === a.value ? 'border-heading' : 'border-transparent'}`}
+            style={{ background: `rgb(${a.value})` }} />
+        ))}
+      </ControlRow>
+      <ControlRow label="Radius">
+        {RADIUS_OPTS.map(v => <Chip key={v} value={v} active={custom.radius === v} onPick={r => setCustom({ radius: r })} />)}
+      </ControlRow>
+      <ControlRow label="Cards">
+        {CARD_OPTS.map(v => <Chip key={v} value={v} active={custom.cardStyle === v} onPick={c => setCustom({ cardStyle: c })} />)}
+      </ControlRow>
+      <ControlRow label="Buttons">
+        {BUTTON_OPTS.map(v => <Chip key={v} value={v} active={custom.buttonStyle === v} onPick={b => setCustom({ buttonStyle: b })} />)}
+      </ControlRow>
+      <ControlRow label="Background">
+        {BG_OPTS.map(v => <Chip key={v} value={v} active={custom.background === v} onPick={b => setCustom({ background: b })} />)}
+      </ControlRow>
+      <ControlRow label="Shadows">
+        {SHADOW_OPTS.map(v => <Chip key={v} value={v} active={custom.shadowDepth === v} onPick={s => setCustom({ shadowDepth: s })} />)}
+      </ControlRow>
+      <ControlRow label="Typography">
+        {TYPO_OPTS.map(v => <Chip key={v} value={v} active={custom.typography === v} onPick={t => setCustom({ typography: t })} />)}
+      </ControlRow>
+      <ControlRow label="Animation">
+        {ANIM_OPTS.map(v => <Chip key={v} value={v} active={custom.motion === v} onPick={m => setCustom({ motion: m })} />)}
+      </ControlRow>
+      <ControlRow label="Contrast">
+        {CONTRAST_OPTS.map(v => <Chip key={v} value={v} active={custom.contrast === v} onPick={c => setCustom({ contrast: c })} />)}
+      </ControlRow>
+      <p className="mt-1 text-[10px] text-muted">Saved per theme — switching themes remembers each one's tweaks.</p>
+
+      {/* Theme v3 import placeholder (#13 §10): quiet + disabled, no file input. */}
+      <div className="mt-3 flex items-center justify-between rounded-lg border border-dashed border-border/60 px-3 py-2.5 opacity-60">
+        <div className="flex items-center gap-2 text-[11px] text-muted">
+          <FileUp size={13} /> Import custom theme from file
+        </div>
+        <span className="rounded bg-white/5 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted">
+          Coming in Theme v3
+        </span>
+      </div>
     </div>
   )
 }
@@ -92,33 +199,41 @@ export default function Settings() {
           <h1 className="text-xl font-bold text-heading">Settings</h1>
           <p className="text-xs text-muted">Customize the look & feel — saved to this browser. (Office keeps its cyberpunk theme.)</p>
         </div>
-        <button onClick={reset} className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text">
+        <button onClick={reset} className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text"
+          title="Reset all appearance preferences">
           <RotateCcw size={13} /> Reset
         </button>
       </div>
 
       <div className="space-y-4">
         <Section title="Theme" icon={<Palette size={15} className="text-accent" />}>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {THEMES.map((t: Theme) => (
-              <button key={t} onClick={() => { set({ theme: t }); sfx.select() }}
-                className={`flex flex-col gap-2 rounded-lg border p-3 text-left transition-colors ${theme === t ? 'border-accent bg-accent/10' : 'border-border hover:border-white/20'}`}>
-                <div className="flex items-center justify-between">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {ACTIVE_THEMES.map(t => {
+              const def = THEME_DEFS[t]
+              const Icon = def.icon
+              return (
+                <button key={t} onClick={() => { set({ theme: t }); sfx.select() }}
+                  className={`flex flex-col gap-2 rounded-lg border p-3 text-left transition-colors ${
+                    theme === t ? 'border-accent bg-accent/10' : 'border-border hover:border-white/20'}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <Icon size={14} className={theme === t ? 'text-accent' : 'text-muted'} />
+                      <span className="truncate text-xs font-semibold text-heading">{def.label}</span>
+                    </div>
+                    {theme === t && <Check size={14} className="shrink-0 text-accent" />}
+                  </div>
                   <ThemeSwatch t={t} />
-                  {theme === t && <Check size={14} className="text-accent" />}
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-heading">{THEME_META[t].label}</div>
-                  <div className="text-[10px] text-muted">{THEME_META[t].hint}</div>
-                </div>
-              </button>
-            ))}
+                  <div className="text-[10px] leading-snug text-muted">{def.description}</div>
+                </button>
+              )
+            })}
           </div>
+          <ThemeCustomizer />
         </Section>
 
         <Section title="Density" icon={<Rows size={15} className="text-accent" />}>
           <div className="flex gap-2">
-            {(['comfortable', 'compact'] as const).map(d => (
+            {(['compact', 'comfortable', 'spacious'] as const).map(d => (
               <button key={d} onClick={() => set({ density: d })}
                 className={`flex-1 rounded-lg border px-3 py-2 text-sm capitalize transition-colors ${density === d ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:text-text'}`}>
                 {d}

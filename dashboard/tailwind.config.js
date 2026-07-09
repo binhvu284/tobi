@@ -17,6 +17,24 @@ export default {
         warning: 'rgb(var(--warning) / <alpha-value>)',
         danger: 'rgb(var(--danger) / <alpha-value>)',
         purple: 'rgb(var(--purple) / <alpha-value>)',
+        accent2: 'rgb(var(--theme-accent-2, var(--purple)) / <alpha-value>)',
+      },
+      /* Theme v2 (#13): md/lg/xl/2xl track the theme's shape tokens so radius
+         personality (sharp/soft/rounded) applies app-wide without page rewrites.
+         Fallbacks equal Tailwind's defaults; rounded-full/sm stay untouched. */
+      borderRadius: {
+        md: 'var(--radius-input, 0.375rem)',
+        lg: 'var(--radius-button, 0.5rem)',
+        xl: 'var(--radius-card, 0.75rem)',
+        '2xl': 'calc(var(--radius-card, 0.75rem) + 4px)',
+        card: 'var(--radius-card, 0.75rem)',
+        btn: 'var(--radius-button, 0.5rem)',
+        input: 'var(--radius-input, 0.375rem)',
+      },
+      boxShadow: {
+        card: 'var(--shadow-card, 0 1px 3px rgb(0 0 0 / 0.2))',
+        popover: 'var(--shadow-popover, 0 16px 40px -12px rgb(0 0 0 / 0.4))',
+        '2xl': 'var(--shadow-popover, 0 25px 50px -12px rgb(0 0 0 / 0.25))',
       },
       fontFamily: {
         sans: ['ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],

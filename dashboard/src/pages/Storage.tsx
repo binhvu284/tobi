@@ -33,12 +33,16 @@ function useChartColors() {
     const css = getComputedStyle(document.documentElement)
     const v = (name: string) => `rgb(${css.getPropertyValue(name).trim().split(/\s+/).join(' ')})`
     const va = (name: string, a: number) => `rgb(${css.getPropertyValue(name).trim().split(/\s+/).join(' ')} / ${a})`
+    // Theme v2 (#13): prefer the theme's dedicated chart palette (--chart-1..6),
+    // falling back to the semantic tokens for any theme that doesn't define it.
+    const chart = (n: number, fb: string) => (css.getPropertyValue(`--chart-${n}`).trim() ? v(`--chart-${n}`) : v(fb))
     return {
       accent: v('--accent'), purple: v('--purple'), success: v('--success'),
       warning: v('--warning'), danger: v('--danger'), muted: v('--muted'),
       border: v('--border'), surface: v('--surface'), text: v('--text'),
       grid: va('--border', 0.5), accentSoft: va('--accent', 0.25),
-      cat: [v('--accent'), v('--purple'), v('--success'), v('--warning'), v('--danger'), v('--muted')],
+      cat: [chart(1, '--accent'), chart(2, '--purple'), chart(3, '--success'),
+        chart(4, '--warning'), chart(5, '--danger'), chart(6, '--muted')],
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [theme])

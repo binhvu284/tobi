@@ -365,7 +365,7 @@ export default function Projects() {
               className={`p-2 transition-colors ${view === 'list' ? 'bg-accent/15 text-accent' : 'text-muted hover:text-text'}`}><List size={15} /></button>
           </div>
           <button onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent/90 transition-colors">
+            className="tv2-btn flex items-center gap-2 px-3 py-2 text-sm font-medium">
             <Plus size={15} /> New Project
           </button>
         </div>

@@ -2,10 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Theme tokens (channel triplets so `bg-accent/10` opacity modifiers work) ──
-   Tailwind colors resolve to rgb(var(--x) / <alpha-value>). :root = Dark (default,
-   a pixel-for-pixel no-op of the original palette). Other themes override the vars
-   via [data-theme="..."]. Office pins itself to data-theme="dark" to stay cyberpunk. */
+/* ── Theme v2 tokens (queue #13) ──────────────────────────────────────────────
+   Channel triplets so `bg-accent/10` opacity modifiers work: Tailwind colors
+   resolve to rgb(var(--x) / <alpha-value>). These blocks are the CSS *fallback*
+   (first paint, Settings swatch previews via data-theme, Office's pinned dark
+   wrappers); the source of truth is src/context/themeTokens.ts — ThemeProvider
+   writes the effective set (theme defaults + per-theme customization) inline on
+   <html>, which wins at root level while [data-theme] previews still resolve
+   locally. Keep both in sync when editing a theme.
+   Active: dark · light · gaming · hightech · japanese · chinese · jarvis.
+   Removed (auto-migrated at load): midnight→gaming, contrast→dark, warm→dark,
+   scientific→light. */
 :root, [data-theme="dark"] {
   color-scheme: dark;
   --bg: 13 17 23;        --surface: 22 27 34;   --panel: 16 21 28;     --border: 48 54 61;
@@ -13,6 +20,13 @@
   --muted: 139 148 158;  --text: 201 209 217;   --heading: 240 246 252;
   --accent: 88 166 255;  --success: 63 185 80;  --warning: 210 153 34;
   --danger: 248 81 73;   --purple: 139 92 246;
+  --theme-accent-2: 139 92 246;  --theme-glow: 88 166 255;
+  --radius-card: 12px; --radius-button: 8px; --radius-input: 6px;
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.20);
+  --shadow-popover: 0 16px 40px -12px rgb(0 0 0 / 0.40);
+  --tracking-ui: 0em; --spacing-scale: 1; --bg-overlay-opacity: 0.04;
+  --chart-1: 88 166 255; --chart-2: 139 92 246; --chart-3: 63 185 80;
+  --chart-4: 210 153 34; --chart-5: 248 81 73;  --chart-6: 45 212 191;
   --font-scale: 1;
 }
 [data-theme="light"] {
@@ -22,54 +36,93 @@
   --muted: 90 100 110;   --text: 30 41 59;       --heading: 15 23 42;
   --accent: 37 99 235;   --success: 22 163 74;   --warning: 202 138 4;
   --danger: 220 38 38;   --purple: 124 58 237;
+  --theme-accent-2: 124 58 237;  --theme-glow: 37 99 235;
+  --radius-card: 12px; --radius-button: 8px; --radius-input: 6px;
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.20);
+  --shadow-popover: 0 16px 40px -12px rgb(0 0 0 / 0.40);
+  --tracking-ui: 0em; --spacing-scale: 1; --bg-overlay-opacity: 0.03;
+  --chart-1: 37 99 235;  --chart-2: 124 58 237; --chart-3: 22 163 74;
+  --chart-4: 202 138 4;  --chart-5: 220 38 38;  --chart-6: 13 148 136;
 }
-[data-theme="midnight"] {
-  color-scheme: dark;
-  --bg: 8 8 14;          --surface: 16 16 28;    --panel: 12 12 20;     --border: 40 30 60;
-  --strip: 16 16 28;
-  --muted: 130 130 160;  --text: 210 220 240;    --heading: 240 245 255;
-  --accent: 34 211 238;  --success: 52 211 153;  --warning: 250 204 21;
-  --danger: 244 63 94;   --purple: 217 70 239;
-}
-[data-theme="contrast"] {
-  color-scheme: dark;
-  --bg: 0 0 0;           --surface: 18 18 18;    --panel: 10 10 10;     --border: 96 96 96;
-  --strip: 18 18 18;
-  --muted: 184 184 184;  --text: 240 240 240;    --heading: 255 255 255;
-  --accent: 0 200 255;   --success: 0 230 100;   --warning: 255 200 0;
-  --danger: 255 70 70;   --purple: 200 120 255;
-}
-[data-theme="warm"] {
-  color-scheme: dark;
-  --bg: 0 43 54;         --surface: 7 54 66;     --panel: 3 48 60;      --border: 88 110 117;
-  --strip: 7 54 66;
-  --muted: 131 148 150;  --text: 162 176 176;    --heading: 238 232 213;
-  --accent: 38 139 210;  --success: 133 153 0;   --warning: 181 137 0;
-  --danger: 220 50 47;   --purple: 108 113 196;
-}
+/* Gaming — esports neon: sharp HUD accents, lime success, purple/pink secondary. */
 [data-theme="gaming"] {
   color-scheme: dark;
-  --bg: 10 10 16;        --surface: 20 18 30;    --panel: 14 12 22;     --border: 60 40 80;
-  --strip: 20 18 30;
-  --muted: 150 140 170;  --text: 220 215 235;    --heading: 245 240 255;
-  --accent: 124 58 237;  --success: 57 255 20;   --warning: 255 170 0;
-  --danger: 255 45 85;   --purple: 168 85 247;
+  --bg: 9 8 16;          --surface: 19 16 30;    --panel: 13 11 22;     --border: 62 42 88;
+  --strip: 19 16 30;
+  --muted: 152 140 175;  --text: 222 216 238;    --heading: 246 242 255;
+  --accent: 168 85 247;  --success: 57 255 20;   --warning: 255 170 0;
+  --danger: 255 45 85;   --purple: 217 70 239;
+  --theme-accent-2: 255 45 170;  --theme-glow: 168 85 247;
+  --radius-card: 6px; --radius-button: 4px; --radius-input: 4px;
+  --shadow-card: 0 0 0 1px rgb(var(--accent) / 0.06), 0 0 20px -4px rgb(var(--accent) / 0.18);
+  --shadow-popover: 0 16px 48px -8px rgb(var(--accent) / 0.28);
+  --tracking-ui: 0.015em; --spacing-scale: 1; --bg-overlay-opacity: 0.06;
+  --chart-1: 168 85 247; --chart-2: 255 45 170; --chart-3: 57 255 20;
+  --chart-4: 255 170 0;  --chart-5: 34 211 238; --chart-6: 255 45 85;
 }
+/* High Tech — clean engineering dashboard: cool blues, teal, precise borders. */
 [data-theme="hightech"] {
   color-scheme: dark;
-  --bg: 11 18 32;        --surface: 17 27 46;    --panel: 14 22 38;     --border: 42 58 86;
-  --strip: 17 27 46;
-  --muted: 130 150 180;  --text: 200 215 235;    --heading: 235 245 255;
+  --bg: 10 16 28;        --surface: 16 26 44;    --panel: 13 21 36;     --border: 44 62 92;
+  --strip: 16 26 44;
+  --muted: 128 148 178;  --text: 198 214 234;    --heading: 235 245 255;
   --accent: 56 189 248;  --success: 45 212 191;  --warning: 245 191 66;
   --danger: 248 113 113; --purple: 129 140 248;
+  --theme-accent-2: 45 212 191;  --theme-glow: 56 189 248;
+  --radius-card: 6px; --radius-button: 4px; --radius-input: 4px;
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.20);
+  --shadow-popover: 0 16px 40px -12px rgb(0 0 0 / 0.40);
+  --tracking-ui: -0.01em; --spacing-scale: 1; --bg-overlay-opacity: 0.05;
+  --chart-1: 56 189 248; --chart-2: 45 212 191; --chart-3: 129 140 248;
+  --chart-4: 245 191 66; --chart-5: 248 113 113; --chart-6: 148 163 184;
 }
-[data-theme="scientific"] {
+/* Japanese — washi white + sakura: calm minimal cards, soft radius. */
+[data-theme="japanese"] {
   color-scheme: light;
-  --bg: 248 250 252;     --surface: 255 255 255; --panel: 241 245 249; --border: 203 213 225;
-  --strip: 224 230 238;
-  --muted: 100 116 139;  --text: 51 65 85;       --heading: 15 23 42;
-  --accent: 14 165 233;  --success: 16 185 129;  --warning: 217 119 6;
-  --danger: 225 29 72;   --purple: 109 40 217;
+  --bg: 250 247 245;     --surface: 255 255 255; --panel: 247 241 240;  --border: 233 221 221;
+  --strip: 243 233 233;
+  --muted: 141 122 128;  --text: 74 60 66;       --heading: 45 33 39;
+  --accent: 224 93 128;  --success: 88 158 110;  --warning: 200 142 62;
+  --danger: 203 84 92;   --purple: 156 116 182;
+  --theme-accent-2: 156 116 182; --theme-glow: 224 93 128;
+  --radius-card: 16px; --radius-button: 12px; --radius-input: 10px;
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.20);
+  --shadow-popover: 0 16px 40px -12px rgb(0 0 0 / 0.40);
+  --tracking-ui: 0.015em; --spacing-scale: 1; --bg-overlay-opacity: 0.05;
+  --chart-1: 224 93 128; --chart-2: 156 116 182; --chart-3: 88 158 110;
+  --chart-4: 200 142 62; --chart-5: 203 84 92;   --chart-6: 120 140 160;
+}
+/* Chinese — red & gold premium SaaS: festive but professional. */
+[data-theme="chinese"] {
+  color-scheme: dark;
+  --bg: 26 13 12;        --surface: 40 21 19;    --panel: 33 17 15;     --border: 96 52 44;
+  --strip: 40 21 19;
+  --muted: 196 156 138;  --text: 240 219 204;    --heading: 252 240 225;
+  --accent: 224 66 56;   --success: 106 186 116; --warning: 214 168 48;
+  --danger: 250 98 86;   --purple: 186 108 158;
+  --theme-accent-2: 214 168 48;  --theme-glow: 214 168 48;
+  --radius-card: 12px; --radius-button: 8px; --radius-input: 6px;
+  --shadow-card: 0 10px 28px -10px rgb(0 0 0 / 0.50);
+  --shadow-popover: 0 28px 64px -16px rgb(0 0 0 / 0.55);
+  --tracking-ui: 0em; --spacing-scale: 1; --bg-overlay-opacity: 0.07;
+  --chart-1: 224 66 56;  --chart-2: 214 168 48;  --chart-3: 106 186 116;
+  --chart-4: 230 150 60; --chart-5: 250 98 86;   --chart-6: 170 120 90;
+}
+/* Jarvis OS — high-tech blue AI OS: dark, glowing but controlled, analytical. */
+[data-theme="jarvis"] {
+  color-scheme: dark;
+  --bg: 5 11 22;         --surface: 10 20 38;    --panel: 8 16 30;      --border: 28 52 88;
+  --strip: 10 20 38;
+  --muted: 108 138 172;  --text: 188 212 238;    --heading: 224 240 255;
+  --accent: 0 194 255;   --success: 62 220 172;  --warning: 255 188 70;
+  --danger: 255 86 100;  --purple: 128 122 250;
+  --theme-accent-2: 82 128 255;  --theme-glow: 0 194 255;
+  --radius-card: 6px; --radius-button: 4px; --radius-input: 4px;
+  --shadow-card: 0 0 0 1px rgb(var(--accent) / 0.06), 0 0 20px -4px rgb(var(--accent) / 0.18);
+  --shadow-popover: 0 16px 48px -8px rgb(var(--accent) / 0.28);
+  --tracking-ui: 0.015em; --spacing-scale: 1; --bg-overlay-opacity: 0.07;
+  --chart-1: 0 194 255;  --chart-2: 82 128 255;  --chart-3: 62 220 172;
+  --chart-4: 255 188 70; --chart-5: 255 86 100;  --chart-6: 128 122 250;
 }
 
 @layer base {
@@ -80,6 +133,8 @@
     color: rgb(var(--text));
     /* Sans for UI; use the `font-mono` utility for numbers/IDs/code. Office overrides to Rajdhani. */
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    /* Theme v2 typography personality (technical = tight, calm/wide = airy). */
+    letter-spacing: var(--tracking-ui, 0em);
   }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: rgb(var(--bg)); }
@@ -110,6 +165,92 @@
     transition: background-color 9999s ease-in-out 0s;
   }
 }
+
+/* ── Theme v2 background styles (§ background.style) ──────────────────────────
+   ThemeProvider sets data-bg-style on <html>; the pattern paints on <body> so it
+   shows behind every transparent page surface. Opacity is theme-tuned via
+   --bg-overlay-opacity. Office renders its own canvas scene and is unaffected. */
+[data-bg-style="grid"] body {
+  background-image:
+    linear-gradient(rgb(var(--accent) / calc(var(--bg-overlay-opacity, 0.05) * 0.8)) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--accent) / calc(var(--bg-overlay-opacity, 0.05) * 0.8)) 1px, transparent 1px);
+  background-size: 32px 32px;
+  background-attachment: fixed;
+}
+[data-bg-style="gradient"] body {
+  background-image:
+    radial-gradient(1100px 600px at 85% -10%, rgb(var(--theme-accent-2, var(--accent)) / calc(var(--bg-overlay-opacity, 0.05) * 1.4)), transparent 60%),
+    radial-gradient(900px 550px at -10% 100%, rgb(var(--accent) / var(--bg-overlay-opacity, 0.05)), transparent 60%);
+  background-attachment: fixed;
+}
+[data-bg-style="paper"] body {
+  background-image: radial-gradient(rgb(var(--muted) / calc(var(--bg-overlay-opacity, 0.05) * 1.5)) 1px, transparent 1px);
+  background-size: 18px 18px;
+  background-attachment: fixed;
+}
+[data-bg-style="hud"] body {
+  background-image:
+    radial-gradient(900px 500px at 50% -10%, rgb(var(--theme-glow, var(--accent)) / calc(var(--bg-overlay-opacity, 0.06) * 1.6)), transparent 65%),
+    linear-gradient(rgb(var(--accent) / calc(var(--bg-overlay-opacity, 0.06) * 0.7)) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--accent) / calc(var(--bg-overlay-opacity, 0.06) * 0.7)) 1px, transparent 1px);
+  background-size: auto, 40px 40px, 40px 40px;
+  background-attachment: fixed;
+}
+
+/* ── Theme v2 component personality (§ component.*) ───────────────────────────
+   Shared surfaces opt in with .tv2-card / .tv2-btn / .tv2-popover; the html
+   data-card-style / data-button-style attributes (theme default or per-theme
+   customization) restyle them centrally — no per-component theme conditionals. */
+@layer components {
+  .tv2-card {
+    border-radius: var(--radius-card, 0.75rem);
+    box-shadow: var(--shadow-card, none);
+    background-color: rgb(var(--surface));
+    border: 1px solid rgb(var(--border));
+  }
+  [data-card-style="flat"] .tv2-card { border-color: rgb(var(--border) / 0.45); box-shadow: none; }
+  [data-card-style="glass"] .tv2-card {
+    background-color: rgb(var(--surface) / 0.72);
+    backdrop-filter: blur(10px);
+    border-color: rgb(var(--border) / 0.7);
+  }
+  [data-card-style="layered"] .tv2-card {
+    background-image: linear-gradient(180deg, rgb(var(--heading) / 0.035), transparent 45%);
+  }
+
+  .tv2-popover {
+    border-radius: var(--radius-card, 0.75rem);
+    box-shadow: var(--shadow-popover, 0 16px 40px -12px rgb(0 0 0 / 0.40));
+  }
+
+  .tv2-btn {
+    border-radius: var(--radius-button, 0.5rem);
+    background-color: rgb(var(--accent));
+    color: rgb(255 255 255);
+    border: 1px solid transparent;
+    transition: filter 0.15s ease, background-color 0.15s ease;
+  }
+  .tv2-btn:hover { filter: brightness(1.08); }
+  [data-button-style="ghost"] .tv2-btn { background-color: rgb(var(--accent) / 0.14); color: rgb(var(--accent)); }
+  [data-button-style="outline"] .tv2-btn {
+    background-color: rgb(var(--accent) / 0.08);
+    color: rgb(var(--accent));
+    border-color: rgb(var(--accent) / 0.45);
+  }
+  [data-button-style="glass"] .tv2-btn {
+    background-color: rgb(var(--accent) / 0.18);
+    color: rgb(var(--heading));
+    border-color: rgb(var(--accent) / 0.35);
+    backdrop-filter: blur(6px);
+    box-shadow: 0 0 14px rgb(var(--accent) / 0.18);
+  }
+}
+
+/* Theme motion intensity (quiet damps ambient loops, expressive lifts them).
+   The user's Motion setting ([data-motion]) always wins — its guards below
+   use !important and stay untouched. */
+[data-theme-motion="quiet"] .ambient-field > .ambient-glow { animation: none; opacity: 0.04; }
+[data-theme-motion="expressive"] .ambient-field > .ambient-glow { opacity: 0.09; }
 
 @layer utilities {
   .pixel-art { image-rendering: pixelated; image-rendering: crisp-edges; }

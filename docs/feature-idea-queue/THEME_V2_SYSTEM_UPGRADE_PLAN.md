@@ -1,6 +1,6 @@
 # Theme v2 System Upgrade Plan
 
-> Queue status: Queued
+> Queue status: In progress — v1 implemented per this plan (see QUEUE.md #13 for the build/verification notes).
 > Scope: Planning only. This document is for a worker agent to implement later.
 > Do not implement Supabase or Vercel changes for this task.
 
