@@ -25,6 +25,7 @@ import TierEmblem from '../components/TierEmblem'
 import ModelMenu from '../components/chat/ModelMenu'
 import ThinkingOrb from '../components/chat/ThinkingOrb'
 import PickerWizard, { type PickerAnswer } from '../components/chat/PickerWizard'
+import ChatAmbient, { ChatHeroMotif } from '../components/chat/ChatAmbient'
 
 type TierMark = { tier: number; colorKey: string; roman: string; name: string }
 
@@ -762,6 +763,8 @@ export default function Chat() {
 
       {/* conversation */}
       <div className="relative flex min-w-0 flex-1 flex-col">
+        {/* Per-theme ambient ornaments (#13 M2.5) — behind everything, Chat-only. */}
+        <ChatAmbient />
         {/* ── collapsible HUD header — collapse control on the LEFT; closes fully ── */}
         {!headerCollapsed && (
         <div className="relative border-b border-border bg-bg/80 px-4 py-2 backdrop-blur sm:px-5">
@@ -854,7 +857,8 @@ export default function Chat() {
                 </div>
               )}
               {messages.length === 0 && (
-                <div className="mx-auto mt-12 max-w-md text-center">
+                <div className="relative isolate mx-auto mt-12 max-w-md text-center">
+                  <ChatHeroMotif />
                   <div className="mb-3 flex justify-center">{tobiMark(46, 'current')}</div>
                   <div className="text-base font-semibold text-heading">How can I help, sir?</div>
                   <p className="mt-1 text-xs text-muted">Ask anything, attach a file, or pick a starter below.</p>
@@ -1138,7 +1142,7 @@ export default function Chat() {
                             <span className="flex h-5 w-5 items-center justify-center rounded-md bg-bg/60"><ConnectorGlyph item={item} size={12} /></span>
                             <span className="font-medium">{label}</span>
                             <button onClick={() => toggleConnector(cid)} aria-label={`Remove ${label}`} title={`Remove ${label}`}
-                              className="ml-0.5 flex h-4 w-4 items-center justify-center rounded text-muted transition-colors hover:bg-white/10 hover:text-danger"><X size={11} /></button>
+                              className="ml-0.5 flex h-4 w-4 items-center justify-center rounded text-muted transition-colors hover:bg-overlay/10 hover:text-danger"><X size={11} /></button>
                           </motion.span>
                         )
                       })}
@@ -1176,7 +1180,7 @@ export default function Chat() {
                 <div className="flex items-center gap-0.5">
                   <div className="relative" ref={plusRef}>
                     <button onClick={() => setPlusOpen(o => !o)} title="Tools & attachments"
-                      className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${plusOpen ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
+                      className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${plusOpen ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-overlay/5 hover:text-text'}`}>
                       <Plus size={18} className={`transition-transform ${plusOpen ? 'rotate-45' : ''}`} />
                       {connectors.length > 0 && !plusOpen && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-bold text-bg">{connectors.length}</span>}
                     </button>
@@ -1271,7 +1275,7 @@ export default function Chat() {
                   </div>
                   {/* quick per-turn toggles — light up when active */}
                   <button onClick={() => setWebResearch(v => !v)} title="Web research"
-                    className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${webResearch ? 'bg-accent/15 text-accent shadow-[0_0_14px_rgb(var(--accent)/0.15)]' : 'text-muted hover:bg-white/5 hover:text-text'}`}><Globe size={16} /></button>
+                    className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${webResearch ? 'bg-accent/15 text-accent shadow-[0_0_14px_rgb(var(--accent)/0.15)]' : 'text-muted hover:bg-overlay/5 hover:text-text'}`}><Globe size={16} /></button>
                   {attachments.length > 0 && (
                     <span className="ml-0.5 flex items-center gap-1 rounded-md bg-accent/10 px-1.5 py-1.5 text-[10px] font-medium text-accent"><Paperclip size={11} /> {attachments.length}</span>
                   )}
@@ -1280,7 +1284,7 @@ export default function Chat() {
                 <div className="flex items-center gap-1.5">
                   <div className="relative" ref={modeRef}>
                     <button onClick={() => setModeOpen(o => !o)} title="Message mode"
-                      className={`flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors ${modeOpen ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
+                      className={`flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors ${modeOpen ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-overlay/5 hover:text-text'}`}>
                       <activeMode.Icon size={15} />
                       <span className="hidden sm:inline">{activeMode.label}</span>
                       <ChevronDown size={12} className={`transition-transform ${modeOpen ? 'rotate-180' : ''}`} />
