@@ -4,7 +4,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion'
 import {
   LayoutDashboard, Network, Zap, Building2, Kanban, HeartPulse, Settings,
-  Menu, X, Bell, Command, Palette, Circle, FolderKanban, TrendingUp,
+  Menu, X, Bell, Palette, Circle, FolderKanban, TrendingUp,
   ChevronsLeft, ChevronsRight, ChevronUp, ChevronDown, Brain, MessagesSquare,
   Share2, KeyRound, Inbox, FileText, Code2, Workflow, History, Cpu, HardDrive,
   Newspaper, Activity, Plus,
@@ -582,10 +582,6 @@ function TopBar({ onMenu, stats, onHide }: { onMenu: () => void; stats: OfficeSt
       </div>
       <div className="flex shrink-0 items-center gap-1.5 pl-2 pr-2.5">
         <StatusIndicator stats={stats} />
-        <button onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
-          className="hidden items-center gap-1.5 rounded-lg border border-border px-2 py-1.5 text-xs text-muted transition-colors hover:border-accent/40 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 sm:flex">
-          <Command size={13} /> <span>K</span>
-        </button>
         <ClockCalendar />
         <ThemeQuickSwitch />
         <BellInbox />
