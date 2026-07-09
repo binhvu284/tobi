@@ -32,6 +32,8 @@ const Office = lazy(() => import('./pages/Office'))
 const Storage = lazy(() => import('./pages/Storage'))
 // News (Explore) carries Recharts too — lazy-load so it stays out of the main bundle.
 const News = lazy(() => import('./pages/News'))
+// Project v2 full-page workspace (#12) — lazy so the main bundle stays lean.
+const ProjectWorkspace = lazy(() => import('./pages/ProjectWorkspace'))
 
 function RouteSet({ location }: { location?: string }) {
   return (
@@ -53,6 +55,10 @@ function RouteSet({ location }: { location?: string }) {
       } />
       <Route path="/task" element={<Task />} />
       <Route path="/projects" element={<Projects />} />
+      {/* One splat route keeps the workspace mounted across inner-tab changes */}
+      <Route path="/projects/:projectId/*" element={
+        <Suspense fallback={<PageLoader preset="projects" />}><ProjectWorkspace /></Suspense>
+      } />
       <Route path="/control" element={<ControlRoom />} />
       <Route path="/integrations" element={<Integrations />} />
       <Route path="/mcp" element={<Mcp />} />

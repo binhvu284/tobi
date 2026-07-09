@@ -109,7 +109,18 @@ export type TaskItem = {
   risk_flags: string[]
   checklist: OwnerInputChecklistItem[]
   activity?: TaskActivity[]
+  // Project v2 fields
+  start_at?: string | null
+  reminder_at?: string | null
+  time_estimate?: string | null
+  pm_project_id?: number | null
+  pm_goal_id?: number | null
+  sub_tasks?: PMSubTask[]
+  blocks?: number[]
+  blocked_by?: number[]
 }
+
+export type PMSubTask = { id: string; title: string; completed: boolean; assignee?: string; due_at?: string | null }
 
 export type TaskMetrics = {
   open_tasks: number
@@ -166,6 +177,11 @@ export type TaskPatchPayload = {
   title?: string
   objective?: string
   success_criteria?: string
+  description?: string
+  start_at?: string | null
+  reminder_at?: string | null
+  time_estimate?: string | null
+  before_task_id?: number
   require_confirmation?: boolean
   confirmed?: boolean
 }
@@ -581,6 +597,9 @@ export type PMProject = {
   size: PMProjectSize
   category: string | null
   emoji_icon: string
+  icon_type?: 'emoji' | 'icon' | 'custom'
+  icon_value?: string | null
+  resources_bytes?: number
   accent_color: string
   deadline: string | null
   kpi_mode: string | null
@@ -611,6 +630,8 @@ export type PMGoal = {
   priority: 'low' | 'medium' | 'high'
   owner: PMGoalOwner
   parent_goal_id: number | null
+  mode?: 'metric' | 'task'
+  linked_task_ids?: number[]
   created_at: string
   updated_at: string
 }
@@ -684,7 +705,11 @@ export type PMProjectCreate = {
   created_by?: string
 }
 
-export type PMProjectPatch = Partial<Omit<PMProjectCreate, 'created_by'>> & { kpi_current_value?: number }
+export type PMProjectPatch = Partial<Omit<PMProjectCreate, 'created_by'>> & {
+  kpi_current_value?: number
+  icon_type?: 'emoji' | 'icon' | 'custom'
+  icon_value?: string | null
+}
 
 export type PMGoalCreate = {
   title: string
@@ -776,6 +801,9 @@ export async function pmListActivity(projectId: number, actor?: string): Promise
   const qs = actor ? `?actor=${actor}` : ''
   return get(`/api/pm/projects/${projectId}/activity${qs}`)
 }
+export async function pmPostActivity(projectId: number, payload: { actor?: string; action_type: string; summary: string; diff?: Record<string, any> }): Promise<{ ok: boolean }> {
+  return request(`/api/pm/projects/${projectId}/activity`, { method: 'POST', body: JSON.stringify(payload) })
+}
 
 // Files
 export async function pmListFiles(projectId: number): Promise<{ items: PMFile[]; count: number }> {
@@ -799,6 +827,90 @@ export async function pmDeleteTemplate(id: number): Promise<{ ok: boolean }> {
 
 // Stats
 export async function pmGetStats(): Promise<PMStats> { return get('/api/pm/stats') }
+
+// ── Project v2: Overview · Resources · Folders · Icons · Deps · Goal-links ────
+export type PMResource = {
+  id: number; project_id: number; folder_id: number | null
+  kind: 'file' | 'link'; name: string; ext: string | null
+  source: 'device' | 'url' | 'drive' | 'youtube' | 'web' | 'github' | 'pdf'
+  rtype: string; size_bytes: number; disk_path: string | null; url: string | null
+  mime: string | null; thumb: string | null; tags: string[]; has_text: boolean
+  created_by: string; created_at: string; updated_at: string
+}
+export type PMFolder = { id: number; project_id: number; parent_id: number | null; name: string; created_at: string }
+export type PMResourcesResponse = { items: PMResource[]; folders: PMFolder[]; count: number }
+
+export type PMOverviewMetrics = {
+  task_total: number; task_done: number; task_active: number; task_overdue: number
+  progress_pct: number; goals_count: number; goals_avg_pct: number; goals_completed: number
+  resources_count: number; resources_bytes: number; resources_by_type: Record<string, number>
+  estimate_total_min: number; estimate_done_min: number; deadline_days: number | null
+  created_at: string; updated_at: string; last_activity: string | null
+}
+export type PMOverview = {
+  project: PMProject; metrics: PMOverviewMetrics
+  active_tasks: TaskItem[]; goals: PMGoal[]; activity: PMActivity[]
+}
+
+export async function pmGetOverview(projectId: number): Promise<PMOverview> {
+  return get(`/api/pm/projects/${projectId}/overview`)
+}
+
+// Resources
+export async function pmListResources(projectId: number, folderId?: number | null): Promise<PMResourcesResponse> {
+  const qs = folderId != null ? `?folder_id=${folderId}` : ''
+  return get(`/api/pm/projects/${projectId}/resources${qs}`)
+}
+export async function pmUploadResource(projectId: number, file: File, folderId?: number | null): Promise<PMResource> {
+  const fd = new FormData()
+  fd.append('file', file)
+  if (folderId != null) fd.append('folder_id', String(folderId))
+  return request(`/api/pm/projects/${projectId}/resources/upload`, { method: 'POST', body: fd })
+}
+export async function pmAddResourceLink(projectId: number, url: string, name?: string, folderId?: number | null): Promise<PMResource> {
+  return request(`/api/pm/projects/${projectId}/resources/link`, {
+    method: 'POST', body: JSON.stringify({ url, name, folder_id: folderId ?? null }),
+  })
+}
+export async function pmPatchResource(projectId: number, rid: number, patch: { name?: string; folder_id?: number | null; tags?: string[] }): Promise<PMResource> {
+  return request(`/api/pm/projects/${projectId}/resources/${rid}`, { method: 'PATCH', body: JSON.stringify(patch) })
+}
+export async function pmDeleteResource(projectId: number, rid: number): Promise<{ ok: boolean }> {
+  return request(`/api/pm/projects/${projectId}/resources/${rid}`, { method: 'DELETE' })
+}
+export function pmResourceRawUrl(projectId: number, rid: number): string {
+  return `/api/pm/projects/${projectId}/resources/${rid}/raw`
+}
+
+// Folders
+export async function pmCreateFolder(projectId: number, name: string, parentId?: number | null): Promise<PMFolder> {
+  return request(`/api/pm/projects/${projectId}/folders`, { method: 'POST', body: JSON.stringify({ name, parent_id: parentId ?? null }) })
+}
+export async function pmDeleteFolder(projectId: number, fid: number): Promise<{ ok: boolean }> {
+  return request(`/api/pm/projects/${projectId}/folders/${fid}`, { method: 'DELETE' })
+}
+
+// Icons
+export async function pmUploadIcon(dataUrl: string, projectId?: number): Promise<{ ok: boolean; id: number; url: string }> {
+  return request('/api/pm/icons', { method: 'POST', body: JSON.stringify({ data_url: dataUrl, project_id: projectId ?? null }) })
+}
+export function pmIconUrl(iconId: number | string): string { return `/api/pm/icons/${iconId}` }
+
+// Task dependencies
+export async function pmAddTaskDep(taskId: number, blocksId: number): Promise<{ ok: boolean }> {
+  return request(`/api/pm/tasks/${taskId}/deps`, { method: 'POST', body: JSON.stringify({ blocks_id: blocksId }) })
+}
+export async function pmRemoveTaskDep(taskId: number, blocksId: number): Promise<{ ok: boolean }> {
+  return request(`/api/pm/tasks/${taskId}/deps/${blocksId}`, { method: 'DELETE' })
+}
+
+// Goal ↔ task links (rollup goals)
+export async function pmLinkGoalTask(projectId: number, goalId: number, taskId: number): Promise<{ ok: boolean }> {
+  return request(`/api/pm/projects/${projectId}/goals/${goalId}/tasks`, { method: 'POST', body: JSON.stringify({ task_id: taskId }) })
+}
+export async function pmUnlinkGoalTask(projectId: number, goalId: number, taskId: number): Promise<{ ok: boolean }> {
+  return request(`/api/pm/projects/${projectId}/goals/${goalId}/tasks/${taskId}`, { method: 'DELETE' })
+}
 
 // ── Brain (long-term owner memory) ───────────────────────────────────────────
 export type Memory = {
