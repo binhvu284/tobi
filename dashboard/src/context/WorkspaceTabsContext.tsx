@@ -48,14 +48,17 @@ export const WORKSPACE_ROUTES: WorkspaceRouteMeta[] = [
 const ROUTE_META = new Map(WORKSPACE_ROUTES.map(r => [r.route, r]))
 const TABS_KEY = 'tobi.workspace.tabs.v2'
 const ACTIVE_KEY = 'tobi.workspace.activeTab.v2'
+const LABELS_KEY = 'tobi.workspace.tabLabels.v1'
 
 type WorkspaceTabsContextValue = {
   tabs: WorkspaceTab[]
   activeId: string
+  tabLabels: Record<string, string>
   focusTab: (id: string) => void
   closeTab: (id: string) => void
   reorderTabs: (fromId: string, toId: string) => void
   openTab: (route: string) => void
+  setTabLabel: (id: string, label: string) => void
 }
 
 const WorkspaceTabsContext = createContext<WorkspaceTabsContextValue | null>(null)
@@ -66,31 +69,59 @@ export function normalizeWorkspaceRoute(path: string) {
   return clean.endsWith('/') && clean.length > 1 ? clean.slice(0, -1) : clean
 }
 
-export function getWorkspaceRouteMeta(route: string) {
-  return ROUTE_META.get(normalizeWorkspaceRoute(route)) ?? WORKSPACE_ROUTES[0]
+// Project v2 (#12): a project workspace (/projects/8/tasks) is a dynamic tabbable route.
+// All inner tabs of one project share ONE workspace tab keyed /projects/{id}, so moving
+// between Overview/Tasks/… updates the tab's route rather than spawning new tabs.
+const PROJECT_ROUTE_RE = /^\/projects\/(\d+)(?:\/.*)?$/
+
+export function projectTabKey(route: string): string | null {
+  const m = PROJECT_ROUTE_RE.exec(normalizeWorkspaceRoute(route))
+  return m ? `/projects/${m[1]}` : null
+}
+
+function tabKeyFor(route: string): string {
+  return projectTabKey(route) ?? normalizeWorkspaceRoute(route)
+}
+
+function isTabbable(route: string): boolean {
+  const clean = normalizeWorkspaceRoute(route)
+  return ROUTE_META.has(clean) || PROJECT_ROUTE_RE.test(clean)
+}
+
+export function getWorkspaceRouteMeta(route: string): WorkspaceRouteMeta {
+  const clean = normalizeWorkspaceRoute(route)
+  const key = projectTabKey(clean)
+  if (key) return { route: key, label: `Project ${key.split('/')[2]}`, Icon: FolderKanban }
+  return ROUTE_META.get(clean) ?? WORKSPACE_ROUTES[0]
+}
+
+function loadLabels(): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(LABELS_KEY) || '{}') } catch { return {} }
 }
 
 function makeTab(route: string): WorkspaceTab {
   const clean = normalizeWorkspaceRoute(route)
-  return { id: clean, route: clean, stateKey: `mc-tab:${clean}`, openedAt: Date.now() }
+  const key = tabKeyFor(clean)
+  return { id: key, route: clean, stateKey: `mc-tab:${key}`, openedAt: Date.now() }
 }
 
 function loadInitialTabs(currentPath: string) {
   const current = normalizeWorkspaceRoute(currentPath)
+  const currentKey = tabKeyFor(current)
   try {
     const stored = JSON.parse(localStorage.getItem(TABS_KEY) || '[]') as WorkspaceTab[]
     const tabs = stored
       .map(t => makeTab(t.route))
-      .filter((t, i, arr) => ROUTE_META.has(t.route) && arr.findIndex(x => x.route === t.route) === i)
+      .filter((t, i, arr) => isTabbable(t.route) && arr.findIndex(x => x.id === t.id) === i)
       .slice(0, MAX_WORKSPACE_TABS)
-    const activeStored = normalizeWorkspaceRoute(localStorage.getItem(ACTIVE_KEY) || '')
-    const active = tabs.some(t => t.id === activeStored) ? activeStored : current
-    if (tabs.length && tabs.some(t => t.id === current)) return { tabs, activeId: current }
+    const activeStored = localStorage.getItem(ACTIVE_KEY) || ''
+    const active = tabs.some(t => t.id === activeStored) ? activeStored : currentKey
+    if (tabs.length && tabs.some(t => t.id === currentKey)) return { tabs, activeId: currentKey }
     if (tabs.length && tabs.some(t => t.id === active)) return { tabs, activeId: active }
-    if (ROUTE_META.has(current) && tabs.length < MAX_WORKSPACE_TABS) return { tabs: [...tabs, makeTab(current)], activeId: current }
+    if (isTabbable(current) && tabs.length < MAX_WORKSPACE_TABS) return { tabs: [...tabs, makeTab(current)], activeId: currentKey }
     return { tabs: tabs.length ? tabs : [makeTab('/dashboard')], activeId: tabs[0]?.id ?? '/dashboard' }
   } catch {
-    return { tabs: [makeTab(current)], activeId: current }
+    return { tabs: [makeTab(current)], activeId: currentKey }
   }
 }
 
@@ -101,6 +132,7 @@ export function WorkspaceTabsProvider({ children }: { children: ReactNode }) {
   const initial = useMemo(() => loadInitialTabs(loc.pathname), [])
   const [tabs, setTabs] = useState<WorkspaceTab[]>(initial.tabs)
   const [activeId, setActiveId] = useState(initial.activeId)
+  const [tabLabels, setTabLabels] = useState<Record<string, string>>(loadLabels)
 
   useEffect(() => {
     if (loc.pathname === '/') {
@@ -108,16 +140,22 @@ export function WorkspaceTabsProvider({ children }: { children: ReactNode }) {
       return
     }
     const route = normalizeWorkspaceRoute(loc.pathname)
-    if (!ROUTE_META.has(route)) return
-    if (route === activeId) return
-    const existing = tabs.find(t => t.route === route)
+    if (!isTabbable(route)) return
+    const key = tabKeyFor(route)
+    const existing = tabs.find(t => t.id === key)
     if (existing) {
-      setActiveId(existing.id)
+      // Same workspace tab — but a project's inner tab may have changed (…/overview → …/tasks):
+      // keep the tab, update its stored route so focus/restore lands on the right inner tab.
+      if (existing.route !== route) {
+        setTabs(prev => prev.map(t => (t.id === key ? { ...t, route } : t)))
+      }
+      if (key !== activeId) setActiveId(key)
       return
     }
+    if (key === activeId) return
     // No tab for this route: navigate the active tab in place instead of spawning a new one.
     setTabs(prev => prev.map(t => (t.id === activeId ? makeTab(route) : t)))
-    setActiveId(route)
+    setActiveId(key)
   }, [activeId, loc.pathname, navigate, tabs])
 
   useEffect(() => {
@@ -130,21 +168,23 @@ export function WorkspaceTabsProvider({ children }: { children: ReactNode }) {
   const value = useMemo<WorkspaceTabsContextValue>(() => ({
     tabs,
     activeId,
+    tabLabels,
     openTab: (route) => {
       const clean = normalizeWorkspaceRoute(route)
-      if (!ROUTE_META.has(clean)) return
-      const existing = tabs.find(t => t.route === clean)
+      if (!isTabbable(clean)) return
+      const key = tabKeyFor(clean)
+      const existing = tabs.find(t => t.id === key)
       if (existing) {
         setActiveId(existing.id)
         navigate(clean)
         return
       }
       if (tabs.length >= MAX_WORKSPACE_TABS) {
-        toast({ kind: 'info', title: 'Three tabs maximum', detail: 'Close a tab before opening another page.' })
+        toast({ kind: 'info', title: `${MAX_WORKSPACE_TABS} tabs maximum`, detail: 'Close a tab before opening another page.' })
         return
       }
       setTabs(prev => [...prev, makeTab(clean)])
-      setActiveId(clean)
+      setActiveId(key)
       navigate(clean)
     },
     focusTab: (id) => {
@@ -178,7 +218,16 @@ export function WorkspaceTabsProvider({ children }: { children: ReactNode }) {
       next.splice(to, 0, moved)
       setTabs(next)
     },
-  }), [activeId, navigate, tabs, toast])
+    setTabLabel: (id, label) => {
+      setTabLabels(prev => {
+        if (prev[id] === label) return prev
+        const next = { ...prev, [id]: label }
+        // keep only labels for known tabs + a small tail, so the map can't grow unbounded
+        try { localStorage.setItem(LABELS_KEY, JSON.stringify(next)) } catch { /* ignore */ }
+        return next
+      })
+    },
+  }), [activeId, navigate, tabLabels, tabs, toast])
 
   return <WorkspaceTabsContext.Provider value={value}>{children}</WorkspaceTabsContext.Provider>
 }

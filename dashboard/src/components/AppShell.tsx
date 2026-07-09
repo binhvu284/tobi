@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { useTheme, THEMES, THEME_META } from '../context/ThemeProvider'
 import { useToast } from '../context/ToastProvider'
-import { WORKSPACE_ROUTES, getWorkspaceRouteMeta, useWorkspaceTabs } from '../context/WorkspaceTabsContext'
+import { WORKSPACE_ROUTES, MAX_WORKSPACE_TABS, getWorkspaceRouteMeta, useWorkspaceTabs } from '../context/WorkspaceTabsContext'
 import { getOfficeStats, getEvolution, type OfficeStats, type EvolutionReport } from '../api'
 import CommandPalette from './CommandPalette'
 import TierEmblem from './TierEmblem'
@@ -103,28 +103,75 @@ function NavSection({ group, links, collapsed, onNavigate, open, onToggle }: {
             exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18 }} className="overflow-hidden">
             <div className="mt-0.5 space-y-0.5">
               {links.map(({ to, icon: Icon, label }) => (
-                <NavLink key={to} to={to} onClick={onNavigate}
-                  className={({ isActive }) => `relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
-                    isActive ? 'text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
-                  {({ isActive }) => (
-                    <>
-                      {/* Sliding active pill — one shared layoutId per sidebar instance */}
-                      {isActive && (
-                        <motion.span layoutId="navActive" transition={SPRING.snappy}
-                          className="absolute inset-0 z-0 rounded-md bg-accent/15 ring-1 ring-accent/20" />
-                      )}
-                      <motion.span whileHover={{ scale: 1.18 }} transition={SPRING.pop} className="relative z-10 shrink-0">
-                        <Icon size={16} />
-                      </motion.span>
-                      <span className="relative z-10">{label}</span>
-                    </>
-                  )}
-                </NavLink>
+                <div key={to}>
+                  <NavLink to={to} onClick={onNavigate}
+                    className={({ isActive }) => `relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
+                      isActive ? 'text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
+                    {({ isActive }) => (
+                      <>
+                        {/* Sliding active pill — one shared layoutId per sidebar instance */}
+                        {isActive && (
+                          <motion.span layoutId="navActive" transition={SPRING.snappy}
+                            className="absolute inset-0 z-0 rounded-md bg-accent/15 ring-1 ring-accent/20" />
+                        )}
+                        <motion.span whileHover={{ scale: 1.18 }} transition={SPRING.pop} className="relative z-10 shrink-0">
+                          <Icon size={16} />
+                        </motion.span>
+                        <span className="relative z-10">{label}</span>
+                      </>
+                    )}
+                  </NavLink>
+                  {/* Projects expands to recently-opened workspaces (#12 D10) */}
+                  {to === '/projects' && <ProjectRecents onNavigate={onNavigate} />}
+                </div>
               ))}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  )
+}
+
+// ── Sidebar: recently-opened project workspaces under the Projects entry ─────
+export type RecentProject = { id: number; name: string; icon: string }
+const RECENTS_KEY = 'tobi.projects.recents.v1'
+
+export function pushRecentProject(p: RecentProject) {
+  try {
+    const list = (JSON.parse(localStorage.getItem(RECENTS_KEY) || '[]') as RecentProject[])
+      .filter(x => x.id !== p.id)
+    list.unshift(p)
+    localStorage.setItem(RECENTS_KEY, JSON.stringify(list.slice(0, 5)))
+    window.dispatchEvent(new Event('tobi:recent-projects'))
+  } catch { /* ignore */ }
+}
+
+function ProjectRecents({ onNavigate }: { onNavigate?: () => void }) {
+  const [items, setItems] = useState<RecentProject[]>([])
+  const loc = useLocation()
+  useEffect(() => {
+    const load = () => {
+      try { setItems(JSON.parse(localStorage.getItem(RECENTS_KEY) || '[]')) } catch { setItems([]) }
+    }
+    load()
+    window.addEventListener('tobi:recent-projects', load)
+    return () => window.removeEventListener('tobi:recent-projects', load)
+  }, [])
+  if (!items.length) return null
+  return (
+    <div className="ml-6 space-y-0.5 border-l border-border/50 pl-2">
+      {items.map(p => {
+        const active = loc.pathname.startsWith(`/projects/${p.id}`)
+        return (
+          <NavLink key={p.id} to={`/projects/${p.id}/overview`} onClick={onNavigate}
+            className={`flex items-center gap-2 rounded-md px-2 py-1 text-[12px] transition-colors ${
+              active ? 'bg-accent/10 text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
+            <span className="w-4 shrink-0 text-center text-[13px] leading-none">{p.icon || '📁'}</span>
+            <span className="truncate">{p.name}</span>
+          </NavLink>
+        )
+      })}
     </div>
   )
 }
@@ -336,7 +383,9 @@ function NewTabButton({ openTab, openRoutes }: { openTab: (r: string) => void; o
   const pick = (route: string) => { openTab(route); setOpen(false) }
 
   return (
-    <div className="relative mb-0.5 ml-0.5 shrink-0" ref={ref}>
+    <motion.div className="relative mb-0.5 ml-0.5 shrink-0" ref={ref}
+      initial={{ opacity: 0, scale: 0.7 }} animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.7 }} transition={SPRING.pop}>
       <motion.button
         onClick={() => setOpen(o => !o)}
         whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.88 }}
@@ -370,12 +419,12 @@ function NewTabButton({ openTab, openRoutes }: { openTab: (r: string) => void; o
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </motion.div>
   )
 }
 
 function WorkspaceTabsBar() {
-  const { tabs, activeId, focusTab, closeTab, reorderTabs, openTab } = useWorkspaceTabs()
+  const { tabs, activeId, tabLabels, focusTab, closeTab, reorderTabs, openTab } = useWorkspaceTabs()
   const [dragId, setDragId] = useState<string | null>(null)
 
   return (
@@ -387,7 +436,8 @@ function WorkspaceTabsBar() {
         <LayoutGroup id="wsTabs">
           <AnimatePresence initial={false}>
             {tabs.map((tab, i) => {
-              const meta = getWorkspaceRouteMeta(tab.route)
+              const base = getWorkspaceRouteMeta(tab.route)
+              const meta = { ...base, label: tabLabels[tab.id] ?? base.label }
               const Icon = meta.Icon
               const active = tab.id === activeId
               const showDivider = !active && i < tabs.length - 1 && tabs[i + 1].id !== activeId
@@ -430,7 +480,11 @@ function WorkspaceTabsBar() {
               )
             })}
           </AnimatePresence>
-          <NewTabButton openTab={openTab} openRoutes={tabs.map(t => t.route)} />
+          <AnimatePresence>
+            {tabs.length < MAX_WORKSPACE_TABS && (
+              <NewTabButton key="newtab" openTab={openTab} openRoutes={tabs.map(t => t.route)} />
+            )}
+          </AnimatePresence>
         </LayoutGroup>
       </div>
     </nav>
