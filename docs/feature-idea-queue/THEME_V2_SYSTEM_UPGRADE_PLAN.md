@@ -1,8 +1,24 @@
 # Theme v2 System Upgrade Plan
 
-> Queue status: In progress — v1 implemented per this plan (see QUEUE.md #13 for the build/verification notes).
+> Queue status: In progress — v2.0 built per this plan, then a **v2.1 design-quality pass** (below).
 > Scope: Planning only. This document is for a worker agent to implement later.
 > Do not implement Supabase or Vercel changes for this task.
+
+## v2.1 Design-Quality Pass (owner feedback follow-up)
+
+After v2.0 the owner judged the expressive themes "hard / dazzling", wanted brand themes, and flagged light-theme cohesion. Delivered on top of the v2.0 architecture (unchanged core):
+
+- **12 themes, 3 groups** (`ThemeDef.group`, `THEME_GROUPS`): core = Dark/Light/High Tech; expressive = **Neon Arena / Washi / Lacquer / Jarvis OS** (all repaletted calm-premium, softened `glow` shadow + HUD/grid opacities); brand = **Vercel / Notion Calm / Linear Flow / ChatGPT / Claude** (tasteful homage, no logos, lucide icons).
+- **Self-hosted fonts** (`src/theme/fonts.ts`, `@fontsource` latin woff2): `--font-ui`/`--font-display`/`--font-numeric` per theme; Office's Google-CDN Rajdhani `<link>` removed → bundled. New `--overlay` (scheme-aware wash: white on dark, ink on light) + `--selection` tokens; Tailwind `overlay` color + `font-display` utility.
+- **Cohesion sweep**: `bg/border/ring-white/*` → `overlay/*` across 22 files + targeted token fixes (Evolution ring, StatBar/HealthBar tracks, RadarChart, Brain tab, Architecture chip, PageLoader presets, `.sovereign/.aurora-text`).
+- **Chat ambient ornaments (M2.5)**: per-theme procedural inline-SVG motifs concentrated in Chat — `ChatAmbient` + `ornaments` (sakura branch+petals · gold dragon+clouds · arc rings · hex brackets · Claude spark), corner + drifting particles + faint avatar-halo watermark; radial-masked, opacity ≤ ~0.2, honoring `data-motion` + a per-theme **`decorations`** toggle.
+- **`index.css` [data-theme] blocks are GENERATED from `computeCssVars`** — a node parity test asserts CSS == tokens for all 12; do not hand-edit values.
+- **Settings**: grouped **preview cards** (real mini-UI rendered under `data-theme`) + decoration toggle; quick switch + command palette grouped.
+- **Verification**: `tsc` + build clean; node suite (migration matrix · key-set · CSS↔tokens parity · WCAG contrast); Playwright screenshots of all 12 reviewed and iterated; 0 `fonts.googleapis`, 27 woff2 bundled; decorations-off / motion-off guards verified.
+- Still proposals only: GitHub Dev / VS Code Terminal brand themes, Aurora Studio / Solar Forge.
+
+---
+
 
 ## 1. Summary
 
