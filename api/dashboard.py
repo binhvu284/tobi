@@ -2952,6 +2952,10 @@ async def pm_upload_resource(project_id: int, file: UploadFile = File(...),
         _pm_log(conn, project_id, created_by, "resource.added", f"Uploaded {meta['name']}")
         conn.execute("UPDATE pm_projects SET resources_bytes=? WHERE id=?", (pmres.project_bytes(project_id), project_id))
         conn.commit()
+        try:
+            pmres.index_resource(rid, project_id, meta.get("text_content"))
+        except Exception:
+            pass
         r = conn.execute("SELECT * FROM pm_resources WHERE id=?", (rid,)).fetchone()
         return _pm_serialize_resource(conn, r)
     finally:
@@ -2975,6 +2979,10 @@ async def pm_add_resource_link(project_id: int, payload: PMResourceLinkRequest):
         rid = cur.lastrowid
         _pm_log(conn, project_id, payload.created_by, "resource.linked", f"Linked {meta['name']}")
         conn.commit()
+        try:
+            pmres.index_resource(rid, project_id, meta.get("text_content"))
+        except Exception:
+            pass
         r = conn.execute("SELECT * FROM pm_resources WHERE id=?", (rid,)).fetchone()
         return _pm_serialize_resource(conn, r)
     finally:
@@ -3016,6 +3024,10 @@ async def pm_delete_resource(project_id: int, rid: int):
         if r["kind"] == "file" and r["disk_path"]:
             pmres.delete_file(project_id, r["disk_path"])
         conn.execute("DELETE FROM pm_resources WHERE id=?", (rid,))
+        try:
+            pmres.drop_resource(rid)
+        except Exception:
+            pass
         _pm_log(conn, project_id, "user", "resource.deleted", f"Deleted {r['name']}")
         conn.execute("UPDATE pm_projects SET resources_bytes=? WHERE id=?", (pmres.project_bytes(project_id), project_id))
         conn.commit()

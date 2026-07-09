@@ -347,6 +347,23 @@ async def job_execution_cycle():
         await notify(f"⚠️ Execution error: {str(e)[:200]}")
 
 
+async def job_task_reminders():
+    """Project v2 (#12): push a Telegram alert for tasks whose reminder_at is due."""
+    try:
+        from core.pm_reminders import fire_due_reminders
+        due = fire_due_reminders()
+        if not due:
+            return
+        lines = [f"   • {d['title']} ({d['project_name']})" for d in due[:10]]
+        msg = "🔔 *Task reminder*\n" + "\n".join(lines)
+        if len(due) > 10:
+            msg += f"\n…and {len(due) - 10} more"
+        await notify(msg)
+        logger.info(f"🔔 Fired {len(due)} task reminder(s)")
+    except Exception as e:
+        logger.error(f"Task reminders error: {e}")
+
+
 async def job_research_cycle():
     logger.info("🔬 Running weekly research...")
     await notify("🔬 *Weekly Research Started*\nĐang tìm kiếm cơ hội mới...")
@@ -525,6 +542,7 @@ def run_async(coro):
 def setup_schedules():
     schedule.every().day.at("08:00").do(lambda: run_async(job_daily_report()))
     schedule.every(6).hours.do(lambda: run_async(job_execution_cycle()))
+    schedule.every(2).minutes.do(lambda: run_async(job_task_reminders()))
     schedule.every().sunday.at("20:00").do(lambda: run_async(job_research_cycle()))
     schedule.every().sunday.at("20:00").do(lambda: run_async(job_weekly_reflection()))
     schedule.every(30).minutes.do(job_brain_sweep)
@@ -540,7 +558,7 @@ def setup_schedules():
     schedule.every().day.at("09:00").do(
         lambda: run_async(job_ceo_review()) if datetime.now().day == 1 else None
     )
-    logger.info("📅 Schedules: daily 08:00 report | every 6h execution | sunday 20:00 research+reflection | brain sweep 30m + decay 04:00 | storage scan db 1h + fs 04:30 | explore news 1h / tools 3h / social 6h / models 03:30 | monthly CEO review")
+    logger.info("📅 Schedules: daily 08:00 report | every 6h execution | task reminders 2m | sunday 20:00 research+reflection | brain sweep 30m + decay 04:00 | storage scan db 1h + fs 04:30 | explore news 1h / tools 3h / social 6h / models 03:30 | monthly CEO review")
 
 
 # ─────────────────────────────────────────

@@ -174,7 +174,8 @@ def _fs_targets() -> list[dict]:
         {"label": "Knowledge graph index", "path": PROJECT_DIR / "graphify-out", "feature": "Codebase"},
         {"label": "Logs", "path": PROJECT_DIR / "logs", "feature": "System"},
         {"label": "Agent data dir", "path": data_dir, "feature": "Office",
-         "exclude_files": {Path(DB_PATH).name}},
+         "skip": {"projects"}, "exclude_files": {Path(DB_PATH).name}},
+        {"label": "Project resources drive", "path": data_dir / "projects", "feature": "Projects"},
         {"label": "Hermes memory & skills", "path": home / ".hermes", "feature": "Brain"},
         {"label": "Embeddings cache", "path": home / ".cache" / "fastembed", "feature": "Brain"},
     ]

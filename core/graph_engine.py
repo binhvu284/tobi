@@ -29,7 +29,7 @@ SEM_THRESHOLD = 0.70      # min cosine for a semantic edge — tuned so homogene
 SEM_TOPK = 4              # facts split into distinct communities (not one dense blob)
 COMMUNITY_ITERS = 8       # label-propagation passes
 
-INTERNAL_DOMAINS = ("memory", "task", "project")
+INTERNAL_DOMAINS = ("memory", "task", "project", "resource")
 
 # Tableau-10 palette (graphify's), cycled by community id → the multi-cluster look.
 COMMUNITY_PALETTE = [
@@ -43,6 +43,7 @@ DOMAIN_META = {
     "memory":  {"color": "#a78bfa", "icon": "Brain"},
     "task":    {"color": "#58a6ff", "icon": "CheckSquare"},
     "project": {"color": "#22d3ee", "icon": "Briefcase"},
+    "resource": {"color": "#2dd4bf", "icon": "FileText"},
     "notion":  {"color": "#e5e7eb", "icon": "FileText"},
     "github":  {"color": "#8b949e", "icon": "Github"},
     "gdrive":  {"color": "#34d399", "icon": "HardDrive"},
@@ -203,8 +204,8 @@ def sync_internal() -> dict:
     """Register/refresh memory/task/project nodes from existing tables + ref edges.
     Prunes internal nodes whose source row vanished. Returns per-domain counts."""
     cat_colors = _brain_category_colors()
-    counts = {"memory": 0, "task": 0, "project": 0}
-    seen: dict[str, set] = {"memory": set(), "task": set(), "project": set()}
+    counts = {"memory": 0, "task": 0, "project": 0, "resource": 0}
+    seen: dict[str, set] = {"memory": set(), "task": set(), "project": set(), "resource": set()}
 
     # Read EVERYTHING up front, then close the connection BEFORE any upsert. upsert_node/
     # upsert_edge each open their own short-lived connection, so we must never hold a read
@@ -218,6 +219,13 @@ def sync_internal() -> dict:
     tasks = conn.execute(
         "SELECT id, title, objective, description, status_v1, status, pm_project_id "
         "FROM tasks WHERE deleted_at IS NULL").fetchall()
+    # Project v2 (#12): resources become graph nodes too (table may not exist on old DBs).
+    try:
+        resources = conn.execute(
+            "SELECT id, project_id, name, rtype, url, text_content FROM pm_resources"
+        ).fetchall()
+    except Exception:
+        resources = []
     conn.close()
 
     # Projects first (so tasks can ref them) → map pm_project_id → graph node id
@@ -253,6 +261,16 @@ def sync_internal() -> dict:
         pmid = r["pm_project_id"]
         if pmid is not None and str(pmid) in proj_node:
             upsert_edge(nid, proj_node[str(pmid)], "ref", weight=1.0)
+
+    # Resources (#12) — ref edge to the project that owns them (lighter weight than tasks)
+    for r in resources:
+        summary = ((r["text_content"] or "")[:300] or r["url"] or "") or None
+        nid = upsert_node("resource", r["id"], r["name"] or f"Resource {r['id']}",
+                          summary=summary, category=r["rtype"])
+        seen["resource"].add(str(r["id"])); counts["resource"] += 1
+        pid = r["project_id"]
+        if pid is not None and str(pid) in proj_node:
+            upsert_edge(nid, proj_node[str(pid)], "ref", weight=0.8)
 
     # Prune internal nodes whose source row disappeared
     pruned = 0

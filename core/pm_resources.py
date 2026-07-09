@@ -249,3 +249,138 @@ def clean_icon_data_url(data_url: str) -> tuple[str, str]:
     if len(raw) > MAX_ICON_BYTES:
         raise ValueError(f"icon too large (> {MAX_ICON_BYTES // 1024} KB)")
     return mime, b64
+
+
+# ── per-project content RAG (#12 v1.1) ────────────────────────────────────────
+_CHUNK_SIZE = 900
+_CHUNK_OVERLAP = 140
+
+
+def chunk_text(text: str, size: int = _CHUNK_SIZE, overlap: int = _CHUNK_OVERLAP) -> list[str]:
+    """Split `text` into overlapping chunks. Never raises."""
+    text = (text or "").strip()
+    if not text:
+        return []
+    chunks: list[str] = []
+    start = 0
+    while start < len(text):
+        piece = text[start:start + size]
+        if piece.strip():
+            chunks.append(piece)
+        if start + size >= len(text):
+            break
+        start += size - overlap
+    return chunks[:200]  # hard cap so one giant doc can't flood the table
+
+
+def index_resource(resource_id: int, project_id: int, text: str | None) -> int:
+    """(Re)build the RAG chunks for one resource. Returns the number of chunks stored.
+
+    fastembed is optional — when unavailable chunks are still stored without
+    embeddings, so keyword search keeps working.
+    """
+    from core.database import get_connection
+    from core import embeddings as emb
+    chunks = chunk_text(text or "")
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM pm_resource_chunks WHERE resource_id=?", (int(resource_id),))
+        if not chunks:
+            conn.commit()
+            return 0
+        rows = []
+        for i, c in enumerate(chunks):
+            blob = None
+            try:
+                blob = emb.to_blob(emb.embed_one(c))
+            except Exception:
+                blob = None
+            rows.append((int(resource_id), int(project_id), i, c, blob,
+                         emb.MODEL_NAME if blob else None))
+        conn.executemany(
+            "INSERT INTO pm_resource_chunks (resource_id, project_id, ordinal, chunk_text, embedding, embed_model) "
+            "VALUES (?,?,?,?,?,?)", rows)
+        conn.commit()
+        return len(rows)
+    finally:
+        conn.close()
+
+
+def drop_resource(resource_id: int) -> None:
+    """Drop all RAG chunks for a resource (call on delete). Best-effort."""
+    from core.database import get_connection
+    try:
+        conn = get_connection()
+        conn.execute("DELETE FROM pm_resource_chunks WHERE resource_id=?", (int(resource_id),))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def search_resources(project_id: int, query: str, k: int = 6) -> list[dict]:
+    """Semantic (fastembed) + keyword fallback search across a project's resources.
+
+    Returns up to `k` hits: ``{resource_id, name, score, snippet}`` deduped by resource.
+    """
+    from core.database import get_connection
+    from core import embeddings as emb
+    q = (query or "").strip()
+    if not q:
+        return []
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT c.id, c.resource_id, c.chunk_text, r.name "
+            "FROM pm_resource_chunks c JOIN pm_resources r ON r.id = c.resource_id "
+            "WHERE c.project_id=?", (int(project_id),)).fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        return []
+
+    qvec = None
+    try:
+        qvec = emb.embed_one(q)
+    except Exception:
+        qvec = None
+
+    scored: dict[int, dict] = {}
+    if qvec is not None:
+        cands = []
+        for r in rows:
+            v = emb.from_blob(r["embedding"]) if r["embedding"] else None
+            if v is not None:
+                cands.append((r["id"], v))
+        if cands:
+            for cid, score in emb.cosine_topk(qvec, cands, k=len(cands), min_score=0.12):
+                row = next(x for x in rows if x["id"] == cid)
+                rid = row["resource_id"]
+                if rid not in scored or score > scored[rid]["score"]:
+                    scored[rid] = {"resource_id": rid, "name": row["name"],
+                                   "score": round(float(score), 3), "snippet": _snippet(row["chunk_text"], q)}
+
+    # keyword fallback / supplement (also covers the no-embeddings case)
+    ql = q.lower()
+    tokens = [t for t in re.split(r"\s+", ql) if len(t) > 2]
+    for r in rows:
+        rid = r["resource_id"]
+        hay = (r["chunk_text"] or "").lower()
+        if any(t in hay for t in tokens):
+            sc = 0.35 if qvec is None else 0.15
+            if rid not in scored:
+                scored[rid] = {"resource_id": rid, "name": r["name"],
+                               "score": sc, "snippet": _snippet(r["chunk_text"], q)}
+
+    return sorted(scored.values(), key=lambda x: x["score"], reverse=True)[:k]
+
+
+def _snippet(text: str, query: str, width: int = 180) -> str:
+    text = (text or "").strip()
+    if not text:
+        return ""
+    idx = text.lower().find((query or "").lower())
+    if idx < 0:
+        return text[:width] + ("…" if len(text) > width else "")
+    start = max(0, idx - 40)
+    return ("…" if start > 0 else "") + text[start:start + width] + ("…" if start + width < len(text) else "")

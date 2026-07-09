@@ -438,9 +438,34 @@ def _picker_intro(picker: dict) -> str:
     return f"I need a bit of context first, sir — {topic[:1].lower() + topic[1:]}. Mind filling these in?"
 
 
+def tool_search_project_resources(project: str = "", query: str = "", **_: Any) -> dict:
+    """Semantic + keyword search across one project's Resources (per-project content RAG, #12)."""
+    from core import pm_resources as pmres
+    key = str(project or "").strip()
+    q = str(query or "").strip()
+    if not key or not q:
+        return {"error": "project (name or id) and query are required"}
+    conn = _conn()
+    try:
+        if key.isdigit():
+            row = conn.execute("SELECT id, name FROM pm_projects WHERE id=?", (int(key),)).fetchone()
+        else:
+            row = conn.execute("SELECT id, name FROM pm_projects WHERE name LIKE ? ORDER BY updated_at DESC LIMIT 1",
+                               (f"%{key}%",)).fetchone()
+        if not row:
+            return {"error": f"no project matching '{project}'"}
+        pid = row["id"]
+    finally:
+        conn.close()
+    hits = pmres.search_resources(pid, q, k=6)
+    return {"project_id": pid, "project": row["name"], "query": q,
+            "count": len(hits), "results": hits}
+
+
 READ_TOOLS: dict[str, tuple[Callable[..., dict], str]] = {
     "get_current_datetime": (tool_get_current_datetime, "Current date and time in the owner's timezone. No args."),
     "ask_owner_details": (tool_ask_owner_details, "Ask the owner for missing context via a picker wizard when you genuinely need details to proceed (or when he says 'ask me for my details'). Args: topic (string), questions (list of strings or {question, options[]}). Prefer this over guessing."),
+    "search_project_resources": (tool_search_project_resources, "Search a project's Resources drive (per-project content RAG). Args: project (name or id), query (string). Returns matching resources with snippets."),
     "get_evolution": (tool_get_evolution, "Current evolution tier, completion %, and ability counts. No args."),
     "explain_architecture": (tool_explain_architecture, "TOBI's system architecture, layer by layer. No args."),
     "office_status": (tool_office_status, "Agent count, each agent's role + working/free status, missions running. No args."),
@@ -548,6 +573,114 @@ def tool_create_task(project_id: int = 0, title: str = "", description: str = ""
     finally:
         conn.close()
     return {"ok": True, "task_id": tid, "title": title, "project_id": project_id}
+
+
+def tool_create_resource(project_id: int = 0, url: str = "", name: str = "", text: str = "", **_: Any) -> dict:
+    """Add a resource to a project's Resources drive — either a web link (url) or a text note (text)."""
+    try:
+        project_id = int(project_id)
+    except Exception:
+        project_id = 0
+    if not project_id:
+        return {"error": "project_id is required — call list_projects first"}
+    url = (url or "").strip()
+    text = (text or "").strip()
+    if not url and not text:
+        return {"error": "either url or text is required"}
+    from core import pm_resources as pmres
+    conn = _conn()
+    try:
+        if not conn.execute("SELECT 1 FROM pm_projects WHERE id=?", (project_id,)).fetchone():
+            return {"error": f"no project with id {project_id}"}
+        if url:
+            meta = pmres.build_link(url, name or None)
+            cur = conn.execute(
+                "INSERT INTO pm_resources (project_id, kind, name, ext, source, rtype, url, text_content, created_by) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (project_id, "link", meta["name"], meta.get("ext"), meta["source"], meta["rtype"],
+                 meta["url"], meta.get("text_content"), "tobi"),
+            )
+        else:
+            fname = (name or "note").strip() or "note"
+            if "." not in fname:
+                fname += ".md"
+            meta = pmres.save_file(project_id, fname, text.encode("utf-8"))
+            cur = conn.execute(
+                "INSERT INTO pm_resources (project_id, kind, name, ext, source, rtype, "
+                "size_bytes, disk_path, mime, text_content, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (project_id, "file", meta["name"], meta["ext"], "device", meta["rtype"],
+                 meta["size_bytes"], meta["disk_path"], meta["mime"], meta["text_content"], "tobi"),
+            )
+            conn.execute("UPDATE pm_projects SET resources_bytes=? WHERE id=?",
+                         (pmres.project_bytes(project_id), project_id))
+        rid = cur.lastrowid
+        _pm_log(conn, project_id, "resource.added", f"Resource '{meta['name']}' added via TOBI")
+        conn.commit()
+    finally:
+        conn.close()
+    try:  # index for per-project RAG (best-effort, separate connection)
+        pmres.index_resource(rid, project_id, meta.get("text_content"))
+    except Exception:
+        pass
+    return {"ok": True, "resource_id": rid, "project_id": project_id, "name": meta["name"]}
+
+
+def tool_set_project_description(project_id: int = 0, description: str = "", **_: Any) -> dict:
+    """Set (overwrite) a project's plain-text Overview description."""
+    try:
+        project_id = int(project_id)
+    except Exception:
+        return {"error": "project_id must be an integer"}
+    description = (description or "").strip()
+    conn = _conn()
+    try:
+        if not conn.execute("SELECT 1 FROM pm_projects WHERE id=?", (project_id,)).fetchone():
+            return {"error": f"no project with id {project_id}"}
+        conn.execute("UPDATE pm_projects SET description=? WHERE id=?", (description or None, project_id))
+        _pm_log(conn, project_id, "project.description", "Description updated via TOBI")
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "project_id": project_id, "description": description}
+
+
+_EMOJI_BY_CATEGORY = {
+    "general": "📁", "work": "💼", "personal": "🌟", "research": "🔬",
+    "marketing": "📣", "dev": "💻", "design": "🎨", "business": "🏢",
+    "content": "✍️", "growth": "📈",
+}
+
+
+def tool_pick_project_icon(project_id: int = 0, emoji: str = "", icon: str = "", **_: Any) -> dict:
+    """Set a project's icon. Pass emoji (e.g. '🚀') or icon (a lucide key). Omit both to auto-pick."""
+    try:
+        project_id = int(project_id)
+    except Exception:
+        return {"error": "project_id must be an integer"}
+    conn = _conn()
+    try:
+        row = conn.execute("SELECT id, name, category FROM pm_projects WHERE id=?", (project_id,)).fetchone()
+        if not row:
+            return {"error": f"no project with id {project_id}"}
+        if (emoji or "").strip():
+            icon_type, icon_value = "emoji", emoji.strip()
+        elif (icon or "").strip():
+            icon_type, icon_value = "icon", icon.strip()
+        else:
+            cat = (row["category"] or "").lower()
+            pick = _EMOJI_BY_CATEGORY.get(cat)
+            if not pick:
+                import hashlib
+                pool = list(_EMOJI_BY_CATEGORY.values())
+                pick = pool[hashlib.md5((row["name"] or "").encode()).digest()[0] % len(pool)]
+            icon_type, icon_value = "emoji", pick
+        conn.execute("UPDATE pm_projects SET icon_type=?, icon_value=? WHERE id=?",
+                     (icon_type, icon_value, project_id))
+        _pm_log(conn, project_id, "project.icon", f"Icon set to {icon_value} via TOBI")
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "project_id": project_id, "icon_type": icon_type, "icon_value": icon_value}
 
 
 def tool_complete_task(task_id: int = 0, note: str = "", **_: Any) -> dict:
@@ -810,6 +943,9 @@ ACT_TOOLS: dict[str, tuple[Callable[..., dict], str, str]] = {
     "remember": (tool_remember, "low", "Save a fact to long-term memory. Args: fact (string), category (optional)."),
     "create_project": (tool_create_project, "low", "Create a project on the owner's board. Args: name (string), description (optional), category (optional)."),
     "create_task": (tool_create_task, "low", "Create a task in a project. Args: project_id (int — call list_projects first to get a real id), title (string), description (optional)."),
+    "create_resource": (tool_create_resource, "low", "Add a resource to a project's Resources drive. Args: project_id (int), and either url (a web link — YouTube/Drive/GitHub/web are ingested to text) or text (a text/markdown note). name (optional)."),
+    "set_project_description": (tool_set_project_description, "low", "Set a project's plain-text Overview description. Args: project_id (int), description (string)."),
+    "pick_project_icon": (tool_pick_project_icon, "low", "Set a project's icon. Args: project_id (int), emoji (e.g. '🚀') OR icon (a lucide key). Omit both to auto-pick from the project category/name."),
     "complete_task": (tool_complete_task, "low", "Mark a task done. Args: task_id (int from list_tasks)."),
     "rename_project": (tool_rename_project, "low", "Rename a project. Args: project_id (int), new_name (string). Can be called multiple times to batch-rename."),
     "create_goal": (tool_create_goal, "low", "Create a goal inside a project. Args: project_id (int), title (string), description (optional), due_date (YYYY-MM-DD, optional), priority (low|medium|high)."),
@@ -893,6 +1029,9 @@ def _action_summary(tool: str, args: dict) -> str:
         "remember": f'remember "{str(a.get("fact", ""))[:60]}"',
         "create_project": f'create project "{a.get("name", "")}"',
         "create_task": f'create task "{a.get("title", "")}" in project {a.get("project_id")}',
+        "create_resource": f'add resource "{a.get("name") or a.get("url") or "note"}" to project {_project_name(a.get("project_id"))}',
+        "set_project_description": f'set description of project {_project_name(a.get("project_id"))}',
+        "pick_project_icon": f'set icon of project {_project_name(a.get("project_id"))}',
         "complete_task": f'complete task #{a.get("task_id")}',
         "rename_project": f'rename project {_project_name(a.get("project_id"))} → "{a.get("new_name", "")}"',
         "create_goal": f'create goal "{a.get("title", "")}" in project {a.get("project_id")}',

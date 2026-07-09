@@ -519,6 +519,7 @@ def _ensure_pm_v2_schema(conn: sqlite3.Connection) -> None:
     # Tasks: optional start + reminder (due_at/description/time_estimate/sub_tasks_json already exist).
     _ensure_column(conn, "tasks", "start_at",    "TEXT")
     _ensure_column(conn, "tasks", "reminder_at", "TEXT")
+    _ensure_column(conn, "tasks", "reminder_fired_at", "TEXT")   # set when a reminder has been pushed
 
     conn.executescript("""
     -- Folders for the Drive-style Resources tab (one level of nesting via parent_id).
@@ -576,11 +577,25 @@ def _ensure_pm_v2_schema(conn: sqlite3.Connection) -> None:
         created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Per-project content RAG: chunked resource text + embeddings (fastembed, optional).
+    CREATE TABLE IF NOT EXISTS pm_resource_chunks (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        resource_id  INTEGER NOT NULL REFERENCES pm_resources(id) ON DELETE CASCADE,
+        project_id   INTEGER NOT NULL REFERENCES pm_projects(id) ON DELETE CASCADE,
+        ordinal      INTEGER DEFAULT 0,
+        chunk_text   TEXT    NOT NULL,
+        embedding    BLOB,
+        embed_model  TEXT,
+        created_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE INDEX IF NOT EXISTS idx_pm_folders_project   ON pm_folders(project_id, parent_id);
     CREATE INDEX IF NOT EXISTS idx_pm_resources_project ON pm_resources(project_id, folder_id);
     CREATE INDEX IF NOT EXISTS idx_pm_task_deps_task    ON pm_task_deps(task_id);
     CREATE INDEX IF NOT EXISTS idx_pm_task_deps_blocks  ON pm_task_deps(blocks_id);
     CREATE INDEX IF NOT EXISTS idx_pm_goal_tasks_goal   ON pm_goal_tasks(goal_id);
+    CREATE INDEX IF NOT EXISTS idx_pm_chunks_resource   ON pm_resource_chunks(resource_id);
+    CREATE INDEX IF NOT EXISTS idx_pm_chunks_project    ON pm_resource_chunks(project_id);
     """)
 
     # Goals gain a mode: 'metric' (current/target) or 'task' (rollup from linked tasks).
