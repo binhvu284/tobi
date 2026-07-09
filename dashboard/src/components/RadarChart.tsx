@@ -46,7 +46,7 @@ export default function RadarChart({ axes, series, size = 320, className = '' }:
             key={rr}
             points={Array.from({ length: n }, (_, i) => point(i, maxR * rr).join(',')).join(' ')}
             fill="none"
-            stroke="#30363d"
+            stroke="rgb(var(--border))"
             strokeWidth={1}
           />
         ))}
@@ -57,11 +57,11 @@ export default function RadarChart({ axes, series, size = 320, className = '' }:
           const [lx, ly] = point(i, maxR + 20)
           return (
             <g key={ax}>
-              <line x1={cx} y1={cy} x2={ex} y2={ey} stroke="#30363d" strokeWidth={1} />
+              <line x1={cx} y1={cy} x2={ex} y2={ey} stroke="rgb(var(--border))" strokeWidth={1} />
               <text
                 x={lx}
                 y={ly}
-                fill="#8b949e"
+                fill="rgb(var(--muted))"
                 fontSize={11}
                 textAnchor={Math.abs(lx - cx) < 4 ? 'middle' : lx > cx ? 'start' : 'end'}
                 dominantBaseline="middle"

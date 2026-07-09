@@ -29,9 +29,9 @@ export default function ActivityTab({ projectId }: { projectId: number }) {
         ? <div className="py-8 text-center text-muted"><ActivityIcon size={32} className="mx-auto mb-2 text-muted/40" /><div className="text-sm">No activity yet</div></div>
         : items.map(a => (
           <div key={a.id} className="overflow-hidden rounded-lg border border-border bg-panel">
-            <div className="flex cursor-pointer items-start gap-3 px-3 py-2.5 hover:bg-white/2"
+            <div className="flex cursor-pointer items-start gap-3 px-3 py-2.5 hover:bg-overlay/2"
               onClick={() => setExpandedId(expandedId === a.id ? null : a.id)}>
-              <span className={`mt-0.5 rounded-full p-1.5 ${a.actor === 'tobi' ? 'bg-accent/15 text-accent' : 'bg-white/8 text-muted'}`}>
+              <span className={`mt-0.5 rounded-full p-1.5 ${a.actor === 'tobi' ? 'bg-accent/15 text-accent' : 'bg-overlay/8 text-muted'}`}>
                 {a.actor === 'tobi' ? <Bot size={11} /> : <User size={11} />}
               </span>
               <div className="min-w-0 flex-1">

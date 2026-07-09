@@ -740,7 +740,7 @@ function UsageTab({ uo, colors, animate, range, setRange, plans, setPlansState,
               {calls.length === 0 ? (
                 <tr><td colSpan={6} className="py-6 text-center text-muted">No calls match.</td></tr>
               ) : calls.map(c => (
-                <tr key={c.id} className="hover:bg-white/5">
+                <tr key={c.id} className="hover:bg-overlay/5">
                   <td className="whitespace-nowrap py-1.5 pr-3 font-mono text-muted">
                     {c.ts ? new Date(c.ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
                   </td>

@@ -34,7 +34,7 @@ export function fmtMinutes(min?: number | null) {
 
 export function Bar({ pct, color = 'bg-accent' }: { pct: number; color?: string }) {
   return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/8">
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-overlay/8">
       <motion.div className={`h-full rounded-full ${color}`}
         initial={{ width: 0 }} animate={{ width: `${Math.min(100, pct)}%` }}
         transition={{ duration: 0.5, ease: 'easeOut' }} />

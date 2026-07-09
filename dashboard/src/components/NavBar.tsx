@@ -27,7 +27,7 @@ export default function NavBar() {
               `flex items-center gap-3 px-4 py-3 text-sm transition-colors ${
                 isActive
                   ? 'text-accent bg-accent/10 border-r-2 border-accent'
-                  : 'text-muted hover:text-text hover:bg-white/5'
+                  : 'text-muted hover:text-text hover:bg-overlay/5'
               }`
             }
           >

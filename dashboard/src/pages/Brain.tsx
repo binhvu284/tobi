@@ -198,7 +198,7 @@ export default function Brain() {
 
       {/* Category tabs */}
       <div className="flex flex-wrap gap-1.5">
-        <Tab active={activeCat === 'all'} onClick={() => setActiveCat('all')} color="#8b949e" label="All" count={stats?.total} />
+        <Tab active={activeCat === 'all'} onClick={() => setActiveCat('all')} color="rgb(var(--muted))" label="All" count={stats?.total} />
         {categories.map(c => (
           <Tab key={c.id} active={activeCat === c.id} onClick={() => setActiveCat(c.id)} color={c.color}
             label={c.label} count={stats?.by_category[c.id]} locked={!!c.is_locked} />
@@ -245,7 +245,7 @@ export default function Brain() {
           return (
             <motion.button key={m.id} layout onClick={onRow}
               initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
-              className={`flex w-full items-center gap-3 overflow-hidden rounded-lg border bg-surface px-3 py-2.5 text-left transition-colors ${isSel ? 'border-accent/60 bg-accent/5' : 'border-border hover:border-white/20'}`}>
+              className={`flex w-full items-center gap-3 overflow-hidden rounded-lg border bg-surface px-3 py-2.5 text-left transition-colors ${isSel ? 'border-accent/60 bg-accent/5' : 'border-border hover:border-overlay/20'}`}>
               {selectMode && (
                 <span className={isSel ? 'text-accent' : 'text-muted'}>
                   {isSel ? <CheckSquare size={16} /> : <Square size={16} />}

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Inbox, MessagesSquare, History, Brain, Share2, Network, Zap,
@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import { useToast } from './ToastProvider'
 
-export const MAX_WORKSPACE_TABS = 3
+export const MAX_WORKSPACE_TABS = 5
 
 export type WorkspaceTab = {
   id: string
@@ -141,6 +141,15 @@ export function WorkspaceTabsProvider({ children }: { children: ReactNode }) {
   const [tabLabels, setTabLabels] = useState<Record<string, string>>(loadLabels)
   const [tabIcons, setTabIcons] = useState<Record<string, string>>(loadIcons)
 
+  // Refs mirror the latest state so callbacks read current values without
+  // needing them in dependency arrays — keeps callback identities stable.
+  const tabsRef = useRef(tabs)
+  tabsRef.current = tabs
+  const activeIdRef = useRef(activeId)
+  activeIdRef.current = activeId
+
+  // Route → tab sync.  Only depends on the route, NOT on tabs/activeId,
+  // so it doesn't re-run when our own setState changes those.
   useEffect(() => {
     if (loc.pathname === '/') {
       navigate('/dashboard', { replace: true })
@@ -149,22 +158,20 @@ export function WorkspaceTabsProvider({ children }: { children: ReactNode }) {
     const route = normalizeWorkspaceRoute(loc.pathname)
     if (!isTabbable(route)) return
     const key = tabKeyFor(route)
-    const existing = tabs.find(t => t.id === key)
+    const existing = tabsRef.current.find(t => t.id === key)
     if (existing) {
-      // Same workspace tab — but a project's inner tab may have changed (…/overview → …/tasks):
-      // keep the tab, update its stored route so focus/restore lands on the right inner tab.
       if (existing.route !== route) {
         setTabs(prev => prev.map(t => (t.id === key ? { ...t, route } : t)))
       }
-      if (key !== activeId) setActiveId(key)
+      if (key !== activeIdRef.current) setActiveId(key)
       return
     }
-    if (key === activeId) return
-    // No tab for this route: navigate the active tab in place instead of spawning a new one.
-    setTabs(prev => prev.map(t => (t.id === activeId ? makeTab(route) : t)))
+    if (key === activeIdRef.current) return
+    setTabs(prev => prev.map(t => (t.id === activeIdRef.current ? makeTab(route) : t)))
     setActiveId(key)
-  }, [activeId, loc.pathname, navigate, tabs])
+  }, [loc.pathname, navigate])
 
+  // Persist state to localStorage (single effect, not inside setState updaters).
   useEffect(() => {
     try {
       localStorage.setItem(TABS_KEY, JSON.stringify(tabs))
@@ -172,78 +179,82 @@ export function WorkspaceTabsProvider({ children }: { children: ReactNode }) {
     } catch { /* ignore */ }
   }, [activeId, tabs])
 
-  const value = useMemo<WorkspaceTabsContextValue>(() => ({
-    tabs,
-    activeId,
-    tabLabels,
-    tabIcons,
-    openTab: (route) => {
-      const clean = normalizeWorkspaceRoute(route)
-      if (!isTabbable(clean)) return
-      const key = tabKeyFor(clean)
-      const existing = tabs.find(t => t.id === key)
-      if (existing) {
-        setActiveId(existing.id)
-        navigate(clean)
-        return
-      }
-      if (tabs.length >= MAX_WORKSPACE_TABS) {
-        toast({ kind: 'info', title: `${MAX_WORKSPACE_TABS} tabs maximum`, detail: 'Close a tab before opening another page.' })
-        return
-      }
-      setTabs(prev => [...prev, makeTab(clean)])
-      setActiveId(key)
+  useEffect(() => {
+    try { localStorage.setItem(LABELS_KEY, JSON.stringify(tabLabels)) } catch { /* ignore */ }
+  }, [tabLabels])
+
+  useEffect(() => {
+    try { localStorage.setItem(ICONS_KEY, JSON.stringify(tabIcons)) } catch { /* ignore */ }
+  }, [tabIcons])
+
+  // Stable callbacks — identities never change across re-renders.
+  const openTab = useCallback((route: string) => {
+    const clean = normalizeWorkspaceRoute(route)
+    if (!isTabbable(clean)) return
+    const key = tabKeyFor(clean)
+    const existing = tabsRef.current.find(t => t.id === key)
+    if (existing) {
+      setActiveId(existing.id)
       navigate(clean)
-    },
-    focusTab: (id) => {
-      const tab = tabs.find(t => t.id === id)
-      if (!tab) return
-      setActiveId(id)
-      navigate(tab.route)
-    },
-    closeTab: (id) => {
-      if (tabs.length <= 1) {
-        toast({ kind: 'info', title: 'Keep one tab open', detail: 'Mission Control needs one active workspace tab.' })
-        return
-      }
-      const idx = tabs.findIndex(t => t.id === id)
-      if (idx < 0) return
-      const nextTabs = tabs.filter(t => t.id !== id)
-      setTabs(nextTabs)
-      if (activeId === id) {
-        const next = nextTabs[Math.max(0, Math.min(idx, nextTabs.length - 1))]
-        setActiveId(next.id)
-        navigate(next.route)
-      }
-    },
-    reorderTabs: (fromId, toId) => {
-      if (fromId === toId) return
-      const from = tabs.findIndex(t => t.id === fromId)
-      const to = tabs.findIndex(t => t.id === toId)
-      if (from < 0 || to < 0) return
-      const next = [...tabs]
-      const [moved] = next.splice(from, 1)
-      next.splice(to, 0, moved)
-      setTabs(next)
-    },
-    setTabLabel: (id, label) => {
-      setTabLabels(prev => {
-        if (prev[id] === label) return prev
-        const next = { ...prev, [id]: label }
-        // keep only labels for known tabs + a small tail, so the map can't grow unbounded
-        try { localStorage.setItem(LABELS_KEY, JSON.stringify(next)) } catch { /* ignore */ }
-        return next
-      })
-    },
-    setTabIcon: (id, icon) => {
-      setTabIcons(prev => {
-        if (prev[id] === icon) return prev
-        const next = { ...prev, [id]: icon }
-        try { localStorage.setItem(ICONS_KEY, JSON.stringify(next)) } catch { /* ignore */ }
-        return next
-      })
-    },
-  }), [activeId, navigate, tabIcons, tabLabels, tabs, toast])
+      return
+    }
+    if (tabsRef.current.length >= MAX_WORKSPACE_TABS) {
+      toast({ kind: 'info', title: `${MAX_WORKSPACE_TABS} tabs maximum`, detail: 'Close a tab before opening another page.' })
+      return
+    }
+    setTabs(prev => [...prev, makeTab(clean)])
+    setActiveId(key)
+    navigate(clean)
+  }, [navigate, toast])
+
+  const focusTab = useCallback((id: string) => {
+    const tab = tabsRef.current.find(t => t.id === id)
+    if (!tab) return
+    setActiveId(id)
+    navigate(tab.route)
+  }, [navigate])
+
+  const closeTab = useCallback((id: string) => {
+    const cur = tabsRef.current
+    if (cur.length <= 1) {
+      toast({ kind: 'info', title: 'Keep one tab open', detail: 'Mission Control needs one active workspace tab.' })
+      return
+    }
+    const idx = cur.findIndex(t => t.id === id)
+    if (idx < 0) return
+    const nextTabs = cur.filter(t => t.id !== id)
+    setTabs(nextTabs)
+    if (activeIdRef.current === id) {
+      const next = nextTabs[Math.max(0, Math.min(idx, nextTabs.length - 1))]
+      setActiveId(next.id)
+      navigate(next.route)
+    }
+  }, [navigate, toast])
+
+  const reorderTabs = useCallback((fromId: string, toId: string) => {
+    if (fromId === toId) return
+    const cur = tabsRef.current
+    const from = cur.findIndex(t => t.id === fromId)
+    const to = cur.findIndex(t => t.id === toId)
+    if (from < 0 || to < 0) return
+    const next = [...cur]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    setTabs(next)
+  }, [])
+
+  const setTabLabel = useCallback((id: string, label: string) => {
+    setTabLabels(prev => prev[id] === label ? prev : { ...prev, [id]: label })
+  }, [])
+
+  const setTabIcon = useCallback((id: string, icon: string) => {
+    setTabIcons(prev => prev[id] === icon ? prev : { ...prev, [id]: icon })
+  }, [])
+
+  const value = useMemo<WorkspaceTabsContextValue>(() => ({
+    tabs, activeId, tabLabels, tabIcons,
+    openTab, focusTab, closeTab, reorderTabs, setTabLabel, setTabIcon,
+  }), [tabs, activeId, tabLabels, tabIcons, openTab, focusTab, closeTab, reorderTabs, setTabLabel, setTabIcon])
 
   return <WorkspaceTabsContext.Provider value={value}>{children}</WorkspaceTabsContext.Provider>
 }

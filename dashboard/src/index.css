@@ -2,144 +2,487 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Theme v2 tokens (queue #13) ──────────────────────────────────────────────
+/* ── Theme v2.1 tokens (queue #13) ────────────────────────────────────────────
    Channel triplets so `bg-accent/10` opacity modifiers work: Tailwind colors
    resolve to rgb(var(--x) / <alpha-value>). These blocks are the CSS *fallback*
-   (first paint, Settings swatch previews via data-theme, Office's pinned dark
-   wrappers); the source of truth is src/context/themeTokens.ts — ThemeProvider
-   writes the effective set (theme defaults + per-theme customization) inline on
-   <html>, which wins at root level while [data-theme] previews still resolve
-   locally. Keep both in sync when editing a theme.
-   Active: dark · light · gaming · hightech · japanese · chinese · jarvis.
+   (first paint, Settings previews via data-theme, Office's pinned dark wrappers);
+   the source of truth is src/context/themeTokens.ts — ThemeProvider writes the
+   effective set (theme defaults + per-theme customization) inline on <html>,
+   which wins at root level while [data-theme] previews still resolve locally.
+   ⚠ GENERATED to match computeCssVars() — do NOT hand-edit values; edit the token
+   file and regenerate (a node parity test asserts CSS == tokens for all 12).
+   Active (3 groups): core dark·light·hightech · expressive gaming·japanese·
+   chinese·jarvis · brand vercel·notion·linear·chatgpt·claude.
    Removed (auto-migrated at load): midnight→gaming, contrast→dark, warm→dark,
    scientific→light. */
+/* Dark Default — GitHub-dark baseline — calm, familiar, precise. */
 :root, [data-theme="dark"] {
   color-scheme: dark;
-  --bg: 13 17 23;        --surface: 22 27 34;   --panel: 16 21 28;     --border: 48 54 61;
+  --bg: 13 17 23;
+  --surface: 22 27 34;
+  --panel: 16 21 28;
+  --border: 48 54 61;
   --strip: 22 27 34;
-  --muted: 139 148 158;  --text: 201 209 217;   --heading: 240 246 252;
-  --accent: 88 166 255;  --success: 63 185 80;  --warning: 210 153 34;
-  --danger: 248 81 73;   --purple: 139 92 246;
-  --theme-accent-2: 139 92 246;  --theme-glow: 88 166 255;
-  --radius-card: 12px; --radius-button: 8px; --radius-input: 6px;
+  --muted: 139 148 158;
+  --text: 201 209 217;
+  --heading: 240 246 252;
+  --accent: 88 166 255;
+  --success: 63 185 80;
+  --warning: 210 153 34;
+  --danger: 248 81 73;
+  --purple: 139 92 246;
+  --theme-accent-2: 139 92 246;
+  --theme-glow: 88 166 255;
+  --overlay: 255 255 255;
+  --selection: 88 166 255;
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-numeric: normal;
+  --radius-card: 12px;
+  --radius-button: 8px;
+  --radius-input: 6px;
   --shadow-card: 0 1px 3px rgb(0 0 0 / 0.20);
   --shadow-popover: 0 16px 40px -12px rgb(0 0 0 / 0.40);
-  --tracking-ui: 0em; --spacing-scale: 1; --bg-overlay-opacity: 0.04;
-  --chart-1: 88 166 255; --chart-2: 139 92 246; --chart-3: 63 185 80;
-  --chart-4: 210 153 34; --chart-5: 248 81 73;  --chart-6: 45 212 191;
-  --font-scale: 1;
+  --tracking-ui: 0em;
+  --bg-overlay-opacity: 0.04;
+  --chart-1: 88 166 255;
+  --chart-2: 139 92 246;
+  --chart-3: 63 185 80;
+  --chart-4: 210 153 34;
+  --chart-5: 248 81 73;
+  --chart-6: 45 212 191;
+  --font-scale: 1; --spacing-scale: 1;
 }
+/* Light Default — Clean & bright — crisp premium SaaS light mode. */
 [data-theme="light"] {
   color-scheme: light;
-  --bg: 247 249 252;     --surface: 255 255 255; --panel: 241 245 249; --border: 209 217 224;
+  --bg: 247 249 252;
+  --surface: 255 255 255;
+  --panel: 241 245 249;
+  --border: 209 217 224;
   --strip: 224 230 238;
-  --muted: 90 100 110;   --text: 30 41 59;       --heading: 15 23 42;
-  --accent: 37 99 235;   --success: 22 163 74;   --warning: 202 138 4;
-  --danger: 220 38 38;   --purple: 124 58 237;
-  --theme-accent-2: 124 58 237;  --theme-glow: 37 99 235;
-  --radius-card: 12px; --radius-button: 8px; --radius-input: 6px;
+  --muted: 90 100 110;
+  --text: 30 41 59;
+  --heading: 15 23 42;
+  --accent: 37 99 235;
+  --success: 22 163 74;
+  --warning: 202 138 4;
+  --danger: 220 38 38;
+  --purple: 124 58 237;
+  --theme-accent-2: 124 58 237;
+  --theme-glow: 37 99 235;
+  --overlay: 15 23 42;
+  --selection: 37 99 235;
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-numeric: normal;
+  --radius-card: 12px;
+  --radius-button: 8px;
+  --radius-input: 6px;
   --shadow-card: 0 1px 3px rgb(0 0 0 / 0.20);
   --shadow-popover: 0 16px 40px -12px rgb(0 0 0 / 0.40);
-  --tracking-ui: 0em; --spacing-scale: 1; --bg-overlay-opacity: 0.03;
-  --chart-1: 37 99 235;  --chart-2: 124 58 237; --chart-3: 22 163 74;
-  --chart-4: 202 138 4;  --chart-5: 220 38 38;  --chart-6: 13 148 136;
+  --tracking-ui: 0em;
+  --bg-overlay-opacity: 0.03;
+  --chart-1: 37 99 235;
+  --chart-2: 124 58 237;
+  --chart-3: 22 163 74;
+  --chart-4: 202 138 4;
+  --chart-5: 220 38 38;
+  --chart-6: 13 148 136;
 }
-/* Gaming — esports neon: sharp HUD accents, lime success, purple/pink secondary. */
-[data-theme="gaming"] {
-  color-scheme: dark;
-  --bg: 9 8 16;          --surface: 19 16 30;    --panel: 13 11 22;     --border: 62 42 88;
-  --strip: 19 16 30;
-  --muted: 152 140 175;  --text: 222 216 238;    --heading: 246 242 255;
-  --accent: 168 85 247;  --success: 57 255 20;   --warning: 255 170 0;
-  --danger: 255 45 85;   --purple: 217 70 239;
-  --theme-accent-2: 255 45 170;  --theme-glow: 168 85 247;
-  --radius-card: 6px; --radius-button: 4px; --radius-input: 4px;
-  --shadow-card: 0 0 0 1px rgb(var(--accent) / 0.06), 0 0 20px -4px rgb(var(--accent) / 0.18);
-  --shadow-popover: 0 16px 48px -8px rgb(var(--accent) / 0.28);
-  --tracking-ui: 0.015em; --spacing-scale: 1; --bg-overlay-opacity: 0.06;
-  --chart-1: 168 85 247; --chart-2: 255 45 170; --chart-3: 57 255 20;
-  --chart-4: 255 170 0;  --chart-5: 34 211 238; --chart-6: 255 45 85;
-}
-/* High Tech — clean engineering dashboard: cool blues, teal, precise borders. */
+/* High Tech — Engineering dashboard — cool blues, teal, precise lines. */
 [data-theme="hightech"] {
   color-scheme: dark;
-  --bg: 10 16 28;        --surface: 16 26 44;    --panel: 13 21 36;     --border: 44 62 92;
+  --bg: 10 16 28;
+  --surface: 16 26 44;
+  --panel: 13 21 36;
+  --border: 44 62 92;
   --strip: 16 26 44;
-  --muted: 128 148 178;  --text: 198 214 234;    --heading: 235 245 255;
-  --accent: 56 189 248;  --success: 45 212 191;  --warning: 245 191 66;
-  --danger: 248 113 113; --purple: 129 140 248;
-  --theme-accent-2: 45 212 191;  --theme-glow: 56 189 248;
-  --radius-card: 6px; --radius-button: 4px; --radius-input: 4px;
+  --muted: 128 148 178;
+  --text: 198 214 234;
+  --heading: 235 245 255;
+  --accent: 56 189 248;
+  --success: 45 212 191;
+  --warning: 245 191 66;
+  --danger: 248 113 113;
+  --purple: 129 140 248;
+  --theme-accent-2: 45 212 191;
+  --theme-glow: 56 189 248;
+  --overlay: 255 255 255;
+  --selection: 56 189 248;
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-numeric: normal;
+  --radius-card: 6px;
+  --radius-button: 4px;
+  --radius-input: 4px;
   --shadow-card: 0 1px 3px rgb(0 0 0 / 0.20);
   --shadow-popover: 0 16px 40px -12px rgb(0 0 0 / 0.40);
-  --tracking-ui: -0.01em; --spacing-scale: 1; --bg-overlay-opacity: 0.05;
-  --chart-1: 56 189 248; --chart-2: 45 212 191; --chart-3: 129 140 248;
-  --chart-4: 245 191 66; --chart-5: 248 113 113; --chart-6: 148 163 184;
+  --tracking-ui: -0.01em;
+  --bg-overlay-opacity: 0.05;
+  --chart-1: 56 189 248;
+  --chart-2: 45 212 191;
+  --chart-3: 129 140 248;
+  --chart-4: 245 191 66;
+  --chart-5: 248 113 113;
+  --chart-6: 148 163 184;
 }
-/* Japanese — washi white + sakura: calm minimal cards, soft radius. */
+/* Neon Arena — Esports HUD — electric violet on charcoal, sakura-lime energy. */
+[data-theme="gaming"] {
+  color-scheme: dark;
+  --bg: 15 13 22;
+  --surface: 22 19 32;
+  --panel: 18 16 27;
+  --border: 52 46 74;
+  --strip: 22 19 32;
+  --muted: 148 142 168;
+  --text: 224 221 235;
+  --heading: 245 243 252;
+  --accent: 155 92 240;
+  --success: 140 220 90;
+  --warning: 245 176 46;
+  --danger: 244 63 94;
+  --purple: 196 100 245;
+  --theme-accent-2: 236 72 153;
+  --theme-glow: 155 92 240;
+  --overlay: 255 255 255;
+  --selection: 155 92 240;
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Rajdhani", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-numeric: normal;
+  --radius-card: 6px;
+  --radius-button: 4px;
+  --radius-input: 4px;
+  --shadow-card: 0 0 0 1px rgb(var(--accent) / 0.05), 0 0 14px -6px rgb(var(--accent) / 0.12);
+  --shadow-popover: 0 16px 44px -12px rgb(var(--accent) / 0.20);
+  --tracking-ui: 0.015em;
+  --bg-overlay-opacity: 0.04;
+  --chart-1: 155 92 240;
+  --chart-2: 236 72 153;
+  --chart-3: 140 220 90;
+  --chart-4: 245 176 46;
+  --chart-5: 34 211 238;
+  --chart-6: 244 63 94;
+}
+/* Washi — Warm paper & sakura — Muji-calm, minimal, quietly elegant. */
 [data-theme="japanese"] {
   color-scheme: light;
-  --bg: 250 247 245;     --surface: 255 255 255; --panel: 247 241 240;  --border: 233 221 221;
-  --strip: 243 233 233;
-  --muted: 141 122 128;  --text: 74 60 66;       --heading: 45 33 39;
-  --accent: 224 93 128;  --success: 88 158 110;  --warning: 200 142 62;
-  --danger: 203 84 92;   --purple: 156 116 182;
-  --theme-accent-2: 156 116 182; --theme-glow: 224 93 128;
-  --radius-card: 16px; --radius-button: 12px; --radius-input: 10px;
+  --bg: 252 250 247;
+  --surface: 255 255 255;
+  --panel: 248 245 240;
+  --border: 229 222 214;
+  --strip: 243 238 231;
+  --muted: 122 113 108;
+  --text: 43 42 51;
+  --heading: 32 30 36;
+  --accent: 216 82 120;
+  --success: 104 159 92;
+  --warning: 196 138 58;
+  --danger: 198 76 82;
+  --purple: 138 116 180;
+  --theme-accent-2: 138 116 180;
+  --theme-glow: 216 82 120;
+  --overlay: 43 42 51;
+  --selection: 216 82 120;
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Zen Maru Gothic", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-numeric: normal;
+  --radius-card: 16px;
+  --radius-button: 12px;
+  --radius-input: 10px;
   --shadow-card: 0 1px 3px rgb(0 0 0 / 0.20);
   --shadow-popover: 0 16px 40px -12px rgb(0 0 0 / 0.40);
-  --tracking-ui: 0.015em; --spacing-scale: 1; --bg-overlay-opacity: 0.05;
-  --chart-1: 224 93 128; --chart-2: 156 116 182; --chart-3: 88 158 110;
-  --chart-4: 200 142 62; --chart-5: 203 84 92;   --chart-6: 120 140 160;
+  --tracking-ui: 0.015em;
+  --bg-overlay-opacity: 0.04;
+  --chart-1: 216 82 120;
+  --chart-2: 138 116 180;
+  --chart-3: 104 159 92;
+  --chart-4: 196 138 58;
+  --chart-5: 198 76 82;
+  --chart-6: 120 140 160;
 }
-/* Chinese — red & gold premium SaaS: festive but professional. */
+/* Lacquer — Lacquer & champagne gold — premium, festive but composed. */
 [data-theme="chinese"] {
   color-scheme: dark;
-  --bg: 26 13 12;        --surface: 40 21 19;    --panel: 33 17 15;     --border: 96 52 44;
-  --strip: 40 21 19;
-  --muted: 196 156 138;  --text: 240 219 204;    --heading: 252 240 225;
-  --accent: 224 66 56;   --success: 106 186 116; --warning: 214 168 48;
-  --danger: 250 98 86;   --purple: 186 108 158;
-  --theme-accent-2: 214 168 48;  --theme-glow: 214 168 48;
-  --radius-card: 12px; --radius-button: 8px; --radius-input: 6px;
+  --bg: 25 17 15;
+  --surface: 38 27 24;
+  --panel: 31 22 20;
+  --border: 82 58 48;
+  --strip: 38 27 24;
+  --muted: 178 150 134;
+  --text: 236 222 208;
+  --heading: 250 241 228;
+  --accent: 200 60 50;
+  --success: 110 168 110;
+  --warning: 214 158 62;
+  --danger: 234 88 76;
+  --purple: 170 110 150;
+  --theme-accent-2: 212 175 111;
+  --theme-glow: 212 175 111;
+  --overlay: 255 255 255;
+  --selection: 212 175 111;
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "ZCOOL XiaoWei", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-numeric: normal;
+  --radius-card: 12px;
+  --radius-button: 8px;
+  --radius-input: 6px;
   --shadow-card: 0 10px 28px -10px rgb(0 0 0 / 0.50);
   --shadow-popover: 0 28px 64px -16px rgb(0 0 0 / 0.55);
-  --tracking-ui: 0em; --spacing-scale: 1; --bg-overlay-opacity: 0.07;
-  --chart-1: 224 66 56;  --chart-2: 214 168 48;  --chart-3: 106 186 116;
-  --chart-4: 230 150 60; --chart-5: 250 98 86;   --chart-6: 170 120 90;
+  --tracking-ui: 0em;
+  --bg-overlay-opacity: 0.05;
+  --chart-1: 200 60 50;
+  --chart-2: 212 175 111;
+  --chart-3: 110 168 110;
+  --chart-4: 230 150 60;
+  --chart-5: 234 88 76;
+  --chart-6: 170 120 90;
 }
-/* Jarvis OS — high-tech blue AI OS: dark, glowing but controlled, analytical. */
+/* Jarvis OS — Arc-reactor blue — deep-space navy, glowing, analytical. */
 [data-theme="jarvis"] {
   color-scheme: dark;
-  --bg: 5 11 22;         --surface: 10 20 38;    --panel: 8 16 30;      --border: 28 52 88;
-  --strip: 10 20 38;
-  --muted: 108 138 172;  --text: 188 212 238;    --heading: 224 240 255;
-  --accent: 0 194 255;   --success: 62 220 172;  --warning: 255 188 70;
-  --danger: 255 86 100;  --purple: 128 122 250;
-  --theme-accent-2: 82 128 255;  --theme-glow: 0 194 255;
-  --radius-card: 6px; --radius-button: 4px; --radius-input: 4px;
-  --shadow-card: 0 0 0 1px rgb(var(--accent) / 0.06), 0 0 20px -4px rgb(var(--accent) / 0.18);
-  --shadow-popover: 0 16px 48px -8px rgb(var(--accent) / 0.28);
-  --tracking-ui: 0.015em; --spacing-scale: 1; --bg-overlay-opacity: 0.07;
-  --chart-1: 0 194 255;  --chart-2: 82 128 255;  --chart-3: 62 220 172;
-  --chart-4: 255 188 70; --chart-5: 255 86 100;  --chart-6: 128 122 250;
+  --bg: 7 13 26;
+  --surface: 12 22 40;
+  --panel: 9 17 32;
+  --border: 32 54 86;
+  --strip: 12 22 40;
+  --muted: 116 142 174;
+  --text: 192 214 238;
+  --heading: 228 241 255;
+  --accent: 44 188 240;
+  --success: 62 214 170;
+  --warning: 250 184 76;
+  --danger: 250 92 104;
+  --purple: 128 122 250;
+  --theme-accent-2: 82 128 255;
+  --theme-glow: 44 188 240;
+  --overlay: 255 255 255;
+  --selection: 44 188 240;
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Chakra Petch", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-numeric: tabular-nums;
+  --radius-card: 6px;
+  --radius-button: 4px;
+  --radius-input: 4px;
+  --shadow-card: 0 0 0 1px rgb(var(--accent) / 0.05), 0 0 14px -6px rgb(var(--accent) / 0.12);
+  --shadow-popover: 0 16px 44px -12px rgb(var(--accent) / 0.20);
+  --tracking-ui: 0.015em;
+  --bg-overlay-opacity: 0.05;
+  --chart-1: 44 188 240;
+  --chart-2: 82 128 255;
+  --chart-3: 62 214 170;
+  --chart-4: 250 184 76;
+  --chart-5: 250 92 104;
+  --chart-6: 128 122 250;
 }
-
+/* Vercel — Monochrome precision — pure black, Geist, blue for action only. */
+[data-theme="vercel"] {
+  color-scheme: dark;
+  --bg: 10 10 10;
+  --surface: 20 20 20;
+  --panel: 15 15 15;
+  --border: 46 46 46;
+  --strip: 20 20 20;
+  --muted: 160 160 160;
+  --text: 224 224 224;
+  --heading: 250 250 250;
+  --accent: 0 112 243;
+  --success: 69 212 131;
+  --warning: 245 166 35;
+  --danger: 229 72 77;
+  --purple: 121 40 202;
+  --theme-accent-2: 237 237 237;
+  --theme-glow: 0 112 243;
+  --overlay: 255 255 255;
+  --selection: 0 112 243;
+  --font-ui: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-numeric: normal;
+  --radius-card: 6px;
+  --radius-button: 4px;
+  --radius-input: 4px;
+  --shadow-card: none;
+  --shadow-popover: 0 10px 30px -12px rgb(0 0 0 / 0.40);
+  --tracking-ui: -0.01em;
+  --bg-overlay-opacity: 0.03;
+  --chart-1: 0 112 243;
+  --chart-2: 121 40 202;
+  --chart-3: 80 230 217;
+  --chart-4: 245 166 35;
+  --chart-5: 229 72 77;
+  --chart-6: 136 136 136;
+}
+/* Notion Calm — Paper-quiet workspace — off-white, ink text, low shadow. */
+[data-theme="notion"] {
+  color-scheme: light;
+  --bg: 247 246 243;
+  --surface: 255 255 255;
+  --panel: 247 246 243;
+  --border: 233 231 226;
+  --strip: 241 239 234;
+  --muted: 120 119 116;
+  --text: 55 53 47;
+  --heading: 25 23 17;
+  --accent: 35 131 226;
+  --success: 68 131 97;
+  --warning: 203 145 47;
+  --danger: 212 76 71;
+  --purple: 144 101 176;
+  --theme-accent-2: 144 101 176;
+  --theme-glow: 35 131 226;
+  --overlay: 55 53 47;
+  --selection: 35 131 226;
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-numeric: normal;
+  --radius-card: 12px;
+  --radius-button: 8px;
+  --radius-input: 6px;
+  --shadow-card: none;
+  --shadow-popover: 0 10px 30px -12px rgb(0 0 0 / 0.40);
+  --tracking-ui: 0em;
+  --bg-overlay-opacity: 0.03;
+  --chart-1: 35 131 226;
+  --chart-2: 144 101 176;
+  --chart-3: 68 131 97;
+  --chart-4: 203 145 47;
+  --chart-5: 212 76 71;
+  --chart-6: 159 107 83;
+}
+/* Linear Flow — Refined dark — indigo signal, Inter, crisp issue-tracker feel. */
+[data-theme="linear"] {
+  color-scheme: dark;
+  --bg: 13 14 20;
+  --surface: 21 23 31;
+  --panel: 17 18 26;
+  --border: 42 45 58;
+  --strip: 21 23 31;
+  --muted: 138 143 158;
+  --text: 210 214 225;
+  --heading: 244 245 248;
+  --accent: 94 106 210;
+  --success: 76 183 130;
+  --warning: 242 153 74;
+  --danger: 235 87 87;
+  --purple: 176 136 240;
+  --theme-accent-2: 133 144 229;
+  --theme-glow: 94 106 210;
+  --overlay: 255 255 255;
+  --selection: 94 106 210;
+  --font-ui: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-numeric: normal;
+  --radius-card: 12px;
+  --radius-button: 8px;
+  --radius-input: 6px;
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.20);
+  --shadow-popover: 0 16px 40px -12px rgb(0 0 0 / 0.40);
+  --tracking-ui: -0.01em;
+  --bg-overlay-opacity: 0.04;
+  --chart-1: 94 106 210;
+  --chart-2: 133 144 229;
+  --chart-3: 76 183 130;
+  --chart-4: 242 153 74;
+  --chart-5: 235 87 87;
+  --chart-6: 148 155 176;
+}
+/* ChatGPT — Neutral light — teal signal, generous radius, easy calm. */
+[data-theme="chatgpt"] {
+  color-scheme: light;
+  --bg: 247 247 248;
+  --surface: 255 255 255;
+  --panel: 244 244 245;
+  --border: 229 229 231;
+  --strip: 236 236 238;
+  --muted: 112 112 120;
+  --text: 38 38 42;
+  --heading: 13 13 13;
+  --accent: 16 163 127;
+  --success: 52 168 83;
+  --warning: 234 132 34;
+  --danger: 239 68 68;
+  --purple: 171 104 255;
+  --theme-accent-2: 171 104 255;
+  --theme-glow: 16 163 127;
+  --overlay: 13 13 13;
+  --selection: 16 163 127;
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-numeric: normal;
+  --radius-card: 16px;
+  --radius-button: 12px;
+  --radius-input: 10px;
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.20);
+  --shadow-popover: 0 16px 40px -12px rgb(0 0 0 / 0.40);
+  --tracking-ui: 0em;
+  --bg-overlay-opacity: 0.03;
+  --chart-1: 16 163 127;
+  --chart-2: 171 104 255;
+  --chart-3: 58 130 246;
+  --chart-4: 234 132 34;
+  --chart-5: 239 68 68;
+  --chart-6: 136 136 140;
+}
+/* Claude — Warm oat paper — book-cloth terracotta, serif display, human. */
+[data-theme="claude"] {
+  color-scheme: light;
+  --bg: 250 249 245;
+  --surface: 255 255 255;
+  --panel: 240 238 229;
+  --border: 229 225 214;
+  --strip: 240 238 229;
+  --muted: 124 119 105;
+  --text: 61 57 41;
+  --heading: 38 35 26;
+  --accent: 193 95 60;
+  --success: 106 143 84;
+  --warning: 203 139 51;
+  --danger: 191 68 55;
+  --purple: 107 91 149;
+  --theme-accent-2: 218 119 86;
+  --theme-glow: 193 95 60;
+  --overlay: 61 57 41;
+  --selection: 218 119 86;
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Lora Variable", Georgia, "Times New Roman", serif;
+  --font-numeric: normal;
+  --radius-card: 16px;
+  --radius-button: 12px;
+  --radius-input: 10px;
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.20);
+  --shadow-popover: 0 16px 40px -12px rgb(0 0 0 / 0.40);
+  --tracking-ui: 0em;
+  --bg-overlay-opacity: 0.04;
+  --chart-1: 193 95 60;
+  --chart-2: 106 143 84;
+  --chart-3: 107 91 149;
+  --chart-4: 203 139 51;
+  --chart-5: 191 68 55;
+  --chart-6: 156 148 130;
+}
 @layer base {
   html, body, #root { height: 100%; }
   html { font-size: calc(16px * var(--font-scale, 1)); }
   body {
     background-color: rgb(var(--bg));
     color: rgb(var(--text));
-    /* Sans for UI; use the `font-mono` utility for numbers/IDs/code. Office overrides to Rajdhani. */
-    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    /* Theme v2 typography personality (technical = tight, calm/wide = airy). */
+    /* Theme v2.1: UI font follows the active theme (--font-ui, self-hosted via
+       @fontsource); use `font-mono` for numbers/IDs/code. Office pins Rajdhani. */
+    font-family: var(--font-ui, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
+    /* Typography personality: tracking (technical=tight, calm/wide=airy) + per-theme numerals. */
     letter-spacing: var(--tracking-ui, 0em);
+    font-variant-numeric: var(--font-numeric, normal);
   }
+  /* Display/heading font per theme (serif for Claude, Rajdhani for Gaming, etc.). */
+  h1, h2, h3, .font-display {
+    font-family: var(--font-display, var(--font-ui, ui-sans-serif, system-ui, sans-serif));
+  }
+  /* Selection tint follows the theme accent (30% keeps text legible on both schemes). */
+  ::selection { background-color: rgb(var(--selection, var(--accent)) / 0.30); }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: rgb(var(--bg)); }
   ::-webkit-scrollbar-thumb { background: rgb(var(--border)); border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--muted)); }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--accent) / 0.55); }
 
   /* Subtle scrollbar — near-invisible until you hover the scroll area (sidebar & co). */
   .scroll-subtle { scrollbar-width: thin; scrollbar-color: transparent transparent; }
@@ -294,8 +637,12 @@
   0%   { transform: scale(0.6); opacity: 0.8; }
   100% { transform: scale(2.5); opacity: 0; }
 }
+/* Tier gradient text — theme-token stops (--heading keeps a light/legible mid-stop
+   on every scheme; was hardcoded gold/white and vanished on light themes). */
 .sovereign-text {
-  background: linear-gradient(135deg, #FFD700, #ffffff, #22d3ee, #a78bfa, #f472b6, #FFD700);
+  background: linear-gradient(135deg,
+    rgb(var(--warning)), rgb(var(--heading)), rgb(var(--chart-6)),
+    rgb(var(--purple)), rgb(var(--theme-accent-2)), rgb(var(--warning)));
   background-size: 400% 400%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -303,7 +650,8 @@
   animation: sovereign-gradient 4s ease infinite;
 }
 .aurora-text {
-  background: linear-gradient(135deg, #a78bfa, #22d3ee, #f472b6, #a78bfa);
+  background: linear-gradient(135deg,
+    rgb(var(--purple)), rgb(var(--chart-6)), rgb(var(--theme-accent-2)), rgb(var(--purple)));
   background-size: 300% 300%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -450,7 +798,7 @@
 .trace-btn { position: relative; overflow: hidden; }
 .trace-btn::after {
   content: ''; position: absolute; top: 0; bottom: 0; width: 45%; z-index: 1;
-  background: linear-gradient(100deg, transparent, rgb(255 255 255 / 0.12), transparent);
+  background: linear-gradient(100deg, transparent, rgb(var(--overlay) / 0.12), transparent);
   transform: translateX(-150%); opacity: 0; pointer-events: none;
 }
 .trace-btn:hover::after { opacity: 1; animation: border-trace 0.7s var(--ease-out); }
@@ -609,6 +957,64 @@
   background-size: 200% 100%;
   animation: radar-scan 1.1s linear infinite;
 }
+
+/* ── Chat ambient ornaments (queue #13 · M2.5) ───────────────────────────────
+   Per-theme signature motifs behind the Chat conversation (sakura/dragon/arc/
+   hex/spark). Whisper-quiet: pointer-events-none, low opacity, radial-masked so
+   ornaments fade before they reach text. Honors data-motion + data-decorations. */
+.chat-ambient {
+  position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none;
+  /* fade the whole layer out toward the centre reading column so text stays clean */
+  -webkit-mask-image: radial-gradient(120% 80% at 50% 40%, transparent 34%, black 92%);
+  mask-image: radial-gradient(120% 80% at 50% 40%, transparent 34%, black 92%);
+}
+.chat-ambient-corner { position: absolute; line-height: 0; animation: motif-breathe 9s ease-in-out infinite; }
+.chat-ambient-particles { position: absolute; inset: 0; }
+.chat-ambient-particle {
+  position: absolute; top: 0; line-height: 0; will-change: transform;
+  animation-timing-function: linear; animation-iteration-count: infinite;
+}
+.chat-ambient-spin { transform-origin: 50% 50%; animation: chat-arc-spin 60s linear infinite; }
+
+/* Empty-state hero motif — a larger centred signature haloing the greeting
+   (absolute watermark behind the text; the ambient layer's radial mask leaves
+   the centre clear for exactly this). */
+.chat-hero-motif {
+  position: absolute; left: 0; right: 0; top: -1.5rem;
+  display: flex; justify-content: center;   /* robust horizontal centre on the block */
+  z-index: -1; line-height: 0; pointer-events: none;
+  animation: motif-breathe 9s ease-in-out infinite;
+}
+
+@keyframes chat-petal {
+  0%   { transform: translate3d(0, -14vh, 0) rotate(0deg); opacity: 0; }
+  8%   { opacity: 1; }
+  92%  { opacity: 1; }
+  100% { transform: translate3d(var(--drift, 40px), 112vh, 0) rotate(300deg); opacity: 0; }
+}
+@keyframes chat-cloud {
+  0%   { transform: translate3d(0, 6vh, 0); opacity: 0; }
+  12%  { opacity: 1; }
+  50%  { transform: translate3d(calc(var(--sway, 12px) * 1), 46vh, 0); }
+  88%  { opacity: 1; }
+  100% { transform: translate3d(0, 92vh, 0); opacity: 0; }
+}
+@keyframes chat-arc-spin { to { transform: rotate(360deg); } }
+@keyframes motif-breathe {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.015); }
+}
+
+/* Motion + owner controls: reduced → freeze/hide drift (keep static corner);
+   off or decorations=off → the whole layer disappears. */
+[data-motion="reduced"] .chat-ambient-particles { display: none; }
+[data-motion="reduced"] .chat-ambient-spin,
+[data-motion="reduced"] .chat-ambient-corner,
+[data-motion="reduced"] .chat-hero-motif { animation: none !important; }
+[data-motion="off"] .chat-ambient,
+[data-motion="off"] .chat-hero-motif,
+[data-decorations="off"] .chat-ambient,
+[data-decorations="off"] .chat-hero-motif { display: none !important; }
 
 /* ── Theme crossfade: only during the switch window (set by ThemeProvider) ── */
 [data-theme-anim] *, [data-theme-anim] *::before, [data-theme-anim] *::after {

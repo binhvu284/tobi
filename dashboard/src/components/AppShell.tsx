@@ -10,7 +10,7 @@ import {
   Newspaper, Activity, Plus,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeProvider'
-import { ACTIVE_THEMES, THEME_DEFS } from '../context/themeTokens'
+import { THEME_GROUPS, THEME_DEFS } from '../context/themeTokens'
 import { useToast } from '../context/ToastProvider'
 import { WORKSPACE_ROUTES, MAX_WORKSPACE_TABS, getWorkspaceRouteMeta, useWorkspaceTabs } from '../context/WorkspaceTabsContext'
 import { getOfficeStats, getEvolution, type OfficeStats, type EvolutionReport } from '../api'
@@ -64,7 +64,7 @@ const TAB_LINKS = TAB_PATHS.map(p => ALL_LINKS.find(l => l.to === p)!).filter(Bo
 
 function navClass(isActive: boolean, collapsed = false) {
   return `flex items-center rounded-md py-2 text-sm transition-colors ${collapsed ? 'justify-center px-0' : 'gap-3 px-3'} ${
-    isActive ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`
+    isActive ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-overlay/5 hover:text-text'}`
 }
 
 // ── Collapsible nav section ──────────────────────────────────────────────────
@@ -113,7 +113,7 @@ function NavSection({ group, links, collapsed, onNavigate, open, onToggle }: {
                     <div className="relative">
                       <NavLink to={to} onClick={onNavigate}
                         className={({ isActive }) => `relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${showToggle ? 'pr-9' : ''} ${
-                          isActive ? 'text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
+                          isActive ? 'text-accent' : 'text-muted hover:bg-overlay/5 hover:text-text'}`}>
                         {({ isActive }) => (
                           <>
                             {/* Sliding active pill — one shared layoutId per sidebar instance */}
@@ -134,7 +134,7 @@ function NavSection({ group, links, collapsed, onNavigate, open, onToggle }: {
                           onClick={() => setProjectsOpen(o => !o)}
                           aria-label={projectsOpen ? 'Collapse projects' : 'Expand projects'}
                           aria-expanded={projectsOpen} title="Recent projects"
-                          className="absolute right-1 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted transition-colors hover:bg-white/10 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
+                          className="absolute right-1 top-1/2 z-20 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted transition-colors hover:bg-overlay/10 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
                           <ChevronDown size={14} className={`transition-transform duration-200 ${projectsOpen ? '' : '-rotate-90'}`} />
                         </button>
                       )}
@@ -197,7 +197,7 @@ function ProjectRecents({ items, onNavigate }: { items: RecentProject[]; onNavig
         return (
           <NavLink key={p.id} to={`/projects/${p.id}/overview`} onClick={onNavigate}
             className={`flex items-center gap-2 rounded-md px-2 py-1 text-[12px] transition-colors ${
-              active ? 'bg-accent/10 text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
+              active ? 'bg-accent/10 text-accent' : 'text-muted hover:bg-overlay/5 hover:text-text'}`}>
             <span className="w-4 shrink-0 text-center text-[13px] leading-none">{p.icon || '📁'}</span>
             <span className="truncate">{p.name}</span>
           </NavLink>
@@ -237,7 +237,7 @@ function BottomMenu({ collapsed, evo, onNavigate }: {
               ) : (
                 <NavLink key={item.label} to={item.to!} onClick={() => { setOpen(false); onNavigate?.() }}
                   className={({ isActive }) => `flex items-center gap-2 px-3 py-2 text-xs ${
-                    isActive ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
+                    isActive ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-overlay/5 hover:text-text'}`}>
                   <item.icon size={15} /> {item.label}
                 </NavLink>
               ))}
@@ -260,7 +260,7 @@ function BottomMenu({ collapsed, evo, onNavigate }: {
                 <span className="shrink-0 text-[9px] text-muted">{APP_VERSION}</span>
               </div>
               <div className="mt-0.5 text-[9px] text-muted">Tier {tierPct}% · Overall {overall}%</div>
-              <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-white/10">
+              <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-overlay/10">
                 <div className="h-full rounded-full bg-accent transition-[width] duration-500" style={{ width: `${overall}%` }} />
               </div>
             </div>
@@ -296,7 +296,7 @@ function SidebarContent({ onNavigate, collapsed = false, onToggleCollapse, openS
         </div>
         {onToggleCollapse && (
           <button onClick={onToggleCollapse} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className="rounded-md p-1.5 text-muted transition-colors hover:bg-white/5 hover:text-text">
+            className="rounded-md p-1.5 text-muted transition-colors hover:bg-overlay/5 hover:text-text">
             {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
           </button>
         )}
@@ -334,18 +334,23 @@ function ThemeQuickSwitch() {
           <>
             <div className="fixed inset-0 z-[90]" onClick={() => setOpen(false)} />
             <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
-              className="tv2-popover absolute right-0 z-[91] mt-2 w-48 overflow-hidden border border-border bg-surface/95 ring-1 ring-accent/10 backdrop-blur-xl">
-              {ACTIVE_THEMES.map(t => {
-                const def = THEME_DEFS[t]
-                const Icon = def.icon
-                return (
-                  <button key={t} onClick={() => { set({ theme: t }); setOpen(false) }}
-                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs ${t === theme ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-white/5 hover:text-text'}`}>
-                    <Icon size={13} className={t === theme ? 'text-accent' : 'text-muted'} />
-                    {def.label}
-                  </button>
-                )
-              })}
+              className="tv2-popover scroll-subtle absolute right-0 z-[91] mt-2 max-h-[70vh] w-52 overflow-y-auto border border-border bg-surface/95 ring-1 ring-accent/10 backdrop-blur-xl">
+              {THEME_GROUPS.map((g, gi) => (
+                <div key={g.id} className={gi > 0 ? 'border-t border-border/60' : ''}>
+                  <div className="px-3 pb-0.5 pt-2 text-[9px] font-semibold uppercase tracking-wider text-muted/70">{g.label}</div>
+                  {g.themes.map(t => {
+                    const def = THEME_DEFS[t]
+                    const Icon = def.icon
+                    return (
+                      <button key={t} onClick={() => { set({ theme: t }); setOpen(false) }}
+                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs ${t === theme ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-overlay/5 hover:text-text'}`}>
+                        <Icon size={13} className={t === theme ? 'text-accent' : 'text-muted'} />
+                        {def.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              ))}
             </motion.div>
           </>
         )}
@@ -429,7 +434,7 @@ function NewTabButton({ openTab, openRoutes }: { openTab: (r: string) => void; o
         whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.88 }}
         transition={SPRING.pop}
         title="Open new tab" aria-label="Open new tab" aria-haspopup="menu" aria-expanded={open}
-        className={`flex h-7 w-7 items-center justify-center rounded-full text-muted transition-colors duration-200 hover:bg-white/[0.08] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${open ? 'bg-white/[0.08] text-text' : ''}`}>
+        className={`flex h-7 w-7 items-center justify-center rounded-full text-muted transition-colors duration-200 hover:bg-overlay/[0.08] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${open ? 'bg-overlay/[0.08] text-text' : ''}`}>
         <Plus size={15} />
       </motion.button>
       <AnimatePresence>
@@ -438,7 +443,7 @@ function NewTabButton({ openTab, openRoutes }: { openTab: (r: string) => void; o
             initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.97 }}
             transition={{ duration: DUR.sm, ease: EASE.out }}
-            className="absolute left-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-2xl border border-border bg-surface/95 p-1.5 shadow-[0_10px_44px_-10px_rgba(0,0,0,0.55)] ring-1 ring-white/[0.04] backdrop-blur-xl">
+            className="absolute left-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-2xl border border-border bg-surface/95 p-1.5 shadow-[0_10px_44px_-10px_rgba(0,0,0,0.55)] ring-1 ring-overlay/[0.04] backdrop-blur-xl">
             <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">Open in new tab</div>
             <div className="scroll-subtle max-h-[min(60vh,360px)] overflow-y-auto">
               {WORKSPACE_ROUTES.map(r => {
@@ -507,7 +512,7 @@ function WorkspaceTabsBar() {
                   </button>
                   {tabs.length > 1 && (
                     <button onClick={() => closeTab(tab.id)} title={`Close ${meta.label}`} aria-label={`Close ${meta.label}`}
-                      className={`relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-200 hover:bg-white/15 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
+                      className={`relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted transition-all duration-200 hover:bg-overlay/15 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${
                         active ? 'opacity-70' : 'opacity-0 group-hover:opacity-100'
                       }`}>
                       <X size={11} />
@@ -575,7 +580,7 @@ function TopBar({ onMenu, stats, onHide }: { onMenu: () => void; stats: OfficeSt
     <header className="relative z-40 flex h-11 shrink-0 items-stretch justify-between bg-strip">
       <div className="flex min-w-0 flex-1 items-end">
         <button onClick={onMenu} aria-label="Open menu"
-          className="self-center shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-white/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 md:hidden">
+          className="self-center shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-overlay/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 md:hidden">
           <Menu size={18} />
         </button>
         <WorkspaceTabsBar />
@@ -586,7 +591,7 @@ function TopBar({ onMenu, stats, onHide }: { onMenu: () => void; stats: OfficeSt
         <ThemeQuickSwitch />
         <BellInbox />
         <button onClick={onHide} title="Hide header" aria-label="Hide header"
-          className="rounded-lg p-1.5 text-muted transition-colors hover:bg-white/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
+          className="rounded-lg p-1.5 text-muted transition-colors hover:bg-overlay/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
           <ChevronUp size={15} />
         </button>
       </div>

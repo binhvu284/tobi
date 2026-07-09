@@ -312,7 +312,7 @@ export default function Ability() {
           </div>
           <button
             onClick={() => { setInboxOpen(true); loadProposals() }}
-            className="relative flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text transition-colors hover:border-white/20"
+            className="relative flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text transition-colors hover:border-overlay/20"
           >
             <Inbox size={14} /> Evolution
             {proposals.length > 0 && (
@@ -419,7 +419,7 @@ export default function Ability() {
                     key={a.id} layout
                     whileHover={{ y: -2 }}
                     onClick={() => setSelected(a.id)}
-                    className={`cursor-pointer rounded-lg border-2 bg-surface p-4 transition-colors ${isSel ? 'border-purple' : 'border-border hover:border-white/20'}`}
+                    className={`cursor-pointer rounded-lg border-2 bg-surface p-4 transition-colors ${isSel ? 'border-purple' : 'border-border hover:border-overlay/20'}`}
                   >
                     <div className="mb-2 flex items-start justify-between">
                       <div className="flex items-center gap-2">

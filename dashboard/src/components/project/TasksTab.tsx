@@ -193,7 +193,7 @@ function TaskRow({ t, selected, draggable, dragging, onDragStart, onDragEnd, onD
       onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); onDropOn() }}
       onClick={onClick}
       className={`group flex cursor-pointer items-center gap-2 border-b border-border/40 px-4 py-2.5 transition-colors ${
-        selected ? 'bg-accent/8' : 'hover:bg-white/3'} ${dragging ? 'opacity-40' : ''}`}>
+        selected ? 'bg-accent/8' : 'hover:bg-overlay/3'} ${dragging ? 'opacity-40' : ''}`}>
       {draggable && <GripVertical size={13} className="shrink-0 cursor-grab text-muted/40 opacity-0 group-hover:opacity-100" />}
       <button onClick={e => { e.stopPropagation(); onToggleDone() }} className="shrink-0">
         {t.status === 'done'

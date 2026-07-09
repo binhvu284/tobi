@@ -52,7 +52,7 @@ export default function TaskCard({ task, onOpen, onMove, onDragStart, onDragEnd 
         onDragStart(task.id)
       }}
       onDragEnd={onDragEnd}
-      className="w-full rounded-lg border border-border bg-surface p-3 text-left transition-colors hover:border-white/20"
+      className="w-full rounded-lg border border-border bg-surface p-3 text-left transition-colors hover:border-overlay/20"
     >
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="min-w-0">
@@ -95,7 +95,7 @@ export default function TaskCard({ task, onOpen, onMove, onDragStart, onDragEnd 
               e.stopPropagation()
               onMove(task.id, next)
             }}
-            className="rounded border border-border px-1.5 py-0.5 hover:border-white/20"
+            className="rounded border border-border px-1.5 py-0.5 hover:border-overlay/20"
           >
             Move to {next}
           </span>

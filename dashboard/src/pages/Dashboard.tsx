@@ -156,7 +156,7 @@ export default function Dashboard() {
     },
     health: {
       title: 'System health', node: health ? (
-        <Link to="/health" className="block rounded-xl border border-border bg-surface p-4 transition-colors hover:border-white/20">
+        <Link to="/health" className="block rounded-xl border border-border bg-surface p-4 transition-colors hover:border-overlay/20">
           <div className="mb-2 flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted"><HeartPulse size={13} /> System Health</span>
             <span className="text-xs text-muted">View details →</span>
@@ -167,7 +167,7 @@ export default function Dashboard() {
     },
     storage: {
       title: 'Storage & spend', node: (
-        <Link to="/storage" className="block rounded-xl border border-border bg-surface p-4 transition-colors hover:border-white/20">
+        <Link to="/storage" className="block rounded-xl border border-border bg-surface p-4 transition-colors hover:border-overlay/20">
           <div className="mb-2 flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-xs uppercase tracking-wider text-muted">💾 Storage & Spend</span>
             <span className="text-xs text-muted">View details →</span>
@@ -241,7 +241,7 @@ export default function Dashboard() {
           {pmProjects.length > 0 ? (
             <div className="divide-y divide-border border-t border-border">
               {pmProjects.slice(0, 6).map(p => (
-                <Link key={p.id} to="/projects" className="flex items-center gap-3 px-5 py-2.5 hover:bg-white/[0.02] transition-colors">
+                <Link key={p.id} to="/projects" className="flex items-center gap-3 px-5 py-2.5 hover:bg-overlay/[0.02] transition-colors">
                   <span className="text-lg leading-none">{p.emoji_icon}</span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium text-text">{p.name}</div>

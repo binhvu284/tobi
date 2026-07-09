@@ -130,7 +130,7 @@ export default function ProjectWorkspace() {
       <header className="shrink-0 border-b border-border px-5 pt-4">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/projects')} title="All projects"
-            className="rounded-lg p-1.5 text-muted transition-colors hover:bg-white/5 hover:text-text">
+            className="rounded-lg p-1.5 text-muted transition-colors hover:bg-overlay/5 hover:text-text">
             <ArrowLeft size={16} />
           </button>
           <div className="relative">
@@ -180,10 +180,10 @@ export default function ProjectWorkspace() {
               <span>{Math.round(project.progress_pct)}% · {project.task_done}/{project.task_count} tasks</span>
             </div>
           </div>
-          <button onClick={() => reload()} title="Refresh" className="rounded-lg p-2 text-muted transition-colors hover:bg-white/5 hover:text-text">
+          <button onClick={() => reload()} title="Refresh" className="rounded-lg p-2 text-muted transition-colors hover:bg-overlay/5 hover:text-text">
             <RefreshCw size={15} />
           </button>
-          <button onClick={removeProject} title="Delete project" className="rounded-lg p-2 text-muted transition-colors hover:bg-white/5 hover:text-danger">
+          <button onClick={removeProject} title="Delete project" className="rounded-lg p-2 text-muted transition-colors hover:bg-overlay/5 hover:text-danger">
             <Trash2 size={15} />
           </button>
         </div>
@@ -196,7 +196,7 @@ export default function ProjectWorkspace() {
                 tab === id ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text'}`}>
               <Icon size={13} />{label}
               {id === 'resources' && (ov?.metrics.resources_count ?? 0) > 0 && (
-                <span className="rounded bg-white/8 px-1 text-[10px] text-muted">{ov!.metrics.resources_count}</span>
+                <span className="rounded bg-overlay/8 px-1 text-[10px] text-muted">{ov!.metrics.resources_count}</span>
               )}
             </button>
           ))}

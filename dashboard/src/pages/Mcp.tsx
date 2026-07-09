@@ -47,7 +47,7 @@ function CopyBtn({ text, label }: { text: string; label?: string }) {
 function Toggle({ on, onClick, disabled }: { on: boolean; onClick: () => void; disabled?: boolean }) {
   return (
     <button onClick={onClick} disabled={disabled}
-      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${on ? 'bg-accent/70' : 'bg-white/10'} disabled:opacity-50`}>
+      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${on ? 'bg-accent/70' : 'bg-overlay/10'} disabled:opacity-50`}>
       <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${on ? 'translate-x-4' : 'translate-x-0.5'}`} />
     </button>
   )
@@ -260,7 +260,7 @@ function ConnectionCard({ conn, tools, reload }: { conn: McpConnection; tools: M
             <div className="space-y-1 border-t border-border/60 p-3">
               {tools.length === 0 && <p className="text-xs text-muted">No tools discovered. Try refresh.</p>}
               {tools.map(t => (
-                <div key={t.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-white/5">
+                <div key={t.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-overlay/5">
                   <span className="flex-1 truncate text-xs text-text">{t.name}</span>
                   <select value={t.permission} onChange={e => act('perm', () => setMcpTool(t.id, { permission: e.target.value }))}
                     className={`rounded border bg-bg px-1.5 py-1 text-[11px] ${PERM_CLS[t.permission]}`}>
@@ -399,7 +399,7 @@ function A2aTab({ selfCard, peers, reload }: { selfCard: A2aCard | null; peers: 
         </div>
         <div className="space-y-1">
           {peers.map(p => (
-            <div key={p.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-white/5">
+            <div key={p.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-overlay/5">
               <Radio size={13} className="text-muted" />
               <span className="text-xs font-medium text-text">{p.name}</span>
               <span className="truncate text-[11px] text-muted">{p.skills.join(', ')}</span>
@@ -563,7 +563,7 @@ export default function Mcp() {
             <div className="mb-2 text-sm font-semibold text-heading">Exposed tools</div>
             <div className="space-y-1">
               {server?.tools.map(t => (
-                <div key={t.name} className="flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-white/5">
+                <div key={t.name} className="flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-overlay/5">
                   <span className="mt-0.5 text-accent"><ShieldCheck size={13} /></span>
                   <div className="min-w-0 flex-1">
                     <span className="text-xs font-medium text-text">{t.name}</span>
@@ -588,7 +588,7 @@ export default function Mcp() {
             </div>
             <div className="space-y-1">
               {clients.map(c => (
-                <div key={c.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-white/5">
+                <div key={c.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-overlay/5">
                   <KeyRound size={13} className="text-muted" />
                   <span className="text-xs font-medium text-text">{c.name}</span>
                   <StatusPill status={c.status} />

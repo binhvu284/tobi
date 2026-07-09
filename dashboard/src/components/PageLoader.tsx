@@ -25,21 +25,24 @@ export type LoaderPreset = {
   dark?: boolean       // black canvas (Office / cyberpunk pages)
 }
 
+// Theme v2.1: preset colors are theme tokens so the loader matches the active
+// theme instead of flashing dark-theme accents on light themes. `dark:true` pages
+// (Office/Graph) keep their pinned cyberpunk canvas below.
 export const LOADER_PRESETS = {
-  dashboard:    { name: 'Dashboard',    Icon: LayoutDashboard, color: 'rgb(88,166,255)',  message: 'Syncing live operating status…',   skeleton: 'stats' },
-  architecture: { name: 'Architecture', Icon: Network,         color: 'rgb(34,211,238)',  message: 'Mapping the system topology…',      skeleton: 'cards' },
-  ability:      { name: 'Ability',      Icon: Zap,             color: 'rgb(245,191,66)',  message: 'Loading skill matrix…',             skeleton: 'cards' },
-  evolution:    { name: 'Evolution',    Icon: TrendingUp,      color: 'rgb(167,139,250)', message: 'Computing growth & tiers…',         skeleton: 'list'  },
-  office:       { name: 'Tobi HQ',      Icon: Shield,          color: 'rgb(88,166,255)',  message: 'Initializing mission control…',     skeleton: 'board', dark: true },
-  task:         { name: 'Tasks',        Icon: Kanban,          color: 'rgb(45,212,191)',  message: 'Loading the board…',                skeleton: 'board' },
-  projects:     { name: 'Projects',     Icon: FolderKanban,    color: 'rgb(63,185,80)',   message: 'Fetching projects…',                skeleton: 'list'  },
-  control:      { name: 'Control Room', Icon: Terminal,        color: 'rgb(52,211,153)',  message: 'Spinning up engines…',              skeleton: 'cards' },
-  health:       { name: 'Health',       Icon: HeartPulse,      color: 'rgb(63,185,80)',   message: 'Pinging every system…',             skeleton: 'list'  },
-  settings:     { name: 'Settings',     Icon: Settings,        color: 'rgb(139,148,158)', message: 'Loading preferences…',              skeleton: 'cards' },
-  brain:        { name: 'Brain',        Icon: Brain,           color: 'rgb(167,139,250)', message: 'Loading what I know about you…',     skeleton: 'list'  },
-  chat:         { name: 'Chat',         Icon: MessagesSquare,  color: 'rgb(88,166,255)',  message: 'Waking up…',                        skeleton: 'list'  },
-  graph:        { name: 'Graph',        Icon: Share2,          color: 'rgb(56,189,248)',  message: 'Weaving the second brain…',         skeleton: 'cards', dark: true },
-  integrations: { name: 'Integrations', Icon: KeyRound,        color: 'rgb(45,212,191)',  message: 'Opening the vault…',                skeleton: 'cards' },
+  dashboard:    { name: 'Dashboard',    Icon: LayoutDashboard, color: 'rgb(var(--accent))',  message: 'Syncing live operating status…',   skeleton: 'stats' },
+  architecture: { name: 'Architecture', Icon: Network,         color: 'rgb(var(--chart-1))', message: 'Mapping the system topology…',      skeleton: 'cards' },
+  ability:      { name: 'Ability',      Icon: Zap,             color: 'rgb(var(--warning))', message: 'Loading skill matrix…',             skeleton: 'cards' },
+  evolution:    { name: 'Evolution',    Icon: TrendingUp,      color: 'rgb(var(--purple))',  message: 'Computing growth & tiers…',         skeleton: 'list'  },
+  office:       { name: 'Tobi HQ',      Icon: Shield,          color: 'rgb(88,166,255)',     message: 'Initializing mission control…',     skeleton: 'board', dark: true },
+  task:         { name: 'Tasks',        Icon: Kanban,          color: 'rgb(var(--chart-6))', message: 'Loading the board…',                skeleton: 'board' },
+  projects:     { name: 'Projects',     Icon: FolderKanban,    color: 'rgb(var(--success))', message: 'Fetching projects…',                skeleton: 'list'  },
+  control:      { name: 'Control Room', Icon: Terminal,        color: 'rgb(var(--success))', message: 'Spinning up engines…',              skeleton: 'cards' },
+  health:       { name: 'Health',       Icon: HeartPulse,      color: 'rgb(var(--success))', message: 'Pinging every system…',             skeleton: 'list'  },
+  settings:     { name: 'Settings',     Icon: Settings,        color: 'rgb(var(--muted))',   message: 'Loading preferences…',              skeleton: 'cards' },
+  brain:        { name: 'Brain',        Icon: Brain,           color: 'rgb(var(--purple))',  message: 'Loading what I know about you…',     skeleton: 'list'  },
+  chat:         { name: 'Chat',         Icon: MessagesSquare,  color: 'rgb(var(--accent))',  message: 'Waking up…',                        skeleton: 'list'  },
+  graph:        { name: 'Graph',        Icon: Share2,          color: 'rgb(56,189,248)',     message: 'Weaving the second brain…',         skeleton: 'cards', dark: true },
+  integrations: { name: 'Integrations', Icon: KeyRound,        color: 'rgb(var(--chart-6))', message: 'Opening the vault…',                skeleton: 'cards' },
 } satisfies Record<string, LoaderPreset>
 
 export type PresetKey = keyof typeof LOADER_PRESETS

@@ -29,7 +29,7 @@ export default function HealthBar({ score, size = 'lg', className = '' }: Props)
   if (size === 'sm') {
     return (
       <div className={`flex items-center gap-2 ${className}`}>
-        <div className="relative h-2.5 flex-1 overflow-hidden rounded-full bg-black/40 ring-1 ring-white/10">
+        <div className="relative h-2.5 flex-1 overflow-hidden rounded-full bg-bg ring-1 ring-border/70">
           <motion.div
             className="h-full rounded-full"
             style={{ background: `linear-gradient(90deg, ${t.from}, ${t.to})`, boxShadow: `0 0 8px ${t.glow}` }}
@@ -56,7 +56,7 @@ export default function HealthBar({ score, size = 'lg', className = '' }: Props)
       </div>
 
       {/* Track */}
-      <div className="relative h-5 w-full overflow-hidden rounded-md bg-black/40 ring-1 ring-white/10">
+      <div className="relative h-5 w-full overflow-hidden rounded-md bg-bg ring-1 ring-border/70">
         {/* Fill */}
         <motion.div
           className="relative h-full rounded-md"

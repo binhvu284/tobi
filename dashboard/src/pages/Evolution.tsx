@@ -113,7 +113,7 @@ const EFFORT_STYLE: Record<string, string> = {
 
 // ── Sub-components ───────────────────────────────────────────────────────────
 
-function ProgressRing({ pct, size = 90, stroke = 6, color = '#58a6ff' }: {
+function ProgressRing({ pct, size = 90, stroke = 6, color = 'rgb(var(--accent))' }: {
   pct: number; size?: number; stroke?: number; color?: string
 }) {
   const r = (size - stroke) / 2
@@ -138,7 +138,7 @@ function AbilityRow({ ab, locked, onClick }: { ab: TierAbility; locked: boolean;
   const isActive = ab.status === 'active'
   return (
     <button onClick={onClick}
-      className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-white/5 active:bg-white/10">
+      className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-overlay/5 active:bg-overlay/10">
       <span className="mt-0.5 shrink-0">
         {locked        ? <Lock size={14} className="text-muted/40" /> :
          isActive      ? <CheckCircle2 size={14} className="text-green-400" /> :
@@ -217,7 +217,7 @@ function TierCard({
           <div className="text-xs font-semibold" style={{ color: c.hex }}>
             {tier.active_count}/{tier.total_count}
           </div>
-          <div className="h-1.5 w-20 overflow-hidden rounded-full bg-white/10">
+          <div className="h-1.5 w-20 overflow-hidden rounded-full bg-overlay/10">
             <motion.div className="h-full rounded-full"
               style={{ background: c.gradient }}
               initial={{ width: 0 }}
@@ -237,7 +237,7 @@ function TierCard({
           <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22 }}
             className="overflow-hidden">
-            <div className="border-t border-white/5 px-3 pb-3 pt-2 space-y-3">
+            <div className="border-t border-overlay/5 px-3 pb-3 pt-2 space-y-3">
               {(Object.entries(tier.pillars) as [keyof typeof PILLAR_META, TierAbility[]][]).map(([key, abilities]) => {
                 const meta = PILLAR_META[key]
                 const Icon = meta.icon
@@ -526,7 +526,7 @@ export default function Evolution() {
           <div className="rounded-xl border border-border bg-surface/50 p-4 flex flex-col items-center justify-center gap-2 text-center">
             <div className="text-[10px] font-semibold uppercase tracking-widest text-muted">Jarvis Readiness</div>
             <div className="relative">
-              <ProgressRing pct={data.jarvis_pct} size={100} stroke={7} color="#58a6ff" />
+              <ProgressRing pct={data.jarvis_pct} size={100} stroke={7} color="rgb(var(--accent))" />
               <div className="absolute inset-0 flex flex-col items-center justify-center">
                 <span className="text-2xl font-black text-heading">{data.jarvis_pct}%</span>
               </div>
@@ -573,7 +573,7 @@ export default function Evolution() {
               {data.missing_in_current_tier.map(ab => (
                 <button key={ab.id}
                   onClick={() => { setDrawerAb({ ab, tier: currentTier }); sfx.select() }}
-                  className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-white/5 transition-colors">
+                  className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-overlay/5 transition-colors">
                   <XCircle size={13} className="shrink-0 text-red-400/60" />
                   <span className="flex-1 text-xs text-muted">{ab.name}</span>
                   {ab.effort !== 'done' && (

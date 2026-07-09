@@ -289,7 +289,7 @@ function NodeGlyph({ node, size }: { node: Node; size: number }) {
 
 function Tag({ text }: { text: string }) {
   return (
-    <span className="rounded bg-black/30 px-1.5 py-0.5 text-[10px] uppercase tracking-wide opacity-80">
+    <span className="rounded bg-overlay/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide opacity-80">
       {text}
     </span>
   )
@@ -325,7 +325,7 @@ function ZoneBlock({
               whileTap={{ scale: 0.97 }}
               className={`flex items-center gap-3 rounded-lg border bg-bg/60 p-3 text-left transition-colors
                 ${zone.layout === 'row' ? 'min-w-[200px] flex-1' : ''}
-                ${isActive ? 'ring-2 ring-white/40' : 'border-border hover:border-white/20'}`}
+                ${isActive ? 'ring-2 ring-overlay/40' : 'border-border hover:border-overlay/20'}`}
             >
               <NodeGlyph node={node} size={compact ? 22 : 26} />
               <div className="min-w-0 flex-1">

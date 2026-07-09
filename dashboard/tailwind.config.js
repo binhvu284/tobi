@@ -18,6 +18,9 @@ export default {
         danger: 'rgb(var(--danger) / <alpha-value>)',
         purple: 'rgb(var(--purple) / <alpha-value>)',
         accent2: 'rgb(var(--theme-accent-2, var(--purple)) / <alpha-value>)',
+        // Theme v2.1 (#13): scheme-aware wash tint (white on dark, ink on light)
+        // so hover/chip overlays read correctly on every theme.
+        overlay: 'rgb(var(--overlay, 255 255 255) / <alpha-value>)',
       },
       /* Theme v2 (#13): md/lg/xl/2xl track the theme's shape tokens so radius
          personality (sharp/soft/rounded) applies app-wide without page rewrites.
@@ -36,8 +39,13 @@ export default {
         popover: 'var(--shadow-popover, 0 16px 40px -12px rgb(0 0 0 / 0.4))',
         '2xl': 'var(--shadow-popover, 0 25px 50px -12px rgb(0 0 0 / 0.25))',
       },
+      /* Theme v2.1 (#13): UI + display fonts follow the active theme's stack
+         (self-hosted via @fontsource in src/theme/fonts.ts). Fallbacks = the
+         system stack, so themes that opt out (dark/light/notion/chatgpt) are
+         unchanged. `font-display` utility → headings/marquee type. */
       fontFamily: {
-        sans: ['ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+        sans: ['var(--font-ui, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif)'],
+        display: ['var(--font-display, var(--font-ui, ui-sans-serif, system-ui, sans-serif))'],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
       },
       animation: {

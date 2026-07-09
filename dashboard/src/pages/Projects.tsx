@@ -18,7 +18,7 @@ import { Bar, fmtDate, STATUS_CFG } from '../components/project/shared'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const SIZE_CFG: Record<string, string> = {
-  small:  'text-[10px] bg-white/5 text-muted px-1.5 py-0.5 rounded uppercase tracking-wide',
+  small:  'text-[10px] bg-overlay/5 text-muted px-1.5 py-0.5 rounded uppercase tracking-wide',
   medium: 'text-[10px] bg-accent/10 text-accent px-1.5 py-0.5 rounded uppercase tracking-wide',
   large:  'text-[10px] bg-warning/10 text-warning px-1.5 py-0.5 rounded uppercase tracking-wide',
   epic:   'text-[10px] bg-danger/10 text-danger px-1.5 py-0.5 rounded uppercase tracking-wide',
@@ -84,7 +84,7 @@ function ProjectRow({ project, onClick, onDelete }: { project: PMProject; onClic
   return (
     <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       onClick={onClick}
-      className="group flex items-center gap-4 px-4 py-3 border-b border-border hover:bg-white/3 cursor-pointer transition-colors">
+      className="group flex items-center gap-4 px-4 py-3 border-b border-border hover:bg-overlay/3 cursor-pointer transition-colors">
       <span className="flex w-7 justify-center"><ProjectIcon project={project} size={20} /></span>
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium text-text truncate">{project.name}</div>
@@ -166,7 +166,7 @@ function CreateModal({ onClose, onCreate, templates }: {
               <div className="flex flex-wrap gap-1 w-28 mt-1">
                 {EMOJIS.map(e => (
                   <button key={e} onClick={() => setEmoji(e)}
-                    className={`w-7 h-7 flex items-center justify-center rounded text-base transition-colors ${emoji === e ? 'bg-accent/20 ring-1 ring-accent' : 'hover:bg-white/5'}`}>
+                    className={`w-7 h-7 flex items-center justify-center rounded text-base transition-colors ${emoji === e ? 'bg-accent/20 ring-1 ring-accent' : 'hover:bg-overlay/5'}`}>
                     {e}
                   </button>
                 ))}
@@ -255,7 +255,7 @@ function CreateModal({ onClose, onCreate, templates }: {
           </div>
         </div>
         <div className="flex justify-end gap-3 px-6 py-4 border-t border-border">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-muted hover:text-text rounded-lg hover:bg-white/5">Cancel</button>
+          <button onClick={onClose} className="px-4 py-2 text-sm text-muted hover:text-text rounded-lg hover:bg-overlay/5">Cancel</button>
           <button onClick={submit} disabled={saving || !name.trim()}
             className="px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-50 transition-colors">
             {saving ? 'Creating…' : 'Create Project'}
@@ -357,7 +357,7 @@ export default function Projects() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={load} className="text-muted hover:text-text p-2 rounded-lg hover:bg-white/5"><RefreshCw size={15} /></button>
+          <button onClick={load} className="text-muted hover:text-text p-2 rounded-lg hover:bg-overlay/5"><RefreshCw size={15} /></button>
           <div className="flex rounded-lg border border-border overflow-hidden">
             <button onClick={() => setViewPref('grid')}
               className={`p-2 transition-colors ${view === 'grid' ? 'bg-accent/15 text-accent' : 'text-muted hover:text-text'}`}><LayoutGrid size={15} /></button>

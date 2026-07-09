@@ -18,13 +18,7 @@ import { useTheme } from '../context/ThemeProvider'
 import { sfx } from '../hooks/useSound'
 
 // ── Typography ──────────────────────────────────────────────────────
-if (typeof document !== 'undefined' && !document.getElementById('rajdhani-font')) {
-  const link = document.createElement('link')
-  link.id = 'rajdhani-font'
-  link.href = 'https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap'
-  link.rel = 'stylesheet'
-  document.head.appendChild(link)
-}
+// Rajdhani is now bundled self-hosted (src/theme/fonts.ts) — no runtime CDN link.
 
 // ── Pixel-art characters (unchanged sprites, selected by agent.sprite) ──
 function TobiCharacter({ working }: { working: boolean }) {

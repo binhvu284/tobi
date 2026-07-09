@@ -1,20 +1,32 @@
-/* ── Theme v2 token system (queue #13) ─────────────────────────────────────────
+/* ── Theme v2.1 token system (queue #13) ───────────────────────────────────────
    Single source of truth for theme identity: colors, shape, elevation, density,
-   typography, component feel, background, chart palette, and motion intensity.
-   `index.css` keeps a per-[data-theme] CSS fallback of the same values (first
-   paint + swatch previews); ThemeProvider writes the effective set — theme
-   defaults merged with the owner's per-theme customization — inline on <html>,
-   which preserves instant switching. Spec: docs/feature-idea-queue/
-   THEME_V2_SYSTEM_UPGRADE_PLAN.md */
+   typography (incl. per-theme fonts), component feel, background, chart palette,
+   motion intensity, and Chat ornaments. `index.css` keeps a per-[data-theme] CSS
+   fallback of the same values (first paint + Settings previews + Office's pinned
+   dark wrappers); ThemeProvider writes the effective set — theme defaults merged
+   with the owner's per-theme customization — inline on <html>, which preserves
+   instant switching. THE TWO MUST STAY IN SYNC (a node parity test enforces it).
+   12 active themes in 3 groups: core (dark/light/hightech), expressive (gaming/
+   japanese/chinese/jarvis), brand (vercel/notion/linear/chatgpt/claude).
+   Spec: docs/feature-idea-queue/THEME_V2_SYSTEM_UPGRADE_PLAN.md (+ v2.1 design pass) */
 import {
-  Moon, Sun, Gamepad2, Cpu, Flower2, Landmark, Bot, type LucideIcon,
+  Moon, Sun, Gamepad2, Cpu, Flower2, Landmark, Bot,
+  Triangle, FileText, Command, Hexagon, Asterisk, type LucideIcon,
 } from 'lucide-react'
 
-export type ThemeId = 'dark' | 'light' | 'gaming' | 'hightech' | 'japanese' | 'chinese' | 'jarvis'
+export type ThemeId =
+  | 'dark' | 'light' | 'hightech'
+  | 'gaming' | 'japanese' | 'chinese' | 'jarvis'
+  | 'vercel' | 'notion' | 'linear' | 'chatgpt' | 'claude'
 
 /** Order = display order in every selector. */
-export const ACTIVE_THEMES: ThemeId[] = ['dark', 'light', 'gaming', 'hightech', 'japanese', 'chinese', 'jarvis']
+export const ACTIVE_THEMES: ThemeId[] = [
+  'dark', 'light', 'hightech',
+  'gaming', 'japanese', 'chinese', 'jarvis',
+  'vercel', 'notion', 'linear', 'chatgpt', 'claude',
+]
 
+export type ThemeGroup = 'core' | 'expressive' | 'brand'
 export type Density = 'compact' | 'comfortable' | 'spacious'
 export type RadiusPreset = 'sharp' | 'soft' | 'rounded'
 export type ShadowDepth = 'flat' | 'soft' | 'deep' | 'glow'
@@ -24,6 +36,13 @@ export type BackgroundStyle = 'plain' | 'grid' | 'gradient' | 'paper' | 'hud'
 export type MotionIntensity = 'quiet' | 'standard' | 'expressive'
 export type TypographyPreset = 'default' | 'technical' | 'calm'
 export type Tracking = 'normal' | 'wide' | 'tight'
+export type NumericStyle = 'normal' | 'tabular'
+export type DecorationSetting = 'on' | 'off'
+
+/** System stacks (fonts.ts self-hosts the branded families via @fontsource). */
+export const SYSTEM_UI = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
+const SERIF = 'Georgia, "Times New Roman", serif'
+const font = (family: string) => `"${family}", ${SYSTEM_UI}`
 
 /** Colors are "r g b" channel triplets so Tailwind's `bg-accent/10` keeps working. */
 export type ThemeV2Tokens = {
@@ -33,8 +52,19 @@ export type ThemeV2Tokens = {
     muted: string; text: string; heading: string
     accent: string; success: string; warning: string; danger: string; purple: string
     accent2: string; glow: string
+    /** Hover/wash tint — '255 255 255' on dark schemes, an ink triplet on light. */
+    overlay: string
+    /** ::selection tint (usually the accent). */
+    selection: string
   }
-  typography: { tracking: Tracking }
+  typography: {
+    tracking: Tracking
+    /** Full CSS font stack for UI text, or null = system stack. */
+    fontUi: string | null
+    /** Display/heading stack, or null = falls back to fontUi. */
+    fontDisplay: string | null
+    numeric: NumericStyle
+  }
   shape: { radius: RadiusPreset }
   elevation: { shadowDepth: ShadowDepth }
   component: { buttonStyle: ButtonStyle; cardStyle: CardStyle }
@@ -54,6 +84,8 @@ export type ThemeCustomization = {
   typography: TypographyPreset
   motion: MotionIntensity
   contrast: 'standard' | 'boosted'
+  /** Chat ambient ornaments (sakura/dragon/arc…) — only affects decorated themes. */
+  decorations: DecorationSetting
 }
 
 export type ThemeDef = {
@@ -62,6 +94,7 @@ export type ThemeDef = {
   description: string
   icon: LucideIcon
   mode: 'dark' | 'light'
+  group: ThemeGroup
   tokens: ThemeV2Tokens
   /** Default customization derived from tokens — what "Reset theme" restores. */
   defaults: ThemeCustomization
@@ -72,8 +105,12 @@ export type ThemeDef = {
 }
 
 const ALL_CONTROLS: (keyof ThemeCustomization)[] = [
-  'accent', 'radius', 'cardStyle', 'buttonStyle', 'background', 'shadowDepth', 'typography', 'motion', 'contrast',
+  'accent', 'radius', 'cardStyle', 'buttonStyle', 'background', 'shadowDepth', 'typography', 'motion', 'contrast', 'decorations',
 ]
+
+/** Theme ids that render a Chat ambient ornament (M2.5). Single source of truth —
+ *  ChatAmbient renders these, Settings shows the decoration toggle only for these. */
+export const DECOR_THEMES: ThemeId[] = ['gaming', 'japanese', 'chinese', 'jarvis', 'claude']
 
 function defaultsFrom(t: ThemeV2Tokens): ThemeCustomization {
   return {
@@ -86,10 +123,11 @@ function defaultsFrom(t: ThemeV2Tokens): ThemeCustomization {
     typography: 'default',
     motion: t.motion.intensity,
     contrast: 'standard',
+    decorations: 'on',
   }
 }
 
-/* ── The seven active themes ─────────────────────────────────────────────── */
+/* ── Core themes ─────────────────────────────────────────────────────────── */
 
 const DARK: ThemeV2Tokens = {
   color: {
@@ -97,9 +135,9 @@ const DARK: ThemeV2Tokens = {
     bg: '13 17 23', surface: '22 27 34', panel: '16 21 28', border: '48 54 61', strip: '22 27 34',
     muted: '139 148 158', text: '201 209 217', heading: '240 246 252',
     accent: '88 166 255', success: '63 185 80', warning: '210 153 34', danger: '248 81 73', purple: '139 92 246',
-    accent2: '139 92 246', glow: '88 166 255',
+    accent2: '139 92 246', glow: '88 166 255', overlay: '255 255 255', selection: '88 166 255',
   },
-  typography: { tracking: 'normal' },
+  typography: { tracking: 'normal', fontUi: null, fontDisplay: null, numeric: 'normal' },
   shape: { radius: 'soft' },
   elevation: { shadowDepth: 'soft' },
   component: { buttonStyle: 'solid', cardStyle: 'outlined' },
@@ -114,33 +152,15 @@ const LIGHT: ThemeV2Tokens = {
     bg: '247 249 252', surface: '255 255 255', panel: '241 245 249', border: '209 217 224', strip: '224 230 238',
     muted: '90 100 110', text: '30 41 59', heading: '15 23 42',
     accent: '37 99 235', success: '22 163 74', warning: '202 138 4', danger: '220 38 38', purple: '124 58 237',
-    accent2: '124 58 237', glow: '37 99 235',
+    accent2: '124 58 237', glow: '37 99 235', overlay: '15 23 42', selection: '37 99 235',
   },
-  typography: { tracking: 'normal' },
+  typography: { tracking: 'normal', fontUi: null, fontDisplay: null, numeric: 'normal' },
   shape: { radius: 'soft' },
   elevation: { shadowDepth: 'soft' },
   component: { buttonStyle: 'solid', cardStyle: 'outlined' },
   background: { style: 'plain', overlayOpacity: 0.03 },
   dataViz: { palette: ['37 99 235', '124 58 237', '22 163 74', '202 138 4', '220 38 38', '13 148 136'], glowCharts: false },
   motion: { intensity: 'standard' },
-}
-
-/** Esports neon: dark surface, sharper HUD accents, lime success, purple/pink secondary. */
-const GAMING: ThemeV2Tokens = {
-  color: {
-    scheme: 'dark',
-    bg: '9 8 16', surface: '19 16 30', panel: '13 11 22', border: '62 42 88', strip: '19 16 30',
-    muted: '152 140 175', text: '222 216 238', heading: '246 242 255',
-    accent: '168 85 247', success: '57 255 20', warning: '255 170 0', danger: '255 45 85', purple: '217 70 239',
-    accent2: '255 45 170', glow: '168 85 247',
-  },
-  typography: { tracking: 'wide' },
-  shape: { radius: 'sharp' },
-  elevation: { shadowDepth: 'glow' },
-  component: { buttonStyle: 'glass', cardStyle: 'layered' },
-  background: { style: 'hud', overlayOpacity: 0.06 },
-  dataViz: { palette: ['168 85 247', '255 45 170', '57 255 20', '255 170 0', '34 211 238', '255 45 85'], glowCharts: true },
-  motion: { intensity: 'expressive' },
 }
 
 /** Clean engineering dashboard: cool blues, teal accents, precise borders, restrained glow. */
@@ -150,9 +170,9 @@ const HIGHTECH: ThemeV2Tokens = {
     bg: '10 16 28', surface: '16 26 44', panel: '13 21 36', border: '44 62 92', strip: '16 26 44',
     muted: '128 148 178', text: '198 214 234', heading: '235 245 255',
     accent: '56 189 248', success: '45 212 191', warning: '245 191 66', danger: '248 113 113', purple: '129 140 248',
-    accent2: '45 212 191', glow: '56 189 248',
+    accent2: '45 212 191', glow: '56 189 248', overlay: '255 255 255', selection: '56 189 248',
   },
-  typography: { tracking: 'tight' },
+  typography: { tracking: 'tight', fontUi: null, fontDisplay: null, numeric: 'normal' },
   shape: { radius: 'sharp' },
   elevation: { shadowDepth: 'soft' },
   component: { buttonStyle: 'outline', cardStyle: 'outlined' },
@@ -161,97 +181,241 @@ const HIGHTECH: ThemeV2Tokens = {
   motion: { intensity: 'standard' },
 }
 
-/** Light washi white, soft sakura accent, calm minimal cards, soft radius. */
+/* ── Expressive themes (v2.1 redesign — calm-premium, strong identity) ────── */
+
+/** Neon Arena — charcoal-violet stage, electric violet, tempered lime, pink for highlights. */
+const GAMING: ThemeV2Tokens = {
+  color: {
+    scheme: 'dark',
+    bg: '15 13 22', surface: '22 19 32', panel: '18 16 27', border: '52 46 74', strip: '22 19 32',
+    muted: '148 142 168', text: '224 221 235', heading: '245 243 252',
+    accent: '155 92 240', success: '140 220 90', warning: '245 176 46', danger: '244 63 94', purple: '196 100 245',
+    accent2: '236 72 153', glow: '155 92 240', overlay: '255 255 255', selection: '155 92 240',
+  },
+  typography: { tracking: 'wide', fontUi: null, fontDisplay: font('Rajdhani'), numeric: 'normal' },
+  shape: { radius: 'sharp' },
+  elevation: { shadowDepth: 'glow' },
+  component: { buttonStyle: 'glass', cardStyle: 'layered' },
+  background: { style: 'hud', overlayOpacity: 0.04 },
+  dataViz: { palette: ['155 92 240', '236 72 153', '140 220 90', '245 176 46', '34 211 238', '244 63 94'], glowCharts: true },
+  motion: { intensity: 'expressive' },
+}
+
+/** Washi — warm paper, deepened sakura, matcha, Muji-calm minimal cards. */
 const JAPANESE: ThemeV2Tokens = {
   color: {
     scheme: 'light',
-    bg: '250 247 245', surface: '255 255 255', panel: '247 241 240', border: '233 221 221', strip: '243 233 233',
-    muted: '141 122 128', text: '74 60 66', heading: '45 33 39',
-    accent: '224 93 128', success: '88 158 110', warning: '200 142 62', danger: '203 84 92', purple: '156 116 182',
-    accent2: '156 116 182', glow: '224 93 128',
+    bg: '252 250 247', surface: '255 255 255', panel: '248 245 240', border: '229 222 214', strip: '243 238 231',
+    muted: '122 113 108', text: '43 42 51', heading: '32 30 36',
+    accent: '216 82 120', success: '104 159 92', warning: '196 138 58', danger: '198 76 82', purple: '138 116 180',
+    accent2: '138 116 180', glow: '216 82 120', overlay: '43 42 51', selection: '216 82 120',
   },
-  typography: { tracking: 'wide' },
+  typography: { tracking: 'wide', fontUi: null, fontDisplay: font('Zen Maru Gothic'), numeric: 'normal' },
   shape: { radius: 'rounded' },
   elevation: { shadowDepth: 'soft' },
   component: { buttonStyle: 'solid', cardStyle: 'flat' },
-  background: { style: 'paper', overlayOpacity: 0.05 },
-  dataViz: { palette: ['224 93 128', '156 116 182', '88 158 110', '200 142 62', '203 84 92', '120 140 160'], glowCharts: false },
+  background: { style: 'paper', overlayOpacity: 0.04 },
+  dataViz: { palette: ['216 82 120', '138 116 180', '104 159 92', '196 138 58', '198 76 82', '120 140 160'], glowCharts: false },
   motion: { intensity: 'quiet' },
 }
 
-/** Red & gold premium SaaS: festive but professional, stronger accent hierarchy. */
+/** Lacquer — maroon-brown lacquer, softened vermilion, champagne gold, ivory. Premium not festive. */
 const CHINESE: ThemeV2Tokens = {
   color: {
     scheme: 'dark',
-    bg: '26 13 12', surface: '40 21 19', panel: '33 17 15', border: '96 52 44', strip: '40 21 19',
-    muted: '196 156 138', text: '240 219 204', heading: '252 240 225',
-    accent: '224 66 56', success: '106 186 116', warning: '214 168 48', danger: '250 98 86', purple: '186 108 158',
-    accent2: '214 168 48', glow: '214 168 48',
+    bg: '25 17 15', surface: '38 27 24', panel: '31 22 20', border: '82 58 48', strip: '38 27 24',
+    muted: '178 150 134', text: '236 222 208', heading: '250 241 228',
+    accent: '200 60 50', success: '110 168 110', warning: '214 158 62', danger: '234 88 76', purple: '170 110 150',
+    accent2: '212 175 111', glow: '212 175 111', overlay: '255 255 255', selection: '212 175 111',
   },
-  typography: { tracking: 'normal' },
+  typography: { tracking: 'normal', fontUi: null, fontDisplay: font('ZCOOL XiaoWei'), numeric: 'normal' },
   shape: { radius: 'soft' },
   elevation: { shadowDepth: 'deep' },
   component: { buttonStyle: 'solid', cardStyle: 'layered' },
-  background: { style: 'gradient', overlayOpacity: 0.07 },
-  dataViz: { palette: ['224 66 56', '214 168 48', '106 186 116', '230 150 60', '250 98 86', '170 120 90'], glowCharts: false },
+  background: { style: 'gradient', overlayOpacity: 0.05 },
+  dataViz: { palette: ['200 60 50', '212 175 111', '110 168 110', '230 150 60', '234 88 76', '170 120 90'], glowCharts: false },
   motion: { intensity: 'standard' },
 }
 
-/** High-tech blue AI OS: dark dashboard, glowing but controlled, analytics-focused. */
+/** Arc — deep space navy, desaturated cyan, electric-blue secondary, quiet HUD, tabular metrics. */
 const JARVIS: ThemeV2Tokens = {
   color: {
     scheme: 'dark',
-    bg: '5 11 22', surface: '10 20 38', panel: '8 16 30', border: '28 52 88', strip: '10 20 38',
-    muted: '108 138 172', text: '188 212 238', heading: '224 240 255',
-    accent: '0 194 255', success: '62 220 172', warning: '255 188 70', danger: '255 86 100', purple: '128 122 250',
-    accent2: '82 128 255', glow: '0 194 255',
+    bg: '7 13 26', surface: '12 22 40', panel: '9 17 32', border: '32 54 86', strip: '12 22 40',
+    muted: '116 142 174', text: '192 214 238', heading: '228 241 255',
+    accent: '44 188 240', success: '62 214 170', warning: '250 184 76', danger: '250 92 104', purple: '128 122 250',
+    accent2: '82 128 255', glow: '44 188 240', overlay: '255 255 255', selection: '44 188 240',
   },
-  typography: { tracking: 'wide' },
+  typography: { tracking: 'wide', fontUi: null, fontDisplay: font('Chakra Petch'), numeric: 'tabular' },
   shape: { radius: 'sharp' },
   elevation: { shadowDepth: 'glow' },
   component: { buttonStyle: 'outline', cardStyle: 'glass' },
-  background: { style: 'hud', overlayOpacity: 0.07 },
-  dataViz: { palette: ['0 194 255', '82 128 255', '62 220 172', '255 188 70', '255 86 100', '128 122 250'], glowCharts: true },
+  background: { style: 'hud', overlayOpacity: 0.05 },
+  dataViz: { palette: ['44 188 240', '82 128 255', '62 214 170', '250 184 76', '250 92 104', '128 122 250'], glowCharts: true },
   motion: { intensity: 'expressive' },
+}
+
+/* ── Brand-inspired themes (tasteful homage; no logos/asset cloning) ──────── */
+
+/** Vercel — monochrome precision; blue only where it means action. */
+const VERCEL: ThemeV2Tokens = {
+  color: {
+    scheme: 'dark',
+    bg: '10 10 10', surface: '20 20 20', panel: '15 15 15', border: '46 46 46', strip: '20 20 20',
+    muted: '160 160 160', text: '224 224 224', heading: '250 250 250',
+    accent: '0 112 243', success: '69 212 131', warning: '245 166 35', danger: '229 72 77', purple: '121 40 202',
+    accent2: '237 237 237', glow: '0 112 243', overlay: '255 255 255', selection: '0 112 243',
+  },
+  typography: { tracking: 'tight', fontUi: font('Geist Variable'), fontDisplay: null, numeric: 'normal' },
+  shape: { radius: 'sharp' },
+  elevation: { shadowDepth: 'flat' },
+  component: { buttonStyle: 'solid', cardStyle: 'outlined' },
+  background: { style: 'plain', overlayOpacity: 0.03 },
+  dataViz: { palette: ['0 112 243', '121 40 202', '80 230 217', '245 166 35', '229 72 77', '136 136 136'], glowCharts: false },
+  motion: { intensity: 'quiet' },
+}
+
+/** Notion Calm — paper-quiet workspace, minimal borders, low shadow. */
+const NOTION: ThemeV2Tokens = {
+  color: {
+    scheme: 'light',
+    bg: '247 246 243', surface: '255 255 255', panel: '247 246 243', border: '233 231 226', strip: '241 239 234',
+    muted: '120 119 116', text: '55 53 47', heading: '25 23 17',
+    accent: '35 131 226', success: '68 131 97', warning: '203 145 47', danger: '212 76 71', purple: '144 101 176',
+    accent2: '144 101 176', glow: '35 131 226', overlay: '55 53 47', selection: '35 131 226',
+  },
+  typography: { tracking: 'normal', fontUi: null, fontDisplay: null, numeric: 'normal' },
+  shape: { radius: 'soft' },
+  elevation: { shadowDepth: 'flat' },
+  component: { buttonStyle: 'solid', cardStyle: 'flat' },
+  background: { style: 'plain', overlayOpacity: 0.03 },
+  dataViz: { palette: ['35 131 226', '144 101 176', '68 131 97', '203 145 47', '212 76 71', '159 107 83'], glowCharts: false },
+  motion: { intensity: 'quiet' },
+}
+
+/** Linear Flow — refined dark, indigo signal, crisp lines, subtle flow glow. */
+const LINEAR: ThemeV2Tokens = {
+  color: {
+    scheme: 'dark',
+    bg: '13 14 20', surface: '21 23 31', panel: '17 18 26', border: '42 45 58', strip: '21 23 31',
+    muted: '138 143 158', text: '210 214 225', heading: '244 245 248',
+    accent: '94 106 210', success: '76 183 130', warning: '242 153 74', danger: '235 87 87', purple: '176 136 240',
+    accent2: '133 144 229', glow: '94 106 210', overlay: '255 255 255', selection: '94 106 210',
+  },
+  typography: { tracking: 'tight', fontUi: font('Inter Variable'), fontDisplay: null, numeric: 'normal' },
+  shape: { radius: 'soft' },
+  elevation: { shadowDepth: 'soft' },
+  component: { buttonStyle: 'solid', cardStyle: 'outlined' },
+  background: { style: 'gradient', overlayOpacity: 0.04 },
+  dataViz: { palette: ['94 106 210', '133 144 229', '76 183 130', '242 153 74', '235 87 87', '148 155 176'], glowCharts: false },
+  motion: { intensity: 'standard' },
+}
+
+/** ChatGPT — neutral light, teal signal, generous radius. */
+const CHATGPT: ThemeV2Tokens = {
+  color: {
+    scheme: 'light',
+    bg: '247 247 248', surface: '255 255 255', panel: '244 244 245', border: '229 229 231', strip: '236 236 238',
+    muted: '112 112 120', text: '38 38 42', heading: '13 13 13',
+    accent: '16 163 127', success: '52 168 83', warning: '234 132 34', danger: '239 68 68', purple: '171 104 255',
+    accent2: '171 104 255', glow: '16 163 127', overlay: '13 13 13', selection: '16 163 127',
+  },
+  typography: { tracking: 'normal', fontUi: null, fontDisplay: null, numeric: 'normal' },
+  shape: { radius: 'rounded' },
+  elevation: { shadowDepth: 'soft' },
+  component: { buttonStyle: 'solid', cardStyle: 'outlined' },
+  background: { style: 'plain', overlayOpacity: 0.03 },
+  dataViz: { palette: ['16 163 127', '171 104 255', '58 130 246', '234 132 34', '239 68 68', '136 136 140'], glowCharts: false },
+  motion: { intensity: 'quiet' },
+}
+
+/** Claude — warm oat paper, book-cloth terracotta, serif display. Authenticity over "no cream". */
+const CLAUDE: ThemeV2Tokens = {
+  color: {
+    scheme: 'light',
+    bg: '250 249 245', surface: '255 255 255', panel: '240 238 229', border: '229 225 214', strip: '240 238 229',
+    muted: '124 119 105', text: '61 57 41', heading: '38 35 26',
+    accent: '193 95 60', success: '106 143 84', warning: '203 139 51', danger: '191 68 55', purple: '107 91 149',
+    accent2: '218 119 86', glow: '193 95 60', overlay: '61 57 41', selection: '218 119 86',
+  },
+  typography: { tracking: 'normal', fontUi: null, fontDisplay: `"Lora Variable", ${SERIF}`, numeric: 'normal' },
+  shape: { radius: 'rounded' },
+  elevation: { shadowDepth: 'soft' },
+  component: { buttonStyle: 'solid', cardStyle: 'flat' },
+  background: { style: 'plain', overlayOpacity: 0.04 },
+  dataViz: { palette: ['193 95 60', '106 143 84', '107 91 149', '203 139 51', '191 68 55', '156 148 130'], glowCharts: false },
+  motion: { intensity: 'quiet' },
 }
 
 export const THEME_DEFS: Record<ThemeId, ThemeDef> = {
   dark: {
     id: 'dark', label: 'Dark Default', description: 'GitHub-dark baseline — calm, familiar, precise.',
-    icon: Moon, mode: 'dark', tokens: DARK, defaults: defaultsFrom(DARK),
+    icon: Moon, mode: 'dark', group: 'core', tokens: DARK, defaults: defaultsFrom(DARK),
     customizable: ALL_CONTROLS, migrationFrom: ['contrast', 'warm'],
   },
   light: {
     id: 'light', label: 'Light Default', description: 'Clean & bright — crisp premium SaaS light mode.',
-    icon: Sun, mode: 'light', tokens: LIGHT, defaults: defaultsFrom(LIGHT),
+    icon: Sun, mode: 'light', group: 'core', tokens: LIGHT, defaults: defaultsFrom(LIGHT),
     customizable: ALL_CONTROLS, migrationFrom: ['scientific'],
-  },
-  gaming: {
-    id: 'gaming', label: 'Gaming', description: 'Esports neon — sharp HUD purple, lime, pink energy.',
-    icon: Gamepad2, mode: 'dark', tokens: GAMING, defaults: defaultsFrom(GAMING),
-    customizable: ALL_CONTROLS, migrationFrom: ['midnight'],
   },
   hightech: {
     id: 'hightech', label: 'High Tech', description: 'Engineering dashboard — cool blues, teal, precise lines.',
-    icon: Cpu, mode: 'dark', tokens: HIGHTECH, defaults: defaultsFrom(HIGHTECH),
+    icon: Cpu, mode: 'dark', group: 'core', tokens: HIGHTECH, defaults: defaultsFrom(HIGHTECH),
     customizable: ALL_CONTROLS, migrationFrom: [],
   },
+  gaming: {
+    id: 'gaming', label: 'Neon Arena', description: 'Esports HUD — electric violet on charcoal, sakura-lime energy.',
+    icon: Gamepad2, mode: 'dark', group: 'expressive', tokens: GAMING, defaults: defaultsFrom(GAMING),
+    customizable: ALL_CONTROLS, migrationFrom: ['midnight'],
+  },
   japanese: {
-    id: 'japanese', label: 'Japanese', description: 'Washi white & sakura — calm, minimal, soft radius.',
-    icon: Flower2, mode: 'light', tokens: JAPANESE, defaults: defaultsFrom(JAPANESE),
+    id: 'japanese', label: 'Washi', description: 'Warm paper & sakura — Muji-calm, minimal, quietly elegant.',
+    icon: Flower2, mode: 'light', group: 'expressive', tokens: JAPANESE, defaults: defaultsFrom(JAPANESE),
     customizable: ALL_CONTROLS, migrationFrom: [],
   },
   chinese: {
-    id: 'chinese', label: 'Chinese', description: 'Red & gold premium — festive but professional.',
-    icon: Landmark, mode: 'dark', tokens: CHINESE, defaults: defaultsFrom(CHINESE),
+    id: 'chinese', label: 'Lacquer', description: 'Lacquer & champagne gold — premium, festive but composed.',
+    icon: Landmark, mode: 'dark', group: 'expressive', tokens: CHINESE, defaults: defaultsFrom(CHINESE),
     customizable: ALL_CONTROLS, migrationFrom: [],
   },
   jarvis: {
-    id: 'jarvis', label: 'Jarvis OS', description: 'Blue AI operating system — glowing, analytical, alive.',
-    icon: Bot, mode: 'dark', tokens: JARVIS, defaults: defaultsFrom(JARVIS),
+    id: 'jarvis', label: 'Jarvis OS', description: 'Arc-reactor blue — deep-space navy, glowing, analytical.',
+    icon: Bot, mode: 'dark', group: 'expressive', tokens: JARVIS, defaults: defaultsFrom(JARVIS),
+    customizable: ALL_CONTROLS, migrationFrom: [],
+  },
+  vercel: {
+    id: 'vercel', label: 'Vercel', description: 'Monochrome precision — pure black, Geist, blue for action only.',
+    icon: Triangle, mode: 'dark', group: 'brand', tokens: VERCEL, defaults: defaultsFrom(VERCEL),
+    customizable: ALL_CONTROLS, migrationFrom: [],
+  },
+  notion: {
+    id: 'notion', label: 'Notion Calm', description: 'Paper-quiet workspace — off-white, ink text, low shadow.',
+    icon: FileText, mode: 'light', group: 'brand', tokens: NOTION, defaults: defaultsFrom(NOTION),
+    customizable: ALL_CONTROLS, migrationFrom: [],
+  },
+  linear: {
+    id: 'linear', label: 'Linear Flow', description: 'Refined dark — indigo signal, Inter, crisp issue-tracker feel.',
+    icon: Command, mode: 'dark', group: 'brand', tokens: LINEAR, defaults: defaultsFrom(LINEAR),
+    customizable: ALL_CONTROLS, migrationFrom: [],
+  },
+  chatgpt: {
+    id: 'chatgpt', label: 'ChatGPT', description: 'Neutral light — teal signal, generous radius, easy calm.',
+    icon: Hexagon, mode: 'light', group: 'brand', tokens: CHATGPT, defaults: defaultsFrom(CHATGPT),
+    customizable: ALL_CONTROLS, migrationFrom: [],
+  },
+  claude: {
+    id: 'claude', label: 'Claude', description: 'Warm oat paper — book-cloth terracotta, serif display, human.',
+    icon: Asterisk, mode: 'light', group: 'brand', tokens: CLAUDE, defaults: defaultsFrom(CLAUDE),
     customizable: ALL_CONTROLS, migrationFrom: [],
   },
 }
+
+/** Grouped view for selectors (derived — guaranteed to partition ACTIVE_THEMES). */
+export const THEME_GROUPS: { id: ThemeGroup; label: string; themes: ThemeId[] }[] = [
+  { id: 'core', label: 'Core', themes: ACTIVE_THEMES.filter(t => THEME_DEFS[t].group === 'core') },
+  { id: 'expressive', label: 'Expressive', themes: ACTIVE_THEMES.filter(t => THEME_DEFS[t].group === 'expressive') },
+  { id: 'brand', label: 'Brand', themes: ACTIVE_THEMES.filter(t => THEME_DEFS[t].group === 'brand') },
+]
 
 /* ── Preset value tables ─────────────────────────────────────────────────── */
 
@@ -265,9 +429,10 @@ export const SHADOW_PRESETS: Record<ShadowDepth, { card: string; popover: string
   flat: { card: 'none', popover: '0 10px 30px -12px rgb(0 0 0 / 0.40)' },
   soft: { card: '0 1px 3px rgb(0 0 0 / 0.20)', popover: '0 16px 40px -12px rgb(0 0 0 / 0.40)' },
   deep: { card: '0 10px 28px -10px rgb(0 0 0 / 0.50)', popover: '0 28px 64px -16px rgb(0 0 0 / 0.55)' },
+  // Softened in v2.1: glow was too harsh on the expressive/HUD themes.
   glow: {
-    card: '0 0 0 1px rgb(var(--accent) / 0.06), 0 0 20px -4px rgb(var(--accent) / 0.18)',
-    popover: '0 16px 48px -8px rgb(var(--accent) / 0.28)',
+    card: '0 0 0 1px rgb(var(--accent) / 0.05), 0 0 14px -6px rgb(var(--accent) / 0.12)',
+    popover: '0 16px 44px -12px rgb(var(--accent) / 0.20)',
   },
 }
 
@@ -380,6 +545,8 @@ export function computeCssVars(id: ThemeId, custom?: Partial<ThemeCustomization>
   const radius = RADIUS_PRESETS[c.radius]
   const shadow = SHADOW_PRESETS[c.shadowDepth]
   const tracking = c.typography === 'default' ? t.typography.tracking : TYPO_TRACKING[c.typography]
+  const fontUi = t.typography.fontUi ?? SYSTEM_UI
+  const fontDisplay = t.typography.fontDisplay ?? t.typography.fontUi ?? SYSTEM_UI
 
   const vars: Record<string, string> = {
     '--bg': t.color.bg, '--surface': t.color.surface, '--panel': t.color.panel,
@@ -389,6 +556,10 @@ export function computeCssVars(id: ThemeId, custom?: Partial<ThemeCustomization>
     '--danger': t.color.danger, '--purple': t.color.purple,
     '--theme-accent-2': t.color.accent2,
     '--theme-glow': c.accent ? accent : t.color.glow,
+    '--overlay': t.color.overlay,
+    '--selection': c.accent ? accent : t.color.selection,
+    '--font-ui': fontUi, '--font-display': fontDisplay,
+    '--font-numeric': t.typography.numeric === 'tabular' ? 'tabular-nums' : 'normal',
     '--radius-card': radius.card, '--radius-button': radius.button, '--radius-input': radius.input,
     '--shadow-card': shadow.card, '--shadow-popover': shadow.popover,
     '--tracking-ui': TRACKING[tracking],
@@ -406,5 +577,6 @@ export function computeDataAttrs(id: ThemeId, custom?: Partial<ThemeCustomizatio
     'data-theme-motion': c.motion,
     'data-card-style': c.cardStyle,
     'data-button-style': c.buttonStyle,
+    'data-decorations': c.decorations,
   }
 }

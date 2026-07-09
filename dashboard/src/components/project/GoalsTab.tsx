@@ -302,7 +302,7 @@ function NewGoalForm({ projectId, onDone, onCancel }: { projectId: number; onDon
       <div className="flex gap-2">
         <button onClick={create} disabled={!title.trim()}
           className="rounded-lg bg-accent px-3 py-1.5 text-sm text-white hover:bg-accent/90 disabled:opacity-50">Add Goal</button>
-        <button onClick={onCancel} className="rounded-lg px-3 py-1.5 text-sm text-muted hover:bg-white/5 hover:text-text">Cancel</button>
+        <button onClick={onCancel} className="rounded-lg px-3 py-1.5 text-sm text-muted hover:bg-overlay/5 hover:text-text">Cancel</button>
       </div>
     </div>
   )

@@ -65,7 +65,7 @@ export default function OverviewTab({ ov, onChanged, onOpenTask }: {
               </div>
             ) : ov.active_tasks.map(t => (
               <button key={t.id} onClick={() => onOpenTask(t)}
-                className="flex w-full items-center gap-2.5 border-b border-border/40 px-4 py-2 text-left transition-colors last:border-0 hover:bg-white/3">
+                className="flex w-full items-center gap-2.5 border-b border-border/40 px-4 py-2 text-left transition-colors last:border-0 hover:bg-overlay/3">
                 <Circle size={13} className="shrink-0 text-muted" />
                 <span className="min-w-0 flex-1 truncate text-sm text-text">{t.title}</span>
                 <span className={`shrink-0 text-[11px] ${PRIORITY_COLORS[t.priority] ?? 'text-muted'}`}>{t.priority}</span>
@@ -98,7 +98,7 @@ export default function OverviewTab({ ov, onChanged, onOpenTask }: {
             {Object.keys(m.resources_by_type || {}).length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1">
                 {Object.entries(m.resources_by_type).map(([k, v]) => (
-                  <span key={k} className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-muted">{k} · {v}</span>
+                  <span key={k} className="rounded bg-overlay/5 px-1.5 py-0.5 text-[10px] text-muted">{k} · {v}</span>
                 ))}
               </div>
             )}
@@ -145,7 +145,7 @@ export default function OverviewTab({ ov, onChanged, onOpenTask }: {
           <div className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
             {ov.activity.slice(0, 8).map(a => (
               <div key={a.id} className="flex items-start gap-2 text-[12px]">
-                <span className={`mt-0.5 rounded-full p-1 ${a.actor === 'tobi' ? 'bg-accent/15 text-accent' : 'bg-white/8 text-muted'}`}>
+                <span className={`mt-0.5 rounded-full p-1 ${a.actor === 'tobi' ? 'bg-accent/15 text-accent' : 'bg-overlay/8 text-muted'}`}>
                   {a.actor === 'tobi' ? <Bot size={10} /> : <User size={10} />}
                 </span>
                 <div className="min-w-0 flex-1">

@@ -23,9 +23,9 @@ type Props = {
  */
 export default function StatBar({
   value,
-  from = '#58a6ff',
-  to = '#8b5cf6',
-  glow = 'rgba(139,92,246,0.45)',
+  from = 'rgb(var(--accent))',
+  to = 'rgb(var(--purple))',
+  glow = 'rgb(var(--purple) / 0.45)',
   size = 'sm',
   showValue = true,
   label,
@@ -36,7 +36,7 @@ export default function StatBar({
   if (size === 'sm') {
     return (
       <div className={`flex items-center gap-2 ${className}`}>
-        <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-black/40 ring-1 ring-white/10">
+        <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-bg ring-1 ring-border/70">
           <motion.div
             className="h-full rounded-full"
             style={{ background: `linear-gradient(90deg, ${from}, ${to})`, boxShadow: `0 0 8px ${glow}` }}
@@ -64,7 +64,7 @@ export default function StatBar({
         </div>
       )}
 
-      <div className="relative h-4 w-full overflow-hidden rounded-md bg-black/40 ring-1 ring-white/10">
+      <div className="relative h-4 w-full overflow-hidden rounded-md bg-bg ring-1 ring-border/70">
         <motion.div
           className="relative h-full rounded-md"
           style={{ background: `linear-gradient(90deg, ${from}, ${to})`, boxShadow: `0 0 14px ${glow}` }}
