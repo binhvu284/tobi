@@ -10,8 +10,8 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Request, Body, Header
-from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Query, Request, Body, Header, UploadFile, File, Form
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -24,6 +24,7 @@ from core import brain
 from core import graph_engine as graph
 from core import vault
 from core import integrations_registry as registry
+from core import pm_resources as pmres
 from core import mcp_security as mcpsec
 try:  # MCP Hub (#5) — optional; app still runs if the mcp SDK isn't installed
     from core import mcp_server
@@ -97,6 +98,10 @@ class TaskPatchRequest(BaseModel):
     title: str | None = None
     objective: str | None = None
     success_criteria: str | None = None
+    description: str | None = None       # v2 task detail (plain text)
+    start_at: str | None = None          # v2 optional start date
+    reminder_at: str | None = None       # v2 optional reminder
+    time_estimate: str | None = None     # v2 effort estimate
     require_confirmation: bool = False
     confirmed: bool = False
 
@@ -309,6 +314,8 @@ def _serialize_task(conn: sqlite3.Connection, row: sqlite3.Row, include_activity
         "project_name": row["project_name"],
         "task_type": row["task_type"],
         "due_at": due_at,
+        "start_at": row["start_at"] if "start_at" in row.keys() else None,
+        "reminder_at": row["reminder_at"] if "reminder_at" in row.keys() else None,
         "is_overdue": is_overdue,
         "created_at": row["created_at"],
         "updated_at": row["updated_at"] or row["created_at"],
@@ -325,10 +332,25 @@ def _serialize_task(conn: sqlite3.Connection, row: sqlite3.Row, include_activity
         "time_estimate": row["time_estimate"] if "time_estimate" in row.keys() else None,
         "pm_project_id": row["pm_project_id"] if "pm_project_id" in row.keys() else None,
         "pm_goal_id": row["pm_goal_id"] if "pm_goal_id" in row.keys() else None,
+        # v2 dependencies (blocks / blocked-by), best-effort
+        "blocks": _task_deps(conn, row["id"], "blocks"),
+        "blocked_by": _task_deps(conn, row["id"], "blocked_by"),
     }
     if include_activity:
         task["activity"] = _fetch_activity(conn, row["id"])
     return task
+
+
+def _task_deps(conn: sqlite3.Connection, task_id: int, direction: str) -> list[int]:
+    """IDs this task blocks (direction='blocks') or is blocked by (='blocked_by')."""
+    try:
+        if direction == "blocks":
+            rows = conn.execute("SELECT blocks_id FROM pm_task_deps WHERE task_id=?", (task_id,)).fetchall()
+        else:
+            rows = conn.execute("SELECT task_id FROM pm_task_deps WHERE blocks_id=?", (task_id,)).fetchall()
+        return [r[0] for r in rows]
+    except Exception:
+        return []
 
 
 def _fetch_task_row(conn: sqlite3.Connection, task_id: int) -> sqlite3.Row | None:
@@ -1450,6 +1472,26 @@ async def api_task_patch(task_id: int, payload: TaskPatchRequest):
             values.append(payload.success_criteria)
             changes["success_criteria"] = payload.success_criteria
 
+        if payload.description is not None:
+            updates.append("description=?")
+            values.append(payload.description)
+            changes["description"] = payload.description
+
+        if payload.start_at is not None:
+            updates.append("start_at=?")
+            values.append(payload.start_at or None)
+            changes["start_at"] = payload.start_at
+
+        if payload.reminder_at is not None:
+            updates.append("reminder_at=?")
+            values.append(payload.reminder_at or None)
+            changes["reminder_at"] = payload.reminder_at
+
+        if payload.time_estimate is not None:
+            updates.append("time_estimate=?")
+            values.append(payload.time_estimate or None)
+            changes["time_estimate"] = payload.time_estimate
+
         if not updates:
             raise HTTPException(status_code=400, detail="No updates provided")
 
@@ -2054,6 +2096,8 @@ class PMProjectPatchRequest(BaseModel):
     size: str | None = None
     category: str | None = None
     emoji_icon: str | None = None
+    icon_type: str | None = None          # emoji | icon | custom
+    icon_value: str | None = None         # emoji char / icon key / pm_icons id
     accent_color: str | None = None
     deadline: str | None = None
     kpi_mode: str | None = None
@@ -2297,6 +2341,7 @@ async def pm_patch_project(project_id: int, payload: PMProjectPatchRequest):
     for col, v in [
         ("name", payload.name), ("description", payload.description), ("status", payload.status),
         ("size", payload.size), ("category", payload.category), ("emoji_icon", payload.emoji_icon),
+        ("icon_type", payload.icon_type), ("icon_value", payload.icon_value),
         ("accent_color", payload.accent_color), ("deadline", payload.deadline),
         ("kpi_mode", payload.kpi_mode), ("kpi_id", payload.kpi_id),
         ("kpi_metric_name", payload.kpi_metric_name), ("kpi_target_value", payload.kpi_target_value),
@@ -2328,6 +2373,14 @@ async def pm_delete_project(project_id: int):
     conn.execute("DELETE FROM pm_projects WHERE id=?", (project_id,))
     conn.commit()
     conn.close()
+    # v2: remove the project's on-disk resources dir too (best-effort)
+    try:
+        import shutil
+        root = pmres.resources_root(project_id).parent   # <data>/projects/{id}/
+        if root.exists():
+            shutil.rmtree(root, ignore_errors=True)
+    except Exception:
+        pass
     return {"ok": True, "project_id": project_id}
 
 
@@ -2336,10 +2389,17 @@ async def pm_delete_project(project_id: int):
 @app.get("/api/pm/projects/{project_id}/goals")
 async def pm_list_goals(project_id: int):
     conn = _get_conn()
+    _pm_sync_rollup_goals(conn, project_id)   # task-mode goals reflect their linked tasks
+    conn.commit()
     rows = conn.execute(
         "SELECT * FROM pm_goals WHERE project_id=? ORDER BY created_at", (project_id,)
     ).fetchall()
-    items = [_pm_serialize_goal(r) for r in rows]
+    items = []
+    for r in rows:
+        g = _pm_serialize_goal(r)
+        g["linked_task_ids"] = [x[0] for x in conn.execute(
+            "SELECT task_id FROM pm_goal_tasks WHERE goal_id=?", (r["id"],)).fetchall()]
+        items.append(g)
     conn.close()
     return {"items": items, "count": len(items)}
 
@@ -2705,6 +2765,412 @@ async def pm_delete_template(template_id: int):
     conn.commit()
     conn.close()
     return {"ok": True, "template_id": template_id}
+
+
+# ── PROJECT v2: OVERVIEW · RESOURCES · FOLDERS · ICONS · DEPS · GOAL-LINKS ────
+
+def _pm_sync_rollup_goals(conn: sqlite3.Connection, project_id: int) -> None:
+    """Task-mode goals derive current_value from their linked tasks' done ratio."""
+    try:
+        goals = conn.execute(
+            "SELECT id, target_value FROM pm_goals WHERE project_id=? AND mode='task'", (project_id,)
+        ).fetchall()
+        for g in goals:
+            total = conn.execute("SELECT COUNT(*) FROM pm_goal_tasks WHERE goal_id=?", (g["id"],)).fetchone()[0]
+            done = conn.execute(
+                "SELECT COUNT(*) FROM pm_goal_tasks gt JOIN tasks t ON t.id=gt.task_id "
+                "WHERE gt.goal_id=? AND t.deleted_at IS NULL AND t.status_v1='done'", (g["id"],)
+            ).fetchone()[0]
+            tv = g["target_value"] or 100
+            cv = round((done / total) * tv, 2) if total else 0
+            conn.execute("UPDATE pm_goals SET current_value=? WHERE id=?", (cv, g["id"]))
+    except Exception:
+        pass
+
+
+def _pm_serialize_resource(conn: sqlite3.Connection, r: sqlite3.Row) -> dict[str, Any]:
+    d = dict(r)
+    d["tags"] = _json_loads(d.get("tags"), [])
+    d["has_text"] = bool(d.pop("text_content", None))
+    return d
+
+
+@app.get("/api/pm/projects/{project_id}/overview")
+async def pm_project_overview(project_id: int):
+    """One snapshot for the Overview tab + the `project_overview` Conductor tool [D16]."""
+    conn = _get_conn()
+    try:
+        row = conn.execute("SELECT * FROM pm_projects WHERE id=?", (project_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="project not found")
+        _pm_sync_rollup_goals(conn, project_id)
+        proj = _pm_serialize_project(conn, row)
+
+        tasks = conn.execute(
+            "SELECT status_v1, due_at, time_estimate FROM tasks WHERE pm_project_id=? AND deleted_at IS NULL",
+            (project_id,),
+        ).fetchall()
+        total = len(tasks)
+        done = sum(1 for t in tasks if t["status_v1"] == "done")
+        active = sum(1 for t in tasks if t["status_v1"] in
+                     {"in_progress", "planned", "paused", "blocked", "needs_owner_input"})
+        now = datetime.now(timezone.utc)
+        overdue = 0
+        for t in tasks:
+            if t["due_at"] and t["status_v1"] not in {"done", "cancelled"}:
+                try:
+                    if datetime.fromisoformat(t["due_at"].replace("Z", "+00:00")) < now:
+                        overdue += 1
+                except Exception:
+                    pass
+
+        def _est_min(v):
+            if not v:
+                return 0
+            m = re.findall(r"(\d+(?:\.\d+)?)\s*([hmd])", str(v).lower())
+            mins = 0.0
+            for num, unit in m:
+                num = float(num)
+                mins += num * (60 if unit == "h" else (60 * 8 if unit == "d" else 1))
+            return mins
+        est_total = sum(_est_min(t["time_estimate"]) for t in tasks)
+        est_done = sum(_est_min(t["time_estimate"]) for t in tasks if t["status_v1"] == "done")
+
+        active_rows = conn.execute(
+            "SELECT t.*, COALESCE(p.name, pmp.name) AS project_name FROM tasks t "
+            "LEFT JOIN projects p ON p.id=t.project_id LEFT JOIN pm_projects pmp ON pmp.id=t.pm_project_id "
+            "WHERE t.pm_project_id=? AND t.deleted_at IS NULL AND t.status_v1 NOT IN ('done','cancelled') "
+            "ORDER BY t.sort_order ASC, t.created_at ASC LIMIT 50", (project_id,),
+        ).fetchall()
+        active_tasks = [_serialize_task(conn, r, include_activity=False) for r in active_rows]
+
+        goals = [_pm_serialize_goal(g) for g in conn.execute(
+            "SELECT * FROM pm_goals WHERE project_id=? AND parent_goal_id IS NULL", (project_id,)).fetchall()]
+        goals_avg = round(sum(g["progress_pct"] for g in goals) / len(goals), 1) if goals else 0.0
+
+        res_count = conn.execute("SELECT COUNT(*) FROM pm_resources WHERE project_id=?", (project_id,)).fetchone()[0]
+        res_bytes = pmres.project_bytes(project_id)
+        conn.execute("UPDATE pm_projects SET resources_bytes=? WHERE id=?", (res_bytes, project_id))
+        by_type = {}
+        for r in conn.execute("SELECT rtype, COUNT(*) c FROM pm_resources WHERE project_id=? GROUP BY rtype", (project_id,)).fetchall():
+            by_type[r["rtype"] or "file"] = r["c"]
+        conn.commit()
+
+        activity = []
+        for a in conn.execute(
+            "SELECT * FROM pm_activity WHERE project_id=? ORDER BY created_at DESC LIMIT 12", (project_id,)).fetchall():
+            d = dict(a); d["diff"] = _json_loads(d.get("diff"), None); activity.append(d)
+
+        deadline_days = None
+        if proj.get("deadline"):
+            try:
+                dl = datetime.fromisoformat(str(proj["deadline"]).replace("Z", "+00:00"))
+                if dl.tzinfo is None:
+                    dl = dl.replace(tzinfo=timezone.utc)
+                deadline_days = (dl - now).days
+            except Exception:
+                deadline_days = None
+
+        metrics = {
+            "task_total": total, "task_done": done, "task_active": active, "task_overdue": overdue,
+            "progress_pct": proj.get("progress_pct", 0),
+            "goals_count": len(goals), "goals_avg_pct": goals_avg,
+            "goals_completed": sum(1 for g in goals if g["progress_pct"] >= 100),
+            "resources_count": res_count, "resources_bytes": res_bytes, "resources_by_type": by_type,
+            "estimate_total_min": round(est_total), "estimate_done_min": round(est_done),
+            "deadline_days": deadline_days,
+            "created_at": proj.get("created_at"), "updated_at": proj.get("updated_at"),
+            "last_activity": activity[0]["created_at"] if activity else None,
+        }
+        return {"project": proj, "metrics": metrics, "active_tasks": active_tasks,
+                "goals": goals, "activity": activity}
+    finally:
+        conn.close()
+
+
+# ── Resources (Drive-style) ──────────────────────────────────────────────────
+class PMResourceLinkRequest(BaseModel):
+    url: str
+    name: str | None = None
+    folder_id: int | None = None
+    created_by: str = "user"
+
+class PMResourcePatchRequest(BaseModel):
+    name: str | None = None
+    folder_id: int | None = None
+    tags: list[str] | None = None
+
+class PMFolderCreateRequest(BaseModel):
+    name: str
+    parent_id: int | None = None
+    created_by: str = "user"
+
+
+def _pm_require_project(conn, project_id: int) -> None:
+    if not conn.execute("SELECT 1 FROM pm_projects WHERE id=?", (project_id,)).fetchone():
+        raise HTTPException(status_code=404, detail="project not found")
+
+
+@app.get("/api/pm/projects/{project_id}/resources")
+async def pm_list_resources(project_id: int, folder_id: int | None = None):
+    conn = _get_conn()
+    try:
+        _pm_require_project(conn, project_id)
+        folders = [dict(f) for f in conn.execute(
+            "SELECT * FROM pm_folders WHERE project_id=? ORDER BY name", (project_id,)).fetchall()]
+        sql = "SELECT * FROM pm_resources WHERE project_id=?"
+        params: list[Any] = [project_id]
+        if folder_id is not None:
+            sql += " AND folder_id=?" if folder_id else " AND folder_id IS NULL"
+            if folder_id:
+                params.append(folder_id)
+        sql += " ORDER BY created_at DESC"
+        items = [_pm_serialize_resource(conn, r) for r in conn.execute(sql, params).fetchall()]
+        return {"items": items, "folders": folders, "count": len(items)}
+    finally:
+        conn.close()
+
+
+@app.post("/api/pm/projects/{project_id}/resources/upload")
+async def pm_upload_resource(project_id: int, file: UploadFile = File(...),
+                             folder_id: int | None = Form(None), created_by: str = Form("user")):
+    conn = _get_conn()
+    try:
+        _pm_require_project(conn, project_id)
+        content = await file.read()
+        try:
+            meta = pmres.save_file(project_id, file.filename or "file", content)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        cur = conn.execute(
+            "INSERT INTO pm_resources (project_id, folder_id, kind, name, ext, source, rtype, "
+            "size_bytes, disk_path, mime, text_content, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (project_id, folder_id or None, "file", meta["name"], meta["ext"], "device", meta["rtype"],
+             meta["size_bytes"], meta["disk_path"], meta["mime"], meta["text_content"], created_by),
+        )
+        rid = cur.lastrowid
+        _pm_log(conn, project_id, created_by, "resource.added", f"Uploaded {meta['name']}")
+        conn.execute("UPDATE pm_projects SET resources_bytes=? WHERE id=?", (pmres.project_bytes(project_id), project_id))
+        conn.commit()
+        r = conn.execute("SELECT * FROM pm_resources WHERE id=?", (rid,)).fetchone()
+        return _pm_serialize_resource(conn, r)
+    finally:
+        conn.close()
+
+
+@app.post("/api/pm/projects/{project_id}/resources/link")
+async def pm_add_resource_link(project_id: int, payload: PMResourceLinkRequest):
+    conn = _get_conn()
+    try:
+        _pm_require_project(conn, project_id)
+        if not (payload.url or "").strip():
+            raise HTTPException(status_code=400, detail="url is required")
+        meta = pmres.build_link(payload.url, payload.name)
+        cur = conn.execute(
+            "INSERT INTO pm_resources (project_id, folder_id, kind, name, ext, source, rtype, "
+            "url, text_content, created_by) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (project_id, payload.folder_id or None, "link", meta["name"], meta.get("ext"),
+             meta["source"], meta["rtype"], meta["url"], meta.get("text_content"), payload.created_by),
+        )
+        rid = cur.lastrowid
+        _pm_log(conn, project_id, payload.created_by, "resource.linked", f"Linked {meta['name']}")
+        conn.commit()
+        r = conn.execute("SELECT * FROM pm_resources WHERE id=?", (rid,)).fetchone()
+        return _pm_serialize_resource(conn, r)
+    finally:
+        conn.close()
+
+
+@app.patch("/api/pm/projects/{project_id}/resources/{rid}")
+async def pm_patch_resource(project_id: int, rid: int, payload: PMResourcePatchRequest):
+    conn = _get_conn()
+    try:
+        r = conn.execute("SELECT * FROM pm_resources WHERE id=? AND project_id=?", (rid, project_id)).fetchone()
+        if not r:
+            raise HTTPException(status_code=404, detail="resource not found")
+        fields, vals = [], []
+        if payload.name is not None:
+            fields.append("name=?"); vals.append(payload.name)
+        if payload.folder_id is not None:
+            fields.append("folder_id=?"); vals.append(payload.folder_id or None)
+        if payload.tags is not None:
+            fields.append("tags=?"); vals.append(json.dumps(payload.tags, ensure_ascii=False))
+        if not fields:
+            raise HTTPException(status_code=400, detail="no updates")
+        fields.append("updated_at=CURRENT_TIMESTAMP"); vals.append(rid)
+        conn.execute(f"UPDATE pm_resources SET {', '.join(fields)} WHERE id=?", vals)
+        conn.commit()
+        r = conn.execute("SELECT * FROM pm_resources WHERE id=?", (rid,)).fetchone()
+        return _pm_serialize_resource(conn, r)
+    finally:
+        conn.close()
+
+
+@app.delete("/api/pm/projects/{project_id}/resources/{rid}")
+async def pm_delete_resource(project_id: int, rid: int):
+    conn = _get_conn()
+    try:
+        r = conn.execute("SELECT * FROM pm_resources WHERE id=? AND project_id=?", (rid, project_id)).fetchone()
+        if not r:
+            raise HTTPException(status_code=404, detail="resource not found")
+        if r["kind"] == "file" and r["disk_path"]:
+            pmres.delete_file(project_id, r["disk_path"])
+        conn.execute("DELETE FROM pm_resources WHERE id=?", (rid,))
+        _pm_log(conn, project_id, "user", "resource.deleted", f"Deleted {r['name']}")
+        conn.execute("UPDATE pm_projects SET resources_bytes=? WHERE id=?", (pmres.project_bytes(project_id), project_id))
+        conn.commit()
+        return {"ok": True, "id": rid}
+    finally:
+        conn.close()
+
+
+@app.get("/api/pm/projects/{project_id}/resources/{rid}/raw")
+async def pm_resource_raw(project_id: int, rid: int):
+    conn = _get_conn()
+    try:
+        r = conn.execute("SELECT * FROM pm_resources WHERE id=? AND project_id=?", (rid, project_id)).fetchone()
+        if not r:
+            raise HTTPException(status_code=404, detail="resource not found")
+        if r["kind"] == "link" and r["url"]:
+            return RedirectResponse(r["url"])
+        p = pmres.abs_path(project_id, r["disk_path"] or "")
+        if not p:
+            raise HTTPException(status_code=404, detail="file missing")
+        return FileResponse(str(p), media_type=r["mime"] or "application/octet-stream", filename=r["name"])
+    finally:
+        conn.close()
+
+
+# ── Folders ──────────────────────────────────────────────────────────────────
+@app.post("/api/pm/projects/{project_id}/folders")
+async def pm_create_folder(project_id: int, payload: PMFolderCreateRequest):
+    conn = _get_conn()
+    try:
+        _pm_require_project(conn, project_id)
+        if not (payload.name or "").strip():
+            raise HTTPException(status_code=400, detail="name required")
+        cur = conn.execute(
+            "INSERT INTO pm_folders (project_id, parent_id, name, created_by) VALUES (?,?,?,?)",
+            (project_id, payload.parent_id or None, payload.name.strip(), payload.created_by))
+        fid = cur.lastrowid
+        conn.commit()
+        return dict(conn.execute("SELECT * FROM pm_folders WHERE id=?", (fid,)).fetchone())
+    finally:
+        conn.close()
+
+
+@app.delete("/api/pm/projects/{project_id}/folders/{fid}")
+async def pm_delete_folder(project_id: int, fid: int):
+    conn = _get_conn()
+    try:
+        if not conn.execute("SELECT 1 FROM pm_folders WHERE id=? AND project_id=?", (fid, project_id)).fetchone():
+            raise HTTPException(status_code=404, detail="folder not found")
+        conn.execute("UPDATE pm_resources SET folder_id=NULL WHERE folder_id=?", (fid,))  # keep the files
+        conn.execute("DELETE FROM pm_folders WHERE id=?", (fid,))
+        conn.commit()
+        return {"ok": True, "id": fid}
+    finally:
+        conn.close()
+
+
+# ── Custom project icons ─────────────────────────────────────────────────────
+class PMIconRequest(BaseModel):
+    project_id: int | None = None
+    data_url: str
+
+@app.post("/api/pm/icons")
+async def pm_upload_icon(payload: PMIconRequest):
+    try:
+        mime, b64 = pmres.clean_icon_data_url(payload.data_url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    conn = _get_conn()
+    try:
+        cur = conn.execute("INSERT INTO pm_icons (project_id, mime, data) VALUES (?,?,?)",
+                           (payload.project_id, mime, b64))
+        iid = cur.lastrowid
+        conn.commit()
+        return {"ok": True, "id": iid, "url": f"/api/pm/icons/{iid}"}
+    finally:
+        conn.close()
+
+
+@app.get("/api/pm/icons/{icon_id}")
+async def pm_get_icon(icon_id: int):
+    import base64 as _b64
+    conn = _get_conn()
+    try:
+        r = conn.execute("SELECT mime, data FROM pm_icons WHERE id=?", (icon_id,)).fetchone()
+        if not r:
+            raise HTTPException(status_code=404, detail="icon not found")
+        return Response(content=_b64.b64decode(r["data"]), media_type=r["mime"] or "image/png")
+    finally:
+        conn.close()
+
+
+# ── Task dependencies (blocks / blocked-by) ──────────────────────────────────
+class PMDepRequest(BaseModel):
+    blocks_id: int
+
+@app.post("/api/pm/tasks/{task_id}/deps")
+async def pm_add_dep(task_id: int, payload: PMDepRequest):
+    if task_id == payload.blocks_id:
+        raise HTTPException(status_code=400, detail="a task cannot block itself")
+    conn = _get_conn()
+    try:
+        for tid in (task_id, payload.blocks_id):
+            if not conn.execute("SELECT 1 FROM tasks WHERE id=? AND deleted_at IS NULL", (tid,)).fetchone():
+                raise HTTPException(status_code=404, detail=f"task {tid} not found")
+        conn.execute("INSERT OR IGNORE INTO pm_task_deps (task_id, blocks_id) VALUES (?,?)",
+                     (task_id, payload.blocks_id))
+        conn.commit()
+        return {"ok": True, "task_id": task_id, "blocks_id": payload.blocks_id}
+    finally:
+        conn.close()
+
+
+@app.delete("/api/pm/tasks/{task_id}/deps/{blocks_id}")
+async def pm_remove_dep(task_id: int, blocks_id: int):
+    conn = _get_conn()
+    try:
+        conn.execute("DELETE FROM pm_task_deps WHERE task_id=? AND blocks_id=?", (task_id, blocks_id))
+        conn.commit()
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+# ── Goal ↔ task links (rollup goals) ─────────────────────────────────────────
+class PMGoalTaskRequest(BaseModel):
+    task_id: int
+
+@app.post("/api/pm/projects/{project_id}/goals/{goal_id}/tasks")
+async def pm_link_goal_task(project_id: int, goal_id: int, payload: PMGoalTaskRequest):
+    conn = _get_conn()
+    try:
+        if not conn.execute("SELECT 1 FROM pm_goals WHERE id=? AND project_id=?", (goal_id, project_id)).fetchone():
+            raise HTTPException(status_code=404, detail="goal not found")
+        conn.execute("INSERT OR IGNORE INTO pm_goal_tasks (goal_id, task_id) VALUES (?,?)", (goal_id, payload.task_id))
+        conn.execute("UPDATE pm_goals SET mode='task' WHERE id=?", (goal_id,))
+        _pm_sync_rollup_goals(conn, project_id)
+        _pm_recalc_progress(conn, project_id)
+        conn.commit()
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+@app.delete("/api/pm/projects/{project_id}/goals/{goal_id}/tasks/{task_id}")
+async def pm_unlink_goal_task(project_id: int, goal_id: int, task_id: int):
+    conn = _get_conn()
+    try:
+        conn.execute("DELETE FROM pm_goal_tasks WHERE goal_id=? AND task_id=?", (goal_id, task_id))
+        _pm_sync_rollup_goals(conn, project_id)
+        _pm_recalc_progress(conn, project_id)
+        conn.commit()
+        return {"ok": True}
+    finally:
+        conn.close()
 
 
 # ── PM STATS (Dashboard widget) ───────────────────────────────────────────────

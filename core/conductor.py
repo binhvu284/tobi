@@ -183,6 +183,58 @@ def tool_list_tasks(status: Optional[str] = None, limit: int = 15, **_: Any) -> 
     return {"count": len(items), "tasks": items}
 
 
+def tool_project_overview(project: str = "", **_: Any) -> dict:
+    """Full metric snapshot of one project so answers are grounded in real numbers (#12)."""
+    key = str(project or "").strip()
+    if not key:
+        return {"error": "which project? give a name or id"}
+    conn = _conn()
+    try:
+        if key.isdigit():
+            row = conn.execute("SELECT * FROM pm_projects WHERE id=?", (int(key),)).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM pm_projects WHERE name LIKE ? ORDER BY updated_at DESC LIMIT 1",
+                               (f"%{key}%",)).fetchone()
+        if not row:
+            return {"error": f"no project matching '{project}'"}
+        pid = row["id"]
+        tasks = conn.execute(
+            "SELECT status_v1, due_at FROM tasks WHERE pm_project_id=? AND deleted_at IS NULL", (pid,)).fetchall()
+        total = len(tasks)
+        done = sum(1 for t in tasks if t["status_v1"] == "done")
+        active = sum(1 for t in tasks if t["status_v1"] in
+                     {"in_progress", "planned", "paused", "blocked", "needs_owner_input"})
+        from datetime import datetime as _dt, timezone as _tz
+        now = _dt.now(_tz.utc)
+        overdue = 0
+        for t in tasks:
+            if t["due_at"] and t["status_v1"] not in {"done", "cancelled"}:
+                try:
+                    if _dt.fromisoformat(t["due_at"].replace("Z", "+00:00")) < now:
+                        overdue += 1
+                except Exception:
+                    pass
+        goals = conn.execute("SELECT title, target_value, current_value FROM pm_goals WHERE project_id=?",
+                             (pid,)).fetchall()
+        gpct = [min(100.0, round((g["current_value"] / g["target_value"]) * 100, 1)) if g["target_value"] else 0.0
+                for g in goals]
+        res_count = conn.execute("SELECT COUNT(*) FROM pm_resources WHERE project_id=?", (pid,)).fetchone()[0]
+        res_bytes = row["resources_bytes"] if "resources_bytes" in row.keys() else 0
+        active_titles = [t["title"] for t in conn.execute(
+            "SELECT title FROM tasks WHERE pm_project_id=? AND deleted_at IS NULL "
+            "AND status_v1 NOT IN ('done','cancelled') ORDER BY sort_order LIMIT 8", (pid,)).fetchall()]
+    finally:
+        conn.close()
+    return {
+        "id": pid, "name": row["name"], "status": row["status"],
+        "progress_pct": row["progress_pct"], "description": row["description"],
+        "tasks": {"total": total, "done": done, "active": active, "overdue": overdue},
+        "goals": {"count": len(goals), "avg_pct": round(sum(gpct) / len(gpct), 1) if gpct else 0},
+        "resources": {"count": res_count, "bytes": res_bytes},
+        "active_task_titles": active_titles,
+    }
+
+
 def tool_check_health(**_: Any) -> dict:
     """System health: database liveness + which integrations are configured."""
     integrations: dict[str, bool] = {}
@@ -394,6 +446,7 @@ READ_TOOLS: dict[str, tuple[Callable[..., dict], str]] = {
     "office_status": (tool_office_status, "Agent count, each agent's role + working/free status, missions running. No args."),
     "list_projects": (tool_list_projects, "Projects with status/progress/revenue. Optional arg: status (e.g. 'active')."),
     "list_tasks": (tool_list_tasks, "Recent tasks with status/priority. Optional args: status, limit (int)."),
+    "project_overview": (tool_project_overview, "Full metric snapshot of ONE project (tasks done/active/overdue, progress %, goals, resources size, active task titles). Arg: project (name or id). Use for 'how's project X?'."),
     "check_health": (tool_check_health, "System health: database + which integrations are configured. No args."),
     "recall": (tool_recall, "Search the owner's long-term memory. Arg: query (string)."),
     "read_notion": (tool_read_notion, "Read Notion — search pages (arg: query) or read one page's content (arg: page_id from a prior search)."),
