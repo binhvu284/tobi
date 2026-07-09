@@ -120,13 +120,13 @@ export default function Graph() {
   const topCommunity = communities[0]
 
   return (
-    <div className="relative flex h-full flex-col overflow-hidden bg-[#050811]">
+    <div className="relative flex h-full flex-col overflow-hidden bg-bg">
       <div className="pointer-events-none absolute inset-0 opacity-80">
         <div className="absolute -left-32 top-10 h-80 w-80 rounded-full bg-accent/10 blur-3xl" />
         <div className="absolute -right-28 bottom-10 h-96 w-96 rounded-full bg-purple/10 blur-3xl" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_12%,rgba(88,166,255,0.13),transparent_34%),linear-gradient(rgba(88,166,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(45,212,191,0.026)_1px,transparent_1px)] bg-[length:100%_100%,42px_42px,42px_42px]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_12%,rgb(var(--accent)/0.13),transparent_34%),linear-gradient(rgb(var(--accent)/0.035)_1px,transparent_1px),linear-gradient(90deg,rgb(var(--purple)/0.03)_1px,transparent_1px)] bg-[length:100%_100%,42px_42px,42px_42px]" />
       </div>
-      <div className="relative z-10 border-b border-accent/15 bg-[#070b16]/88 px-5 py-3 backdrop-blur-xl">
+      <div className="relative z-10 border-b border-accent/15 bg-bg/85 px-5 py-3 backdrop-blur-xl">
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-accent/35 bg-accent/10 text-accent shadow-[0_0_32px_rgb(var(--accent)/0.18)]">
             <BrainCircuit size={20} />
