@@ -4,11 +4,11 @@ import {
   Upload, Link2, FolderPlus, Folder, LayoutGrid, List as ListIcon, X, Trash2,
   Search, ChevronRight, Home, Loader2, ExternalLink, Tag, FileText, FileSpreadsheet,
   Presentation, FileImage, FileVideo, FileAudio, FileArchive, FileCode2, File as FileIcon,
-  Youtube, Github, Globe2, HardDrive, Download,
+  Youtube, Github, Globe2, HardDrive, Download, Pencil,
 } from 'lucide-react'
 import {
   pmListResources, pmUploadResource, pmAddResourceLink, pmPatchResource,
-  pmDeleteResource, pmCreateFolder, pmDeleteFolder, pmResourceRawUrl,
+  pmDeleteResource, pmCreateFolder, pmRenameFolder, pmDeleteFolder, pmResourceRawUrl,
   type PMResource, type PMFolder,
 } from '../../api'
 import { useToast } from '../../context/ToastProvider'
@@ -51,6 +51,7 @@ export default function ResourcesTab({ projectId, onChanged }: { projectId: numb
   const [uploading, setUploading] = useState(0)
   const [linkOpen, setLinkOpen] = useState(false)
   const [folderOpen, setFolderOpen] = useState(false)
+  const [folderToRename, setFolderToRename] = useState<PMFolder | null>(null)
   const [folderToDelete, setFolderToDelete] = useState<PMFolder | null>(null)
   const [preview, setPreview] = useState<PMResource | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -94,6 +95,11 @@ export default function ResourcesTab({ projectId, onChanged }: { projectId: numb
   async function addFolder(name: string) {
     try { await pmCreateFolder(projectId, name, folderId); setFolderOpen(false); await load() }
     catch (e) { toast({ kind: 'error', title: 'Failed', detail: (e as Error).message }) }
+  }
+
+  async function renameFolder(f: PMFolder, name: string) {
+    try { await pmRenameFolder(projectId, f.id, name); setFolderToRename(null); await load() }
+    catch (e) { toast({ kind: 'error', title: 'Rename failed', detail: (e as Error).message }) }
   }
 
   async function removeFolder(f: PMFolder) {
@@ -197,7 +203,9 @@ export default function ResourcesTab({ projectId, onChanged }: { projectId: numb
                       className="group flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-panel px-3 py-2 transition-colors hover:border-accent/40">
                       <Folder size={15} className="shrink-0 text-warning" />
                       <span className="min-w-0 flex-1 truncate text-[13px] text-text">{f.name}</span>
-                      <button onClick={e => { e.stopPropagation(); setFolderToDelete(f) }}
+                      <button onClick={e => { e.stopPropagation(); setFolderToRename(f) }} title="Rename"
+                        className="shrink-0 text-muted opacity-0 transition-opacity hover:text-text group-hover:opacity-100"><Pencil size={12} /></button>
+                      <button onClick={e => { e.stopPropagation(); setFolderToDelete(f) }} title="Delete"
                         className="shrink-0 text-muted opacity-0 transition-opacity hover:text-danger group-hover:opacity-100"><Trash2 size={12} /></button>
                     </div>
                   ))}
@@ -276,9 +284,13 @@ export default function ResourcesTab({ projectId, onChanged }: { projectId: numb
         )}
       </AnimatePresence>
 
-      {/* New-folder modal */}
+      {/* New-folder / rename-folder modal */}
       <AnimatePresence>
-        {folderOpen && <NewFolderModal onClose={() => setFolderOpen(false)} onCreate={addFolder} />}
+        {folderOpen && <FolderNameModal onClose={() => setFolderOpen(false)} onSubmit={addFolder} />}
+        {folderToRename && (
+          <FolderNameModal key={folderToRename.id} title="Rename folder" cta="Rename" initial={folderToRename.name}
+            onClose={() => setFolderToRename(null)} onSubmit={name => renameFolder(folderToRename, name)} />
+        )}
       </AnimatePresence>
 
       {/* Delete-folder confirm */}
@@ -292,23 +304,26 @@ export default function ResourcesTab({ projectId, onChanged }: { projectId: numb
   )
 }
 
-function NewFolderModal({ onClose, onCreate }: { onClose: () => void; onCreate: (name: string) => Promise<void> }) {
-  const [name, setName] = useState('')
+function FolderNameModal({ title = 'New folder', cta = 'Create', initial = '', onClose, onSubmit }: {
+  title?: string; cta?: string; initial?: string
+  onClose: () => void; onSubmit: (name: string) => Promise<void>
+}) {
+  const [name, setName] = useState(initial)
   const [busy, setBusy] = useState(false)
   const submit = async () => {
     if (!name.trim() || busy) return
     setBusy(true)
-    try { await onCreate(name.trim()) } finally { setBusy(false) }
+    try { await onSubmit(name.trim()) } finally { setBusy(false) }
   }
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
       <motion.div initial={{ opacity: 0, scale: 0.95, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
         onClick={e => e.stopPropagation()} className="w-full max-w-sm rounded-2xl border border-border bg-surface p-5 shadow-2xl">
         <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm font-semibold text-heading"><FolderPlus size={15} className="text-accent" /> New folder</div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-heading"><FolderPlus size={15} className="text-accent" /> {title}</div>
           <button onClick={onClose} className="text-muted hover:text-text"><X size={16} /></button>
         </div>
-        <input autoFocus value={name} onChange={e => setName(e.target.value)}
+        <input autoFocus value={name} onChange={e => setName(e.target.value)} onFocus={e => e.target.select()}
           onKeyDown={e => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') onClose() }}
           placeholder="Folder name"
           className="mb-3 w-full rounded-lg border border-border bg-panel px-3 py-2 text-sm text-text outline-none focus:border-accent" />
@@ -316,7 +331,7 @@ function NewFolderModal({ onClose, onCreate }: { onClose: () => void; onCreate: 
           <button onClick={onClose} className="rounded-lg px-3 py-1.5 text-sm text-muted hover:bg-white/5 hover:text-text">Cancel</button>
           <button disabled={busy || !name.trim()} onClick={submit}
             className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50">
-            {busy ? <Loader2 size={13} className="animate-spin" /> : <FolderPlus size={13} />} Create
+            {busy ? <Loader2 size={13} className="animate-spin" /> : <FolderPlus size={13} />} {cta}
           </button>
         </div>
       </motion.div>

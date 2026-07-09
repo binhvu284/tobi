@@ -886,6 +886,9 @@ export function pmResourceRawUrl(projectId: number, rid: number): string {
 export async function pmCreateFolder(projectId: number, name: string, parentId?: number | null): Promise<PMFolder> {
   return request(`/api/pm/projects/${projectId}/folders`, { method: 'POST', body: JSON.stringify({ name, parent_id: parentId ?? null }) })
 }
+export async function pmRenameFolder(projectId: number, fid: number, name: string): Promise<PMFolder> {
+  return request(`/api/pm/projects/${projectId}/folders/${fid}`, { method: 'PATCH', body: JSON.stringify({ name }) })
+}
 export async function pmDeleteFolder(projectId: number, fid: number): Promise<{ ok: boolean }> {
   return request(`/api/pm/projects/${projectId}/folders/${fid}`, { method: 'DELETE' })
 }

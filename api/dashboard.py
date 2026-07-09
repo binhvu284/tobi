@@ -3059,6 +3059,25 @@ async def pm_create_folder(project_id: int, payload: PMFolderCreateRequest):
         conn.close()
 
 
+class PMFolderPatchRequest(BaseModel):
+    name: str
+
+
+@app.patch("/api/pm/projects/{project_id}/folders/{fid}")
+async def pm_patch_folder(project_id: int, fid: int, payload: PMFolderPatchRequest):
+    conn = _get_conn()
+    try:
+        if not conn.execute("SELECT 1 FROM pm_folders WHERE id=? AND project_id=?", (fid, project_id)).fetchone():
+            raise HTTPException(status_code=404, detail="folder not found")
+        if not (payload.name or "").strip():
+            raise HTTPException(status_code=400, detail="name required")
+        conn.execute("UPDATE pm_folders SET name=? WHERE id=?", (payload.name.strip(), fid))
+        conn.commit()
+        return dict(conn.execute("SELECT * FROM pm_folders WHERE id=?", (fid,)).fetchone())
+    finally:
+        conn.close()
+
+
 @app.delete("/api/pm/projects/{project_id}/folders/{fid}")
 async def pm_delete_folder(project_id: int, fid: int):
     conn = _get_conn()
