@@ -6,6 +6,7 @@ export default {
       colors: {
         bg: 'rgb(var(--bg) / <alpha-value>)',
         surface: 'rgb(var(--surface) / <alpha-value>)',
+        strip: 'rgb(var(--strip) / <alpha-value>)',
         panel: 'rgb(var(--panel) / <alpha-value>)',
         border: 'rgb(var(--border) / <alpha-value>)',
         muted: 'rgb(var(--muted) / <alpha-value>)',

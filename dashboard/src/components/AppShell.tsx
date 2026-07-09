@@ -477,7 +477,7 @@ function StatusIndicator({ stats }: { stats: OfficeStats | null }) {
 
 function TopBar({ onMenu, stats, onHide }: { onMenu: () => void; stats: OfficeStats | null; onHide: () => void }) {
   return (
-    <header className="relative z-40 flex h-11 shrink-0 items-stretch justify-between bg-surface">
+    <header className="relative z-40 flex h-11 shrink-0 items-stretch justify-between bg-strip">
       <div className="flex min-w-0 flex-1 items-end">
         <button onClick={onMenu} aria-label="Open menu"
           className="self-center shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-white/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 md:hidden">
