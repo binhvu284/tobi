@@ -127,8 +127,7 @@ export default function ProjectWorkspace() {
       <AmbientField />
 
       {/* Workspace header */}
-      <header className="shrink-0 border-b border-border px-5 pt-4"
-        style={{ boxShadow: `inset 0 3px 0 ${project.accent_color ?? '#58a6ff'}` }}>
+      <header className="shrink-0 border-b border-border px-5 pt-4">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/projects')} title="All projects"
             className="rounded-lg p-1.5 text-muted transition-colors hover:bg-white/5 hover:text-text">
