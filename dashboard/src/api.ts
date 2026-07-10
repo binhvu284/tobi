@@ -5,12 +5,18 @@ async function get(path: string) {
 }
 
 async function request(path: string, init: RequestInit) {
+  const isFormData = init.body instanceof FormData
   const res = await fetch(path, {
     cache: 'no-cache',
     ...init,
     // headers must come AFTER ...init so a caller's headers merge *into* the
     // defaults instead of replacing them (otherwise Content-Type is lost → 422).
-    headers: { 'Content-Type': 'application/json', ...(init.headers || {}) },
+    // For FormData bodies we must NOT set Content-Type — the browser needs to
+    // set multipart/form-data with its own boundary or FastAPI rejects the upload.
+    headers: {
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+      ...(init.headers || {}),
+    },
   })
   if (!res.ok) {
     const maybeJson = await res.json().catch(() => null)
@@ -1433,6 +1439,17 @@ export async function addCustomSecret(name: string, value: string, secret_type =
   return vreq('/api/integrations/custom', { method: 'POST', body: JSON.stringify({ name, value, secret_type }) })
 }
 export async function removeIntegration(id: string) { return vreq(`/api/integrations/${id}`, { method: 'DELETE' }) }
+
+export async function googleOAuthUrl(): Promise<string> {
+  const base = import.meta.env.VITE_API_BASE || ''
+  return `${base}/api/integrations/google/oauth/start`
+}
+export async function googleOAuthStatus(): Promise<{ configured: boolean; connected: boolean; email: string; redirect_uri: string }> {
+  return get('/api/integrations/google/status')
+}
+export async function googleDisconnect(): Promise<{ ok: boolean }> {
+  return vreq('/api/integrations/google/disconnect', { method: 'POST' })
+}
 
 // ── MCP Hub (#5) ─────────────────────────────────────────────────────────
 export type McpServerConfigRow = {

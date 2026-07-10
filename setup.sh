@@ -79,7 +79,9 @@ PRIMARY_MODEL=claude
 
 # Optional: Other models
 OPENAI_API_KEY=
-GOOGLE_API_KEY=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=http://localhost:8080/api/integrations/google/oauth/callback
 
 # ── Telegram ─────────────────────────────
 TELEGRAM_BOT_TOKEN=${TG_TOKEN}

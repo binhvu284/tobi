@@ -8,6 +8,7 @@ import {
   getIntegrations, vaultSetup, vaultUnlock, vaultLock, vaultReload, getVaultAudit,
   vaultExport, vaultImport, createVaultProfile, connectIntegration, testIntegration,
   revealSecret, addCustomSecret, removeIntegration, getLlmConfig,
+  googleOAuthUrl, googleOAuthStatus, googleDisconnect,
   type IntegrationsResponse, type Integration, type IntegrationField, type AuditEntry,
   type GenesisStatus, type LlmProvider,
 } from '../api'
@@ -446,11 +447,30 @@ function AbilityChips({ abilities }: { abilities: Integration['abilities'] }) {
 function IntegrationCard({ it, onChanged, onLocked }: { it: Integration; onChanged: (g?: GenesisStatus) => void; onLocked: () => void }) {
   const { toast } = useToast()
   const [vals, setVals] = useState<Record<string, string>>({})
-  const [busy, setBusy] = useState<'' | 'connect' | 'test' | 'remove'>('')
+  const [busy, setBusy] = useState<'' | 'connect' | 'test' | 'remove' | 'oauth'>('')
   const [err, setErr] = useState<string | null>(null)
   const [open, setOpen] = useState(it.available && !it.connected)   // needs attention → start open
   const locked = !it.available
   const formFields = it.fields.filter(f => f.type !== 'api_key')    // url/oauth/webhook still use Connect
+  const isGoogle = it.id === 'google'
+  const [gConnected, setGConnected] = useState(false)
+  const [gEmail, setGEmail] = useState('')
+  const [gRedirectUri, setGRedirectUri] = useState('')
+
+  // Poll Google OAuth status when the card is open and it's Google
+  useEffect(() => {
+    if (!isGoogle || !open) return
+    let alive = true
+    const poll = () => googleOAuthStatus().then(s => {
+      if (!alive) return
+      setGConnected(s.connected)
+      setGEmail(s.email)
+      setGRedirectUri(s.redirect_uri)
+    }).catch(() => {})
+    poll()
+    const iv = setInterval(poll, 3000)
+    return () => { alive = false; clearInterval(iv) }
+  }, [isGoogle, open])
 
   const connect = async () => {
     const fields = Object.fromEntries(Object.entries(vals).filter(([, v]) => v.trim()))
@@ -475,6 +495,23 @@ function IntegrationCard({ it, onChanged, onLocked }: { it: Integration; onChang
     setBusy('remove')
     try { const r = await removeIntegration(it.id); toast({ kind: 'success', title: `${it.label} removed` }); onChanged(r.genesis) }
     catch (e) { handleErr(e, onLocked, toast) } finally { setBusy('') }
+  }
+
+  const startOAuth = async () => {
+    setBusy('oauth')
+    try {
+      const url = await googleOAuthUrl()
+      const popup = window.open(url, 'google-oauth', 'width=500,height=650')
+      if (!popup) { toast({ kind: 'error', title: 'Popup blocked', detail: 'Allow popups for this page.' }); return }
+      toast({ kind: 'info', title: 'Google consent opened', detail: 'Authorize in the popup window.' })
+    } finally { setBusy('') }
+  }
+
+  const disconnectGoogle = async () => {
+    if (!window.confirm('Disconnect Google? Tokens will be revoked.')) return
+    setBusy('oauth')
+    try { await googleDisconnect(); setGConnected(false); setGEmail(''); toast({ kind: 'success', title: 'Google disconnected' }); onChanged() }
+    catch { toast({ kind: 'error', title: 'Disconnect failed' }) } finally { setBusy('') }
   }
 
   return (
@@ -506,12 +543,47 @@ function IntegrationCard({ it, onChanged, onLocked }: { it: Integration; onChang
           <div className="flex items-center gap-1.5 pt-0.5">
             {formFields.length > 0 && (
               <button onClick={connect} disabled={!!busy} className={cardBtn('accent')}>
-                {busy === 'connect' ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} {it.connected ? 'Update' : 'Connect'}
+                {busy === 'connect' ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} {it.connected ? 'Update' : 'Save'}
               </button>
             )}
             {it.connected && <button onClick={test} disabled={!!busy} className={cardBtn()}>{busy === 'test' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Test</button>}
             {it.connected && <button onClick={remove} disabled={!!busy} className={cardBtn('danger')}><Trash2 size={12} /> Remove</button>}
           </div>
+          {isGoogle && it.connected && (
+            <div className="rounded-lg border border-border bg-surface/50 p-2.5">
+              {!gConnected && (
+                <div className="mb-2 rounded bg-accent/5 px-2 py-1 text-[10px] text-muted">
+                  <span className="font-medium text-text">Redirect URI for Google Console:</span>
+                  <code className="block break-all text-[10px] text-accent">{gRedirectUri}</code>
+                  <span className="text-[9px]">Add this exact URI to your OAuth client's "Authorized redirect URIs".</span>
+                </div>
+              )}
+              {gConnected ? (
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-success/15 text-success"><Check size={12} /></span>
+                    <div>
+                      <p className="text-[11px] font-medium text-text">Connected{gEmail ? ` as ${gEmail}` : ''}</p>
+                      <p className="text-[10px] text-muted">Drive, Gmail & Calendar active</p>
+                    </div>
+                  </div>
+                  <button onClick={disconnectGoogle} disabled={!!busy} className={cardBtn('danger')}>
+                    {busy === 'oauth' ? <Loader2 size={12} className="animate-spin" /> : <X size={12} />} Revoke
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-[11px] font-medium text-text">Not authorized yet</p>
+                    <p className="text-[10px] text-muted">Click to grant Drive, Gmail & Calendar access</p>
+                  </div>
+                  <button onClick={startOAuth} disabled={!!busy} className="flex items-center gap-1.5 rounded-lg bg-[#4285F4] px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-[#3367D6] disabled:opacity-50">
+                    {busy === 'oauth' ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={12} />} Authorize
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </RowShell>

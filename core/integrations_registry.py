@@ -98,6 +98,21 @@ def _test_codex() -> tuple[bool, str]:
         return False, "Could not reach the Codex backend — check your connection."
 
 
+def _test_google() -> tuple[bool, str]:
+    try:
+        g = _intg.GoogleIntegration()
+        if not g.is_available():
+            return False, "Add your Google OAuth client ID and secret."
+        if not g.is_connected():
+            return True, "Credentials saved — click 'Connect with Google' to authorize."
+        ok = g.test()
+        if ok:
+            return True, "Google Workspace connected — Drive, Gmail & Calendar ready."
+        return False, "Token expired or revoked — try reconnecting."
+    except Exception:
+        return False, "Could not reach Google — check your connection."
+
+
 def _test_telegram() -> tuple[bool, str]:
     import requests
     tok = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -213,28 +228,19 @@ REGISTRY: list[dict] = [
         "abilities_unlocked": [],
         "test": None,
     },
-    # ── forward-looking placeholders (configurable now, activated in Awakening) ──
+    # ── Google Workspace (OAuth2: Drive + Gmail + Calendar) ──
     {
-        "id": "google", "label": "Google Workspace", "category": "coming_soon", "required": False,
-        "icon": "google", "available": False, "coming_in": "Awakening",
-        "blurb": "Drive, Docs, Sheets & Calendar via OAuth. Store the client id/secret now; OAuth lands in Awakening.",
+        "id": "google", "label": "Google Workspace", "category": "tools", "required": False,
+        "icon": "google", "available": True,
+        "blurb": "Drive, Gmail & Calendar via OAuth2. After saving the client ID/secret, click 'Connect with Google' to authorize.",
         "fields": [
-            {"name": "GOOGLE_CLIENT_ID", "label": "OAuth client ID", "type": "oauth", "help_url": "https://console.cloud.google.com/apis/credentials"},
-            {"name": "GOOGLE_CLIENT_SECRET", "label": "OAuth client secret", "type": "oauth", "help_url": "https://console.cloud.google.com/apis/credentials"},
+            {"name": "GOOGLE_CLIENT_ID", "label": "OAuth client ID", "type": "oauth",
+             "help_url": "https://console.cloud.google.com/apis/credentials"},
+            {"name": "GOOGLE_CLIENT_SECRET", "label": "OAuth client secret", "type": "oauth",
+             "help_url": "https://console.cloud.google.com/apis/credentials"},
         ],
-        "abilities_unlocked": ["google_oauth"],
-        "test": None,
-    },
-    {
-        "id": "gmail", "label": "Gmail", "category": "coming_soon", "required": False,
-        "icon": "mail", "available": False, "coming_in": "Awakening",
-        "blurb": "Read inbox, summarize threads, draft replies. Arrives in Awakening.",
-        "fields": [
-            {"name": "GMAIL_CLIENT_ID", "label": "OAuth client ID", "type": "oauth", "help_url": "https://console.cloud.google.com/apis/credentials"},
-            {"name": "GMAIL_CLIENT_SECRET", "label": "OAuth client secret", "type": "oauth", "help_url": "https://console.cloud.google.com/apis/credentials"},
-        ],
-        "abilities_unlocked": ["gmail_integration"],
-        "test": None,
+        "abilities_unlocked": ["google_oauth", "gmail_integration", "calendar_integration"],
+        "test": _test_google,
     },
     {
         "id": "stripe", "label": "Stripe", "category": "coming_soon", "required": False,

@@ -3048,7 +3048,8 @@ async def pm_resource_raw(project_id: int, rid: int):
         p = pmres.abs_path(project_id, r["disk_path"] or "")
         if not p:
             raise HTTPException(status_code=404, detail="file missing")
-        return FileResponse(str(p), media_type=r["mime"] or "application/octet-stream", filename=r["name"])
+        return FileResponse(str(p), media_type=r["mime"] or "application/octet-stream",
+                            filename=r["name"], content_disposition_type="inline")
     finally:
         conn.close()
 
@@ -3290,16 +3291,16 @@ _TIER_DEFINITIONS: list[dict] = [
                  "description": "SOUL.md already defines 3 tiers: low (auto-execute), medium (act+report), high (propose+wait). Replace _BLOCKED_CMDS denylist with this.",
                  "how_to_unlock": "Implement classify_risk(command) returning low/medium/high. Replace denylist check in _execute_tool() with risk-gated routing.", "effort": "1 week"},
                 {"id": "google_oauth", "name": "Google OAuth integration",
-                 "description": "GoogleIntegration.test() returns False with a 'Phase 2: implement OAuth' comment. Make it real: OAuth, Drive, Docs, Sheets.",
-                 "how_to_unlock": "Implement Google OAuth in core/integrations.py using google-auth library. Requires GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET.", "effort": "1 week"},
+                 "description": "OAuth2 flow for Drive, Gmail & Calendar. Read files, search inbox, check calendar — all through one Google Cloud OAuth client.",
+                 "how_to_unlock": None, "effort": "done"},
             ],
             "presence": [
                 {"id": "webhook_triggers", "name": "Webhook + event-driven triggers",
                  "description": "Move beyond cron. Add FastAPI webhook endpoints for Stripe events, GitHub, email — Tobi acts when something happens, not just at 8am.",
                  "how_to_unlock": "Add POST /webhooks/{source} endpoints. Map event types to Tobi actions. Wire to Telegram notification on receipt.", "effort": "1 week"},
-                {"id": "gmail_integration", "name": "Gmail read + write",
-                 "description": "Tobi reads your inbox, summarizes threads, and drafts replies. Gmail MCP is already available in this environment.",
-                 "how_to_unlock": "Wire the Gmail MCP tools into Tobi's tool-use loop. Add daily inbox summary to the morning report.", "effort": "3 days"},
+                {"id": "gmail_integration", "name": "Gmail read",
+                 "description": "Tobi reads your inbox, summarizes threads, and surfaces important emails.",
+                 "how_to_unlock": None, "effort": "done"},
                 {"id": "voice_messages", "name": "Telegram voice messages (Whisper)",
                  "description": "Send a voice note to Tobi. It transcribes via Whisper and responds. Whisper is free and runs locally on CPU.",
                  "how_to_unlock": "Add voice message handler to telegram_bot.py. Download .ogg, convert to wav, run whisper.transcribe(), feed to handle_chat().", "effort": "3 days"},
@@ -3334,8 +3335,8 @@ _TIER_DEFINITIONS: list[dict] = [
             ],
             "presence": [
                 {"id": "calendar_integration", "name": "Google Calendar integration",
-                 "description": "Tobi knows your schedule. Adds events, checks availability, preps briefings before meetings.",
-                 "how_to_unlock": "Use Google OAuth (Tier 1) + Google Calendar API. Add calendar context to morning briefings.", "effort": "1 week"},
+                 "description": "Tobi knows your schedule. Lists upcoming events, checks availability, preps briefings before meetings.",
+                 "how_to_unlock": None, "effort": "done"},
                 {"id": "market_monitoring", "name": "Proactive news + market monitoring",
                  "description": "Tobi watches crypto prices, competitor sites, RSS feeds, and reaches out when something relevant happens.",
                  "how_to_unlock": "Add background polling tasks (crypto APIs, RSS, Tavily). Diff against previous state. Telegram alert on significant change.", "effort": "1 week"},
@@ -3570,6 +3571,9 @@ def _detect_abilities(conn: sqlite3.Connection) -> dict[str, bool]:
         "notion_integration": env("NOTION_API_KEY"),
         "vercel_integration": env("VERCEL_TOKEN"),
         "supabase_integration": env("SUPABASE_URL"),
+        "google_oauth": env("GOOGLE_CLIENT_ID") and env("GOOGLE_CLIENT_SECRET"),
+        "gmail_integration": env("GOOGLE_CLIENT_ID") and env("GOOGLE_CLIENT_SECRET"),
+        "calendar_integration": env("GOOGLE_CLIENT_ID") and env("GOOGLE_CLIENT_SECRET"),
         "telegram_bot": has_bot,
         "cron_scheduler": has_bot and has_llm,
         "proactive_reports": has_bot and has_llm,
@@ -4454,6 +4458,86 @@ async def remove_integration(integration_id: str,
         return {"ok": True, "genesis": _genesis_status(conn), "integrations": _integration_view(conn)}
     finally:
         conn.close()
+
+
+# ── Google OAuth2 flow ─────────────────────────────────────────────────────────
+
+def _google_redirect_uri(request: Request) -> str:
+    """Build the OAuth redirect URI from the live request, respecting proxy headers."""
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "localhost")
+    return f"{scheme}://{host}/api/integrations/google/oauth/callback"
+
+
+@app.get("/api/integrations/google/oauth/start")
+async def google_oauth_start(request: Request):
+    """Redirect the browser to Google's consent screen."""
+    from core.integrations import GoogleIntegration
+    g = GoogleIntegration()
+    if not g.is_available():
+        raise HTTPException(status_code=400, detail="Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET first.")
+    g.redirect_uri = _google_redirect_uri(request)
+    return RedirectResponse(url=g.get_auth_url())
+
+
+@app.get("/api/integrations/google/oauth/callback")
+async def google_oauth_callback(request: Request, code: str | None = None, error: str | None = None):
+    """Handle the OAuth redirect — exchange code for tokens, save them."""
+    from core.integrations import GoogleIntegration
+    if error:
+        return HTMLResponse(content=f"<script>window.close();</script>"
+                            f"<body>Authorization denied: {error}</body>", status_code=200)
+    if not code:
+        raise HTTPException(status_code=400, detail="Missing authorization code.")
+    g = GoogleIntegration()
+    if not g.is_available():
+        raise HTTPException(status_code=400, detail="Google credentials not configured.")
+    g.redirect_uri = _google_redirect_uri(request)
+    result = g.exchange_code(code)
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=f"OAuth exchange failed: {result['error'][:300]}")
+    # Close the popup — the Integrations page polls status and will refresh.
+    return HTMLResponse(content="""<!DOCTYPE html><html><body>
+    <h3 style="font-family:sans-serif;text-align:center;margin-top:40px">
+    Google connected — you can close this tab.</h3>
+    <script>setTimeout(()=>window.close(),2000);</script>
+    </body></html>""")
+
+
+@app.get("/api/integrations/google/status")
+async def google_oauth_status(request: Request):
+    """Return Google connection status (connected? email? scopes?)."""
+    from core.integrations import GoogleIntegration
+    g = GoogleIntegration()
+    connected = g.is_connected()
+    email = ""
+    if connected:
+        try:
+            import requests
+            token = g._get_valid_access_token()
+            if token:
+                r = requests.get(g.USERINFO_URL,
+                                 headers={"Authorization": f"Bearer {token}"}, timeout=10)
+                if r.status_code == 200:
+                    email = r.json().get("email", "")
+        except Exception:
+            pass
+    return {
+        "configured": g.is_available(),
+        "connected": connected,
+        "email": email,
+        "redirect_uri": _google_redirect_uri(request),
+    }
+
+
+@app.post("/api/integrations/google/disconnect")
+async def google_disconnect(x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
+    """Revoke Google tokens and delete the local token file."""
+    _vault_guard(x_vault_session)
+    from core.integrations import GoogleIntegration
+    g = GoogleIntegration()
+    ok = g.revoke()
+    return {"ok": ok}
 
 
 # ── Brain: long-term owner memory (auto-learn + import + chat) ──────────────────

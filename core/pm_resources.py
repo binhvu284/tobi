@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+import html
 import base64
 import mimetypes
 from pathlib import Path
@@ -191,6 +192,49 @@ def fetch_youtube_transcript(url: str) -> str | None:
         return None
 
 
+def fetch_youtube_meta(url: str) -> dict:
+    """Title + author from YouTube oEmbed (free, no API key). Best-effort."""
+    vid = youtube_id(url)
+    if not vid:
+        return {}
+    try:
+        import requests
+        r = requests.get(
+            "https://www.youtube.com/oembed",
+            params={"url": f"https://www.youtube.com/watch?v={vid}", "format": "json"},
+            timeout=10, headers={"User-Agent": "Mozilla/5.0 TOBI"})
+        if r.status_code == 200:
+            d = r.json()
+            return {"title": d.get("title"), "author": d.get("author_name")}
+    except Exception:
+        pass
+    return {}
+
+
+def fetch_gdrive_meta(url: str) -> str | None:
+    """Best-effort title for public Google Docs / Sheets / Slides / Drive links."""
+    try:
+        import requests
+        r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0 TOBI"}, allow_redirects=True)
+        if r.status_code != 200:
+            return None
+        page = r.text
+        # og:title meta tag is the most reliable for Google Docs
+        m = re.search(r'<meta\s+property="og:title"\s+content="([^"]*)"', page, re.I)
+        if m and m.group(1).strip():
+            return html.unescape(m.group(1)).strip()[:200]
+        # fall back to <title> — Google Docs titles often end with " - Google Docs/Sheets"
+        m = re.search(r"<title[^>]*>(.*?)</title>", page, re.I | re.S)
+        if m:
+            raw = html.unescape(re.sub(r"\s+", " ", m.group(1))).strip()
+            cleaned = re.sub(r"\s*[-–]\s*Google (Docs|Sheets|Slides|Drive|Presentations)\s*$", "", raw, flags=re.I)
+            if cleaned:
+                return cleaned[:200]
+        return None
+    except Exception:
+        return None
+
+
 def fetch_readable(url: str) -> tuple[str | None, str | None]:
     """(title, text) from a web page — best effort, dependency-light HTML strip."""
     try:
@@ -219,9 +263,13 @@ def build_link(url: str, name: str | None = None) -> dict:
     title = name
     text = None
     if source == "youtube":
+        yt_meta = fetch_youtube_meta(url)
         text = fetch_youtube_transcript(url)
         if not title:
-            title = f"YouTube · {youtube_id(url) or 'video'}"
+            title = yt_meta.get("title") or f"YouTube · {youtube_id(url) or 'video'}"
+    elif source == "drive":
+        if not title:
+            title = fetch_gdrive_meta(url)
     elif source == "web":
         t, text = fetch_readable(url)
         if not title:

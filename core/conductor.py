@@ -295,37 +295,165 @@ def tool_read_notion(query: str = "", page_id: str = "", **_: Any) -> dict:
     return {"available": True, "query": query, "count": len(items), "pages": items}
 
 
-def tool_read_github(repo: str = "", **_: Any) -> dict:
-    """Read a GitHub repo: description, stars, open issues, recent commits."""
+def tool_list_github_repos(limit: int = 30, org: str = "", **_: Any) -> dict:
+    """List GitHub repositories for the authenticated user or an organization.
+    Args: limit (int, default 30), org (optional org name to list org repos instead).
+    """
+    from core.integrations import get_integration
+    g = get_integration("github")
+    if not g or not g.is_available():
+        return {"available": False, "note": "GitHub isn't connected, sir — add the token in Integrations."}
+    if org:
+        raw = g.list_org_repos(org.strip(), limit=limit)
+    else:
+        raw = g.list_repos(limit=limit)
+    if not raw:
+        return {"available": True, "count": 0, "repos": [],
+                "note": f"No repositories found{' for ' + org if org else ''}. "
+                        "Check that the token has repo scope."}
+    repos = [
+        {
+            "full_name": r.get("full_name"),
+            "description": (r.get("description") or "")[:120],
+            "private": r.get("private", False),
+            "language": r.get("language"),
+            "stars": r.get("stargazers_count", 0),
+            "default_branch": r.get("default_branch"),
+            "updated_at": r.get("updated_at"),
+            "url": r.get("html_url"),
+        }
+        for r in raw if isinstance(r, dict)
+    ]
+    return {"available": True, "count": len(repos),
+            "org": org or None, "repos": repos}
+
+
+def tool_read_github(repo: str = "", path: str = "", readme: bool = False,
+                     branches: bool = False, tree: bool = False, **_: Any) -> dict:
+    """Read a GitHub repo: info, issues, commits, and optionally browse files.
+    Args:
+      repo (str, 'owner/name' — required for any read).
+      path (str): list contents of a file or directory at this path.
+      readme (bool): include the rendered README text.
+      branches (bool): include the list of branches.
+      tree (bool): include the full recursive file tree (flat list of paths).
+    If no repo is given, delegates to list_repos instead."""
     from core.integrations import get_integration
     g = get_integration("github")
     if not g or not g.is_available():
         return {"available": False, "note": "GitHub isn't connected, sir — add the token in Integrations."}
     repo = (repo or "").strip()
     if not repo or "/" not in repo:
-        return {"error": "repo must be in 'owner/name' form"}
+        return {"error": "repo must be in 'owner/name' form, e.g. 'octocat/Hello-World'"}
     info = g.get_repo_info(repo)
     if not info:
-        return {"available": True, "error": f"couldn't read repo {repo}"}
+        return {"available": True, "error": f"couldn't read repo {repo} — "
+                "check the name or that your token has access."}
     issues = g.list_issues(repo, limit=5) or []
     commits = g.get_recent_commits(repo, limit=5) or []
-    return {
+    result: dict = {
         "available": True, "repo": repo,
         "description": info.get("description"), "stars": info.get("stargazers_count"),
         "open_issues": info.get("open_issues_count"), "language": info.get("language"),
-        "issues": [{"number": i.get("number"), "title": i.get("title")} for i in issues if isinstance(i, dict)][:5],
-        "recent_commits": [((c.get("commit") or {}).get("message") or "")[:80] for c in commits if isinstance(c, dict)][:5],
+        "default_branch": info.get("default_branch"),
+        "issues": [{"number": i.get("number"), "title": i.get("title")} for i in issues][:5],
+        "recent_commits": [
+            {"sha": (c.get("sha") or "")[:7],
+             "message": ((c.get("commit") or {}).get("message") or "")[:80],
+             "author": ((c.get("commit") or {}).get("author") or {}).get("name")}
+            for c in commits
+        ][:5],
     }
+    if readme:
+        result["readme"] = g.get_readme(repo)[:4000]
+    if branches:
+        raw = g.list_branches(repo)
+        result["branches"] = [b.get("name") for b in raw if isinstance(b, dict)]
+    if tree:
+        raw_tree = g.get_tree(repo, branch=info.get("default_branch", ""))
+        result["tree"] = [
+            {"path": t.get("path"), "type": t.get("type")}
+            for t in raw_tree if isinstance(t, dict)
+        ][:200]
+    if path:
+        contents = g.get_file_contents(repo, path)
+        if isinstance(contents, list):
+            result["path"] = path
+            result["contents"] = [
+                {"name": c.get("name"), "type": c.get("type"), "path": c.get("path"),
+                 "size": c.get("size")}
+                for c in contents if isinstance(c, dict)
+            ]
+        elif isinstance(contents, dict):
+            result["path"] = path
+            result["file"] = {
+                "name": contents.get("name"),
+                "size": contents.get("size"),
+                "content": contents.get("decoded_content", contents.get("content", ""))[:8000],
+            }
+    return result
 
 
-def tool_read_drive(query: str = "", **_: Any) -> dict:
-    """Read Google Drive / Gmail (read methods not wired yet — reports honestly)."""
+def tool_read_drive(query: str = "", service: str = "", **_: Any) -> dict:
+    """Read Google Drive, Gmail, or Calendar via OAuth2.
+    Args:
+      query (str): search query (Drive Q-syntax, Gmail search, or unused for calendar).
+      service (str): 'drive' | 'gmail' | 'calendar' — defaults to 'drive'.
+    """
     from core.integrations import get_integration
     g = get_integration("google")
-    if g and g.is_available():
-        return {"available": False, "note": "Google is connected, sir, but Drive/Gmail reading isn't wired yet — "
-                "I can read Notion and GitHub today."}
-    return {"available": False, "note": "Google isn't connected yet, sir."}
+    if not g or not g.is_available():
+        return {"available": False, "note": "Google isn't configured, sir — add the OAuth client ID/secret in Integrations."}
+    if not g.is_connected():
+        return {"available": False, "note": "Google credentials saved, but you haven't authorized yet — click 'Connect with Google' in Integrations."}
+    service = (service or "drive").strip().lower()
+    query = (query or "").strip()
+
+    if service == "gmail":
+        msgs = g.list_gmail_messages(query=query or "in:inbox", limit=8)
+        if not msgs:
+            return {"available": True, "service": "gmail", "count": 0, "messages": []}
+        detailed = [g.get_gmail_message(m["id"]) for m in msgs[:8]]
+        return {
+            "available": True, "service": "gmail", "query": query,
+            "count": len(detailed),
+            "messages": [
+                {"id": m.get("id"), "from": m.get("from", ""),
+                 "subject": m.get("subject", "(no subject)"),
+                 "date": m.get("date", ""), "snippet": m.get("snippet", "")[:200]}
+                for m in detailed if m
+            ],
+        }
+
+    if service == "calendar":
+        events = g.list_calendar_events(max_results=10)
+        return {
+            "available": True, "service": "calendar",
+            "count": len(events),
+            "events": [
+                {"summary": e.get("summary", "(no title)"),
+                 "start": ((e.get("start") or {}).get("dateTime")
+                           or (e.get("start") or {}).get("date") or ""),
+                 "end": ((e.get("end") or {}).get("dateTime")
+                         or (e.get("end") or {}).get("date") or ""),
+                 "location": e.get("location", ""),
+                 "link": e.get("htmlLink", "")}
+                for e in events
+            ],
+        }
+
+    # Default: Drive
+    files = g.list_drive_files(query=query, limit=20)
+    return {
+        "available": True, "service": "drive", "query": query or "(recent)",
+        "count": len(files),
+        "files": [
+            {"name": f.get("name"), "id": f.get("id"),
+             "type": f.get("mimeType", ""), "size": f.get("size", ""),
+             "modified": f.get("modifiedTime", ""), "link": f.get("webViewLink", "")}
+            for f in files if isinstance(f, dict)
+        ],
+    }
 
 
 def tool_storage_status(feature: str = "", **_: Any) -> dict:
@@ -504,8 +632,9 @@ READ_TOOLS: dict[str, tuple[Callable[..., dict], str]] = {
     "check_health": (tool_check_health, "System health: database + which integrations are configured. No args."),
     "recall": (tool_recall, "Search the owner's long-term memory. Arg: query (string)."),
     "read_notion": (tool_read_notion, "Read Notion — search pages (arg: query) or read one page's content (arg: page_id from a prior search)."),
-    "read_github": (tool_read_github, "Read a GitHub repo's info, issues & recent commits. Arg: repo ('owner/name')."),
-    "read_drive": (tool_read_drive, "Read Google Drive/Gmail (arg: query). Reports honestly if not yet wired."),
+    "read_github": (tool_read_github, "Read a GitHub repo's info, issues, commits, and optionally files. Args: repo ('owner/name'), path (file/dir), readme (bool), branches (bool), tree (bool)."),
+    "list_github_repos": (tool_list_github_repos, "List GitHub repositories for the authenticated user or an org. Args: limit (int), org (optional org name)."),
+    "read_drive": (tool_read_drive, "Read Google Drive/Gmail/Calendar via OAuth2. Args: query (search), service ('drive'|'gmail'|'calendar', default drive)."),
     "storage_status": (tool_storage_status, "What's eating local disk: total/biggest/per-feature storage. Optional arg: feature (e.g. 'Brain') for its biggest items."),
     "llm_spend": (tool_llm_spend, "LLM spend & tokens: totals, top models, per-surface split, budget state. Optional arg: range (day|week|month|all)."),
     "terminal_status": (tool_terminal_status, "Terminal engine status: approval mode (plan/ask/accept/auto), kill-switch, OS/shell, package managers, tools registered. No args."),
@@ -1726,7 +1855,7 @@ _TOOL_PHASE = {
     "office_status": "Looking in on the office…", "list_projects": "Reading your projects…",
     "list_tasks": "Reading your tasks…", "check_health": "Running a health check…",
     "recall": "Searching your memory…", "read_notion": "Reading Notion…",
-    "read_github": "Reading GitHub…", "read_drive": "Checking Drive…", "web_search": "Searching the web…",
+    "read_github": "Reading GitHub…", "list_github_repos": "Listing repos…", "read_drive": "Checking Drive…", "web_search": "Searching the web…",
     "remember": "Saving that to memory…", "create_project": "Creating the project…",
     "create_task": "Adding the task…", "complete_task": "Completing the task…",
     "assign_task": "Assigning the task…", "update_project_progress": "Updating progress…",

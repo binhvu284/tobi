@@ -864,10 +864,62 @@ def _sync_local() -> int:
     return count
 
 
+def _sync_google() -> int:
+    """Sync Google Drive files + Gmail messages + Calendar events into the graph."""
+    from core.integrations import get_integration
+    g = get_integration("google")
+    if not g or not g.is_available() or not g.is_connected():
+        return 0
+    total = 0
+    # Drive: recent files
+    try:
+        for f in g.list_drive_files(limit=30) or []:
+            if not isinstance(f, dict) or not f.get("name"):
+                continue
+            nid = upsert_node("gdrive", f.get("id", f.get("name")), f.get("name"),
+                              ref_kind="file",
+                              summary=f.get("mimeType", ""),
+                              source_url=f.get("webViewLink", ""))
+            total += 1
+    except Exception as e:
+        logger.warning("graph _sync_google drive error: %s", e)
+    # Gmail: recent messages
+    try:
+        for m in g.list_gmail_messages(query="in:inbox", limit=20) or []:
+            mid = m.get("id", "")
+            if not mid:
+                continue
+            detail = g.get_gmail_message(mid)
+            if not detail:
+                continue
+            title = detail.get("subject", mid)[:80]
+            nid = upsert_node("gdrive", mid, title, ref_kind="email",
+                              summary=detail.get("snippet", "")[:300],
+                              source_url="")
+            total += 1
+    except Exception as e:
+        logger.warning("graph _sync_google gmail error: %s", e)
+    # Calendar: upcoming events
+    try:
+        for ev in g.list_calendar_events(max_results=15) or []:
+            eid = ev.get("id", "")
+            if not eid:
+                continue
+            start = ((ev.get("start") or {}).get("dateTime")
+                     or (ev.get("start") or {}).get("date") or "")
+            title = ev.get("summary", "(no title)")[:80]
+            nid = upsert_node("gdrive", eid, title, ref_kind="event",
+                              summary=f"{start} — {ev.get('location', '')}"[:300],
+                              source_url=ev.get("htmlLink", ""))
+            total += 1
+    except Exception as e:
+        logger.warning("graph _sync_google calendar error: %s", e)
+    return total
+
+
 def sync_source(name: str) -> dict:
     """Pull rich read-only sub-nodes from an integration into the graph. Best-effort per
-    source; missing keys/dirs → 0 synced (never raises). google/gdrive is a placeholder
-    connector (no data API yet) so it no-ops with a note."""
+    source; missing keys/dirs → 0 synced (never raises)."""
     name = (name or "").lower()
     try:
         if name == "notion":
@@ -877,7 +929,7 @@ def sync_source(name: str) -> dict:
         if name == "local":
             return {"source": name, "synced": _sync_local()}
         if name in ("google", "gdrive"):
-            return {"source": name, "synced": 0, "note": "Google connector is a placeholder (no data API yet)"}
+            return {"source": name, "synced": _sync_google()}
     except Exception as e:
         logger.warning("graph sync_source(%s) failed: %s", name, e)
         return {"source": name, "synced": 0, "error": str(e)[:120]}
