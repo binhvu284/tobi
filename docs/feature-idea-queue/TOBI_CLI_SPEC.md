@@ -1,10 +1,16 @@
 # TOBI CLI — Feature Spec & Requirements
 
-> **Status:** 🟡 Queued — Phase 1 (Requirements) COMPLETE. 30 locked decisions (D1–D30) from a
-> single UI-picker question round (batches of ~4). **Not built.** Portable handover in the same
-> format as the other queue specs; paste into a fresh session to build, gated behind Thomas's approval.
+> **Status:** ✅ **Built (v1, P0–P3)** this session — all four phases shipped against the 30 locked
+> decisions (D1–D30). Verified: `tests/test_terminal_engine.py` 67/67 + Storage #10 regression 32/32,
+> `tsc` + `vite build` clean, all 7 `/api/terminal/*` routes register. See the QUEUE row for the
+> full build note. **Delivered files:** `core/terminal_engine.py` (new), Conductor terminal tools +
+> two-axis gate in `core/conductor.py`, `run_bash` repointed in `core/telegram_bot.py` + upgraded REPL,
+> 7 endpoints + SSE `terminal` events in `api/dashboard.py`, `dashboard/src/components/chat/TerminalMode.tsx`
+> (new) wired into `pages/Chat.tsx`, `tobi hermes` mode in `main.py`, Evolution flags in `_detect_abilities`.
+> **Open owner inputs (defaults shipped, tune in §13):** exact denylist patterns · terminal-loop spend cap ·
+> install-timeout values · admin-elevation confirm policy. `terminal_sessions` reserved; remote owner-token deferred.
 >
-> **Owner:** Thomas (sole principal). **Head agent:** TOBI. **Date:** 2026-06-27.
+> **Owner:** Thomas (sole principal). **Head agent:** TOBI. **Date:** 2026-06-27 (spec) · built 2026-07-10.
 >
 > **Persona for the build:** SaaS system-development expert.
 >

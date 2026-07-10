@@ -756,9 +756,28 @@ async def main_async():
         init_database()
         await run_terminal_session()
 
+    elif command == "hermes":
+        # `tobi hermes <args>` — thin passthrough to the Hermes runtime + MC logging (#11 D2/D20).
+        import shutil as _shutil
+        init_database()
+        hargs = sys.argv[2:]
+        try:
+            from core import conductor as _c
+            _c._log_action(_c._default_chat_id(), "cli", "tobi_cli",
+                           {"argv": hargs}, "read", "executed", f"tobi hermes {' '.join(hargs)}"[:120], None)
+        except Exception:
+            pass
+        exe = _shutil.which("hermes")
+        if not exe:
+            print("hermes isn't on PATH — this command wraps the Hermes runtime (see HERMES_* guides).")
+            print("For the interactive TOBI terminal, run:  tobi terminal")
+        else:
+            import subprocess as _sp
+            raise SystemExit(_sp.call([exe, *hargs]))
+
     else:
         print(f"Unknown command: {command}")
-        print("Usage: python main.py [start|bot|api|research|execute|ceo|status|test|terminal]")
+        print("Usage: python main.py [start|bot|api|research|execute|ceo|status|test|terminal|hermes]")
 
 
 if __name__ == "__main__":

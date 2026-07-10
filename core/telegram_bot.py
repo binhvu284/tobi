@@ -303,9 +303,6 @@ _CODING_TOOLS = [
     },
 ]
 
-_BLOCKED_CMDS = ["rm -rf /", "sudo rm", "> /dev/", "dd if=", ":(){ :|:& };:"]
-
-
 async def _execute_tool(name: str, inputs: dict) -> str:
     if name == "write_file":
         raw = inputs.get("path", "")
@@ -328,21 +325,24 @@ async def _execute_tool(name: str, inputs: dict) -> str:
             return f"ERROR: {e}"
 
     if name == "run_bash":
+        # Routed through the real terminal engine (#11 D5): full-machine scope, the two-axis
+        # safety model and the hard denylist replace the old PROJECT_DIR lock + _BLOCKED_CMDS.
+        # This autonomous coding loop only auto-runs commands the engine gates to 'run'
+        # (Telegram is capped at Ask); medium/high are refused with a nudge to Mission Control.
         cmd = inputs.get("command", "")
-        if any(b in cmd for b in _BLOCKED_CMDS):
-            return "ERROR: command blocked for safety"
-        try:
-            result = await asyncio.to_thread(
-                subprocess.run,
-                cmd, shell=True, capture_output=True, text=True,
-                timeout=30, cwd=PROJECT_DIR,
-            )
-            out = (result.stdout + result.stderr).strip()
-            return out[:3000] if out else "(no output)"
-        except subprocess.TimeoutExpired:
-            return "ERROR: command timed out (30s)"
-        except Exception as e:
-            return f"ERROR: {e}"
+        from core import terminal_engine as te
+        g = te.gate(cmd, surface="telegram", use_llm=False)
+        if g["decision"] == "refuse":
+            return f"BLOCKED (safety): {g['reason']}"
+        if g["decision"] != "run":
+            return (f"NOT RUN — this is a {g['risk']}-risk command ({g['reason']}). "
+                    "Ask the owner to run it from Mission Control terminal mode (Accept/Auto), "
+                    "or confirm it there.")
+        res = await asyncio.to_thread(te.run, cmd, risk=g["risk"], surface="telegram")
+        if res.get("error"):
+            return f"ERROR: {res['error']}"
+        tail = res.get("output") or "(no output)"
+        return f"[exit {res.get('exit_code')}] {tail}"[:3000]
 
     if name == "list_files":
         d = inputs.get("directory", ".")
@@ -1169,11 +1169,39 @@ async def send_message(app: Application, text: str):
 # Terminal interface (used by main.py)
 # ─────────────────────────────────────────
 
+_REPL_CHAT_ID = -424242  # dedicated conversation id for the interactive TOBI terminal
+
+
 async def run_terminal_session():
-    """Interactive terminal chat with Tobi. Ctrl+C or /quit to exit."""
-    from core.model_router import get_llm
-    print("🤖 Tobi Terminal | /quit to exit | /status | /code <task>\n")
-    history: list[dict] = []
+    """Interactive TOBI terminal (queue #11 D4). Routes chat through the Conductor so the full
+    tool-loop — including the real full-machine shell (run_command) — is available, with the
+    two-axis approval mode surfaced. Commands prefixed with `!` run directly through the engine.
+
+    Commands: /quit · /status · /mode <plan|ask|accept|auto> · /jobs · /kill <id> · !<command>"""
+    from core import conductor, terminal_engine as te
+
+    def _banner() -> str:
+        return (f"🤖 TOBI Terminal | mode: {te.get_mode()} | {te.status().get('shell')} on "
+                f"{te.status().get('os')}\n"
+                "  /quit · /status · /mode <plan|ask|accept|auto> · /jobs · /kill <id> · !<command>\n")
+
+    print(_banner())
+
+    async def _run_direct(cmd: str):
+        g = te.gate(cmd, surface="mc")
+        if g["decision"] == "refuse":
+            print(f"⛔ {g['reason']}\n"); return
+        if g["decision"] == "plan":
+            print(f"📋 Plan ({g['risk']}): would run `{cmd}` — switch off Plan mode to execute.\n"); return
+        if g["decision"] == "confirm":
+            ans = (await asyncio.to_thread(input, f"⚠️  {g['risk']}-risk command. Run it? (yes/no) ")).strip().lower()
+            if ans not in ("y", "yes", "có", "co"):
+                print("Cancelled.\n"); return
+        res = await asyncio.to_thread(te.run, cmd, risk=g["risk"], surface="mc")
+        if res.get("error"):
+            print(f"❌ {res['error']}\n")
+        else:
+            print(f"[exit {res.get('exit_code')}] {res.get('output', '')}\n")
 
     while True:
         try:
@@ -1189,30 +1217,45 @@ async def run_terminal_session():
             print("👋 Bye!")
             break
         if user_input == "/status":
+            st = te.status()
+            print(f"🖥  mode={st['mode']} enabled={st['enabled']} shell={st['shell']} cwd={st['cwd']}")
+            print(f"    package managers: {', '.join(st['package_managers']) or 'none'} | tools: {st['tools_registered']}")
             print(format_daily_report(get_dashboard()))
             continue
-
-        task_type = classify(user_input)
-        history.append({"role": "user", "content": user_input})
-        if len(history) > MAX_HISTORY:
-            history = history[-MAX_HISTORY:]
+        if user_input.startswith("/mode"):
+            parts = user_input.split()
+            if len(parts) < 2:
+                print(f"Current mode: {te.get_mode()} (plan|ask|accept|auto)\n"); continue
+            try:
+                print(f"✅ mode → {te.set_mode(parts[1])}\n")
+            except ValueError as e:
+                print(f"❌ {e}\n")
+            continue
+        if user_input == "/jobs":
+            jobs = te.list_jobs()["jobs"]
+            print("\n".join(f"  #{j['id']} [{j['status']}] {j['command']}" for j in jobs) or "  (no jobs)")
+            print()
+            continue
+        if user_input.startswith("/kill"):
+            parts = user_input.split()
+            if len(parts) >= 2 and parts[1].isdigit():
+                print(f"  {te.kill_job(int(parts[1]))}\n")
+            else:
+                print("  usage: /kill <job_id>\n")
+            continue
+        if user_input.startswith("!"):
+            await _run_direct(user_input[1:].strip())
+            continue
 
         print("Tobi: ", end="", flush=True)
-
-        if task_type == "CODING":
-            print("💻 Running coding agent...")
-            reply = await _run_coding_agent(user_input)
-        elif task_type == "SMALLTALK":
-            client = get_llm("simple")
-            reply = await asyncio.to_thread(client.complete, history, "You are Tobi. Be brief.", 150)
-        else:
-            client = get_llm("writing")
-            reply = await asyncio.to_thread(client.complete, history, build_system_prompt_cached(), 800)
-
-        print(reply + "\n")
-        history.append({"role": "assistant", "content": reply})
-        if len(history) > MAX_HISTORY:
-            history = history[-MAX_HISTORY:]
+        res = await asyncio.to_thread(conductor.answer, user_input, _REPL_CHAT_ID, "mc")
+        print(res.get("reply", "") + "\n")
+        pending = res.get("pending_action")
+        if pending:
+            ans = (await asyncio.to_thread(input, "Confirm? (yes/no) ")).strip().lower()
+            decision = "approve" if ans in ("y", "yes", "có", "co", "ok") else "reject"
+            r = await asyncio.to_thread(conductor.confirm_action, pending["id"], decision, "mc", _REPL_CHAT_ID)
+            print(f"  → {r.get('status')}: {r.get('summary', '')}\n")
 
 
 # ─────────────────────────────────────────

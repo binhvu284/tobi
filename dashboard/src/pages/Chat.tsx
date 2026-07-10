@@ -26,6 +26,7 @@ import ModelMenu from '../components/chat/ModelMenu'
 import ThinkingOrb from '../components/chat/ThinkingOrb'
 import PickerWizard, { type PickerAnswer } from '../components/chat/PickerWizard'
 import ChatAmbient, { ChatHeroMotif } from '../components/chat/ChatAmbient'
+import TerminalMode from '../components/chat/TerminalMode'
 
 type TierMark = { tier: number; colorKey: string; roman: string; name: string }
 
@@ -219,6 +220,7 @@ export default function Chat() {
   const [dragOver, setDragOver] = useState(false)                // Feature 8 drag & drop
   const [headerCollapsed, setHeaderCollapsed] = useState(() => { try { return localStorage.getItem('tobi.chat.header') === '0' } catch { return false } })
   const [mode, setMode] = useState<ChatMode>(() => { try { return (localStorage.getItem('tobi.chat.mode') as ChatMode) || 'chat' } catch { return 'chat' } })
+  const [terminalLines, setTerminalLines] = useState<string[]>([])   // live run_command stdout (#11)
   const [modeOpen, setModeOpen] = useState(false)
   const [objective, setObjective] = useState('')
   const [objectiveEditing, setObjectiveEditing] = useState(false)
@@ -425,7 +427,7 @@ export default function Chat() {
     const tag = opts.attachments?.length ? `  📎×${opts.attachments.length}` : ''
     setMessages(m => [...m, { role: 'user', content: text + tag }])
     setSending(true); setPending(null); setModelIssue(false)
-    setThinkingPhase(''); setThinkingTools([]); setThinkingStartedAt(Date.now())
+    setThinkingPhase(''); setThinkingTools([]); setThinkingStartedAt(Date.now()); setTerminalLines([])
     const ac = new AbortController(); abortRef.current = ac
     let streamed = false; let toolsSeen: string[] = []
     const startAssistant = () => { if (streamed) return; streamed = true; setSending(false); setStreaming(true); setMessages(m => [...m, { role: 'assistant', content: '', meta: {} }]) }
@@ -440,6 +442,7 @@ export default function Chat() {
         onAction: (a) => { flushDelta(); if (confirmMode === 'auto' || autoAcceptChat) resolveAction('approve', a); else setPending(a) },
         onPicker: (p) => { flushDelta(); setPicker(p) },
         onNotice: (n) => { if (n.kind === 'model_issue') setModelIssue(true) },
+        onTerminal: (line) => setTerminalLines(ls => [...ls, line]),
         onReset: () => {
           // a chatty model leaked a prose preamble before a tool call → drop it, show the orb again
           if (deltaRafRef.current != null) { cancelAnimationFrame(deltaRafRef.current); deltaRafRef.current = null }
@@ -1119,6 +1122,7 @@ export default function Chat() {
                 <button onClick={clearQueuedTurns} className="text-[10px] text-muted hover:text-warning">Clear</button>
               </div>
             )}
+            {mode === 'terminal' && <TerminalMode lines={terminalLines} active={busy} />}
             <input ref={fileRef} type="file" multiple hidden onChange={e => { if (e.target.files) addFiles(Array.from(e.target.files)); e.target.value = '' }} />
             <div className="relative rounded-2xl border border-border bg-surface/70 shadow-[0_-18px_60px_rgb(0_0_0/0.16)] transition-all focus-within:border-accent/45 focus-within:shadow-[0_0_0_1px_rgb(var(--accent)/0.22),0_-18px_70px_rgb(0_0_0/0.22)]">
               {/* HUD energy hairline across the top edge */}

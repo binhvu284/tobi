@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
@@ -462,6 +463,34 @@ def tool_search_project_resources(project: str = "", query: str = "", **_: Any) 
             "count": len(hits), "results": hits}
 
 
+# ── Terminal read tools (#11) ────────────────────────────────────────────────────
+def tool_terminal_status(**_: Any) -> dict:
+    """Terminal engine status: approval mode, kill-switch, OS/shell, package managers, tools [D22]."""
+    from core import terminal_engine as te
+    return te.status()
+
+
+def tool_list_jobs(**_: Any) -> dict:
+    """Background terminal jobs: id, command, status, exit code [D11]."""
+    from core import terminal_engine as te
+    return te.list_jobs()
+
+
+def tool_job_output(job_id: int = 0, **_: Any) -> dict:
+    """The output (and status) of one background terminal job. Arg: job_id (int)."""
+    from core import terminal_engine as te
+    try:
+        return te.get_job(int(job_id))
+    except Exception as e:
+        return {"error": str(e)[:200]}
+
+
+def tool_list_installed_tools(**_: Any) -> dict:
+    """TOBI's capability registry: tools it has installed/configured/connected [D15]."""
+    from core import terminal_engine as te
+    return te.list_tools()
+
+
 READ_TOOLS: dict[str, tuple[Callable[..., dict], str]] = {
     "get_current_datetime": (tool_get_current_datetime, "Current date and time in the owner's timezone. No args."),
     "ask_owner_details": (tool_ask_owner_details, "Ask the owner for missing context via a picker wizard when you genuinely need details to proceed (or when he says 'ask me for my details'). Args: topic (string), questions (list of strings or {question, options[]}). Prefer this over guessing."),
@@ -479,6 +508,10 @@ READ_TOOLS: dict[str, tuple[Callable[..., dict], str]] = {
     "read_drive": (tool_read_drive, "Read Google Drive/Gmail (arg: query). Reports honestly if not yet wired."),
     "storage_status": (tool_storage_status, "What's eating local disk: total/biggest/per-feature storage. Optional arg: feature (e.g. 'Brain') for its biggest items."),
     "llm_spend": (tool_llm_spend, "LLM spend & tokens: totals, top models, per-surface split, budget state. Optional arg: range (day|week|month|all)."),
+    "terminal_status": (tool_terminal_status, "Terminal engine status: approval mode (plan/ask/accept/auto), kill-switch, OS/shell, package managers, tools registered. No args."),
+    "list_jobs": (tool_list_jobs, "Background terminal jobs (id, command, status, exit code). No args."),
+    "job_output": (tool_job_output, "The output + status of one background terminal job. Arg: job_id (int)."),
+    "list_installed_tools": (tool_list_installed_tools, "TOBI's capability registry — tools it has installed/configured/connected via the terminal. No args."),
 }
 
 # Opt-in tools (P2): advertised to the model only when the owner enables them for a turn
@@ -938,6 +971,140 @@ def tool_set_category_lock(category_id: str = "", is_locked: bool = False, **_: 
     return {"ok": True, "category_id": category_id, "is_locked": is_locked}
 
 
+# ── Terminal engine tools (#11) — real full-machine execution, two-axis gated ────
+# run_command / install_package are DYNAMICALLY gated by the terminal engine (the
+# approval mode × the command's risk decides run/confirm/plan/refuse); the answer()
+# loop intercepts them (see TERMINAL_TOOLS). The rest use the standard risk tiers.
+def tool_run_command(command: str = "", cwd: str = "", background: bool = False,
+                     timeout: int = 0, **_: Any) -> dict:
+    """Run a shell command on the machine (gating already decided by the engine)."""
+    from core import terminal_engine as te
+    command = (command or "").strip()
+    if not command:
+        return {"error": "command is required"}
+    try:
+        risk = te.classify_risk(command)[0]
+    except Exception:
+        risk = "medium"
+    try:
+        timeout = int(timeout) or None
+    except Exception:
+        timeout = None
+    return te.run(command, cwd=(cwd or None), background=bool(background), timeout=timeout, risk=risk)
+
+
+def tool_install_package(package: str = "", manager: str = "", **_: Any) -> dict:
+    """Install a package via pip/pipx/npm/pnpm/winget/choco/scoop, then register it [D13][D15]."""
+    from core import terminal_engine as te
+    package = (package or "").strip()
+    if not package:
+        return {"error": "package is required"}
+    mgr = te.resolve_manager(manager)
+    if not mgr:
+        avail = te.available_managers()
+        return {"error": "no usable package manager" + (f" — available here: {', '.join(avail)}" if avail
+                         else " found on this machine")}
+    cmd = te.install_command(mgr, package)
+    if not cmd:
+        return {"error": f"couldn't build a safe install command for '{package}' via {mgr}"}
+    res = te.run(cmd, risk="medium", timeout=te.TIMEOUT_INSTALL)
+    if res.get("ok"):
+        try:
+            te.register_tool(package, channel=mgr, status="installed",
+                             how_to_use=f"Installed via {mgr}. Try `{package} --help`.")
+            res["registered"] = True
+            res["wire_offer"] = (f"'{package}' is installed and in your toolset, sir — want me to wire it as a "
+                                 "reusable tool so future calls skip raw shell?")
+        except Exception:
+            pass
+    return res
+
+
+def tool_configure_tool(name: str = "", path: str = "", content: str = "", append: bool = False, **_: Any) -> dict:
+    """Configure an acquired tool by writing/appending its config file [D14]."""
+    from core import terminal_engine as te
+    path = (path or "").strip()
+    if not path:
+        return {"error": "path is required"}
+    p = os.path.expanduser(path)
+    try:
+        parent = os.path.dirname(p)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(p, "a" if append else "w", encoding="utf-8") as f:
+            f.write(content or "")
+    except Exception as e:
+        return {"error": str(e)[:200]}
+    if (name or "").strip():
+        try:
+            te.register_tool(name.strip(), status="configured", how_to_use=f"Configured at {p}")
+        except Exception:
+            pass
+    return {"ok": True, "name": name or path, "path": p, "bytes": len(content or ""), "appended": bool(append)}
+
+
+def tool_connect_tool(name: str = "", secret_name: str = "", login_command: str = "", **_: Any) -> dict:
+    """Connect an acquired tool: reference an EXISTING vault/env credential (never a plaintext
+    secret through chat) and optionally run the tool's login/setup command [D14]."""
+    from core import terminal_engine as te
+    name = (name or "").strip()
+    if not name:
+        return {"error": "name is required"}
+    secret_name = (secret_name or "").strip()
+    cred_ok = None
+    if secret_name:
+        cred_ok = bool(os.getenv(secret_name))
+        if not cred_ok:
+            try:
+                from core import vault
+                from core.database import get_connection
+                conn = get_connection()
+                try:
+                    cred_ok = any(s.get("name") == secret_name for s in vault.list_secrets(conn))
+                finally:
+                    conn.close()
+            except Exception:
+                cred_ok = False
+        if not cred_ok:
+            return {"error": f"no credential named '{secret_name}' is stored yet, sir — add it in Integrations "
+                             "(the Genesis vault) first, then I'll connect the tool."}
+    out: dict = {"ok": True, "name": name, "credential": secret_name or None, "credential_found": cred_ok}
+    login_command = (login_command or "").strip()
+    if login_command:
+        risk = te.classify_risk(login_command)[0]
+        out["login"] = te.run(login_command, risk=risk)
+    try:
+        te.register_tool(name, status="connected",
+                         how_to_use=(f"Connected (credential '{secret_name}' in vault)." if secret_name else "Connected."))
+    except Exception:
+        pass
+    return out
+
+
+def tool_kill_job(job_id: int = 0, **_: Any) -> dict:
+    """Stop a running background terminal job [D11]."""
+    from core import terminal_engine as te
+    try:
+        return te.kill_job(int(job_id))
+    except Exception as e:
+        return {"error": str(e)[:200]}
+
+
+def tool_set_terminal_mode(mode: str = "", **_: Any) -> dict:
+    """Switch the terminal approval mode: plan | ask | accept | auto [D17]."""
+    from core import terminal_engine as te
+    try:
+        m = te.set_mode(mode)
+    except Exception as e:
+        return {"error": str(e)[:120]}
+    return {"ok": True, "mode": m}
+
+
+# Dynamically-gated terminal tools — the answer() loop routes these through the two-axis
+# gate (mode × risk) instead of the static RISK map.
+TERMINAL_TOOLS = {"run_command", "install_package"}
+
+
 # name → (callable, risk, description)
 ACT_TOOLS: dict[str, tuple[Callable[..., dict], str, str]] = {
     "remember": (tool_remember, "low", "Save a fact to long-term memory. Args: fact (string), category (optional)."),
@@ -957,6 +1124,14 @@ ACT_TOOLS: dict[str, tuple[Callable[..., dict], str, str]] = {
     "delete_task": (tool_delete_task, "high", "Delete a task — REQUIRES the owner's confirmation. Args: task_id (int)."),
     "delete_project": (tool_delete_project, "high", "Delete a project and its tasks — REQUIRES the owner's confirmation. Args: project_id (int — call list_projects first to get a real id)."),
     "run_mission": (tool_run_mission, "high", "Queue a mission toward an objective — REQUIRES the owner's confirmation. Args: objective (string)."),
+    # ── Terminal engine (#11). run_command/install_package are gated by the terminal
+    # engine's two-axis model (approval mode × command risk), not this static tier. ──
+    "run_command": (tool_run_command, "medium", "Run a shell command on the machine (install/configure/run anything). Args: command (string), cwd (optional path), background (bool — for long-running servers/watchers), timeout (optional seconds). Gated by the current approval mode × the command's risk; the hard denylist always blocks. Read before you act."),
+    "install_package": (tool_install_package, "medium", "Install a package and register it. Args: package (string), manager (optional: pip|pipx|npm|pnpm|winget|choco|scoop — omit to auto-pick an available one)."),
+    "configure_tool": (tool_configure_tool, "medium", "Configure an acquired tool by writing its config file. Args: name (optional), path (string, ~ expands), content (string), append (bool)."),
+    "connect_tool": (tool_connect_tool, "medium", "Connect an acquired tool using an EXISTING vault/env credential (never a plaintext secret in chat). Args: name (string), secret_name (an existing credential's name, optional), login_command (optional setup/login command)."),
+    "kill_job": (tool_kill_job, "low", "Stop a running background terminal job. Args: job_id (int)."),
+    "set_terminal_mode": (tool_set_terminal_mode, "low", "Switch the terminal approval mode. Args: mode (plan|ask|accept|auto). plan=propose only; ask=confirm medium/high; accept=only high confirms; auto=run everything (denylist still blocks)."),
 }
 
 # Unified lookups: name → (callable, description) and name → risk ('read'|'low'|'medium'|'high').
@@ -1043,6 +1218,12 @@ def _action_summary(tool: str, args: dict) -> str:
         "delete_task": f'delete task #{a.get("task_id")}',
         "delete_project": f'delete project {_project_name(a.get("project_id"))} (and its tasks)',
         "run_mission": f'run a mission: "{str(a.get("objective", ""))[:60]}"',
+        "run_command": f'run `{str(a.get("command", ""))[:70]}`' + (" (background)" if a.get("background") else ""),
+        "install_package": f'install {a.get("package", "")}' + (f' via {a.get("manager")}' if a.get("manager") else ""),
+        "configure_tool": f'configure {a.get("name") or a.get("path")}',
+        "connect_tool": f'connect {a.get("name", "")}',
+        "kill_job": f'stop terminal job #{a.get("job_id")}',
+        "set_terminal_mode": f'set terminal mode to {a.get("mode")}',
     }.get(tool, f'{tool} {json.dumps(a, default=str)[:60]}')
 
 
@@ -1084,6 +1265,41 @@ def _set_status(action_id: int, status: str, result: Any = None) -> None:
 
 def _execute_and_log(chat_id: int, surface: str, tool: str, args: dict, risk: str) -> dict:
     result = _exec_tool({"tool": tool, "args": args})
+    status = "failed" if isinstance(result, dict) and result.get("error") else "executed"
+    _log_action(chat_id, surface, tool, args, risk, status, _action_summary(tool, args), result)
+    if status == "executed":
+        _maybe_learn(tool)
+    return result
+
+
+def _terminal_command_for(tool: str, args: dict) -> Optional[str]:
+    """The concrete shell command a terminal tool WOULD run, for gating/plan (#11)."""
+    if tool == "run_command":
+        return (args.get("command") or "").strip() or None
+    if tool == "install_package":
+        try:
+            from core import terminal_engine as te
+            mgr = te.resolve_manager(args.get("manager", ""))
+            if mgr:
+                return te.install_command(mgr, args.get("package", ""))
+        except Exception:
+            return None
+    return None
+
+
+def _execute_terminal_and_log(chat_id: int, surface: str, tool: str, args: dict, risk: str,
+                              on_event: Optional[Callable[[dict], None]]) -> dict:
+    """Run a terminal tool, bridging its live stdout to the chat (on_event 'terminal' lines) and
+    auditing it to tobi_actions. A non-zero exit code is still an *executed* action (it ran)."""
+    from core import terminal_engine as te
+    sink_prev = None
+    if on_event:
+        sink_prev = te.set_output_sink(lambda line: on_event({"type": "terminal", "line": line}))
+    try:
+        result = _exec_tool({"tool": tool, "args": args})
+    finally:
+        if on_event:
+            te.set_output_sink(sink_prev)
     status = "failed" if isinstance(result, dict) and result.get("error") else "executed"
     _log_action(chat_id, surface, tool, args, risk, status, _action_summary(tool, args), result)
     if status == "executed":
@@ -1284,6 +1500,14 @@ def _system_prompt(profile: str, tools_enabled: bool, surface: str = "mc",
             "CALL the tool (e.g. delete_project) — do NOT ask for permission in prose. Never write 'Would you like "
             "me to proceed?' yourself; calling the tool is how I ask the owner. Read before you act (e.g. find a "
             "task/project id with list_tasks/list_projects before changing it).\n"
+            "TERMINAL (#11): you have a real full-machine shell via run_command (and install_package / "
+            "configure_tool / connect_tool). The engine gates every command by the owner's approval mode "
+            "(plan/ask/accept/auto) × the command's risk — you don't decide whether to confirm; just CALL "
+            "run_command with the command and I handle gating, streaming, the confirm card, and the audit. "
+            "In Plan mode I only preview. A hard denylist blocks catastrophic commands in every mode. To run a "
+            "long-lived process (dev server, watcher) pass background=true and manage it with list_jobs/kill_job. "
+            "Prefer install_package over a raw `pip install`. Never paste plaintext secrets into a command — "
+            "reference a stored credential by name via connect_tool.\n"
             "CHAINS: you may take several steps in one request (e.g. read_notion a project → create_project → "
             "create_task for each item → assign_task to an agent from office_status). Work from real data at each "
             "step. To do several similar actions at once (e.g. create two projects), emit ONE tool-call JSON "
@@ -1450,18 +1674,21 @@ def _propose_reply(summary: str, risk: str) -> str:
 
 
 def _propose_actions(highs: list[tuple], chat_id: int, surface: str, used: list, intent: str) -> dict:
-    """Propose one or many high-risk actions for confirmation. Multiple → a single batch card the
-    owner accepts/refuses together (so 'delete 3 projects' asks once, for all three)."""
+    """Propose one or many actions for confirmation. Multiple → a single batch card the owner
+    accepts/refuses together (so 'delete 3 projects' asks once). Items may carry their own risk
+    (a terminal command confirmed under Ask is medium, not high)."""
     items: list[dict] = []
     out_used = list(used)
-    for tool, args in highs:
+    for entry in highs:
+        tool, args = entry[0], entry[1]
+        risk = entry[2] if len(entry) > 2 else "high"
         summary = _action_summary(tool, args)
-        aid = _log_action(chat_id, surface, tool, args, "high", "proposed", summary)
-        items.append({"id": aid, "tool": tool, "summary": summary, "risk": "high"})
+        aid = _log_action(chat_id, surface, tool, args, risk, "proposed", summary)
+        items.append({"id": aid, "tool": tool, "summary": summary, "risk": risk})
         out_used.append(tool)
     if len(items) == 1:
         it = items[0]
-        return {"reply": _propose_reply(it["summary"], "high"), "tools_used": out_used,
+        return {"reply": _propose_reply(it["summary"], it["risk"]), "tools_used": out_used,
                 "intent": intent, "pending_action": it, "streamed": False}
     lines = "\n".join(f"  • {i['summary']}" for i in items)
     reply = (f"Those are {len(items)} high-risk actions, sir — I'll wait for your go-ahead:\n{lines}\n"
@@ -1504,6 +1731,11 @@ _TOOL_PHASE = {
     "create_task": "Adding the task…", "complete_task": "Completing the task…",
     "assign_task": "Assigning the task…", "update_project_progress": "Updating progress…",
     "delete_task": "Removing the task…", "run_mission": "Preparing the mission…",
+    "run_command": "Running the command…", "install_package": "Installing…",
+    "configure_tool": "Writing the config…", "connect_tool": "Connecting…",
+    "kill_job": "Stopping the job…", "set_terminal_mode": "Switching mode…",
+    "terminal_status": "Checking the terminal…", "list_jobs": "Checking jobs…",
+    "job_output": "Reading job output…", "list_installed_tools": "Reviewing your toolset…",
 }
 
 
@@ -1774,6 +2006,30 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
                 except Exception:
                     pass
 
+            # ── Terminal tools (#11): the two-axis engine (mode × command risk) decides ──
+            if tool in TERMINAL_TOOLS:
+                from core import terminal_engine as te
+                cmd = _terminal_command_for(tool, args)
+                if not cmd:
+                    result = _exec_tool(call)  # invalid args → let the tool return its error
+                else:
+                    g = te.gate(cmd, surface=surface)
+                    decision, trisk = g["decision"], g["risk"]
+                    if decision == "refuse":
+                        result = {"refused": True, "risk": trisk, "reason": g["reason"], "command": cmd}
+                    elif decision == "plan":
+                        result = te.plan(cmd, surface)
+                    elif decision == "confirm":
+                        highs.append((tool, args, trisk))  # propose with the command's real risk
+                        continue
+                    else:  # run
+                        result = _execute_terminal_and_log(chat_id, surface, tool, args, trisk, on_event)
+                        if not (isinstance(result, dict) and result.get("error")):
+                            done_acts.append(_action_summary(tool, args))
+                used.append(tool)
+                msgs.append({"role": "user", "content": f"TOOL_RESULT {tool}: {json.dumps(result, default=str)[:3000]}"})
+                continue
+
             if surface == "telegram" and risk in ("medium", "high"):
                 result = {"blocked": f"That's a {risk}-risk change, sir — please do it from Mission Control "
                                      "(Telegram stays read-only and safe)."}
@@ -1868,11 +2124,21 @@ def conductor_chat_stream(message: str, chat_id: Optional[int] = None, surface: 
 
 def conductor_status() -> dict:
     """Introspection for the API/tests: which tools the Conductor exposes."""
+    terminal: dict = {}
+    try:
+        from core import terminal_engine as te
+        terminal = te.status()
+    except Exception as e:  # noqa: BLE001
+        terminal = {"error": str(e)[:120]}
     return {
-        "phase": "P3 (read + act + external + chains)",
+        "phase": "P3 + terminal (#11: read + act + external + chains + full-machine shell)",
         "read_tools": [{"name": n, "description": d} for n, (_, d) in READ_TOOLS.items()],
         "act_tools": [{"name": n, "risk": r, "description": d} for n, (_, r, d) in ACT_TOOLS.items()],
         "optional_tools": [{"name": n, "description": d} for n, (_, d) in OPTIONAL_TOOLS.items()],
-        "surfaces": {"mc": "full power", "telegram": "read + low-risk only"},
-        "confirmation": "high-risk actions (delete, run_mission) require owner confirmation (button or typed yes)",
+        "terminal_tools": sorted(TERMINAL_TOOLS),
+        "terminal": terminal,
+        "surfaces": {"mc": "full power", "telegram": "read + low-risk only (terminal capped at Ask)"},
+        "confirmation": "high-risk actions (delete, run_mission) + gated terminal commands require owner "
+                        "confirmation (button or typed yes); the terminal approval mode (plan/ask/accept/auto) "
+                        "and hard denylist govern shell execution",
     }

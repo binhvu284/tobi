@@ -1093,6 +1093,34 @@ export async function confirmConductorAction(
   return request('/api/conductor/confirm', { method: 'POST', body: JSON.stringify({ action_id, decision }) })
 }
 
+// ── TOBI CLI / Terminal engine (#11) ─────────────────────────────────────────────
+export type TerminalMode = 'plan' | 'ask' | 'accept' | 'auto'
+export type TerminalStatus = {
+  enabled: boolean; mode: TerminalMode; os: string; shell: string; cwd: string
+  package_managers: string[]; tools_registered: number; modes: TerminalMode[]
+}
+export type TerminalJob = {
+  id: number; command: string; status: string; exit_code: number | null
+  cwd?: string; risk?: string; started_at?: string; ended_at?: string; live?: boolean
+}
+export type InstalledTool = {
+  name: string; version?: string; channel?: string; how_to_use?: string
+  wired?: number; status?: string; updated_at?: string
+}
+
+export async function getTerminalStatus(): Promise<TerminalStatus> { return get('/api/terminal/status') }
+export async function setTerminalMode(mode: TerminalMode): Promise<{ ok: boolean; mode: TerminalMode }> {
+  return request('/api/terminal/mode', { method: 'POST', body: JSON.stringify({ mode }) })
+}
+export async function setTerminalKillSwitch(enabled: boolean): Promise<{ ok: boolean; enabled: boolean }> {
+  return request('/api/terminal/killswitch', { method: 'POST', body: JSON.stringify({ enabled }) })
+}
+export async function getTerminalJobs(): Promise<{ count: number; jobs: TerminalJob[] }> { return get('/api/terminal/jobs') }
+export async function killTerminalJob(jobId: number): Promise<{ ok?: boolean; error?: string; status?: string }> {
+  return request(`/api/terminal/jobs/${jobId}/kill`, { method: 'POST' })
+}
+export async function getInstalledTools(): Promise<{ count: number; tools: InstalledTool[] }> { return get('/api/terminal/tools') }
+
 // ── Premium Chat (#8): multi-model sessions, typed stream, LLM config ────────────
 export type ChatSession = {
   id: number; title: string; model: string | null
@@ -1115,6 +1143,7 @@ export type ChatStreamHandlers = {
   onUsage?: (usage: ChatUsage) => void
   onNotice?: (notice: ChatNotice) => void
   onReset?: () => void
+  onTerminal?: (line: string) => void   // live stdout from a run_command execution (#11)
 }
 
 export async function getChatSessions(): Promise<{ sessions: ChatSession[] }> { return get('/api/chat/sessions') }
@@ -1182,6 +1211,7 @@ export async function streamChatSession(
       else if (event === 'usage') { handlers.onUsage?.(parse() as ChatUsage) }
       else if (event === 'notice') { const o = parse(); if (o && o.kind) handlers.onNotice?.(o as ChatNotice) }
       else if (event === 'reset') { handlers.onReset?.() }
+      else if (event === 'terminal') { const o = parse(); if (o && typeof o.line === 'string') handlers.onTerminal?.(o.line) }
       else if (event === 'error') { throw new Error(parse().detail || 'stream error') }
       else if (event === 'done') return
     }

@@ -3554,6 +3554,11 @@ def _detect_abilities(conn: sqlite3.Connection) -> dict[str, bool]:
     has_llm = env("ANTHROPIC_API_KEY") or env("OPENROUTER_API_KEY")
     has_bot = env("TELEGRAM_BOT_TOKEN")
 
+    # TOBI CLI (#11) delivers the Awakening control abilities: the two-axis permission model
+    # replaces the old _BLOCKED_CMDS denylist, and full-machine scope replaces the PROJECT_DIR
+    # lock. Evidence = the terminal engine module is present [D30].
+    terminal_ready = file_ok("core/terminal_engine.py")
+
     return {
         # Tier 0
         "soul_md": file_ok("SOUL.md"),
@@ -3568,7 +3573,10 @@ def _detect_abilities(conn: sqlite3.Connection) -> dict[str, bool]:
         "telegram_bot": has_bot,
         "cron_scheduler": has_bot and has_llm,
         "proactive_reports": has_bot and has_llm,
-        # All Tier 1+ abilities default to False (not yet built)
+        # Tier 1 (Awakening) control abilities delivered by the terminal engine (#11)
+        "tiered_permissions": terminal_ready,
+        "full_filesystem": terminal_ready,
+        # Remaining Tier 1+ abilities default to False (not yet built)
     }
 
 
@@ -4727,6 +4735,65 @@ def conductor_confirm(payload: ConductorConfirmReq):
     return conductor.confirm_action(payload.action_id, payload.decision, surface="mc")
 
 
+# ── TOBI CLI / Terminal engine (#11) ─────────────────────────────────────────────
+class TerminalModeReq(BaseModel):
+    mode: str                     # plan | ask | accept | auto
+
+
+class TerminalKillSwitchReq(BaseModel):
+    enabled: bool
+
+
+@app.get("/api/terminal/status")
+def terminal_status():
+    """Approval mode, kill-switch, OS/shell, package managers, and registered tools (#11)."""
+    from core import terminal_engine as te
+    return te.status()
+
+
+@app.post("/api/terminal/mode")
+def terminal_set_mode(payload: TerminalModeReq):
+    """Switch the terminal approval mode: plan | ask | accept | auto [D17]."""
+    from core import terminal_engine as te
+    try:
+        return {"ok": True, "mode": te.set_mode(payload.mode)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/terminal/killswitch")
+def terminal_killswitch(payload: TerminalKillSwitchReq):
+    """Global kill-switch — freeze/unfreeze all terminal execution instantly [D25]."""
+    from core import terminal_engine as te
+    return {"ok": True, "enabled": te.set_enabled(payload.enabled)}
+
+
+@app.get("/api/terminal/jobs")
+def terminal_jobs(limit: int = 20):
+    """Background-job registry [D11]."""
+    from core import terminal_engine as te
+    return te.list_jobs(limit=limit)
+
+
+@app.get("/api/terminal/jobs/{job_id}")
+def terminal_job(job_id: int):
+    from core import terminal_engine as te
+    return te.get_job(job_id)
+
+
+@app.post("/api/terminal/jobs/{job_id}/kill")
+def terminal_job_kill(job_id: int):
+    from core import terminal_engine as te
+    return te.kill_job(job_id)
+
+
+@app.get("/api/terminal/tools")
+def terminal_tools():
+    """The capability registry: tools TOBI has installed/configured/connected [D15]."""
+    from core import terminal_engine as te
+    return te.list_tools()
+
+
 @app.get("/api/brain/chat/history")
 def brain_chat_history():
     from core.database import load_conversation_history
@@ -4923,6 +4990,9 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
                     continue
                 if ev.get("type") == "delta":
                     yield f"event: delta\ndata: {json.dumps({'text': ev.get('text', '')})}\n\n"
+                elif ev.get("type") == "terminal":
+                    # live stdout from a run_command execution (#11) → xterm-style console
+                    yield f"event: terminal\ndata: {json.dumps({'line': ev.get('line', '')})}\n\n"
                 elif ev.get("type") == "reset":
                     yield "event: reset\ndata: {}\n\n"
                 elif ev.get("type") == "thinking":
