@@ -1,17 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Loader2, Check, ChevronRight, Sparkles } from 'lucide-react'
+import { Check, ChevronRight } from 'lucide-react'
 import { useReducedMotionPref } from '../../context/MotionProvider'
+import { Orb, CAT_TOKEN, PHRASES, phaseCategory, type OrbCat } from './ThinkingOrb'
 
-/* ProcessTrace — TOBI's "show your work" panel.
+/* ProcessTrace — TOBI's "show your work", with the old thinking-orb's soul.
 
-   The problem this solves: a multi-step turn used to flash a single rotating phrase in the
-   thinking orb, then vanish, leaving no record — so it was impossible to tell TOBI's *process*
-   from his *answer*. Modelled on Claude Code / Codex / o1: while working we show a **stable,
-   accumulating checkpoint timeline** (each tool step is a line that stays, completed ones get a
-   check, the current one spins); when the turn finishes it collapses into a compact
-   **"Worked for Xs · N steps"** disclosure rendered ABOVE the answer, expandable to replay the
-   steps + any reasoning. The answer itself is always clearly separate, below the trace. */
+   Structure (from the flicker fix): a stable, accumulating checkpoint timeline while working,
+   collapsing into a "Worked for Xs" disclosure above the answer once done — so process is never
+   confused with result. Feel (restored per the owner): the live orb *leads* the current step,
+   shifting colour by the action category (recall=purple · web=amber · act=green · read/think=
+   accent); a living header label cycles soft phrases with a blur-slide; each new checkpoint eases
+   in with a dreamy blur-slide; the panel carries a soft category-tinted glow + a slow sheen.
+   Reduced-motion collapses to a calm static orb + gentle fades (guards live in index.css). */
 
 // Mirrors the backend _TOOL_PHASE map (core/conductor.py) so the persisted view (which only has
 // the tool names) reconstructs the same human checkpoints the live stream showed.
@@ -39,6 +40,9 @@ export function toolPhase(tool: string): string {
   return PHASE_BY_TOOL[tool] || `Used ${tool.replace(/_/g, ' ')}`
 }
 
+const catOf = (step: string): OrbCat => phaseCategory(step)
+const rgb = (token: string, a?: number) => a != null ? `rgb(var(--${token}) / ${a})` : `rgb(var(--${token}))`
+
 type Props = {
   active?: boolean          // the turn is still running → live timeline
   steps?: string[]          // live checkpoint phrases (backend phases, accumulated)
@@ -65,50 +69,89 @@ export default function ProcessTrace({ active, steps, tools, thinking, startedAt
     elapsedMs={elapsedMs} tokens={tokens} reduced={reduced} />
 }
 
-// ── live: a stable, accumulating checklist (no rotating flavour text) ──────────────
+// ── live: orb-led checklist under a living label, softly glowing per current action ─────
 function LiveTrace({ steps, startedAt, reduced }: { steps: string[]; startedAt: number; reduced: boolean }) {
+  const shown = steps.length ? steps : ['Thinking…']
+  const curCat = catOf(shown[shown.length - 1])
+  const token = CAT_TOKEN[curCat]
+
   const [elapsed, setElapsed] = useState(0)
   useEffect(() => {
     const t = setInterval(() => setElapsed((Date.now() - startedAt) / 1000), 100)
     return () => clearInterval(t)
   }, [startedAt])
-  const shown = steps.length ? steps : ['Thinking…']
+
+  // living header: ambient category phrases that keep evolving (the concrete work is the list)
+  const pool = PHRASES[curCat]
+  const [idx, setIdx] = useState(0)
+  useEffect(() => { setIdx(0) }, [curCat])
+  useEffect(() => {
+    const t = setInterval(() => setIdx(i => (i + 1) % pool.length), reduced ? 2800 : 1950)
+    return () => clearInterval(t)
+  }, [pool, reduced])
+  const label = pool[idx % pool.length]
+
   return (
-    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
-      className="inline-block min-w-[220px] max-w-full rounded-2xl rounded-tl-sm border border-border bg-surface/70 px-3.5 py-2.5 backdrop-blur-sm">
-      <div className="mb-1.5 flex items-center gap-2 text-[12px] font-medium text-accent">
-        <Loader2 size={13} className={reduced ? '' : 'animate-spin'} /> Working
-        <span className="ml-auto pl-3 font-mono text-[10px] tabular-nums text-muted/70">{elapsed.toFixed(1)}s</span>
-      </div>
-      <ol className="space-y-1">
-        <AnimatePresence initial={false}>
-          {shown.map((s, i) => {
-            const isLast = i === shown.length - 1
-            return (
-              <motion.li key={`${i}-${s}`} layout={!reduced}
-                initial={{ opacity: 0, x: reduced ? 0 : -5 }} animate={{ opacity: 1, x: 0 }}
-                className="flex items-center gap-2 text-[12px]">
-                <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+    <motion.div
+      initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, transition: { duration: 0 } }}
+      className="proc-panel inline-block min-w-[240px] max-w-full" style={{ ['--orb' as string]: `var(--${token})` }}>
+      <div className="proc-sheen" aria-hidden />
+      <div className="relative">
+        {/* living label + soft dot wave + elapsed */}
+        <div className="mb-2 flex items-center gap-2">
+          <span className="orb-label-grad inline-flex text-[13px] font-medium">
+            <AnimatePresence mode="wait">
+              <motion.span key={label}
+                initial={{ opacity: 0, y: reduced ? 0 : 7, filter: reduced ? 'none' : 'blur(3px)' }}
+                animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                exit={{ opacity: 0, y: reduced ? 0 : -7, filter: reduced ? 'none' : 'blur(3px)' }}
+                transition={{ duration: 0.42, ease: 'easeOut' }} className="inline-block">{label}</motion.span>
+            </AnimatePresence>
+          </span>
+          <span className="orb-dots" aria-hidden>
+            <i className="orb-dot" style={{ ['--i' as string]: 0 }} />
+            <i className="orb-dot" style={{ ['--i' as string]: 1 }} />
+            <i className="orb-dot" style={{ ['--i' as string]: 2 }} />
+          </span>
+          <span className="ml-auto pl-3 font-mono text-[10px] tabular-nums text-muted/70">{elapsed.toFixed(1)}s</span>
+        </div>
+        {/* checkpoint timeline — orb leads the current step, faint category checks on the done ones */}
+        <ol className="space-y-1.5">
+          <AnimatePresence initial={false}>
+            {shown.map((s, i) => {
+              const isLast = i === shown.length - 1
+              const cat = catOf(s)
+              const tok = CAT_TOKEN[cat]
+              return (
+                <motion.li key={`${i}-${s}`} layout={!reduced}
+                  initial={{ opacity: 0, y: reduced ? 0 : 6, filter: reduced ? 'none' : 'blur(3px)' }}
+                  animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                  transition={{ duration: 0.4, ease: 'easeOut' }}
+                  className="flex items-center gap-2.5 text-[12.5px]">
                   {isLast
-                    ? <span className={`h-1.5 w-1.5 rounded-full bg-accent ${reduced ? '' : 'animate-pulse'}`} />
-                    : <Check size={12} className="text-success" />}
-                </span>
-                <span className={isLast ? 'text-text' : 'text-muted'}>{s}</span>
-              </motion.li>
-            )
-          })}
-        </AnimatePresence>
-      </ol>
+                    ? <span className="proc-orb"><Orb cat={cat} reduced={reduced} /></span>
+                    : <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center">
+                        <Check size={13} style={{ color: rgb(tok, 0.7) }} />
+                      </span>}
+                  <span className={isLast ? 'font-medium' : 'text-muted'} style={isLast ? { color: rgb(tok) } : undefined}>{s}</span>
+                </motion.li>
+              )
+            })}
+          </AnimatePresence>
+        </ol>
+      </div>
     </motion.div>
   )
 }
 
-// ── finished: a compact disclosure above the answer ────────────────────────────────
+// ── finished: a compact disclosure above the answer, keeping a tiny colour-tinted orb dot ───
 function FinishedTrace({ steps, reasoning, tools, elapsedMs, tokens, reduced }:
   { steps: string[]; reasoning: string; tools: string[]; elapsedMs?: number; tokens?: number; reduced: boolean }) {
   const [open, setOpen] = useState(false)
   const secs = elapsedMs != null ? (elapsedMs / 1000).toFixed(1) : null
   const hasBody = steps.length > 0 || !!reasoning || tools.length > 0
+  const domCat = useMemo<OrbCat>(() => steps.length ? catOf(steps[steps.length - 1]) : (reasoning ? 'think' : 'read'), [steps, reasoning])
+  const tok = CAT_TOKEN[domCat]
   if (!hasBody) return null
   const when = secs ? ` for ${secs}s` : ''
   const summary = steps.length > 1 ? `Worked${when} · ${steps.length} steps`
@@ -117,22 +160,23 @@ function FinishedTrace({ steps, reasoning, tools, elapsedMs, tokens, reduced }:
         : `Worked${when}`
   return (
     <div className="mb-1.5">
-      <button onClick={() => hasBody && setOpen(o => !o)}
-        className={`flex items-center gap-1.5 text-[11px] text-muted transition-colors ${hasBody ? 'hover:text-accent' : 'cursor-default'}`}>
-        <Sparkles size={11} /> {summary}
+      <button onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 text-[11px] text-muted transition-colors hover:text-accent">
+        <span className="proc-dot" style={{ ['--orb' as string]: `var(--${tok})` }} aria-hidden />
+        {summary}
         {tokens ? <span className="text-muted/70">· {tokens} tok</span> : null}
-        {hasBody && <ChevronRight size={11} className={`transition-transform ${open ? 'rotate-90' : ''}`} />}
+        <ChevronRight size={11} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
       </button>
       <AnimatePresence initial={false}>
-        {open && hasBody && (
+        {open && (
           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: reduced ? 0 : 0.2 }} className="overflow-hidden">
+            transition={{ duration: reduced ? 0 : 0.24, ease: 'easeOut' }} className="overflow-hidden">
             <div className="mt-1.5 rounded-lg border border-border bg-bg/40 p-2.5">
               {steps.length > 0 && (
                 <ol className="space-y-1">
                   {steps.map((s, i) => (
                     <li key={i} className="flex items-center gap-2 text-[12px] text-muted">
-                      <Check size={12} className="shrink-0 text-success/80" /> {s}
+                      <Check size={12} className="shrink-0" style={{ color: rgb(CAT_TOKEN[catOf(s)], 0.7) }} /> {s}
                     </li>
                   ))}
                 </ol>

@@ -25,12 +25,12 @@ export function phaseCategory(phase: string, tools?: string[]): OrbCat {
   return 'think'
 }
 
-const CAT_TOKEN: Record<OrbCat, string> = {
+export const CAT_TOKEN: Record<OrbCat, string> = {
   think: 'accent', recall: 'purple', read: 'accent', act: 'success', web: 'warning',
 }
 
 // themed phrase pools so the label keeps evolving even when the backend phase is static
-const PHRASES: Record<OrbCat, string[]> = {
+export const PHRASES: Record<OrbCat, string[]> = {
   think: ['Thinking it through…', 'Reasoning…', 'Connecting the dots…', 'Weighing the options…', 'Composing a reply…'],
   recall: ['Searching your memory…', 'Recalling the context…', 'Pulling the details…', 'Piecing it together…'],
   read: ['Reading the data…', 'Checking the board…', 'Looking it over…', 'Gathering the facts…'],
@@ -106,8 +106,9 @@ export function ThinkingOrb({ phase, tools, startedAt }: { phase: string; tools?
   )
 }
 
-/** The orb itself — CSS loops (theme-tinted via --orb) + framer-motion particles. */
-function Orb({ cat, reduced }: { cat: OrbCat; reduced: boolean }) {
+/** The orb itself — CSS loops (theme-tinted via --orb) + framer-motion particles.
+ *  Reused by ProcessTrace as the live "current step" bullet. */
+export function Orb({ cat, reduced }: { cat: OrbCat; reduced: boolean }) {
   const token = CAT_TOKEN[cat]
   return (
     <div className="orb-wrap" data-variant={cat} style={{ ['--orb' as string]: `var(--${token})` }}>

@@ -1,0 +1,16 @@
+{
+  "name": "tobi",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "npx concurrently -k -n backend,frontend -c blue,green \"nodemon\" \"npm run watch -C dashboard\"",
+    "dev:backend": "nodemon",
+    "dev:frontend": "npm run watch -C dashboard",
+    "build": "npm run build -C dashboard",
+    "start": "venv/Scripts/python.exe main.py start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "nodemon": "^3.1.9"
+  }
+}

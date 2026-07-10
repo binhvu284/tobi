@@ -1,0 +1,25 @@
+{
+  "watch": [
+    "core/**/*.py",
+    "api/**/*.py",
+    "main.py",
+    ".env"
+  ],
+  "ignore": [
+    "dashboard/**",
+    "node_modules/**",
+    "__pycache__/**",
+    "*.pyc",
+    "data/**",
+    "graphify-out/**",
+    ".agents/**",
+    ".claude/**",
+    "venv/**"
+  ],
+  "ext": "py,env",
+  "exec": "venv/Scripts/python.exe main.py start",
+  "delay": "1500",
+  "signal": "SIGTERM",
+  "verbose": true,
+  "colours": true
+}

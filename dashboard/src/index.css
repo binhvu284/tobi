@@ -949,6 +949,39 @@
 [data-motion="off"] .orb-dot { animation: none !important; opacity: 0.6 !important; }
 [data-motion="off"] .orb-glow { animation: none !important; opacity: 0.85 !important; }
 
+/* ── ProcessTrace: the "show your work" panel (orb-led checkpoints, category-tinted glow) ── */
+.proc-panel {
+  position: relative;
+  border-radius: 1rem 1rem 1rem 0.35rem;
+  border: 1px solid rgb(var(--orb) / 0.22);
+  background:
+    radial-gradient(130% 150% at 0% 0%, rgb(var(--orb) / 0.10), transparent 62%),
+    linear-gradient(180deg, rgb(var(--surface) / 0.88), rgb(var(--surface) / 0.60));
+  box-shadow: 0 0 0 1px rgb(var(--orb) / 0.05), 0 10px 34px -14px rgb(var(--orb) / 0.30);
+  backdrop-filter: blur(9px);
+  padding: 0.7rem 0.95rem 0.75rem;
+  overflow: hidden;
+  /* the tint follows the active action; ease it so a category switch is a soft wash, not a jump */
+  transition: border-color 0.6s ease, box-shadow 0.6s ease, background-color 0.6s ease;
+}
+.proc-sheen {
+  position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(115deg, transparent 32%, rgb(var(--orb) / 0.07) 50%, transparent 68%);
+  background-size: 260% 100%;
+  animation: proc-sheen 6.5s ease-in-out infinite;
+}
+@keyframes proc-sheen { 0% { background-position: 160% 0; } 100% { background-position: -160% 0; } }
+/* the current-step orb, scaled down to sit as a list bullet (footprint fixed, orb centred) */
+.proc-orb { position: relative; display: inline-flex; width: 22px; height: 22px; flex: 0 0 auto; }
+.proc-orb .orb-wrap { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.62); }
+/* finished disclosure: a tiny static colour-tinted orb dot */
+.proc-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto;
+  background: radial-gradient(circle at 35% 35%, rgb(var(--orb)), rgb(var(--orb) / 0.65));
+  box-shadow: 0 0 7px 0 rgb(var(--orb) / 0.6);
+}
+[data-motion="reduced"] .proc-sheen, [data-motion="off"] .proc-sheen { animation: none !important; }
+
 /* ── Health diagnostic sweep: radar shimmer overlay (per-row, staggered) ── */
 @keyframes radar-scan { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 .radar-scan-overlay {
