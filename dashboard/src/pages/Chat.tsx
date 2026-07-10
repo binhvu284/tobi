@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Send, Sparkles, Bot, User, ShieldAlert, Check, X, Plus, Trash2, Pencil,
-  Square, RotateCcw, Copy, ChevronDown, Cpu, Brain as BrainIcon, MessageSquarePlus,
+  Square, RotateCcw, Copy, ChevronDown, Cpu, MessageSquarePlus,
   Paperclip, Globe, Image as ImageIcon, FileText, ThumbsUp, ThumbsDown, Activity,
   GitBranch, Plug, Layers, PanelLeftClose, PanelLeftOpen, AlertTriangle, Zap, Quote,
   Terminal, Search, Briefcase, Wrench, ShieldCheck, CheckCircle2, XCircle, ListChecks, Radio, Gauge,
@@ -23,14 +23,14 @@ import { useReducedMotionPref } from '../context/MotionProvider'
 import MarkdownView from '../components/chat/MarkdownView'
 import TierEmblem from '../components/TierEmblem'
 import ModelMenu from '../components/chat/ModelMenu'
-import ThinkingOrb from '../components/chat/ThinkingOrb'
+import ProcessTrace from '../components/chat/ProcessTrace'
 import PickerWizard, { type PickerAnswer } from '../components/chat/PickerWizard'
 import ChatAmbient, { ChatHeroMotif } from '../components/chat/ChatAmbient'
 import TerminalMode from '../components/chat/TerminalMode'
 
 type TierMark = { tier: number; colorKey: string; roman: string; name: string }
 
-type Meta = { elapsedMs?: number; tokens?: number; tools?: string[] }
+type Meta = { elapsedMs?: number; tokens?: number; tools?: string[]; steps?: string[] }
 type Msg = { id?: number; role: string; content: string; model?: string | null; meta?: Meta; thinking?: string | null; feedback?: number | null; created_at?: string }
 type ChatMode = 'chat' | 'agent' | 'terminal' | 'research' | 'project'
 type TurnOpts = { attachments?: ChatAttachment[]; web_research?: boolean; connectors?: string[] }
@@ -133,43 +133,6 @@ const fmtBytes = (n: number) => n < 1024 ? `${n} B` : n < 1048576 ? `${Math.roun
 const attBytes = (a: ChatAttachment) =>
   a.data_url ? Math.round((a.data_url.length - (a.data_url.indexOf(',') + 1)) * 0.75) : (a.text?.length || 0)
 
-// ── collapsible "Thought for Xs" reasoning panel ────────────────────────────────
-function ThoughtFor({ meta, thinking }: { meta?: Meta; thinking?: string | null }) {
-  const [open, setOpen] = useState(false)
-  const secs = meta?.elapsedMs != null ? (meta.elapsedMs / 1000).toFixed(1) : null
-  const isConsulted = thinking?.startsWith('Consulted: ')
-  const reasoning = thinking && !isConsulted ? thinking.trim() : ''
-  const tools = meta?.tools?.length ? meta.tools : (isConsulted ? thinking!.slice(11).split(', ').filter(Boolean) : [])
-  if (!secs && !reasoning && !tools.length) return null
-  const expandable = !!reasoning || tools.length > 0
-  return (
-    <div className="mb-1.5">
-      <button onClick={() => expandable && setOpen(o => !o)}
-        className={`flex items-center gap-1.5 text-[11px] text-muted transition-colors ${expandable ? 'hover:text-accent' : 'cursor-default'}`}>
-        <BrainIcon size={12} /> {secs ? `Thought for ${secs}s` : 'Reasoning'}
-        {meta?.tokens ? <span className="text-muted/70">· {meta.tokens} tok</span> : null}
-        {expandable && <ChevronDown size={11} className={`transition-transform ${open ? 'rotate-180' : ''}`} />}
-      </button>
-      <AnimatePresence initial={false}>
-        {open && expandable && (
-          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.2 }} className="overflow-hidden">
-            <div className="mt-1.5 rounded-lg border border-border bg-bg/40 p-2.5">
-              {reasoning && <div className="whitespace-pre-wrap text-[12px] leading-relaxed text-muted">{reasoning}</div>}
-              {tools.length > 0 && (
-                <div className={`flex flex-wrap gap-1 ${reasoning ? 'mt-2 border-t border-border/60 pt-2' : ''}`}>
-                  <span className="text-[10px] uppercase tracking-wide text-muted/70">Tools</span>
-                  {tools.map(t => <span key={t} className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-muted">{t.replace(/_/g, ' ')}</span>)}
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  )
-}
-
 const readDataURL = (f: File) => new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result as string); r.onerror = rej; r.readAsDataURL(f) })
 
 export default function Chat() {
@@ -208,9 +171,8 @@ export default function Chat() {
   const [webResearch, setWebResearch] = useState(false)
   const [connectors, setConnectors] = useState<string[]>([])
   const [connectorOpts, setConnectorOpts] = useState<{ id: string; label: string }[]>([])
-  const [thinkingPhase, setThinkingPhase] = useState('')
-  const [thinkingTools, setThinkingTools] = useState<string[]>([])
   const [thinkingStartedAt, setThinkingStartedAt] = useState(0)
+  const [thinkingSteps, setThinkingSteps] = useState<string[]>([])   // accumulated checkpoint timeline
   const [editing, setEditing] = useState<number | null>(null)
   const [editVal, setEditVal] = useState('')
   const [activityOpen, setActivityOpen] = useState(false)
@@ -236,6 +198,7 @@ export default function Chat() {
   const abortRef = useRef<AbortController | null>(null)
   const lastTurnRef = useRef<{ text: string; opts: TurnOpts }>({ text: '', opts: {} })
   const lastMetaRef = useRef<Meta>({})
+  const stepsRef = useRef<string[]>([])   // mirrors thinkingSteps for persisting into message meta
   const activeIdRef = useRef<number | null>(null)
   const queuedTurnsRef = useRef<QueuedTurn[]>([])
   // streamed deltas can arrive far faster than 60fps (small chunks back-to-back) — buffer
@@ -427,13 +390,21 @@ export default function Chat() {
     const tag = opts.attachments?.length ? `  📎×${opts.attachments.length}` : ''
     setMessages(m => [...m, { role: 'user', content: text + tag }])
     setSending(true); setPending(null); setModelIssue(false)
-    setThinkingPhase(''); setThinkingTools([]); setThinkingStartedAt(Date.now()); setTerminalLines([])
+    setThinkingStartedAt(Date.now()); setTerminalLines([])
+    setThinkingSteps([]); stepsRef.current = []
     const ac = new AbortController(); abortRef.current = ac
     let streamed = false; let toolsSeen: string[] = []
     const startAssistant = () => { if (streamed) return; streamed = true; setSending(false); setStreaming(true); setMessages(m => [...m, { role: 'assistant', content: '', meta: {} }]) }
     try {
       await streamChatSession(sid, text, model, {
-        onThinking: (phase, tools) => { if (phase) setThinkingPhase(phase); if (tools?.length) { toolsSeen = tools; setThinkingTools(tools) } },
+        onThinking: (phase, tools) => {
+          // accumulate DISTINCT phases into a stable checkpoint timeline (don't replace)
+          if (phase && stepsRef.current[stepsRef.current.length - 1] !== phase) {
+            stepsRef.current = [...stepsRef.current, phase]
+            setThinkingSteps(stepsRef.current)
+          }
+          if (tools?.length) toolsSeen = tools
+        },
         onDelta: (delta) => {
           startAssistant()
           deltaBufRef.current += delta
@@ -452,7 +423,7 @@ export default function Chat() {
         },
         onUsage: (u: ChatUsage) => {
           flushDelta()
-          lastMetaRef.current = { elapsedMs: u.latency_ms, tokens: u.completion_tokens, tools: toolsSeen }
+          lastMetaRef.current = { elapsedMs: u.latency_ms, tokens: u.completion_tokens, tools: toolsSeen, steps: stepsRef.current }
           setMessages(m => { const next = [...m]; const last = next[next.length - 1]; if (last && last.role === 'assistant') next[next.length - 1] = { ...last, meta: { ...last.meta, ...lastMetaRef.current } }; return next })
         },
       }, ac.signal, opts)
@@ -912,8 +883,12 @@ export default function Chat() {
                   <motion.div key={m.id ?? i} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="group flex gap-3">
                     <div className="pt-0.5">{tobiMark(28)}</div>
                     <div className="min-w-0 flex-1">
+                      {/* process trace: live checkpoints while working, collapsed "Worked for Xs" once done */}
+                      {isLast && busy
+                        ? <ProcessTrace active steps={thinkingSteps} startedAt={thinkingStartedAt} />
+                        : <ProcessTrace steps={m.meta?.steps} tools={m.meta?.tools} thinking={m.thinking} elapsedMs={m.meta?.elapsedMs} tokens={m.meta?.tokens} />}
                       <div className="tobi-answer max-w-none text-[15px] leading-relaxed">
-                        {m.content ? <MarkdownView content={m.content} /> : <span className="text-sm text-muted">…</span>}
+                        {m.content ? <MarkdownView content={m.content} /> : (isLast && busy ? null : <span className="text-sm text-muted">…</span>)}
                         {streaming && isLast && <span className={`ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] bg-accent align-middle ${reduced ? '' : 'chat-caret'}`} />}
                       </div>
                       {m.created_at && !(streaming && isLast) && (
@@ -943,7 +918,18 @@ export default function Chat() {
                 )
               })}
 
-              <AnimatePresence>{sending && <ThinkingOrb key="orb" phase={thinkingPhase} tools={thinkingTools} startedAt={thinkingStartedAt} />}</AnimatePresence>
+              {/* live process trace before the answer bubble exists (avatar-aligned so it
+                  stays put when the streamed answer appears beneath it) */}
+              <AnimatePresence>
+                {sending && (
+                  // exit is instant so the trace hands off seamlessly to the in-message trace when
+                  // the streamed answer appears beneath it (no brief double "Working" panel)
+                  <motion.div key="proc" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, transition: { duration: 0 } }} className="flex gap-3">
+                    <div className="pt-0.5">{tobiMark(28)}</div>
+                    <div className="min-w-0 flex-1"><ProcessTrace active steps={thinkingSteps} startedAt={thinkingStartedAt} /></div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* model-issue notice — one-tap switch */}
               {modelIssue && !busy && (
