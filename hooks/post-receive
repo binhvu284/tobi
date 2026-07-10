@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# ──────────────────────────────────────────────────────────────────────────────
+# Git post-receive hook — push-to-deploy for TOBI on VPS.
+#
+# This file lives in the repo as hooks/post-receive. The setup-vps.sh script
+# copies it into the bare repo's hooks/ directory.
+#
+# When you `git push deploy main`, this hook:
+#   1. Checks out the latest code into the working directory
+#   2. Runs deploy.sh (build frontend + restart backend)
+# ──────────────────────────────────────────────────────────────────────────────
+set -euo pipefail
+
+# These are set by setup-vps.sh. If not set, try sensible defaults.
+TARGET="${TOBI_HOME:-$(dirname "$(dirname "$(readlink -f "$0")")")/tobi}"
+BRANCH="${DEPLOY_BRANCH:-main}"
+
+while read -r oldrev newrev ref; do
+    branch=$(echo "$ref" | sed 's|refs/heads/||')
+    if [ "$branch" != "$BRANCH" ]; then
+        echo "  ↳ Pushed $branch — skipping (only $BRANCH auto-deploys)"
+        continue
+    fi
+
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  TOBI auto-deploy: $BRANCH  ($(echo $newrev | cut -c1-7))"
+    echo "═══════════════════════════════════════════════════════════"
+
+    # Checkout latest code into the working directory
+    GIT_DIR=$(pwd)
+    echo "── Checking out code ──"
+    git --work-tree="$TARGET" --git-dir="$GIT_DIR" checkout -f "$BRANCH"
+    git --work-tree="$TARGET" --git-dir="$GIT_DIR" clean -fd -e data -e logs -e venv -e .env
+
+    # Deploy
+    echo "── Running deploy.sh ──"
+    cd "$TARGET"
+    bash deploy.sh
+
+    echo ""
+    echo "✓ Deploy complete: $newrev"
+    echo ""
+done

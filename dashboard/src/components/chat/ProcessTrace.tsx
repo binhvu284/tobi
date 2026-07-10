@@ -62,8 +62,9 @@ export default function ProcessTrace({ active, steps, tools, thinking, startedAt
   const isConsulted = thinking?.startsWith('Consulted: ')
   const reasoning = thinking && !isConsulted ? thinking.trim() : ''
   const toolList = tools?.length ? tools : (isConsulted ? thinking!.slice(11).split(', ').map(s => s.trim()).filter(Boolean) : [])
-  // drop the generic "Thinking…" placeholder — a plain reply with no tools/reasoning shows no disclosure
-  const stepList = (steps?.length ? steps : toolList.map(toolPhase)).filter(s => !/^thinking…?$/i.test(s.trim()))
+  // drop the generic bookend placeholders (Thinking… / Composing…) — a plain reply with no real
+  // tool actions or reasoning shows no disclosure at all
+  const stepList = (steps?.length ? steps : toolList.map(toolPhase)).filter(s => !/^(thinking|composing)/i.test(s.trim()))
   if (!stepList.length && !reasoning && !toolList.length) return null
   return <FinishedTrace steps={stepList} reasoning={reasoning} tools={toolList}
     elapsedMs={elapsedMs} tokens={tokens} reduced={reduced} />

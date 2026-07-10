@@ -1,34 +1,76 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────────────
-# TOBI deploy script — pull latest code, rebuild frontend, restart backend.
-# Usage on VPS:  bash deploy.sh
+# TOBI deploy script — rebuild frontend + restart backend.
 #
-# For systemd setups, this script is the ExecStartPre / post-receive hook.
-# It only restarts if the build succeeds — a failed build keeps the old server
-# running so you don't lose the dashboard mid-deploy.
+# Called automatically by the post-receive git hook on push.
+# Can also be run manually:  bash deploy.sh
+#
+# Safe re-deploy: a failed build keeps the old server running.
 # ──────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 cd "$(dirname "$0")"
 
-echo "── Pulling latest code ──"
-git pull
+LOG_FILE="logs/tobi.log"
+PID_FILE="logs/tobi.pid"
+PYTHON="venv/bin/python"
+[ -f "$PYTHON" ] || PYTHON="venv/Scripts/python.exe"
 
-echo "── Building frontend ──"
-cd dashboard
-npm install --silent
-npm run build
-cd ..
-
-echo "── Restarting backend ──"
-if command -v systemctl &>/dev/null && systemctl list-units --full | grep -q "tobi"; then
-  # systemd manages TOBI — just restart the service
-  sudo systemctl restart tobi
-  echo "✓ Restarted via systemd (sudo systemctl restart tobi)"
-else
-  # No systemd — kill old process and start fresh
-  pkill -f "python.*main.py start" && echo "  killed old process" || echo "  no old process found"
-  nohup venv/bin/python main.py start > logs/tobi.log 2>&1 &
-  echo "✓ Started in background (logs/tobi.log)"
+# ── 1. Install Python deps (in case requirements.txt changed) ──
+if [ -f "venv/bin/pip" ]; then
+    echo "── Checking Python dependencies ──"
+    venv/bin/pip install -q -r requirements.txt 2>/dev/null || true
 fi
 
-echo "── Deploy complete ──"
+# ── 2. Build frontend ──
+if [ -d "dashboard/node_modules" ]; then
+    echo "── Building frontend ──"
+    cd dashboard
+    npm run build || { echo "  ✗ Frontend build FAILED — keeping old build"; cd ..; exit 1; }
+    cd ..
+else
+    echo "── Installing frontend deps + building ──"
+    cd dashboard
+    npm install --silent || true
+    npm run build || { echo "  ✗ Frontend build FAILED — keeping old build"; cd ..; exit 1; }
+    cd ..
+fi
+
+echo "✓ Frontend built"
+
+# ── 3. Restart backend ──
+echo "── Restarting backend ──"
+mkdir -p logs
+
+# Kill old process
+if [ -f "$PID_FILE" ]; then
+    OLD_PID=$(cat "$PID_FILE" 2>/dev/null || echo "")
+    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+        kill "$OLD_PID" 2>/dev/null || true
+        sleep 2
+        kill -9 "$OLD_PID" 2>/dev/null || true
+    fi
+    rm -f "$PID_FILE"
+fi
+# Fallback: kill by pattern if no PID file
+pkill -f "python.*main.py start" 2>/dev/null || true
+sleep 1
+
+# Start fresh
+nohup "$PYTHON" main.py start > "$LOG_FILE" 2>&1 &
+NEW_PID=$!
+echo "$NEW_PID" > "$PID_FILE"
+
+sleep 3
+if kill -0 "$NEW_PID" 2>/dev/null; then
+    echo "✓ Backend started (PID: $NEW_PID)"
+else
+    echo "  ✗ Backend failed to start — check $LOG_FILE"
+    exit 1
+fi
+
+echo ""
+echo "════════════════════════════════════════════════"
+echo "  ✓ Deploy complete"
+echo "  PID: $NEW_PID"
+echo "  Log: $LOG_FILE"
+echo "════════════════════════════════════════════════"

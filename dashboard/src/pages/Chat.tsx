@@ -394,15 +394,23 @@ export default function Chat() {
     setThinkingSteps([]); stepsRef.current = []
     const ac = new AbortController(); abortRef.current = ac
     let streamed = false; let toolsSeen: string[] = []
-    const startAssistant = () => { if (streamed) return; streamed = true; setSending(false); setStreaming(true); setMessages(m => [...m, { role: 'assistant', content: '', meta: {} }]) }
+    const pushStep = (phase: string) => {
+      if (phase && stepsRef.current[stepsRef.current.length - 1] !== phase) {
+        stepsRef.current = [...stepsRef.current, phase]; setThinkingSteps(stepsRef.current)
+      }
+    }
+    const startAssistant = () => {
+      if (streamed) return; streamed = true; setSending(false); setStreaming(true)
+      // the tools are done; log the final action so the checkpoint list shows the full arc and
+      // the orb moves off the last tool onto "Composing" while the answer streams below
+      pushStep('Composing the reply…')
+      setMessages(m => [...m, { role: 'assistant', content: '', meta: {} }])
+    }
     try {
       await streamChatSession(sid, text, model, {
         onThinking: (phase, tools) => {
           // accumulate DISTINCT phases into a stable checkpoint timeline (don't replace)
-          if (phase && stepsRef.current[stepsRef.current.length - 1] !== phase) {
-            stepsRef.current = [...stepsRef.current, phase]
-            setThinkingSteps(stepsRef.current)
-          }
+          if (phase) pushStep(phase)
           if (tools?.length) toolsSeen = tools
         },
         onDelta: (delta) => {
@@ -418,6 +426,10 @@ export default function Chat() {
           // a chatty model leaked a prose preamble before a tool call → drop it, show the orb again
           if (deltaRafRef.current != null) { cancelAnimationFrame(deltaRafRef.current); deltaRafRef.current = null }
           deltaBufRef.current = ''
+          // that wasn't the real reply → retract the 'Composing' checkpoint we optimistically logged
+          if (stepsRef.current[stepsRef.current.length - 1] === 'Composing the reply…') {
+            stepsRef.current = stepsRef.current.slice(0, -1); setThinkingSteps(stepsRef.current)
+          }
           streamed = false; setStreaming(false); setSending(true)
           setMessages(m => (m.length && m[m.length - 1].role === 'assistant') ? m.slice(0, -1) : m)
         },
