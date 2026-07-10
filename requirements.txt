@@ -23,3 +23,6 @@ mcp==1.28.0
 # Premium Chat (#8 P2): extract text from PDF attachments. Optional — attachments
 # degrade to an honest "install pypdf" note if it's missing.
 pypdf==6.1.1
+# TOBI Premium Ability (#14): read YouTube transcripts in chat. Optional —
+# absent = graceful "unavailable in this install"; also used by PM Resources.
+youtube-transcript-api==1.2.4

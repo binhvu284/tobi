@@ -501,6 +501,24 @@ export type Proposal = {
   payload: Record<string, unknown>
 }
 
+// Read-only repo Hermes skills for the Ability dashboard (#14).
+export type HermesSkill = {
+  id: string
+  name: string
+  source: 'hermes_repo_file'
+  file_path: string
+  status: 'available' | string
+  risk_tier: 'approval_required' | string
+  can_execute: boolean
+  version: number
+  description: string
+  last_modified: string | null
+  parse_warning?: boolean
+}
+export async function getHermesSkills(): Promise<{ items: HermesSkill[]; count: number }> {
+  return get('/api/hermes/skills')
+}
+
 export async function getAbilities(): Promise<AbilitiesReport> {
   return get('/api/abilities')
 }
@@ -1138,7 +1156,8 @@ export type ChatStoredMessage = {
   feedback?: number | null; created_at: string
 }
 export type ChatUsage = { prompt_tokens: number; completion_tokens: number; model: string; latency_ms: number }
-export type ChatNotice = { kind: 'model_issue' | string }
+export type ReaderChip = { url: string; state: string; title?: string | null }
+export type ChatNotice = { kind: 'model_issue' | 'reader' | string; reader?: string; items?: ReaderChip[] }
 export type PickerQuestion = { question: string; options?: string[] }
 export type ChatPicker = { topic: string; questions: PickerQuestion[] }
 export type ChatStreamHandlers = {

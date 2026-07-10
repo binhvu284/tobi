@@ -929,6 +929,15 @@ async def api_abilities():
     return {"timestamp": datetime.now(timezone.utc).isoformat(), "abilities": ab}
 
 
+@app.get("/api/hermes/skills")
+def api_hermes_skills():
+    """Read-only repo Hermes skill registry (#14): parsed metadata for the Ability
+    dashboard — name, description, status, risk, version, last-modified. No execution,
+    no DB mirror; a missing folder returns an empty list."""
+    from core import hermes_skills
+    return hermes_skills.skills_report()
+
+
 @app.get("/api/abilities/{skill_id}")
 async def api_ability_detail(skill_id: str):
     """Full registry record + metrics + version history + dependency edges."""
@@ -4989,6 +4998,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
     P2: folds in **attachments** (text → context, images → native vision), an opt-in
     **web_search** tool and **connector** emphasis, all gated by the chat's `+` menu."""
     from core import chat_store, conductor, model_router, attachments as attach
+    from core import premium_readers, youtube_reader
     import time as _time
 
     sess = chat_store.get_session(sid)
@@ -5007,11 +5017,22 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
             yield "event: done\ndata: {}\n\n"
             return
         cid = chat_store.chat_id_for_session(sid)
+        from core.database import save_conversation_message as _bridge_msg
         history = await loop.run_in_executor(None, lambda: chat_store.recent_history(sid, limit=8))
         stored_user = message + (f"  📎×{len(payload.attachments)}" if payload.attachments else "")
         await loop.run_in_executor(None, lambda: chat_store.add_message(sid, "user", stored_user, model=model))
+        await loop.run_in_executor(None, lambda: _bridge_msg(cid, "user", message))
         await loop.run_in_executor(None, lambda: chat_store.auto_title(sid, message or "Attachment"))
         t0 = _time.time()
+
+        # ── Premium readers (#14): read YouTube transcripts referenced in the message
+        # BEFORE answering, so both the vision and tool-loop paths get the context. A
+        # pasted link is treated as consent to fetch [spec]. Honest notice if unavailable.
+        reader = premium_readers.ReaderResult()
+        if youtube_reader.find_youtube_urls(message):
+            yield f"event: thinking\ndata: {json.dumps({'phase': 'Reading the YouTube transcript…', 'tools': ['youtube']})}\n\n"
+            reader = await loop.run_in_executor(None, lambda: premium_readers.read_message(message))
+            yield f"event: notice\ndata: {json.dumps(premium_readers.notice_payload(reader))}\n\n"
 
         # ── Vision path: image attachments bypass the tool-loop (one multimodal call) ──
         vmodel = model or model_router.load_llm_config().get("default_model") or ""
@@ -5023,7 +5044,8 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
             except Exception:
                 profile = ""
             system = conductor._system_prompt(profile, False, "mc", directives)
-            vtext = message + (("\n\n" + att_text) if att_text else "")
+            v_ctx = premium_readers.compose_context(att_text, reader)
+            vtext = message + (("\n\n" + v_ctx) if v_ctx else "")
             _prev = model_router.set_usage_context("chat", "vision")
             try:
                 reply = await loop.run_in_executor(
@@ -5038,17 +5060,18 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
             ctok = model_router.estimate_tokens(reply)
             await loop.run_in_executor(None, lambda: chat_store.add_message(
                 sid, "assistant", reply, model=vmodel, tokens=ctok, thinking="Looked at image"))
+            await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", reply))
             usage = {"prompt_tokens": model_router.estimate_tokens(vtext), "completion_tokens": ctok,
                      "model": vmodel, "latency_ms": round((_time.time() - t0) * 1000)}
             yield f"event: usage\ndata: {json.dumps(usage)}\n\n"
             yield "event: done\ndata: {}\n\n"
             return
 
-        # images present but no vision-capable model → fold an honest note into context
-        atext = att_text
-        if img_urls and not (vmodel and model_router.supports_vision(vmodel)):
-            atext = (att_text + "\n\n" if att_text else "") + \
-                f"[{len(img_urls)} image(s) attached, but the current model isn't vision-capable — switch to Claude / GPT-4o / Gemini to read them, sir.]"
+        # Fold reader context (YouTube transcript / notices) + an honest image note (when
+        # images are attached but the model can't see them) into the turn context (#14).
+        image_note = (premium_readers.image_unavailable_note(len(img_urls))
+                      if img_urls and not (vmodel and model_router.supports_vision(vmodel)) else None)
+        atext = premium_readers.compose_context(att_text, reader, image_note)
 
         # ── Standard tool-loop turn — live tool-step + token events via a thread→async queue ──
         yield f"event: thinking\ndata: {json.dumps({'phase': 'Thinking…'})}\n\n"
@@ -5106,6 +5129,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
         await loop.run_in_executor(
             None, lambda: chat_store.add_message(sid, "assistant", reply, model=model,
                                                  tokens=ctok, thinking=thinking_meta))
+        await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", reply))
         pending = res.get("pending_action")
         if pending:
             yield f"event: action\ndata: {json.dumps(pending)}\n\n"

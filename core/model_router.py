@@ -748,13 +748,12 @@ def llm_complete(prompt: str, task_type: str = "default",
                            system=system, max_tokens=max_tokens)
 
 
-# ── Vision (Premium Chat #8 P2) ──────────────────────────────────────────────
-_VISION_FRAGS = ("claude", "gpt-4o", "gpt-4.1", "gpt-5", "o3", "o4", "gemini", "grok-4", "grok-vision", "llava", "qwen2-vl", "qwen2.5-vl")
-
-
+# ── Vision (Premium Chat #8 P2 · registry-backed since #14) ──────────────────
 def supports_vision(model_id: str) -> bool:
-    name = (model_id or "").lower()
-    return any(f in name for f in _VISION_FRAGS)
+    """Delegates to the local capability registry (#14). Kept here so every existing
+    caller (`model_router.supports_vision(...)`) keeps working unchanged."""
+    from core import model_capabilities
+    return model_capabilities.supports_vision(model_id)
 
 
 def _split_data_url(data_url: str) -> tuple[str, str]:

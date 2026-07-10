@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Plus, Check, GitBranch, Sparkles, Inbox, ThumbsUp, ThumbsDown } from 'lucide-react'
+import { X, Plus, Check, GitBranch, Sparkles, Inbox, ThumbsUp, ThumbsDown, FileCode2, ShieldAlert, Lock } from 'lucide-react'
 import Logo from '../components/Logo'
 import StatBar from '../components/StatBar'
 import RadarChart from '../components/RadarChart'
 import { AmbientField } from '../components/motion'
 import {
   getAbilities, getAbilityDetail, coachAbility, getProposals, approveProposal, rejectProposal, rollbackAbility,
-  type AbilitiesReport, type AbilityUsage, type SkillDetail, type Proposal,
+  getHermesSkills,
+  type AbilitiesReport, type AbilityUsage, type SkillDetail, type Proposal, type HermesSkill,
 } from '../api'
 
 // ── Model ──────────────────────────────────────────────────────────
@@ -220,6 +221,7 @@ export default function Ability() {
   const [coachBusy, setCoachBusy] = useState(false)
   const [inboxOpen, setInboxOpen] = useState(false)
   const [proposals, setProposals] = useState<Proposal[]>([])
+  const [hermes, setHermes] = useState<HermesSkill[]>([])   // read-only repo skills (#14)
 
   const usage = (id: string): AbilityUsage | undefined => report?.abilities[id]
 
@@ -233,6 +235,9 @@ export default function Ability() {
 
   const loadProposals = () => getProposals('pending').then(r => setProposals(r.items)).catch(() => {})
   useEffect(() => { loadProposals() }, [])
+
+  // Hermes repo skills are static files — one quiet fetch, no polling needed (#14).
+  useEffect(() => { getHermesSkills().then(r => setHermes(r.items)).catch(() => setHermes([])) }, [])
 
   // Fetch version history when a skill is opened.
   useEffect(() => {
@@ -347,6 +352,7 @@ export default function Ability() {
             <span className="text-success">● {counts.active} active</span>
             <span className="text-accent">⟳ {counts.auto} auto</span>
             <span className="text-warning">○ {counts.config} needs config</span>
+            {hermes.length > 0 && <span className="text-purple">◆ {hermes.length} Hermes skill{hermes.length > 1 ? 's' : ''}</span>}
           </div>
         </motion.div>
 
@@ -458,6 +464,46 @@ export default function Ability() {
             </div>
           </div>
         ))}
+
+        {/* ── Hermes skills (read-only repo source · #14) ── */}
+        {hermes.length > 0 && (
+          <div className="mb-6">
+            <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-purple">
+              <FileCode2 size={13} /> Hermes Skills
+              <span className="rounded-full border border-purple/30 bg-purple/10 px-1.5 py-0.5 text-[9px] font-medium normal-case tracking-normal text-purple">read-only source</span>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {hermes.map(s => (
+                <div key={s.id} className="rounded-lg border border-border bg-surface p-4">
+                  <div className="mb-2 flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple/10 text-purple"><FileCode2 size={16} /></span>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-heading" title={s.name}>{s.name}</div>
+                        <div className="truncate font-mono text-[10px] text-muted" title={s.file_path}>{s.file_path}</div>
+                      </div>
+                    </div>
+                    <span className="shrink-0 whitespace-nowrap rounded border border-purple/40 bg-purple/10 px-1.5 py-0.5 font-mono text-[10px] font-bold text-purple">v{s.version}</span>
+                  </div>
+                  {s.description && <p className="mb-3 line-clamp-3 text-xs leading-relaxed text-muted">{s.description}</p>}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-medium text-success"><Check size={10} /> {s.status}</span>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-warning"><ShieldAlert size={10} /> {s.risk_tier.replace(/_/g, ' ')}</span>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] text-muted"><Lock size={10} /> execution off</span>
+                    {s.parse_warning && <span className="rounded-full bg-danger/15 px-2 py-0.5 text-[10px] text-danger">parse warning</span>}
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-[10px] text-muted">
+                    <span>Hermes repo file</span>
+                    {s.last_modified && <span title={s.last_modified}>{s.last_modified.slice(0, 10)}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 text-[11px] text-muted">
+              Discovered from <span className="font-mono">hermes_skills/</span> — read-only in v1. Execution stays behind Conductor human review (no autonomous runs).
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Detail panel */}

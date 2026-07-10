@@ -2,12 +2,28 @@
 
 ## Status
 
-- Queue status: Queued
+- Queue status: ✅ Done (v1) — shipped per the §Final Queued Task Plan (13-step order), no DB migration.
 - Queue item: #14
 - Planned after: Theme v2 System Upgrade
 - Implementation owner: worker agent
 - Planning owner: Codex planner
 - Scope: planning and future implementation only; do not implement from this file until the queue item is selected.
+
+### v1 delivery notes (this session)
+
+New modules: `core/model_capabilities.py` (explicit vision/reasoning/context registry;
+`model_router.supports_vision()` delegates here), `core/youtube_reader.py` (detect
+watch/youtu.be/shorts, transcript via optional `youtube-transcript-api`, cause-aware
+fallback, long-transcript summarize → partial excerpt on failure), `core/premium_readers.py`
+(turn context assembly + `ENABLE_PREMIUM_READERS` rollback flag + reader notice payload),
+`core/hermes_skills.py` (read-only `hermes_skills/*.md` parser). New endpoint
+`GET /api/hermes/skills`. Chat stream route reads YouTube after Send and folds context into
+both the vision and tool-loop paths, with an honest notice when a source can't be read;
+image fallback copy centralised. Frontend: subtle YouTube reader chip in `Chat.tsx`
+(`ChatNotice` extended in `api.ts`) + a read-only Hermes Skills section in `Ability.tsx`.
+Hermes execution stays behind Conductor human review (documented, not enabled — the future
+`Ability Execution Pipeline Proposal` still applies). Tests: `tests/test_premium_readers.py`
+55/55; `tsc` + `vite build` clean; regressions (#11 67/67, #10 32/32) green.
 
 ## Executive Summary
 

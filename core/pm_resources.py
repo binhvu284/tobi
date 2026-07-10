@@ -186,8 +186,13 @@ def fetch_youtube_transcript(url: str) -> str | None:
         return None
     try:
         from youtube_transcript_api import YouTubeTranscriptApi  # optional
-        parts = YouTubeTranscriptApi.get_transcript(vid)
-        return " ".join(p.get("text", "") for p in parts)[:MAX_TEXT_CHARS] or None
+        if hasattr(YouTubeTranscriptApi, "get_transcript"):
+            parts = YouTubeTranscriptApi.get_transcript(vid)          # classic (<1.0) static API
+        else:
+            parts = list(YouTubeTranscriptApi().fetch(vid))           # >=1.0 instance .fetch() API
+        text = " ".join(p.get("text", "") if isinstance(p, dict) else getattr(p, "text", "")
+                        for p in parts)
+        return text[:MAX_TEXT_CHARS] or None
     except Exception:
         return None
 

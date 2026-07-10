@@ -6,12 +6,12 @@ import {
   Paperclip, Globe, Image as ImageIcon, FileText, ThumbsUp, ThumbsDown, Activity,
   GitBranch, Plug, Layers, PanelLeftClose, PanelLeftOpen, AlertTriangle, Zap, Quote,
   Terminal, Search, Briefcase, Wrench, ShieldCheck, CheckCircle2, XCircle, ListChecks, Radio, Gauge,
-  ChevronUp, MessagesSquare, ChevronRight, Pin,
+  ChevronUp, MessagesSquare, ChevronRight, Pin, Youtube, Loader2,
 } from 'lucide-react'
 import { SiGithub, SiGoogle, SiNotion, SiVercel, SiSupabase, type IconType } from '@icons-pack/react-simple-icons'
 import {
   type PendingAction, type ChatSession, type AvailableModel, type ChatUsage,
-  type ChatStoredMessage, type ChatAttachment, type ConductorAction, type ChatPicker,
+  type ChatStoredMessage, type ChatAttachment, type ConductorAction, type ChatPicker, type ReaderChip,
   getChatSessions, createChatSession, getChatSession, patchChatSession, deleteChatSession,
   appendChatMessage, streamChatSession, getLlmModels, confirmConductorAction, rememberFact,
   forkChatSession, setMessageFeedback, getSessionActivity, getIntegrations, compactSession,
@@ -27,6 +27,45 @@ import ProcessTrace from '../components/chat/ProcessTrace'
 import PickerWizard, { type PickerAnswer } from '../components/chat/PickerWizard'
 import ChatAmbient, { ChatHeroMotif } from '../components/chat/ChatAmbient'
 import TerminalMode from '../components/chat/TerminalMode'
+
+// Local YouTube detection for the composer chip only — the backend does the real
+// fetch after Send (a pasted link is consent to read the transcript). (#14)
+const YT_RE = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)([A-Za-z0-9_-]{11})/gi
+const findYouTube = (text: string): string[] => {
+  const ids = new Set<string>()
+  for (const m of (text || '').matchAll(YT_RE)) ids.add(m[1])
+  return [...ids]
+}
+
+/** Subtle YouTube reader chips — 'detected' before Send, then reading/ready/unavailable. */
+function ReaderChips({ chips, draftIds }: { chips: ReaderChip[]; draftIds: string[] }) {
+  const show: ReaderChip[] = chips.length
+    ? chips
+    : draftIds.map(id => ({ url: `https://youtu.be/${id}`, state: 'detected' }))
+  if (!show.length) return null
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 px-3 pt-2.5">
+      {show.map((c, i) => {
+        const reading = c.state === 'reading'
+        const ok = c.state === 'transcript ready' || c.state === 'ready'
+        const bad = c.state === 'unavailable'
+        const tone = bad ? 'border-danger/40 text-danger' : ok ? 'border-success/40 text-success' : 'border-border text-muted'
+        const label = reading ? 'reading…' : ok ? 'transcript ready' : bad ? 'no transcript' : 'detected'
+        return (
+          <span key={c.url + i} title={c.title || c.url}
+            className={`inline-flex items-center gap-1.5 rounded-lg border bg-bg/50 py-1 pl-1.5 pr-2 text-[11px] ${tone}`}>
+            {reading ? <Loader2 size={12} className="animate-spin" />
+              : ok ? <Check size={12} />
+              : bad ? <X size={12} />
+              : <Youtube size={12} className="text-danger" />}
+            <span className="font-medium">YouTube</span>
+            <span className="opacity-70">· {label}</span>
+          </span>
+        )
+      })}
+    </div>
+  )
+}
 
 type TierMark = { tier: number; colorKey: string; roman: string; name: string }
 
@@ -148,6 +187,7 @@ export default function Chat() {
   const [sending, setSending] = useState(false)
   const [streaming, setStreaming] = useState(false)
   const [pending, setPending] = useState<PendingAction | null>(null)
+  const [readerChips, setReaderChips] = useState<ReaderChip[]>([])   // YouTube reader status (#14)
   const [renaming, setRenaming] = useState<number | null>(null)
   const [renameVal, setRenameVal] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(() => { try { return localStorage.getItem('tobi.chat.sidebar') !== '0' } catch { return true } })
@@ -295,7 +335,7 @@ export default function Chat() {
   useEffect(() => { autoGrow(); setSlashIdx(0) }, [input])
 
   const openSession = async (id: number, list?: ChatSession[]) => {
-    setActiveId(id); setPending(null); setActivityOpen(false); setModelIssue(false); setAutoAcceptChat(false)
+    setActiveId(id); setPending(null); setActivityOpen(false); setModelIssue(false); setAutoAcceptChat(false); setReaderChips([])
     const s = (list || sessions).find(x => x.id === id)
     setModel(s?.model ?? null)
     try { setInput(localStorage.getItem(`tobi.chat.draft.${id}`) || '') } catch { setInput('') }
@@ -390,6 +430,10 @@ export default function Chat() {
     const tag = opts.attachments?.length ? `  📎×${opts.attachments.length}` : ''
     setMessages(m => [...m, { role: 'user', content: text + tag }])
     setSending(true); setPending(null); setModelIssue(false)
+    // YouTube reader chip (#14): show 'reading' immediately if the message has a link;
+    // the backend confirms real per-link states via a `reader` notice event.
+    const ytIds = findYouTube(text)
+    setReaderChips(ytIds.length ? ytIds.map(id => ({ url: `https://youtu.be/${id}`, state: 'reading' })) : [])
     setThinkingStartedAt(Date.now()); setTerminalLines([])
     setThinkingSteps([]); stepsRef.current = []
     const ac = new AbortController(); abortRef.current = ac
@@ -420,7 +464,10 @@ export default function Chat() {
         },
         onAction: (a) => { flushDelta(); if (confirmMode === 'auto' || autoAcceptChat) resolveAction('approve', a); else setPending(a) },
         onPicker: (p) => { flushDelta(); setPicker(p) },
-        onNotice: (n) => { if (n.kind === 'model_issue') setModelIssue(true) },
+        onNotice: (n) => {
+          if (n.kind === 'model_issue') setModelIssue(true)
+          else if (n.kind === 'reader' && n.items) setReaderChips(n.items)
+        },
         onTerminal: (line) => setTerminalLines(ls => [...ls, line]),
         onReset: () => {
           // a chatty model leaked a prose preamble before a tool call → drop it, show the orb again
@@ -1152,6 +1199,10 @@ export default function Chat() {
                   </motion.div>
                 )}
               </AnimatePresence>
+
+              {/* YouTube reader chips (#14): compact status — detected before Send,
+                  reading/ready/unavailable during & after the turn */}
+              <ReaderChips chips={readerChips} draftIds={findYouTube(input)} />
 
               {/* textarea — transparent, the card is the surface */}
               <div className="relative px-3 pt-2.5">
