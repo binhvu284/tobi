@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Search, ArrowRight, Play, LayoutDashboard, Network, Zap, Building2, Kanban, HeartPulse, Terminal, Settings, type LucideIcon } from 'lucide-react'
+import { Search, ArrowRight, Play, LayoutDashboard, Network, Zap, Building2, Kanban, HeartPulse, Terminal, Settings } from 'lucide-react'
 import { useTheme } from '../context/ThemeProvider'
-import { ACTIVE_THEMES, THEME_DEFS, type ThemeId } from '../context/themeTokens'
+import { ACTIVE_THEMES, THEME_DEFS, type ThemeId, type ThemeIcon } from '../context/themeTokens'
 import { useToast } from '../context/ToastProvider'
 import { Stagger } from './motion'
 import { staggerChild, SPRING, useReducedMotionPref } from '../lib/motion'
 import { runEngine, type EngineName } from '../api'
 
-type Action = { id: string; label: string; group: string; icon: LucideIcon; run: () => void | Promise<void> }
+// icon: ThemeIcon accepts both lucide icons and the brand marks (Claude/OpenAI).
+type Action = { id: string; label: string; group: string; icon: ThemeIcon; run: () => void | Promise<void> }
 
 export default function CommandPalette() {
   const [open, setOpen] = useState(false)

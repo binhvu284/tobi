@@ -386,25 +386,25 @@
   --chart-5: 235 87 87;
   --chart-6: 148 155 176;
 }
-/* ChatGPT — Neutral light — teal signal, generous radius, easy calm. */
+/* ChatGPT — The chatgpt.com dark UI — neutral charcoal, teal signal. */
 [data-theme="chatgpt"] {
-  color-scheme: light;
-  --bg: 247 247 248;
-  --surface: 255 255 255;
-  --panel: 244 244 245;
-  --border: 229 229 231;
-  --strip: 236 236 238;
-  --muted: 112 112 120;
-  --text: 38 38 42;
-  --heading: 13 13 13;
+  color-scheme: dark;
+  --bg: 33 33 33;
+  --surface: 47 47 47;
+  --panel: 23 23 23;
+  --border: 61 61 61;
+  --strip: 23 23 23;
+  --muted: 158 158 158;
+  --text: 236 236 236;
+  --heading: 255 255 255;
   --accent: 16 163 127;
-  --success: 52 168 83;
-  --warning: 234 132 34;
-  --danger: 239 68 68;
+  --success: 82 196 110;
+  --warning: 236 154 60;
+  --danger: 239 83 80;
   --purple: 171 104 255;
-  --theme-accent-2: 171 104 255;
+  --theme-accent-2: 236 236 236;
   --theme-glow: 16 163 127;
-  --overlay: 13 13 13;
+  --overlay: 255 255 255;
   --selection: 16 163 127;
   --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -412,37 +412,37 @@
   --radius-card: 16px;
   --radius-button: 12px;
   --radius-input: 10px;
-  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.20);
-  --shadow-popover: 0 16px 40px -12px rgb(0 0 0 / 0.40);
+  --shadow-card: none;
+  --shadow-popover: 0 10px 30px -12px rgb(0 0 0 / 0.40);
   --tracking-ui: 0em;
   --bg-overlay-opacity: 0.03;
   --chart-1: 16 163 127;
   --chart-2: 171 104 255;
-  --chart-3: 58 130 246;
-  --chart-4: 234 132 34;
-  --chart-5: 239 68 68;
-  --chart-6: 136 136 140;
+  --chart-3: 96 165 250;
+  --chart-4: 236 154 60;
+  --chart-5: 239 83 80;
+  --chart-6: 142 142 147;
 }
-/* Claude — Warm oat paper — book-cloth terracotta, serif display, human. */
+/* Claude — The claude.ai dark UI — warm charcoal, terracotta, serif. */
 [data-theme="claude"] {
-  color-scheme: light;
-  --bg: 250 249 245;
-  --surface: 255 255 255;
-  --panel: 240 238 229;
-  --border: 229 225 214;
-  --strip: 240 238 229;
-  --muted: 124 119 105;
-  --text: 61 57 41;
-  --heading: 38 35 26;
-  --accent: 193 95 60;
-  --success: 106 143 84;
-  --warning: 203 139 51;
-  --danger: 191 68 55;
-  --purple: 107 91 149;
-  --theme-accent-2: 218 119 86;
-  --theme-glow: 193 95 60;
-  --overlay: 61 57 41;
-  --selection: 218 119 86;
+  color-scheme: dark;
+  --bg: 38 38 36;
+  --surface: 48 47 44;
+  --panel: 31 30 29;
+  --border: 66 64 59;
+  --strip: 31 30 29;
+  --muted: 163 158 148;
+  --text: 232 229 222;
+  --heading: 248 246 240;
+  --accent: 217 119 87;
+  --success: 108 178 126;
+  --warning: 214 158 62;
+  --danger: 237 85 78;
+  --purple: 158 134 214;
+  --theme-accent-2: 193 95 60;
+  --theme-glow: 217 119 87;
+  --overlay: 255 255 255;
+  --selection: 217 119 87;
   --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-display: "Lora Variable", Georgia, "Times New Roman", serif;
   --font-numeric: normal;
@@ -453,12 +453,12 @@
   --shadow-popover: 0 16px 40px -12px rgb(0 0 0 / 0.40);
   --tracking-ui: 0em;
   --bg-overlay-opacity: 0.04;
-  --chart-1: 193 95 60;
-  --chart-2: 106 143 84;
-  --chart-3: 107 91 149;
-  --chart-4: 203 139 51;
-  --chart-5: 191 68 55;
-  --chart-6: 156 148 130;
+  --chart-1: 217 119 87;
+  --chart-2: 108 178 126;
+  --chart-3: 158 134 214;
+  --chart-4: 214 158 62;
+  --chart-5: 237 85 78;
+  --chart-6: 168 162 150;
 }
 @layer base {
   html, body, #root { height: 100%; }
@@ -1000,9 +1000,11 @@
   100% { transform: translate3d(0, 92vh, 0); opacity: 0; }
 }
 @keyframes chat-arc-spin { to { transform: rotate(360deg); } }
+/* transform-only: a CSS animation on opacity would OVERRIDE each ornament's
+   inline per-spec opacity (animations beat inline styles) — never animate it here. */
 @keyframes motif-breathe {
-  0%, 100% { opacity: 0.85; transform: scale(1); }
-  50%      { opacity: 1;    transform: scale(1.015); }
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.03); }
 }
 
 /* Motion + owner controls: reduced → freeze/hide drift (keep static corner);

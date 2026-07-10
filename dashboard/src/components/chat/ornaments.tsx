@@ -1,4 +1,5 @@
 import { type CSSProperties } from 'react'
+import { CLAUDE_PATH } from '../../theme/brandIcons'
 
 /* ── Theme ornament motifs (queue #13 · M2.5) ──────────────────────────────────
    Procedural inline-SVG signature motifs for the Chat ambient layer — no external
@@ -67,26 +68,38 @@ export function SakuraBranch({ size = 120, className = '', style }: MotifProps) 
   )
 }
 
-/* ── Chinese · Lacquer — dragon + auspicious clouds ────────────────────────── */
+/* ── Chinese · Lacquer — hanging lanterns + auspicious clouds ──────────────── */
 
-/** A coiled C-form jade dragon (Hongshan silhouette) — the corner anchor for Lacquer. */
-export function Dragon({ size = 130, className = '', style }: MotifProps) {
+function LanternShape({ x, y, s, tassel = true }: { x: number; y: number; s: number; tassel?: boolean }) {
+  // s = body radius. Strings start above the viewBox so lanterns read as hanging in.
+  const rx = s, ry = s * 0.82
   return (
-    <svg width={size} height={size} viewBox="0 0 130 130" fill="none" className={className} style={style} aria-hidden="true">
-      {/* coiled body — a thick C that curls in on itself */}
-      <path d="M96 30 C 70 6, 30 12, 20 46 C 12 74, 34 100, 64 100 C 88 100, 106 82, 104 60"
-        stroke="currentColor" strokeWidth="6" strokeLinecap="round" fill="none" />
-      {/* inner tail curl */}
-      <path d="M104 60 C 103 48, 94 42, 84 46 C 76 49, 74 58, 80 64"
-        stroke="currentColor" strokeWidth="5" strokeLinecap="round" fill="none" opacity="0.9" />
-      {/* snout + head at the top of the C */}
-      <path d="M96 30 C 100 22, 108 20, 114 24 C 110 28, 108 30, 110 34"
-        stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" fill="none" />
-      {/* mane sweeping back */}
-      <path d="M92 24 C 96 14, 104 8, 114 8 M86 26 C 88 16, 94 10, 102 8"
-        stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" fill="none" opacity="0.75" />
-      {/* eye */}
-      <circle cx="101" cy="30" r="2.1" fill="currentColor" />
+    <g transform={`translate(${x} ${y})`}>
+      {/* hanging string from beyond the top edge */}
+      <line x1="0" y1={-y - 20} x2="0" y2={-ry - s * 0.34} stroke="currentColor" strokeWidth="1.4" opacity="0.8" />
+      {/* top + bottom caps */}
+      <rect x={-s * 0.34} y={-ry - s * 0.36} width={s * 0.68} height={s * 0.2} rx={s * 0.06} fill="currentColor" opacity="0.9" />
+      <rect x={-s * 0.3} y={ry + s * 0.16} width={s * 0.6} height={s * 0.17} rx={s * 0.06} fill="currentColor" opacity="0.9" />
+      {/* body + vertical ribs */}
+      <ellipse cx="0" cy="0" rx={rx} ry={ry} stroke="currentColor" strokeWidth="2.4" fill="none" />
+      <ellipse cx="0" cy="0" rx={rx * 0.62} ry={ry} stroke="currentColor" strokeWidth="1.3" fill="none" opacity="0.75" />
+      <ellipse cx="0" cy="0" rx={rx * 0.24} ry={ry} stroke="currentColor" strokeWidth="1.1" fill="none" opacity="0.6" />
+      {tassel && (
+        <g opacity="0.85">
+          <line x1="0" y1={ry + s * 0.33} x2="0" y2={ry + s * 0.62} stroke="currentColor" strokeWidth="1.3" />
+          <path d={`M${-s * 0.12} ${ry + s * 0.62} h${s * 0.24} l${-s * 0.05} ${s * 0.34} h${-s * 0.14} Z`} fill="currentColor" />
+        </g>
+      )}
+    </g>
+  )
+}
+
+/** Two staggered hanging lanterns — instantly-read corner anchor for Lacquer. */
+export function Lanterns({ size = 150, className = '', style }: MotifProps) {
+  return (
+    <svg width={size} height={size * 1.15} viewBox="0 0 130 150" fill="none" className={className} style={style} aria-hidden="true">
+      <LanternShape x={44} y={62} s={26} />
+      <LanternShape x={102} y={34} s={16} />
     </svg>
   )
 }
@@ -186,21 +199,12 @@ export function HexMote({ size = 12, className = '', style }: MotifProps) {
   )
 }
 
-/* ── Claude — starburst spark ──────────────────────────────────────────────── */
+/* ── Claude — the official starburst mark (currentColor for ambient tinting) ── */
 
-export function Spark({ size = 160, className = '', style }: MotifProps) {
-  // Anthropic-style radial burst: tapered rays around a center.
-  const rays = Array.from({ length: 12 }, (_, i) => (i * 360) / 12)
+export function ClaudeMark({ size = 160, className = '', style }: MotifProps) {
   return (
-    <svg width={size} height={size} viewBox="0 0 100 100" fill="none" className={className} style={style} aria-hidden="true">
-      <g>
-        {rays.map(a => (
-          <path key={a} transform={`rotate(${a} 50 50)`}
-            d="M50 50 C 48.4 34, 48.4 22, 50 8 C 51.6 22, 51.6 34, 50 50 Z"
-            fill="currentColor" />
-        ))}
-      </g>
-      <circle cx="50" cy="50" r="5" fill="currentColor" />
+    <svg width={size} height={size} viewBox="0 0 24 24" className={className} style={style} aria-hidden="true">
+      <path d={CLAUDE_PATH} fill="currentColor" fillRule="nonzero" />
     </svg>
   )
 }

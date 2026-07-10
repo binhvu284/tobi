@@ -9,10 +9,16 @@
    12 active themes in 3 groups: core (dark/light/hightech), expressive (gaming/
    japanese/chinese/jarvis), brand (vercel/notion/linear/chatgpt/claude).
    Spec: docs/feature-idea-queue/THEME_V2_SYSTEM_UPGRADE_PLAN.md (+ v2.1 design pass) */
+import type { CSSProperties, ReactNode } from 'react'
 import {
   Moon, Sun, Gamepad2, Cpu, Flower2, Landmark, Bot,
-  Triangle, FileText, Command, Hexagon, Asterisk, type LucideIcon,
+  Triangle, FileText, Command,
 } from 'lucide-react'
+import { ClaudeLogo, OpenAILogo } from '../theme/brandIcons'
+
+/** Theme selector icon — a bare call signature so both lucide's forwardRef icons
+ *  and the official brand-mark components satisfy it. */
+export type ThemeIcon = (props: { size?: number; className?: string; style?: CSSProperties }) => ReactNode
 
 export type ThemeId =
   | 'dark' | 'light' | 'hightech'
@@ -92,7 +98,7 @@ export type ThemeDef = {
   id: ThemeId
   label: string
   description: string
-  icon: LucideIcon
+  icon: ThemeIcon
   mode: 'dark' | 'light'
   group: ThemeGroup
   tokens: ThemeV2Tokens
@@ -311,39 +317,41 @@ const LINEAR: ThemeV2Tokens = {
   motion: { intensity: 'standard' },
 }
 
-/** ChatGPT — neutral light, teal signal, generous radius. */
+/** ChatGPT — the chatgpt.com dark chat UI: neutral charcoal (#212121 canvas,
+ *  #171717 rail, #2F2F2F input), soft white text, the signature teal as signal. */
 const CHATGPT: ThemeV2Tokens = {
   color: {
-    scheme: 'light',
-    bg: '247 247 248', surface: '255 255 255', panel: '244 244 245', border: '229 229 231', strip: '236 236 238',
-    muted: '112 112 120', text: '38 38 42', heading: '13 13 13',
-    accent: '16 163 127', success: '52 168 83', warning: '234 132 34', danger: '239 68 68', purple: '171 104 255',
-    accent2: '171 104 255', glow: '16 163 127', overlay: '13 13 13', selection: '16 163 127',
+    scheme: 'dark',
+    bg: '33 33 33', surface: '47 47 47', panel: '23 23 23', border: '61 61 61', strip: '23 23 23',
+    muted: '158 158 158', text: '236 236 236', heading: '255 255 255',
+    accent: '16 163 127', success: '82 196 110', warning: '236 154 60', danger: '239 83 80', purple: '171 104 255',
+    accent2: '236 236 236', glow: '16 163 127', overlay: '255 255 255', selection: '16 163 127',
   },
   typography: { tracking: 'normal', fontUi: null, fontDisplay: null, numeric: 'normal' },
   shape: { radius: 'rounded' },
-  elevation: { shadowDepth: 'soft' },
-  component: { buttonStyle: 'solid', cardStyle: 'outlined' },
+  elevation: { shadowDepth: 'flat' },
+  component: { buttonStyle: 'solid', cardStyle: 'flat' },
   background: { style: 'plain', overlayOpacity: 0.03 },
-  dataViz: { palette: ['16 163 127', '171 104 255', '58 130 246', '234 132 34', '239 68 68', '136 136 140'], glowCharts: false },
+  dataViz: { palette: ['16 163 127', '171 104 255', '96 165 250', '236 154 60', '239 83 80', '142 142 147'], glowCharts: false },
   motion: { intensity: 'quiet' },
 }
 
-/** Claude — warm oat paper, book-cloth terracotta, serif display. Authenticity over "no cream". */
+/** Claude — the claude.ai dark chat UI: warm charcoal (#262624 canvas, #1F1E1D
+ *  rail, #302F2C cards), cream text, book-cloth terracotta, serif display. */
 const CLAUDE: ThemeV2Tokens = {
   color: {
-    scheme: 'light',
-    bg: '250 249 245', surface: '255 255 255', panel: '240 238 229', border: '229 225 214', strip: '240 238 229',
-    muted: '124 119 105', text: '61 57 41', heading: '38 35 26',
-    accent: '193 95 60', success: '106 143 84', warning: '203 139 51', danger: '191 68 55', purple: '107 91 149',
-    accent2: '218 119 86', glow: '193 95 60', overlay: '61 57 41', selection: '218 119 86',
+    scheme: 'dark',
+    bg: '38 38 36', surface: '48 47 44', panel: '31 30 29', border: '66 64 59', strip: '31 30 29',
+    muted: '163 158 148', text: '232 229 222', heading: '248 246 240',
+    accent: '217 119 87', success: '108 178 126', warning: '214 158 62', danger: '237 85 78', purple: '158 134 214',
+    accent2: '193 95 60', glow: '217 119 87', overlay: '255 255 255', selection: '217 119 87',
   },
   typography: { tracking: 'normal', fontUi: null, fontDisplay: `"Lora Variable", ${SERIF}`, numeric: 'normal' },
   shape: { radius: 'rounded' },
   elevation: { shadowDepth: 'soft' },
   component: { buttonStyle: 'solid', cardStyle: 'flat' },
   background: { style: 'plain', overlayOpacity: 0.04 },
-  dataViz: { palette: ['193 95 60', '106 143 84', '107 91 149', '203 139 51', '191 68 55', '156 148 130'], glowCharts: false },
+  dataViz: { palette: ['217 119 87', '108 178 126', '158 134 214', '214 158 62', '237 85 78', '168 162 150'], glowCharts: false },
   motion: { intensity: 'quiet' },
 }
 
@@ -399,13 +407,13 @@ export const THEME_DEFS: Record<ThemeId, ThemeDef> = {
     customizable: ALL_CONTROLS, migrationFrom: [],
   },
   chatgpt: {
-    id: 'chatgpt', label: 'ChatGPT', description: 'Neutral light — teal signal, generous radius, easy calm.',
-    icon: Hexagon, mode: 'light', group: 'brand', tokens: CHATGPT, defaults: defaultsFrom(CHATGPT),
+    id: 'chatgpt', label: 'ChatGPT', description: 'The chatgpt.com dark UI — neutral charcoal, teal signal.',
+    icon: OpenAILogo, mode: 'dark', group: 'brand', tokens: CHATGPT, defaults: defaultsFrom(CHATGPT),
     customizable: ALL_CONTROLS, migrationFrom: [],
   },
   claude: {
-    id: 'claude', label: 'Claude', description: 'Warm oat paper — book-cloth terracotta, serif display, human.',
-    icon: Asterisk, mode: 'light', group: 'brand', tokens: CLAUDE, defaults: defaultsFrom(CLAUDE),
+    id: 'claude', label: 'Claude', description: 'The claude.ai dark UI — warm charcoal, terracotta, serif.',
+    icon: ClaudeLogo, mode: 'dark', group: 'brand', tokens: CLAUDE, defaults: defaultsFrom(CLAUDE),
     customizable: ALL_CONTROLS, migrationFrom: [],
   },
 }

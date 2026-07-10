@@ -2,8 +2,8 @@ import { useMemo, type CSSProperties, type ReactNode } from 'react'
 import { useTheme } from '../../context/ThemeProvider'
 import type { ThemeId } from '../../context/themeTokens'
 import {
-  SakuraBranch, SakuraFlower, SakuraPetal, Dragon, Medallion, Cloud,
-  ArcRings, HexBrackets, HexMote, Spark,
+  SakuraBranch, SakuraFlower, SakuraPetal, Lanterns, Medallion, Cloud,
+  ArcRings, HexBrackets, HexMote, ClaudeMark,
 } from './ornaments'
 
 /* ── Chat ambient ornaments (queue #13 · M2.5) ─────────────────────────────────
@@ -15,13 +15,15 @@ import {
    Only DECOR_THEMES render anything; every other theme stays deliberately clean. */
 
 type Corner = 'tl' | 'tr' | 'bl' | 'br'
-// Corner motifs may be directional (branch/dragon); hero motifs are symmetric
-// (flower/medallion/arc/hex/spark) so they halo the greeting cleanly.
-type MotifName = 'sakura' | 'flower' | 'dragon' | 'medallion' | 'arc' | 'hex' | 'spark'
+// Corner motifs may be directional (branch/lanterns); hero motifs are symmetric
+// (flower/medallion/arc/hex/claudeMark) so they halo the greeting cleanly.
+type MotifName = 'sakura' | 'flower' | 'lanterns' | 'medallion' | 'arc' | 'hex' | 'claudeMark'
 type ParticleMotif = 'petal' | 'cloud' | 'mote'
 
-type CornerSpec = { motif: MotifName; pos: Corner; size: number; tint: string; opacity: number; spin?: boolean }
-type ParticleSpec = { motif: ParticleMotif; count: number; tint: string; opacity: number; min: number; max: number }
+// `at` overrides the default corner inset (e.g. hang lanterns below the chat header).
+type CornerSpec = { motif: MotifName; pos: Corner; size: number; tint: string; opacity: number; spin?: boolean; at?: CSSProperties }
+// edges: keep particles in the side margins so they never cross the reading column.
+type ParticleSpec = { motif: ParticleMotif; count: number; tint: string; opacity: number; min: number; max: number; edges?: boolean }
 // Hero = a large, faint, outline-only watermark behind the empty-state greeting.
 // Only symmetric outline motifs (arc/hex/medallion/spark) qualify — directional
 // or filled motifs (branch/flower) stay corner-only, so no hero for those themes.
@@ -35,13 +37,15 @@ const PINK = 'rgb(var(--theme-accent-2))'
 /** The single place motif shape maps to a theme (localized, like THEME_DEFS). */
 const CHAT_ORNAMENTS: Partial<Record<ThemeId, ThemeOrnament>> = {
   japanese: {
-    // Branch is directional + the blossom fill blobs → corner + petals only, no hero.
-    corners: [{ motif: 'sakura', pos: 'tr', size: 172, tint: ACCENT, opacity: 0.14 }],
-    particles: { motif: 'petal', count: 7, tint: ACCENT, opacity: 0.2, min: 11, max: 20 },
+    // Branch is directional + the blossom fill blobs → corner + edge petals, no hero.
+    // `at` drops it below the chat header so the blossoms actually show.
+    corners: [{ motif: 'sakura', pos: 'tr', size: 172, tint: ACCENT, opacity: 0.15, at: { top: '3.5rem', right: '-1rem' } }],
+    particles: { motif: 'petal', count: 6, tint: ACCENT, opacity: 0.18, min: 10, max: 16, edges: true },
   },
   chinese: {
-    corners: [{ motif: 'dragon', pos: 'br', size: 188, tint: GOLD, opacity: 0.1 }],
-    particles: { motif: 'cloud', count: 5, tint: GOLD, opacity: 0.13, min: 34, max: 56 },
+    // Hanging lanterns (unmistakable), gold on lacquer — hung below the header.
+    corners: [{ motif: 'lanterns', pos: 'tr', size: 150, tint: GOLD, opacity: 0.16, at: { top: '3.25rem', right: '1.25rem' } }],
+    particles: { motif: 'cloud', count: 4, tint: GOLD, opacity: 0.12, min: 34, max: 52, edges: true },
     hero: { motif: 'medallion', size: 150, tint: GOLD, opacity: 0.1, spin: true },
   },
   jarvis: {
@@ -50,12 +54,14 @@ const CHAT_ORNAMENTS: Partial<Record<ThemeId, ThemeOrnament>> = {
   },
   gaming: {
     corners: [{ motif: 'hex', pos: 'tr', size: 188, tint: ACCENT, opacity: 0.1 }],
-    particles: { motif: 'mote', count: 8, tint: PINK, opacity: 0.18, min: 8, max: 14 },
+    particles: { motif: 'mote', count: 8, tint: PINK, opacity: 0.18, min: 8, max: 14, edges: true },
     hero: { motif: 'hex', size: 150, tint: ACCENT, opacity: 0.1 },
   },
   claude: {
-    corners: [{ motif: 'spark', pos: 'br', size: 176, tint: ACCENT, opacity: 0.07, spin: true }],
-    hero: { motif: 'spark', size: 150, tint: ACCENT, opacity: 0.09, spin: true },
+    // The official Claude starburst, terracotta on warm charcoal (claude.ai dark).
+    // Solid glyph → keep it whisper-faint (outline motifs can afford more).
+    corners: [{ motif: 'claudeMark', pos: 'tr', size: 150, tint: ACCENT, opacity: 0.05 }],
+    hero: { motif: 'claudeMark', size: 132, tint: ACCENT, opacity: 0.07 },
   },
 }
 
@@ -64,11 +70,11 @@ function Motif({ name, size, spin }: { name: MotifName; size: number; spin?: boo
   switch (name) {
     case 'sakura': return <SakuraBranch size={size} className={cls} />
     case 'flower': return <SakuraFlower size={size} className={cls} />
-    case 'dragon': return <Dragon size={size} className={cls} />
+    case 'lanterns': return <Lanterns size={size} className={cls} />
     case 'medallion': return <Medallion size={size} className={cls} />
     case 'arc': return <ArcRings size={size} className={cls} />
     case 'hex': return <HexBrackets size={size} className={cls} />
-    case 'spark': return <Spark size={size} className={cls} />
+    case 'claudeMark': return <ClaudeMark size={size} className={cls} />
   }
 }
 
@@ -85,12 +91,18 @@ function Particles({ spec }: { spec: ParticleSpec }) {
     // cheap deterministic hash from index
     const h = (n: number) => ((Math.sin((i + 1) * n) + 1) / 2)
     const size = spec.min + h(12.9898) * (spec.max - spec.min)
+    const spread = h(78.233)
+    // edges: alternate particles into the side margins (2–16% / 76–96%) so they
+    // never drift across the reading column; otherwise use the full width.
+    const left = spec.edges
+      ? (i % 2 === 0 ? 2 + spread * 14 : 76 + spread * 20)
+      : 4 + spread * 90
     return {
-      left: 4 + h(78.233) * 90,          // %
+      left,                              // %
       size,
       duration: 13 + h(37.719) * 12,     // s
       delay: -h(3.111) * 18,             // s (negative = mid-flight on load)
-      drift: (h(9.7) - 0.5) * 120,       // px horizontal drift
+      drift: (h(9.7) - 0.5) * (spec.edges ? 40 : 120), // px horizontal drift
       sway: 8 + h(5.3) * 10,
     }
   }), [spec])
@@ -124,7 +136,7 @@ export default function ChatAmbient() {
   return (
     <div className="chat-ambient" aria-hidden="true">
       {orn.corners.map((c, i) => (
-        <div key={i} className="chat-ambient-corner" style={{ ...CORNER_POS[c.pos], color: c.tint, opacity: c.opacity }}>
+        <div key={i} className="chat-ambient-corner" style={{ ...CORNER_POS[c.pos], ...c.at, color: c.tint, opacity: c.opacity }}>
           <Motif name={c.motif} size={c.size} spin={c.spin} />
         </div>
       ))}
