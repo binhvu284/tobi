@@ -5034,9 +5034,18 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
             reader = await loop.run_in_executor(None, lambda: premium_readers.read_message(message))
             yield f"event: notice\ndata: {json.dumps(premium_readers.notice_payload(reader))}\n\n"
 
-        # ── Vision path: image attachments bypass the tool-loop (one multimodal call) ──
+        # ── Vision path: read image attachments with a vision-capable model. If the chat's
+        # selected model can't see images, AUTO-BORROW an available vision model (#14) so the
+        # owner never has to switch models just to read a screenshot — image reading no longer
+        # depends on the chosen model. Only refuses when no vision model is connected at all. ──
         vmodel = model or model_router.load_llm_config().get("default_model") or ""
-        if img_urls and vmodel and model_router.supports_vision(vmodel):
+        vision_model = vmodel if (vmodel and model_router.supports_vision(vmodel)) else None
+        borrowed = False
+        if img_urls and not vision_model:
+            alt = model_router.first_vision_model()
+            if alt:
+                vision_model, borrowed = alt, True
+        if img_urls and vision_model:
             yield f"event: thinking\ndata: {json.dumps({'phase': 'Looking at the image…', 'tools': ['vision']})}\n\n"
             try:
                 from core import brain as _brain
@@ -5049,28 +5058,30 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
             _prev = model_router.set_usage_context("chat", "vision")
             try:
                 reply = await loop.run_in_executor(
-                    None, lambda: model_router.vision_complete(vmodel, system, vtext, img_urls, history=history))
+                    None, lambda: model_router.vision_complete(vision_model, system, vtext, img_urls, history=history))
             except Exception as e:
                 reply = f"I couldn't read that image, sir — {str(e)[:160]}"
             finally:
                 model_router.set_usage_context(_prev["surface"], _prev["feature"])
             reply = reply or "I couldn't make out the image, sir."
+            if borrowed:  # be transparent about which model actually read the image
+                short = vision_model.split(":", 1)[-1]
+                reply = f"*(Your model can't see images, so I read it with **{short}**.)*\n\n{reply}"
             for chunk in conductor._stream_chunks(reply):
                 yield f"event: delta\ndata: {json.dumps({'text': chunk})}\n\n"
             ctok = model_router.estimate_tokens(reply)
             await loop.run_in_executor(None, lambda: chat_store.add_message(
-                sid, "assistant", reply, model=vmodel, tokens=ctok, thinking="Looked at image"))
+                sid, "assistant", reply, model=vision_model, tokens=ctok, thinking="Looked at image"))
             await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", reply))
             usage = {"prompt_tokens": model_router.estimate_tokens(vtext), "completion_tokens": ctok,
-                     "model": vmodel, "latency_ms": round((_time.time() - t0) * 1000)}
+                     "model": vision_model, "latency_ms": round((_time.time() - t0) * 1000)}
             yield f"event: usage\ndata: {json.dumps(usage)}\n\n"
             yield "event: done\ndata: {}\n\n"
             return
 
-        # Fold reader context (YouTube transcript / notices) + an honest image note (when
-        # images are attached but the model can't see them) into the turn context (#14).
-        image_note = (premium_readers.image_unavailable_note(len(img_urls))
-                      if img_urls and not (vmodel and model_router.supports_vision(vmodel)) else None)
+        # Fold reader context (YouTube transcript / notices) + an honest image note (only when
+        # images are attached AND no vision model is connected anywhere) into the turn context.
+        image_note = premium_readers.image_unavailable_note(len(img_urls)) if img_urls else None
         atext = premium_readers.compose_context(att_text, reader, image_note)
 
         # ── Standard tool-loop turn — live tool-step + token events via a thread→async queue ──

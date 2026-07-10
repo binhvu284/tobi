@@ -64,9 +64,10 @@ def read_message(message: str, *, summarize: bool = True) -> ReaderResult:
 
 
 def image_unavailable_note(count: int) -> str:
-    """Honest fold-in note when images are attached but the model isn't vision-capable."""
-    return (f"[{count} image(s) attached, but the current model isn't vision-capable — "
-            "switch to Claude / GPT-4o / Gemini to read them, sir.]")
+    """Honest fold-in note when images are attached but NO vision-capable model is connected
+    at all (the chat auto-borrows one when available, so this only fires as a last resort)."""
+    return (f"[{count} image(s) attached, but no vision-capable model is connected — add a "
+            "Claude, GPT-4o, or Gemini key in Integrations so I can read images, sir.]")
 
 
 def compose_context(att_text: str | None, reader: ReaderResult,

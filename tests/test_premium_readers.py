@@ -60,6 +60,14 @@ ok("context: claude 200k", mc.context_window("anthropic:claude-opus-4-8") == 200
 ok("router delegates to registry (vision)", model_router.supports_vision("openai:gpt-4o"))
 ok("router delegates to registry (no vision)", not model_router.supports_vision("openrouter:nvidia/nemotron-3-super-120b-a12b:free"))
 
+# auto-borrow a vision model when the selected model can't see images
+model_router.available_models = lambda: [
+    {"id": "glm:glm-5.2"}, {"id": "openai:gpt-4o"}, {"id": "anthropic:claude-opus-4-8"}]
+ok("first_vision prefers claude", model_router.first_vision_model() == "anthropic:claude-opus-4-8")
+ok("first_vision honours exclude", model_router.first_vision_model(exclude="anthropic:claude-opus-4-8") == "openai:gpt-4o")
+model_router.available_models = lambda: [{"id": "glm:glm-5.2"}, {"id": "openrouter:nvidia/nemotron-3-super-120b-a12b:free"}]
+ok("first_vision none when no vision model connected", model_router.first_vision_model() is None)
+
 # ── 2. YouTube URL detection ─────────────────────────────────────────────────────
 ok("detect watch url", yt.find_youtube_urls("see https://www.youtube.com/watch?v=dQw4w9WgXcQ ok")
    == ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"])

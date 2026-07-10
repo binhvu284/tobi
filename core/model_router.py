@@ -831,6 +831,22 @@ def available_models() -> list[dict]:
     return out
 
 
+def first_vision_model(exclude: Optional[str] = None) -> Optional[str]:
+    """An available (key-present) vision-capable model id, for auto-fallback when the chat's
+    selected model can't see images (#14) — so the owner never has to switch models just to
+    read a screenshot. Prefers Claude → GPT-4o → Gemini → Grok → any other vision model."""
+    vis = [m["id"] for m in available_models()
+           if supports_vision(m["id"]) and m["id"] != exclude]
+    if not vis:
+        return None
+    prefs = ("anthropic:", "openai:gpt-4o", "gemini:", "openai:", "grok:")
+    for pref in prefs:
+        for mid in vis:
+            if mid.startswith(pref):
+                return mid
+    return vis[0]
+
+
 def discover_models(provider: str) -> dict:
     """Best-effort live model list for a provider; persists into config on success.
     Falls back to the catalog defaults when the network/SDK can't reach it."""

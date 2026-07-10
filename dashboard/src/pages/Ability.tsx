@@ -222,6 +222,7 @@ export default function Ability() {
   const [inboxOpen, setInboxOpen] = useState(false)
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [hermes, setHermes] = useState<HermesSkill[]>([])   // read-only repo skills (#14)
+  const [view, setView] = useState<'mc' | 'hermes'>('mc')   // two-section split (#14)
 
   const usage = (id: string): AbilityUsage | undefined => report?.abilities[id]
 
@@ -313,7 +314,7 @@ export default function Ability() {
         <div className="mb-5 flex items-start justify-between">
           <div>
             <h1 className="text-xl font-bold text-heading">Ability</h1>
-            <p className="mt-1 text-xs text-muted">Tobi&apos;s capabilities as an RPG character sheet — power, level up, and compare.</p>
+            <p className="mt-1 text-xs text-muted">What TOBI can do — <span className="text-text">Mission Control skills</span> he runs live, and <span className="text-text">Hermes skills</span> defined in the repo.</p>
           </div>
           <button
             onClick={() => { setInboxOpen(true); loadProposals() }}
@@ -348,14 +349,32 @@ export default function Ability() {
           </div>
           <StatBar value={aggregate} size="lg" />
           <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted">
-            <span>{ABILITIES.length} abilities</span>
+            <span>{ABILITIES.length} Mission Control skills</span>
             <span className="text-success">● {counts.active} active</span>
             <span className="text-accent">⟳ {counts.auto} auto</span>
             <span className="text-warning">○ {counts.config} needs config</span>
-            {hermes.length > 0 && <span className="text-purple">◆ {hermes.length} Hermes skill{hermes.length > 1 ? 's' : ''}</span>}
+            <span className="text-purple">◆ {hermes.length} Hermes skill{hermes.length === 1 ? '' : 's'}</span>
           </div>
         </motion.div>
 
+        {/* Section switch — two clear groups: Mission Control vs Hermes */}
+        <div className="mb-6 inline-flex rounded-xl border border-border bg-surface/40 p-1">
+          {([
+            { id: 'mc', label: 'Mission Control Skills', count: ABILITIES.length, icon: Sparkles },
+            { id: 'hermes', label: 'Hermes Skills', count: hermes.length, icon: FileCode2 },
+          ] as const).map(t => {
+            const on = view === t.id
+            return (
+              <button key={t.id} onClick={() => { setView(t.id); if (t.id === 'hermes') setSelected(null) }}
+                className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${on ? 'bg-purple/15 text-purple' : 'text-muted hover:text-text'}`}>
+                <t.icon size={15} /> {t.label}
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${on ? 'bg-purple/20 text-purple' : 'bg-border text-muted'}`}>{t.count}</span>
+              </button>
+            )
+          })}
+        </div>
+
+        {view === 'mc' && (<>
         {/* Compare */}
         <div className="mb-6 rounded-xl border border-border bg-surface/40 p-4">
           <div className="mb-3 flex items-center justify-between">
@@ -464,49 +483,59 @@ export default function Ability() {
             </div>
           </div>
         ))}
+        </>)}
 
-        {/* ── Hermes skills (read-only repo source · #14) ── */}
-        {hermes.length > 0 && (
-          <div className="mb-6">
-            <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-purple">
-              <FileCode2 size={13} /> Hermes Skills
-              <span className="rounded-full border border-purple/30 bg-purple/10 px-1.5 py-0.5 text-[9px] font-medium normal-case tracking-normal text-purple">read-only source</span>
+        {/* ── Hermes Skills section (read-only repo source · #14) ── */}
+        {view === 'hermes' && (
+          <div>
+            {/* what these are — one clear explainer, no nested cards */}
+            <div className="mb-5 flex items-start gap-3 rounded-xl border border-purple/25 bg-purple/5 p-4">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-purple/15 text-purple"><FileCode2 size={18} /></span>
+              <div className="text-xs leading-relaxed text-muted">
+                <div className="mb-0.5 text-sm font-semibold text-heading">Skill playbooks defined in the repo</div>
+                Hermes skills are markdown playbooks in <span className="font-mono text-text">hermes_skills/</span> that shape how TOBI reasons about specific jobs.
+                In this version they are <span className="text-text">read-only</span> — TOBI reads them, but running one is gated behind your approval, so nothing executes on its own.
+              </div>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {hermes.map(s => (
-                <div key={s.id} className="rounded-lg border border-border bg-surface p-4">
-                  <div className="mb-2 flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple/10 text-purple"><FileCode2 size={16} /></span>
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold text-heading" title={s.name}>{s.name}</div>
-                        <div className="truncate font-mono text-[10px] text-muted" title={s.file_path}>{s.file_path}</div>
+
+            {hermes.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border bg-surface/40 p-10 text-center text-sm text-muted">
+                No Hermes skills found in <span className="font-mono">hermes_skills/</span>.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {hermes.map(s => (
+                  <div key={s.id} className="flex flex-col rounded-lg border border-border bg-surface p-4">
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple/10 text-purple"><FileCode2 size={16} /></span>
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-heading" title={s.name}>{s.name}</div>
+                          <div className="truncate font-mono text-[10px] text-muted" title={s.file_path}>{s.file_path}</div>
+                        </div>
                       </div>
+                      <span className="shrink-0 whitespace-nowrap rounded border border-purple/40 bg-purple/10 px-1.5 py-0.5 font-mono text-[10px] font-bold text-purple">v{s.version}</span>
                     </div>
-                    <span className="shrink-0 whitespace-nowrap rounded border border-purple/40 bg-purple/10 px-1.5 py-0.5 font-mono text-[10px] font-bold text-purple">v{s.version}</span>
+                    {s.description && <p className="mb-3 line-clamp-3 text-xs leading-relaxed text-muted">{s.description}</p>}
+                    <div className="mt-auto flex flex-wrap items-center gap-1.5">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-medium text-success"><Check size={10} /> {s.status}</span>
+                      <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-warning"><ShieldAlert size={10} /> needs approval</span>
+                      <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] text-muted"><Lock size={10} /> execution off</span>
+                      {s.parse_warning && <span className="rounded-full bg-danger/15 px-2 py-0.5 text-[10px] text-danger">parse warning</span>}
+                    </div>
+                    {s.last_modified && (
+                      <div className="mt-2 text-right text-[10px] text-muted" title={s.last_modified}>updated {s.last_modified.slice(0, 10)}</div>
+                    )}
                   </div>
-                  {s.description && <p className="mb-3 line-clamp-3 text-xs leading-relaxed text-muted">{s.description}</p>}
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-medium text-success"><Check size={10} /> {s.status}</span>
-                    <span className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-warning"><ShieldAlert size={10} /> {s.risk_tier.replace(/_/g, ' ')}</span>
-                    <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] text-muted"><Lock size={10} /> execution off</span>
-                    {s.parse_warning && <span className="rounded-full bg-danger/15 px-2 py-0.5 text-[10px] text-danger">parse warning</span>}
-                  </div>
-                  <div className="mt-2 flex items-center justify-between text-[10px] text-muted">
-                    <span>Hermes repo file</span>
-                    {s.last_modified && <span title={s.last_modified}>{s.last_modified.slice(0, 10)}</span>}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-2 text-[11px] text-muted">
-              Discovered from <span className="font-mono">hermes_skills/</span> — read-only in v1. Execution stays behind Conductor human review (no autonomous runs).
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Detail panel */}
+      {/* Detail panel — Mission Control skills only (Hermes view is full-width) */}
+      {view === 'mc' && (
       <AnimatePresence mode="wait">
         {sel ? (
           <motion.div
@@ -638,6 +667,7 @@ export default function Ability() {
           </div>
         )}
       </AnimatePresence>
+      )}
 
       {/* Evolution inbox */}
       <AnimatePresence>
