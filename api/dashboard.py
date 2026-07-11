@@ -4916,6 +4916,10 @@ class ChatSendReq(BaseModel):
     web_research: bool = False
     thinking: bool = False
     connectors: list[str] = Field(default_factory=list)     # enabled connector ids for this turn
+    # ── Chat Mode contract (#16) — old clients simply omit these (→ chat mode) ──
+    mode: str | None = None                                  # 'chat' | 'agent' (+ legacy labels)
+    deep_research: bool = False                              # one-message Deep Research toggle
+    review_mode: str | None = None                           # 'ask' | 'session' | 'always'
 
 
 class ChatAppendReq(BaseModel):
@@ -4932,6 +4936,8 @@ class ChatFeedbackReq(BaseModel):
 
 
 def _chat_directives(web_research: bool, thinking: bool, connectors: list[str]) -> str | None:
+    """Legacy directive builder — superseded by core.chat_modes.build_directives (#16),
+    kept for rollback parity (its chat-mode output is line-identical)."""
     lines = []
     if web_research:
         lines.append("- Web research: use the web_search tool for anything current/factual and cite the sources you use in a ```tobi:reference``` block.")
@@ -4940,6 +4946,24 @@ def _chat_directives(web_research: bool, thinking: bool, connectors: list[str]) 
     if thinking:
         lines.append("- Briefly show your reasoning before the final answer.")
     return "\n".join(lines) or None
+
+
+class ChatConfigReq(BaseModel):
+    mode_v2: bool
+
+
+@app.get("/api/chat/config")
+def chat_config_get():
+    """Chat feature flags (#16) — the frontend picks the v2 Chat/Agent UI vs the legacy
+    five-mode UI from this."""
+    from core import chat_modes
+    return {"mode_v2": chat_modes.mode_v2_enabled()}
+
+
+@app.post("/api/chat/config")
+def chat_config_set(body: ChatConfigReq):
+    from core import chat_modes
+    return {"mode_v2": chat_modes.set_mode_v2(body.mode_v2)}
 
 
 @app.get("/api/chat/sessions")
@@ -4998,7 +5022,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
     P2: folds in **attachments** (text → context, images → native vision), an opt-in
     **web_search** tool and **connector** emphasis, all gated by the chat's `+` menu."""
     from core import chat_store, conductor, model_router, attachments as attach
-    from core import premium_readers, youtube_reader
+    from core import premium_readers, youtube_reader, chat_modes
     import time as _time
 
     sess = chat_store.get_session(sid)
@@ -5008,14 +5032,27 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
     model = (payload.model or sess.get("model") or "").strip() or None
     images, att_text = attach.split(payload.attachments)
     img_urls = attach.image_data_urls(images)
-    directives = _chat_directives(payload.web_research, payload.thinking, payload.connectors)
-    extra_tools = ["web_search"] if payload.web_research else None
+    # ── Mode contract (#16): normalize the raw mode + toggles into a resolved context.
+    # Flag off → the new fields are ignored (mode forced to chat) and no mode event is
+    # emitted, so behavior is identical to the pre-#16 route [D29].
+    mode_v2 = chat_modes.mode_v2_enabled()
+    if mode_v2:
+        ctx = chat_modes.normalize(payload.mode, payload.web_research, payload.deep_research,
+                                   payload.connectors, payload.review_mode)
+    else:
+        ctx = chat_modes.normalize(None, payload.web_research, False, payload.connectors)
+    directives = chat_modes.build_directives(ctx, thinking=payload.thinking)
+    extra_tools = chat_modes.extra_tools_for(ctx)
 
     async def gen():
         loop = asyncio.get_event_loop()
         if not message and not img_urls and not att_text:
             yield "event: done\ndata: {}\n\n"
             return
+        # Echo the normalized mode as the FIRST frame so the UI can chip it before
+        # anything streams (#16). Old clients silently ignore unknown SSE events.
+        if mode_v2:
+            yield f"event: mode\ndata: {json.dumps({'mode': ctx['mode'], 'legacy_mode': ctx['legacy_mode'], 'capabilities': ctx['capabilities']})}\n\n"
         cid = chat_store.chat_id_for_session(sid)
         from core.database import save_conversation_message as _bridge_msg
         history = await loop.run_in_executor(None, lambda: chat_store.recent_history(sid, limit=8))
@@ -5033,6 +5070,74 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
             yield f"event: thinking\ndata: {json.dumps({'phase': 'Reading the YouTube transcript…', 'tools': ['youtube']})}\n\n"
             reader = await loop.run_in_executor(None, lambda: premium_readers.read_message(message))
             yield f"event: notice\ndata: {json.dumps(premium_readers.notice_payload(reader))}\n\n"
+
+        # Turn metadata (#16) — persisted onto the assistant message so mode/chips/steps
+        # survive a reload. Empty (→ NULL column) when the flag is off.
+        turn_meta: dict = ({"mode": ctx["mode"], "legacy_mode": ctx["legacy_mode"],
+                            "capabilities": ctx["capabilities"]} if mode_v2 else {})
+
+        # ── Auto project context (#16 [D19][D20]): detect a referenced PM project and
+        # inject a read-only summary as evidence; visible to the owner as chips. Skipped
+        # for Deep Research turns (web-focused) and when the flag is off. ──
+        pctx = {"projects": [], "resources": [], "context_text": ""}
+        if mode_v2 and message and not ctx["capabilities"]["deep_research"]:
+            pctx = await loop.run_in_executor(None, lambda: chat_modes.detect_project_context(message))
+            if pctx["projects"]:
+                yield f"event: context\ndata: {json.dumps({'projects': pctx['projects'], 'resources': pctx['resources'], 'auto': True})}\n\n"
+                turn_meta["context"] = {"projects": pctx["projects"], "resources": pctx["resources"]}
+
+        # ── Deep Research (#16 [D14][D15]): one-message cited-report workflow. Beats the
+        # vision path (an explicit command wins over an implicit affordance — images are
+        # skipped with an honest notice); YouTube/attachment context rides in as evidence. ──
+        if mode_v2 and ctx["capabilities"]["deep_research"]:
+            from core import deep_research
+            if img_urls:
+                yield f"event: notice\ndata: {json.dumps({'kind': 'dr_images_skipped'})}\n\n"
+            dr_q: asyncio.Queue = asyncio.Queue()
+
+            def _emit_step(step, phase):
+                try:
+                    loop.call_soon_threadsafe(dr_q.put_nowait, {"step": step, "phase": phase})
+                except Exception:
+                    pass
+
+            dr_ctx = premium_readers.compose_context(att_text, reader)
+            fut = loop.run_in_executor(None, lambda: deep_research.run(
+                message, context_text=dr_ctx, on_step=_emit_step, model=model))
+            try:
+                while not fut.done() or not dr_q.empty():
+                    try:
+                        ev = await asyncio.wait_for(dr_q.get(), timeout=0.12)
+                    except asyncio.TimeoutError:
+                        continue
+                    yield f"event: thinking\ndata: {json.dumps({'phase': ev.get('phase', ''), 'tools': ['deep_research']})}\n\n"
+                dr = await fut
+            except Exception as e:
+                yield f"event: error\ndata: {json.dumps({'detail': str(e)[:200]})}\n\n"
+                yield "event: done\ndata: {}\n\n"
+                return
+            report = dr.get("report_md") or "I couldn't produce the report, sir."
+            for chunk in conductor._stream_chunks(report):
+                yield f"event: delta\ndata: {json.dumps({'text': chunk})}\n\n"
+            title = f"Research: {message[:80]}"
+            aid = await loop.run_in_executor(None, lambda: chat_store.add_artifact(
+                sid, "research_report", title, report,
+                meta_json=json.dumps({"queries": dr.get("queries") or [],
+                                      "source_count": len(dr.get("sources") or []),
+                                      "caveats": dr.get("caveats") or []})))
+            yield f"event: artifact\ndata: {json.dumps({'id': aid, 'kind': 'research_report', 'title': title})}\n\n"
+            turn_meta["artifact_ids"] = [aid]
+            ctok = model_router.estimate_tokens(report)
+            await loop.run_in_executor(None, lambda: chat_store.add_message(
+                sid, "assistant", report, model=model, tokens=ctok, thinking="Deep Research",
+                meta=json.dumps(turn_meta) if turn_meta else None))
+            await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", report))
+            usage = {"prompt_tokens": model_router.estimate_tokens(message + dr_ctx),
+                     "completion_tokens": ctok, "model": model or sess.get("model") or "default",
+                     "latency_ms": round((_time.time() - t0) * 1000)}
+            yield f"event: usage\ndata: {json.dumps(usage)}\n\n"
+            yield "event: done\ndata: {}\n\n"
+            return
 
         # ── Vision path: read image attachments with a vision-capable model. If the chat's
         # selected model can't see images, AUTO-BORROW an available vision model (#14) so the
@@ -5054,6 +5159,8 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
                 profile = ""
             system = conductor._system_prompt(profile, False, "mc", directives)
             v_ctx = premium_readers.compose_context(att_text, reader)
+            if pctx["context_text"]:
+                v_ctx = (v_ctx + "\n\n" if v_ctx else "") + pctx["context_text"]
             vtext = message + (("\n\n" + v_ctx) if v_ctx else "")
             _prev = model_router.set_usage_context("chat", "vision")
             try:
@@ -5071,7 +5178,8 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
                 yield f"event: delta\ndata: {json.dumps({'text': chunk})}\n\n"
             ctok = model_router.estimate_tokens(reply)
             await loop.run_in_executor(None, lambda: chat_store.add_message(
-                sid, "assistant", reply, model=vision_model, tokens=ctok, thinking="Looked at image"))
+                sid, "assistant", reply, model=vision_model, tokens=ctok, thinking="Looked at image",
+                meta=json.dumps(turn_meta) if turn_meta else None))
             await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", reply))
             usage = {"prompt_tokens": model_router.estimate_tokens(vtext), "completion_tokens": ctok,
                      "model": vision_model, "latency_ms": round((_time.time() - t0) * 1000)}
@@ -5080,9 +5188,21 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
             return
 
         # Fold reader context (YouTube transcript / notices) + an honest image note (only when
-        # images are attached AND no vision model is connected anywhere) into the turn context.
+        # images are attached AND no vision model is connected anywhere) + auto project
+        # context (#16) into the turn context.
         image_note = premium_readers.image_unavailable_note(len(img_urls)) if img_urls else None
         atext = premium_readers.compose_context(att_text, reader, image_note)
+        if pctx["context_text"]:
+            atext = (atext + "\n\n" if atext else "") + pctx["context_text"]
+
+        # ── Agent run persistence (#16 [D8]): one durable run per Agent turn, steps recorded
+        # incrementally from the event stream so an interrupted SSE leaves last-known state. ──
+        run_id = None
+        if mode_v2 and ctx["mode"] == "agent":
+            from core import agent_runs
+            run_id = await loop.run_in_executor(
+                None, lambda: agent_runs.create_run(sid, title=(message or "Agent task")[:120]))
+            turn_meta["run_id"] = run_id
 
         # ── Standard tool-loop turn — live tool-step + token events via a thread→async queue ──
         yield f"event: thinking\ndata: {json.dumps({'phase': 'Thinking…'})}\n\n"
@@ -5100,6 +5220,15 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
             attachments_text=atext or None, directives=directives, extra_tools=extra_tools,
             on_event=_emit, on_delta=lambda t: _emit({"type": "delta", "text": t})))
         seen_tools: list[str] = []
+        seen_phases: list[str] = []
+        term_lines: list[str] = []
+
+        def _record_step(step_type, title, **kw):
+            if run_id is None:
+                return None
+            from core import agent_runs
+            return loop.run_in_executor(None, lambda: agent_runs.add_step(run_id, step_type, title, **kw))
+
         try:
             while not fut.done() or not q.empty():
                 try:
@@ -5110,15 +5239,32 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
                     yield f"event: delta\ndata: {json.dumps({'text': ev.get('text', '')})}\n\n"
                 elif ev.get("type") == "terminal":
                     # live stdout from a run_command execution (#11) → xterm-style console
+                    term_lines.append(ev.get("line", ""))
                     yield f"event: terminal\ndata: {json.dumps({'line': ev.get('line', '')})}\n\n"
                 elif ev.get("type") == "reset":
                     yield "event: reset\ndata: {}\n\n"
+                elif ev.get("type") == "plan":
+                    # agent-mode declared plan (#16 D9) → structured timeline event
+                    yield f"event: plan\ndata: {json.dumps({'steps': ev.get('steps') or [], 'title': ev.get('title', '')})}\n\n"
+                    step = _record_step("plan", ev.get("title") or "Plan",
+                                        payload={"steps": ev.get("steps") or []})
+                    if step is not None:
+                        await step
                 elif ev.get("type") == "thinking":
                     if ev.get("tool") and ev["tool"] not in seen_tools:
                         seen_tools.append(ev["tool"])
+                        if ev["tool"] != "outline_plan":   # the plan event records itself
+                            step = _record_step("tool", ev.get("phase", ""), tool=ev["tool"])
+                            if step is not None:
+                                await step
+                    if ev.get("phase") and ev["phase"] not in seen_phases:
+                        seen_phases.append(ev["phase"])
                     yield f"event: thinking\ndata: {json.dumps({'phase': ev.get('phase', ''), 'tools': seen_tools})}\n\n"
             res = await fut
         except Exception as e:
+            if run_id is not None:
+                from core import agent_runs
+                await loop.run_in_executor(None, lambda: agent_runs.complete_run(run_id, "failed", error=str(e)[:300]))
             yield f"event: error\ndata: {json.dumps({'detail': str(e)[:200]})}\n\n"
             yield "event: done\ndata: {}\n\n"
             return
@@ -5134,14 +5280,48 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
                 yield f"event: delta\ndata: {json.dumps({'text': chunk})}\n\n"
         if res.get("model_issue"):
             yield f"event: notice\ndata: {json.dumps({'kind': 'model_issue'})}\n\n"
+        # A chain stopped on a failed step → the run is paused awaiting the owner's call
+        # (Retry / Skip / Revise quick actions in the UI) [D10].
+        if res.get("stopped_on_error"):
+            yield f"event: notice\ndata: {json.dumps({'kind': 'run_paused'})}\n\n"
         thinking_meta = reasoning or (("Consulted: " + ", ".join(tools)) if tools else None)
+        if mode_v2 and (seen_phases or tools):
+            turn_meta["steps"] = seen_phases
+            turn_meta["tools"] = tools
+        # Task-result artifact (#16 [D21]) — only when the agent run actually ACTED
+        # (≥1 act/terminal tool), so read-only turns don't spam artifacts.
+        if run_id is not None and not res.get("stopped_on_error") and not res.get("pending_action"):
+            acted = [t for t in tools if t in conductor.ACT_TOOLS]
+            if acted:
+                a_title = (message or "Agent task")[:80]
+                a_content = (f"## Task result\n\n{reply}\n\n"
+                             f"**Actions:** {', '.join(acted)}\n"
+                             f"**Steps:** {len(seen_phases)} · **Tools:** {', '.join(tools)}")
+                aid = await loop.run_in_executor(None, lambda: chat_store.add_artifact(
+                    sid, "task_result", a_title, a_content, run_id=run_id,
+                    meta_json=json.dumps({"tools": tools, "acted": acted})))
+                yield f"event: artifact\ndata: {json.dumps({'id': aid, 'kind': 'task_result', 'title': a_title})}\n\n"
+                turn_meta.setdefault("artifact_ids", []).append(aid)
         ctok = model_router.estimate_tokens(reply)
         ptok = model_router.estimate_tokens(message + (atext or "") + " ".join(m.get("content", "") for m in history))
-        await loop.run_in_executor(
+        mid = await loop.run_in_executor(
             None, lambda: chat_store.add_message(sid, "assistant", reply, model=model,
-                                                 tokens=ctok, thinking=thinking_meta))
+                                                 tokens=ctok, thinking=thinking_meta,
+                                                 meta=json.dumps(turn_meta) if turn_meta else None))
         await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", reply))
         pending = res.get("pending_action")
+        # Close out the agent run with an honest status [D8][D10].
+        if run_id is not None:
+            from core import agent_runs
+            if term_lines:
+                tail = "\n".join(term_lines[-30:])
+                await loop.run_in_executor(None, lambda: agent_runs.add_step(
+                    run_id, "terminal", "Terminal output", payload={"tail": tail[-3000:]}))
+            run_status = ("waiting_user" if res.get("stopped_on_error")
+                          else "waiting_approval" if pending
+                          else "failed" if res.get("model_issue") else "done")
+            await loop.run_in_executor(None, lambda: agent_runs.complete_run(
+                run_id, run_status, message_id=mid))
         if pending:
             yield f"event: action\ndata: {json.dumps(pending)}\n\n"
         picker = res.get("pending_picker")
@@ -5181,6 +5361,37 @@ def chat_session_activity(sid: int, limit: int = 50):
     from core import chat_store, conductor
     cid = chat_store.chat_id_for_session(sid)
     return conductor.list_actions(limit=max(1, min(limit, 200)), chat_id=cid)
+
+
+# ── Agent runs + artifacts (#16) ─────────────────────────────────────────────────
+@app.get("/api/chat/sessions/{sid}/runs")
+def chat_session_runs(sid: int, limit: int = 20):
+    from core import agent_runs
+    return {"runs": agent_runs.list_runs(sid, limit=max(1, min(limit, 100)))}
+
+
+@app.get("/api/chat/runs/{run_id}")
+def chat_run_detail(run_id: int):
+    from core import agent_runs
+    run = agent_runs.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="run not found")
+    return run
+
+
+@app.get("/api/chat/sessions/{sid}/artifacts")
+def chat_session_artifacts(sid: int, limit: int = 50):
+    from core import chat_store
+    return {"artifacts": chat_store.list_artifacts(sid, limit=max(1, min(limit, 200)))}
+
+
+@app.get("/api/chat/artifacts/{artifact_id}")
+def chat_artifact_detail(artifact_id: int):
+    from core import chat_store
+    art = chat_store.get_artifact(artifact_id)
+    if not art:
+        raise HTTPException(status_code=404, detail="artifact not found")
+    return art
 
 
 class ChatCompactReq(BaseModel):

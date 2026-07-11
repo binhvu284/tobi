@@ -12,10 +12,11 @@ import { SiGithub, SiGoogle, SiNotion, SiVercel, SiSupabase, type IconType } fro
 import {
   type PendingAction, type ChatSession, type AvailableModel, type ChatUsage,
   type ChatStoredMessage, type ChatAttachment, type ConductorAction, type ChatPicker, type ReaderChip,
+  type ChatModeId, type ContextChip, type ChatArtifactEvent,
   getChatSessions, createChatSession, getChatSession, patchChatSession, deleteChatSession,
   appendChatMessage, streamChatSession, getLlmModels, confirmConductorAction, rememberFact,
   forkChatSession, setMessageFeedback, getSessionActivity, getIntegrations, compactSession,
-  getEvolution, pmListProjects,
+  getEvolution, pmListProjects, getChatConfig,
 } from '../api'
 import { Link } from 'react-router-dom'
 import { useToast } from '../context/ToastProvider'
@@ -67,12 +68,59 @@ function ReaderChips({ chips, draftIds }: { chips: ReaderChip[]; draftIds: strin
   )
 }
 
+/** #16: per-turn chips above the reply — mode, auto project context [D20], artifacts [D21]. */
+function TurnChips({ mode, context, artifacts }: {
+  mode?: ChatModeId
+  context?: { projects?: ContextChip[]; resources?: { name?: string }[] }
+  artifacts?: ChatArtifactEvent[]
+}) {
+  const projects = context?.projects || []
+  const resources = context?.resources || []
+  const arts = artifacts || []
+  if (mode !== 'agent' && !projects.length && !arts.length) return null
+  return (
+    <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+      {mode === 'agent' && (
+        <span className="inline-flex items-center gap-1 rounded-full border border-purple/35 bg-purple/10 px-2 py-0.5 text-[10px] font-medium text-purple"><Wrench size={10} /> Agent</span>
+      )}
+      {projects.map(p => (
+        <Link key={p.id} to={`/projects/${p.id}`} title="Auto-detected project context"
+          className="inline-flex items-center gap-1 rounded-full border border-accent/35 bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent hover:bg-accent/20">
+          <Briefcase size={10} /> {p.name}
+        </Link>
+      ))}
+      {resources.length > 0 && (
+        <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] text-muted"><FileText size={10} /> {resources.length} resource{resources.length > 1 ? 's' : ''}</span>
+      )}
+      {projects.length > 0 && (
+        <span className="text-[10px] text-muted/60">context auto</span>
+      )}
+      {arts.map(a => (
+        <span key={a.id} title={a.title}
+          className="inline-flex items-center gap-1 rounded-full border border-success/35 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
+          {a.kind === 'research_report' ? <Search size={10} /> : <CheckCircle2 size={10} />}
+          {a.kind === 'research_report' ? 'Research report' : 'Task result'}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 type TierMark = { tier: number; colorKey: string; roman: string; name: string }
 
-type Meta = { elapsedMs?: number; tokens?: number; tools?: string[]; steps?: string[] }
+type Meta = {
+  elapsedMs?: number; tokens?: number; tools?: string[]; steps?: string[]
+  // #16 mode contract (persisted in the message meta column)
+  mode?: ChatModeId; run_id?: number; artifact_ids?: number[]
+  context?: { projects?: ContextChip[]; resources?: { name?: string }[] }
+  artifacts?: ChatArtifactEvent[]
+}
 type Msg = { id?: number; role: string; content: string; model?: string | null; meta?: Meta; thinking?: string | null; feedback?: number | null; created_at?: string }
 type ChatMode = 'chat' | 'agent' | 'terminal' | 'research' | 'project'
-type TurnOpts = { attachments?: ChatAttachment[]; web_research?: boolean; connectors?: string[] }
+type TurnOpts = {
+  attachments?: ChatAttachment[]; web_research?: boolean; connectors?: string[]
+  mode?: ChatModeId; deep_research?: boolean; review_mode?: 'ask' | 'session' | 'always'   // #16
+}
 type QueuedTurn = {
   text: string
   opts: TurnOpts
@@ -80,13 +128,28 @@ type QueuedTurn = {
 }
 
 const DEFAULT_STARTERS = ['What should I focus on today?', 'Give me a status report of the office.', 'Draft a message for me', 'Plan my day']
-const CHAT_MODES: { id: ChatMode; label: string; hint: string; Icon: typeof MessageSquarePlus }[] = [
+// #16 [D23]: the main selector is Chat / Agent. The legacy five-mode list stays reachable
+// behind the chat.mode_v2 feature flag (rollback path, D27/D29).
+const CHAT_MODES_V2: { id: ChatMode; label: string; hint: string; Icon: typeof MessageSquarePlus }[] = [
+  { id: 'chat', label: 'Chat', hint: 'Fast conversation', Icon: MessageSquarePlus },
+  { id: 'agent', label: 'Agent', hint: 'Plans, acts, reports — with a work timeline', Icon: Wrench },
+]
+const CHAT_MODES_LEGACY: { id: ChatMode; label: string; hint: string; Icon: typeof MessageSquarePlus }[] = [
   { id: 'chat', label: 'Chat', hint: 'Fast conversation', Icon: MessageSquarePlus },
   { id: 'agent', label: 'Agent', hint: 'Plans and uses tools', Icon: Wrench },
   { id: 'terminal', label: 'Terminal', hint: 'Command intent', Icon: Terminal },
   { id: 'research', label: 'Research', hint: 'Web-backed answers', Icon: Search },
   { id: 'project', label: 'Project', hint: 'PM-aware work', Icon: Briefcase },
 ]
+// Safe one-time migration of the persisted mode [spec §15]: terminal→agent (command
+// execution lives in Agent now), research/project→chat (DR toggle / auto context).
+const MODE_MIGRATE: Record<string, ChatMode> = { terminal: 'agent', research: 'chat', project: 'chat' }
+const migrateStoredMode = (raw: string | null, v2: boolean): ChatMode => {
+  const m = (raw || 'chat') as ChatMode
+  if (!v2) return (['chat', 'agent', 'terminal', 'research', 'project'] as ChatMode[]).includes(m) ? m : 'chat'
+  const mapped = MODE_MIGRATE[m] ?? m
+  return mapped === 'agent' ? 'agent' : 'chat'
+}
 
 type ConnectorCatalogItem = {
   id: string
@@ -221,7 +284,12 @@ export default function Chat() {
   const [picker, setPicker] = useState<ChatPicker | null>(null)  // Feature 3 wizard
   const [dragOver, setDragOver] = useState(false)                // Feature 8 drag & drop
   const [headerCollapsed, setHeaderCollapsed] = useState(() => { try { return localStorage.getItem('tobi.chat.header') === '0' } catch { return false } })
-  const [mode, setMode] = useState<ChatMode>(() => { try { return (localStorage.getItem('tobi.chat.mode') as ChatMode) || 'chat' } catch { return 'chat' } })
+  // #16: v2 defaults on; migrate the stored legacy mode immediately (terminal→agent, …).
+  const [modeV2, setModeV2] = useState(true)
+  const [mode, setMode] = useState<ChatMode>(() => { try { return migrateStoredMode(localStorage.getItem('tobi.chat.mode'), true) } catch { return 'chat' } })
+  const [deepResearch, setDeepResearch] = useState(false)           // one-message DR toggle (#16 D15)
+  const [contextChips, setContextChips] = useState<ContextChip[]>([])  // auto project context (D20)
+  const [runPaused, setRunPaused] = useState(false)                 // failed agent step → Retry/Skip/Revise (D10)
   const [terminalLines, setTerminalLines] = useState<string[]>([])   // live run_command stdout (#11)
   const [modeOpen, setModeOpen] = useState(false)
   const [objective, setObjective] = useState('')
@@ -258,13 +326,25 @@ export default function Chat() {
   const plusRef = useRef<HTMLDivElement>(null)
   const modeRef = useRef<HTMLDivElement>(null)
 
-  const storedToMsg = (m: ChatStoredMessage): Msg => ({
-    id: m.id, role: m.role, content: m.content, model: m.model, thinking: m.thinking,
-    feedback: m.feedback, created_at: m.created_at, meta: { tokens: m.tokens ?? undefined },
-  })
+  const storedToMsg = (m: ChatStoredMessage): Msg => {
+    // #16: the meta column persists mode/steps/tools/chips/artifacts across reloads
+    let parsed: Meta = {}
+    if (m.meta) { try { parsed = JSON.parse(m.meta) as Meta } catch { /* ignore */ } }
+    return {
+      id: m.id, role: m.role, content: m.content, model: m.model, thinking: m.thinking,
+      feedback: m.feedback, created_at: m.created_at, meta: { ...parsed, tokens: m.tokens ?? undefined },
+    }
+  }
 
   useEffect(() => {
     (async () => {
+      // #16 feature flag: v2 (Chat/Agent) unless the backend says otherwise; on fetch
+      // failure stay v2 (default-on). Flag off → restore the stored legacy mode as-is.
+      try {
+        const cfg = await getChatConfig()
+        setModeV2(cfg.mode_v2)
+        try { setMode(migrateStoredMode(localStorage.getItem('tobi.chat.mode'), cfg.mode_v2)) } catch { /* ignore */ }
+      } catch { /* ignore — default v2 */ }
       try { setModels((await getLlmModels()).models) } catch { /* ignore */ }
       try {
         const ev = await getEvolution()
@@ -432,6 +512,7 @@ export default function Chat() {
     const tag = opts.attachments?.length ? `  📎×${opts.attachments.length}` : ''
     setMessages(m => [...m, { role: 'user', content: text + tag }])
     setSending(true); setPending(null); setModelIssue(false)
+    setContextChips([]); setRunPaused(false)
     // YouTube reader chip (#14): show 'reading' immediately if the message has a link;
     // the backend confirms real per-link states via a `reader` notice event.
     const ytIds = findYouTube(text)
@@ -440,6 +521,10 @@ export default function Chat() {
     setThinkingSteps([]); stepsRef.current = []
     const ac = new AbortController(); abortRef.current = ac
     let streamed = false; let toolsSeen: string[] = []
+    // #16: accumulated per-turn mode metadata (echoed by the backend, folded into meta)
+    let modeSeen: ChatModeId | undefined
+    let contextSeen: Meta['context']
+    let artifactsSeen: ChatArtifactEvent[] = []
     const pushStep = (phase: string) => {
       if (phase && stepsRef.current[stepsRef.current.length - 1] !== phase) {
         stepsRef.current = [...stepsRef.current, phase]; setThinkingSteps(stepsRef.current)
@@ -469,7 +554,20 @@ export default function Chat() {
         onNotice: (n) => {
           if (n.kind === 'model_issue') setModelIssue(true)
           else if (n.kind === 'reader' && n.items) setReaderChips(n.items)
+          else if (n.kind === 'run_paused') setRunPaused(true)   // failed step → Retry/Skip/Revise (D10)
+          else if (n.kind === 'dr_images_skipped') toast({ kind: 'info', title: 'Deep Research', detail: 'Images are skipped during research — ask about them separately.' })
         },
+        onMode: (m) => { modeSeen = m.mode },
+        onContext: (c) => {
+          setContextChips(c.projects)
+          contextSeen = { projects: c.projects, resources: c.resources }
+        },
+        onPlan: (p) => {
+          // agent-declared plan (D9) → numbered checkpoints in the orb timeline
+          pushStep(`Planned ${p.steps.length} step${p.steps.length === 1 ? '' : 's'}`)
+          p.steps.slice(0, 12).forEach((s, i) => pushStep(`${i + 1}. ${s}`))
+        },
+        onArtifact: (a) => { artifactsSeen = [...artifactsSeen, a] },
         onTerminal: (line) => setTerminalLines(ls => [...ls, line]),
         onReset: () => {
           // a chatty model leaked a prose preamble before a tool call → drop it, show the orb again
@@ -484,7 +582,10 @@ export default function Chat() {
         },
         onUsage: (u: ChatUsage) => {
           flushDelta()
-          lastMetaRef.current = { elapsedMs: u.latency_ms, tokens: u.completion_tokens, tools: toolsSeen, steps: stepsRef.current }
+          lastMetaRef.current = {
+            elapsedMs: u.latency_ms, tokens: u.completion_tokens, tools: toolsSeen, steps: stepsRef.current,
+            mode: modeSeen, context: contextSeen, artifacts: artifactsSeen.length ? artifactsSeen : undefined,
+          }
           setMessages(m => { const next = [...m]; const last = next[next.length - 1]; if (last && last.role === 'assistant') next[next.length - 1] = { ...last, meta: { ...last.meta, ...lastMetaRef.current } }; return next })
         },
       }, ac.signal, opts)
@@ -507,14 +608,25 @@ export default function Chat() {
     }
   }
 
+  // #16: the baseline turn options every entry point shares (branch / starter / picker),
+  // so continuations keep the active mode instead of silently demoting to chat.
+  const baseOpts = (): TurnOpts => ({
+    connectors,
+    ...(modeV2 ? { mode: (mode === 'agent' ? 'agent' : 'chat') as ChatModeId, review_mode: reviewMode } : {}),
+  })
+
   const send = () => {
     const text = input.trim()
     if ((!text && !attachments.length) || activeId == null) return
-    const opts = {
+    const opts: TurnOpts = {
+      ...baseOpts(),
       attachments,
       web_research: webResearch || mode === 'research',
-      connectors,
+      ...(modeV2 && deepResearch ? { deep_research: true } : {}),
     }
+    // Deep Research is ONE message [D15] — reset here (covers both queue + immediate
+    // paths); regenerate still replays it from lastTurnRef.opts without re-arming.
+    if (deepResearch) setDeepResearch(false)
     setInput(''); setAttachments([]); setPlusOpen(false)
     try { localStorage.removeItem(`tobi.chat.draft.${activeId}`) } catch { /* ignore */ }
     if (sending || streaming) {
@@ -542,7 +654,7 @@ export default function Chat() {
       const nb = await forkChatSession(activeId, mid)
       setSessions(p => [nb, ...p])
       await openSession(nb.id, [nb, ...sessions])
-      runTurn(text, nb.id, {})
+      runTurn(text, nb.id, baseOpts())
       toast({ kind: 'success', title: 'Branched', detail: 'Original chat preserved in the sidebar.' })
     } catch (e) { toast({ kind: 'error', title: 'Branch failed', detail: (e as Error).message }) }
   }
@@ -554,7 +666,7 @@ export default function Chat() {
     try { await setMessageFeedback(m.id, next) } catch { /* ignore */ }
   }
 
-  const startWith = (text: string) => { if (activeId == null || sending || streaming) return; runTurn(text, activeId, {}) }
+  const startWith = (text: string) => { if (activeId == null || sending || streaming) return; runTurn(text, activeId, baseOpts()) }
   const quoteReply = (text: string) => {
     const snippet = text.length > 280 ? `${text.slice(0, 280)}…` : text
     const q = snippet.split('\n').map(l => `> ${l}`).join('\n')
@@ -606,7 +718,7 @@ export default function Chat() {
     setPicker(null)
     if (activeId == null || sending || streaming || !answers.length) return
     const body = answers.map(a => `• ${a.question} — ${a.answer}`).join('\n')
-    runTurn(`Here are the details you asked for:\n${body}`, activeId, {})
+    runTurn(`Here are the details you asked for:\n${body}`, activeId, baseOpts())
   }
 
   // ── drag & drop image/file input (Feature 8) ──
@@ -636,6 +748,7 @@ export default function Chat() {
   }
 
   const busy = sending || streaming
+  const CHAT_MODES = modeV2 ? CHAT_MODES_V2 : CHAT_MODES_LEGACY   // #16 flag-gated selector
   const activeMode = CHAT_MODES.find(m => m.id === mode) ?? CHAT_MODES[0]
   const activeModel = models.find(m => m.id === model)
   const runState = sending ? 'Thinking' : streaming ? 'Streaming' : queuedTurns.length ? 'Queued' : 'Idle'
@@ -647,6 +760,7 @@ export default function Chat() {
         ? 'Describe the command or local operation you want...'
         : mode === 'project'
           ? 'Ask about a project, task, owner input, or roadmap...'
+          : deepResearch ? 'Deep Research: ask your research question…'
           : 'Message TOBI...'
   const objectiveLabel = objective.trim() || 'Set objective'
   const connectorRows = [
@@ -675,8 +789,20 @@ export default function Chat() {
     setModeOpen(false)
   }
 
-  // ── slash commands (/model /compact /web /new /clear) ──
-  const slashCmds: { cmd: string; desc: string; icon: typeof Cpu; run: () => void }[] = [
+  // ── slash commands — v2 (#16): /terminal folds into Agent, /research arms Deep
+  // Research for one message, /project is retired (context is automatic), /chat added ──
+  const slashCmds: { cmd: string; desc: string; icon: typeof Cpu; run: () => void }[] = modeV2 ? [
+    { cmd: 'model', desc: 'Switch model', icon: Cpu, run: () => setModelMenuOpen(true) },
+    { cmd: 'chat', desc: 'Switch to chat mode', icon: MessageSquarePlus, run: () => setMode('chat') },
+    { cmd: 'agent', desc: 'Switch to agent mode', icon: Wrench, run: () => setMode('agent') },
+    { cmd: 'terminal', desc: 'Commands run in Agent mode now', icon: Terminal, run: () => { setMode('agent'); toast({ kind: 'info', title: 'Terminal → Agent', detail: 'Describe the command — the safety gate still applies.' }) } },
+    { cmd: 'research', desc: deepResearch ? 'Deep Research → off' : 'Deep Research → on (next message)', icon: Search, run: () => setDeepResearch(v => !v) },
+    { cmd: 'web', desc: webResearch ? 'Web research → off' : 'Web research → on', icon: Globe, run: () => setWebResearch(v => !v) },
+    { cmd: 'details', desc: 'Let TOBI ask you for context', icon: Sparkles, run: () => setPicker(DEFAULT_DETAIL_PICKER) },
+    { cmd: 'compact', desc: 'Summarize older turns', icon: Layers, run: () => doCompact() },
+    { cmd: 'new', desc: 'Start a new chat', icon: MessageSquarePlus, run: () => newSession() },
+    { cmd: 'clear', desc: 'Clear the message box', icon: X, run: () => { setInput(''); setAttachments([]) } },
+  ] : [
     { cmd: 'model', desc: 'Switch model', icon: Cpu, run: () => setModelMenuOpen(true) },
     { cmd: 'agent', desc: 'Switch to agent mode', icon: Wrench, run: () => setMode('agent') },
     { cmd: 'terminal', desc: 'Switch to terminal mode', icon: Terminal, run: () => setMode('terminal') },
@@ -948,6 +1074,10 @@ export default function Chat() {
                       {isLast && busy
                         ? <ProcessTrace active steps={thinkingSteps} startedAt={thinkingStartedAt} />
                         : <ProcessTrace steps={m.meta?.steps} tools={m.meta?.tools} thinking={m.thinking} elapsedMs={m.meta?.elapsedMs} tokens={m.meta?.tokens} />}
+                      {/* #16: mode / project-context / artifact chips (live for the running turn, meta afterwards) */}
+                      {isLast && busy
+                        ? <TurnChips mode={mode === 'agent' ? 'agent' : undefined} context={contextChips.length ? { projects: contextChips } : undefined} />
+                        : <TurnChips mode={m.meta?.mode} context={m.meta?.context} artifacts={m.meta?.artifacts} />}
                       <div className="tobi-answer max-w-none text-[15px] leading-relaxed">
                         {m.content ? <MarkdownView content={m.content} /> : (isLast && busy ? null : <span className="text-sm text-muted">…</span>)}
                         {streaming && isLast && <span className={`ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] bg-accent align-middle ${reduced ? '' : 'chat-caret'}`} />}
@@ -991,6 +1121,22 @@ export default function Chat() {
                   </motion.div>
                 )}
               </AnimatePresence>
+
+              {/* #16 [D10]: a failed agent step paused the run — offer Retry / Skip / Revise */}
+              {runPaused && !busy && (
+                <motion.div initial={{ opacity: 0, y: reduced ? 0 : 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-xl border border-warning/40 bg-warning/5 p-3.5">
+                  <div className="mb-1.5 flex items-center gap-2 text-sm font-semibold text-warning"><AlertTriangle size={15} /> The run paused on a failed step</div>
+                  <div className="mb-3 text-[13px] text-text">TOBI stopped rather than guessing, sir — the report above says exactly what happened. How shall we proceed?</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button onClick={() => { setRunPaused(false); if (activeId != null) runTurn('Retry the failed step and continue the task.', activeId, baseOpts()) }}
+                      className="flex items-center gap-1.5 rounded-lg border border-warning/50 bg-warning/15 px-3 py-1.5 text-xs font-medium text-warning hover:bg-warning/25"><RotateCcw size={13} /> Retry</button>
+                    <button onClick={() => { setRunPaused(false); if (activeId != null) runTurn('Skip the failed step and continue with the remaining steps.', activeId, baseOpts()) }}
+                      className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text"><ChevronRight size={13} /> Skip</button>
+                    <button onClick={() => { setRunPaused(false); setInput(lastTurnRef.current.text); setTimeout(() => taRef.current?.focus(), 0) }}
+                      className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text"><Pencil size={13} /> Revise</button>
+                  </div>
+                </motion.div>
+              )}
 
               {/* model-issue notice — one-tap switch */}
               {modelIssue && !busy && (
@@ -1169,7 +1315,10 @@ export default function Chat() {
                 <button onClick={clearQueuedTurns} className="text-[10px] text-muted hover:text-warning">Clear</button>
               </div>
             )}
-            {mode === 'terminal' && <TerminalMode lines={terminalLines} active={busy} />}
+            {/* Terminal merged into Agent (#16 D11/D13): the console panel appears in Agent
+                mode once a command actually produces output (legacy terminal mode keeps it) */}
+            {(mode === 'terminal' || (modeV2 && mode === 'agent' && terminalLines.length > 0)) &&
+              <TerminalMode lines={terminalLines} active={busy} />}
             <input ref={fileRef} type="file" multiple hidden onChange={e => { if (e.target.files) addFiles(Array.from(e.target.files)); e.target.value = '' }} />
             <div className="relative rounded-2xl border border-border bg-surface/70 shadow-[0_-18px_60px_rgb(0_0_0/0.16)] transition-all focus-within:border-accent/45 focus-within:shadow-[0_0_0_1px_rgb(var(--accent)/0.22),0_-18px_70px_rgb(0_0_0/0.22)]">
               {/* HUD energy hairline across the top edge */}
@@ -1246,6 +1395,12 @@ export default function Chat() {
                           <button onClick={() => { fileRef.current?.click(); setPlusOpen(false) }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><Paperclip size={15} className="text-muted" /> Upload file</button>
                           <button onClick={() => { fileRef.current?.click(); setPlusOpen(false) }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><ImageIcon size={15} className="text-muted" /> Attach image <span className="ml-auto text-[10px] text-muted">or paste</span></button>
                           <button onClick={() => setWebResearch(v => !v)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><Globe size={15} className={webResearch ? 'text-accent' : 'text-muted'} /> Web research <span className={`ml-auto text-[10px] ${webResearch ? 'text-accent' : 'text-muted'}`}>{webResearch ? 'On' : 'Off'}</span></button>
+                          {modeV2 && (
+                            <button onClick={() => setDeepResearch(v => !v)} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60" title="One-message cited research report">
+                              <Search size={15} className={deepResearch ? 'text-purple' : 'text-muted'} /> Deep Research
+                              <span className={`ml-auto text-[10px] ${deepResearch ? 'text-purple' : 'text-muted'}`}>{deepResearch ? 'Next msg' : 'Off'}</span>
+                            </button>
+                          )}
                           <button onMouseEnter={() => setPlusPanel('connectors')} onClick={() => setPlusPanel('connectors')} className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-bg/60 ${plusPanel === 'connectors' ? 'bg-accent/10 text-accent' : 'text-text'}`}><Plug size={15} className="text-muted" /> Connectors <span className="ml-auto flex items-center gap-1 text-[10px] text-muted">{connectors.length || 'Live'} <ChevronRight size={12} /></span></button>
                           <button onMouseEnter={() => setPlusPanel('confirmations')} onClick={() => setPlusPanel('confirmations')} className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm hover:bg-bg/60 ${plusPanel === 'confirmations' ? 'bg-accent/10 text-accent' : 'text-text'}`}><ShieldCheck size={15} className="text-muted" /> Human review <span className="ml-auto flex items-center gap-1 text-[10px] text-muted">{reviewMode} <ChevronRight size={12} /></span></button>
                           <button onClick={() => { setPicker(DEFAULT_DETAIL_PICKER); setPlusOpen(false) }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-text hover:bg-bg/60"><Sparkles size={15} className="text-muted" /> Tell TOBI about you <span className="ml-auto text-[10px] text-muted">picker</span></button>
@@ -1331,6 +1486,12 @@ export default function Chat() {
                   {/* quick per-turn toggles — light up when active */}
                   <button onClick={() => setWebResearch(v => !v)} title="Web research"
                     className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${webResearch ? 'bg-accent/15 text-accent shadow-[0_0_14px_rgb(var(--accent)/0.15)]' : 'text-muted hover:bg-overlay/5 hover:text-text'}`}><Globe size={16} /></button>
+                  {modeV2 && (
+                    <button onClick={() => setDeepResearch(v => !v)} title="Deep Research — one cited report for the next message"
+                      className={`flex h-9 items-center gap-1 rounded-lg px-2 transition-colors ${deepResearch ? 'bg-purple/15 text-purple shadow-[0_0_14px_rgb(var(--purple)/0.15)]' : 'text-muted hover:bg-overlay/5 hover:text-text'}`}>
+                      <Search size={16} />{deepResearch && <span className="text-[10px] font-medium">Deep</span>}
+                    </button>
+                  )}
                   {attachments.length > 0 && (
                     <span className="ml-0.5 flex items-center gap-1 rounded-md bg-accent/10 px-1.5 py-1.5 text-[10px] font-medium text-accent"><Paperclip size={11} /> {attachments.length}</span>
                   )}
@@ -1347,7 +1508,7 @@ export default function Chat() {
                     <AnimatePresence>
                       {modeOpen && (
                         <motion.div initial={{ opacity: 0, y: 6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6, scale: 0.97 }} transition={{ duration: 0.14 }}
-                          className="absolute bottom-11 right-0 z-30 w-72 rounded-xl border border-border bg-surface p-1.5 shadow-xl">
+                          className="fixed inset-x-0 bottom-0 z-30 w-full rounded-t-2xl border-t border-border bg-surface p-2 pb-4 shadow-2xl sm:absolute sm:inset-x-auto sm:bottom-11 sm:right-0 sm:w-72 sm:rounded-xl sm:border sm:p-1.5 sm:pb-1.5 sm:shadow-xl">
                           <div className="px-2.5 py-1 text-[10px] uppercase tracking-wide text-muted">Mode for next message</div>
                           {CHAT_MODES.map(({ id, label, hint, Icon }) => {
                             const selected = mode === id

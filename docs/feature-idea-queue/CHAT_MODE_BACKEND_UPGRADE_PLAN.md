@@ -1,6 +1,10 @@
 # Chat Mode Backend Upgrade Plan
 
-> Status: Queued plan. Do not implement from this file until the owner explicitly starts this queue item.
+> Status: ✅ Built (v1) — all 30 locked decisions delivered; see the queue row #16 for the
+> full delivery notes. Owner calls at build time: feature flag ON by default, agent timeline
+> reuses the ProcessTrace orb timeline, Deep Research standard budget (≤5 queries / ≤10
+> sources / 3 page reads). Key deviation from §7: `#11 TOBI CLI` had already shipped, so the
+> terminal adapter integrates the real `core/terminal_engine` gate (no placeholder needed).
 > Owner decisions captured: 30/30 via picker batches.
 > Target implementer: cheaper worker LLM. Follow the task graph exactly; avoid broad refactors.
 

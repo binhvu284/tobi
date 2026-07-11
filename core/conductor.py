@@ -598,6 +598,19 @@ def tool_web_search(query: str = "", **_: Any) -> dict:
     return {"available": True, "query": query, "count": len(items), "results": items}
 
 
+def tool_outline_plan(steps: Any = None, title: str = "", **_: Any) -> dict:
+    """Agent-mode plan-then-act (#16 D9): the model declares its intended steps BEFORE
+    executing. A no-op read-tier tool — the value is the structured plan event the loop
+    emits from it (a prose plan would end the turn / get preamble-retracted)."""
+    if not isinstance(steps, list):
+        return {"error": "steps must be a list of short step descriptions"}
+    clean = [str(s).strip() for s in steps if str(s).strip()][:12]
+    if not clean:
+        return {"error": "steps is empty"}
+    return {"ok": True, "title": (title or "").strip()[:120], "steps": clean,
+            "note": "Plan recorded. Now execute the steps with tools, one at a time."}
+
+
 # name → (callable, one-line description for the model)
 def tool_get_current_datetime(**_: Any) -> dict:
     """Current date and time in the owner's timezone — always live."""
@@ -745,6 +758,7 @@ READ_TOOLS: dict[str, tuple[Callable[..., dict], str]] = {
 # (e.g. the chat's `+` → Web research toggle), so the base #7 catalog stays unchanged.
 OPTIONAL_TOOLS: dict[str, tuple[Callable[..., dict], str]] = {
     "web_search": (tool_web_search, "Search the live web for current info. Arg: query (string). Cite the sources you use in a tobi:reference block."),
+    "outline_plan": (tool_outline_plan, "Declare your ordered plan BEFORE executing a multi-step task. Args: steps (list of short strings), title (optional). Call this FIRST in agent mode, then execute the steps."),
 }
 
 
@@ -1962,6 +1976,7 @@ _TOOL_PHASE = {
     "list_tasks": "Reading your tasks…", "check_health": "Running a health check…",
     "recall": "Searching your memory…", "read_notion": "Reading Notion…",
     "read_github": "Reading GitHub…", "list_github_repos": "Listing repos…", "read_drive": "Checking Drive…", "recall_conversations": "Searching past conversations…", "web_search": "Searching the web…",
+    "outline_plan": "Planning the approach…",
     "remember": "Saving that to memory…", "create_project": "Creating the project…",
     "create_task": "Adding the task…", "complete_task": "Completing the task…",
     "assign_task": "Assigning the task…", "update_project_progress": "Updating progress…",
@@ -2253,6 +2268,18 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
                     on_event({"type": "thinking", "phase": _phase_for(tool), "tool": tool})
                 except Exception:
                     pass
+
+            # ── outline_plan (#16 D9): surface the declared plan as a structured event ──
+            if tool == "outline_plan":
+                result = _exec_tool(call)
+                if on_event and isinstance(result, dict) and result.get("ok"):
+                    try:
+                        on_event({"type": "plan", "steps": result["steps"], "title": result.get("title", "")})
+                    except Exception:
+                        pass
+                used.append(tool)
+                msgs.append({"role": "user", "content": f"TOOL_RESULT {tool}: {json.dumps(result, default=str)[:3000]}"})
+                continue
 
             # ── Terminal tools (#11): the two-axis engine (mode × command risk) decides ──
             if tool in TERMINAL_TOOLS:

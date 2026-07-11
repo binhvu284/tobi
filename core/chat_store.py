@@ -55,13 +55,27 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, id);
+        CREATE TABLE IF NOT EXISTS chat_artifacts (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            run_id     INTEGER,                    -- producing agent run (NULL for e.g. research)
+            kind       TEXT NOT NULL,              -- task_result | research_report | terminal_output | source_cards
+            title      TEXT,
+            content    TEXT,                       -- markdown / JSON body
+            meta_json  TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_chat_artifacts_session ON chat_artifacts(session_id, id);
         """
     )
-    # migrate older installs that predate the feedback column
+    # migrate older installs that predate the feedback / meta columns (additive only)
     try:
         cols = {r[1] for r in conn.execute("PRAGMA table_info(chat_messages)").fetchall()}
         if "feedback" not in cols:
             conn.execute("ALTER TABLE chat_messages ADD COLUMN feedback INTEGER")
+        if "meta" not in cols:
+            # #16: JSON turn metadata {mode, capabilities, steps, tools, run_id, artifact_ids, context}
+            conn.execute("ALTER TABLE chat_messages ADD COLUMN meta TEXT")
     except Exception:
         pass
 
@@ -146,7 +160,7 @@ def touch_session(session_id: int) -> None:
 def get_messages(session_id: int, limit: int = 200) -> list[dict]:
     def q(conn):
         rows = conn.execute(
-            "SELECT id, role, content, parent_id, model, tokens, thinking, feedback, created_at "
+            "SELECT id, role, content, parent_id, model, tokens, thinking, feedback, meta, created_at "
             "FROM chat_messages WHERE session_id=? ORDER BY id ASC LIMIT ?",
             (session_id, limit),
         ).fetchall()
@@ -179,14 +193,14 @@ def fork_session(session_id: int, before_message_id: int,
         )
         new_id = cur.lastrowid
         rows = conn.execute(
-            "SELECT role, content, model, tokens, thinking FROM chat_messages "
+            "SELECT role, content, model, tokens, thinking, meta FROM chat_messages "
             "WHERE session_id=? AND id < ? ORDER BY id ASC", (session_id, before_message_id),
         ).fetchall()
         for r in rows:
             conn.execute(
-                "INSERT INTO chat_messages (session_id, role, content, model, tokens, thinking, created_at) "
-                "VALUES (?,?,?,?,?,?,?)",
-                (new_id, r["role"], r["content"], r["model"], r["tokens"], r["thinking"], _now()),
+                "INSERT INTO chat_messages (session_id, role, content, model, tokens, thinking, meta, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (new_id, r["role"], r["content"], r["model"], r["tokens"], r["thinking"], r["meta"], _now()),
             )
         conn.commit()
         return dict(conn.execute("SELECT * FROM chat_sessions WHERE id=?", (new_id,)).fetchone())
@@ -195,12 +209,12 @@ def fork_session(session_id: int, before_message_id: int,
 
 def add_message(session_id: int, role: str, content: str, *, model: Optional[str] = None,
                 tokens: Optional[int] = None, thinking: Optional[str] = None,
-                parent_id: Optional[int] = None) -> int:
+                parent_id: Optional[int] = None, meta: Optional[str] = None) -> int:
     def q(conn):
         cur = conn.execute(
-            "INSERT INTO chat_messages (session_id, role, content, parent_id, model, tokens, thinking, created_at) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            (session_id, role, content, parent_id, model, tokens, thinking, _now()),
+            "INSERT INTO chat_messages (session_id, role, content, parent_id, model, tokens, thinking, meta, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (session_id, role, content, parent_id, model, tokens, thinking, meta, _now()),
         )
         conn.execute("UPDATE chat_sessions SET updated_at=? WHERE id=?", (_now(), session_id))
         conn.commit()
@@ -230,7 +244,7 @@ def compact_session(session_id: int, summary_text: str, keep: int = 6) -> Option
     nothing old enough to compact. The summary persists and feeds back as context."""
     def q(conn):
         rows = conn.execute(
-            "SELECT id, role, content, model, tokens, thinking, feedback FROM chat_messages "
+            "SELECT id, role, content, model, tokens, thinking, feedback, meta FROM chat_messages "
             "WHERE session_id=? ORDER BY id ASC", (session_id,)
         ).fetchall()
         msgs = [dict(r) for r in rows]
@@ -245,14 +259,14 @@ def compact_session(session_id: int, summary_text: str, keep: int = 6) -> Option
         )
         for m in recent:
             conn.execute(
-                "INSERT INTO chat_messages (session_id, role, content, model, tokens, thinking, feedback, created_at) "
-                "VALUES (?,?,?,?,?,?,?,?)",
-                (session_id, m["role"], m["content"], m["model"], m["tokens"], m["thinking"], m["feedback"], _now()),
+                "INSERT INTO chat_messages (session_id, role, content, model, tokens, thinking, feedback, meta, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (session_id, m["role"], m["content"], m["model"], m["tokens"], m["thinking"], m["feedback"], m["meta"], _now()),
             )
         conn.execute("UPDATE chat_sessions SET updated_at=? WHERE id=?", (_now(), session_id))
         conn.commit()
         new_rows = conn.execute(
-            "SELECT id, role, content, parent_id, model, tokens, thinking, feedback, created_at "
+            "SELECT id, role, content, parent_id, model, tokens, thinking, feedback, meta, created_at "
             "FROM chat_messages WHERE session_id=? ORDER BY id ASC", (session_id,)
         ).fetchall()
         return [dict(r) for r in new_rows]
@@ -286,6 +300,41 @@ def auto_title(session_id: int, first_user_message: str) -> str:
     title = title[:60].rstrip() or "New chat"
     update_session(session_id, title=title)
     return title
+
+
+# ── Artifacts (#16) — durable outputs a turn produces beyond the reply text ─────
+# V1 kinds: task_result (agent runs), research_report (Deep Research). The shape is
+# deliberately Canvas-ready (kind/title/content/meta) without building an editor [D22].
+
+def add_artifact(session_id: int, kind: str, title: str, content: str,
+                 run_id: Optional[int] = None, meta_json: Optional[str] = None) -> int:
+    def q(conn):
+        cur = conn.execute(
+            "INSERT INTO chat_artifacts (session_id, run_id, kind, title, content, meta_json, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (session_id, run_id, kind, (title or "").strip()[:200], content, meta_json, _now()),
+        )
+        conn.commit()
+        return cur.lastrowid
+    return _with_conn(q)
+
+
+def list_artifacts(session_id: int, limit: int = 50) -> list[dict]:
+    def q(conn):
+        rows = conn.execute(
+            "SELECT id, session_id, run_id, kind, title, meta_json, created_at "
+            "FROM chat_artifacts WHERE session_id=? ORDER BY id DESC LIMIT ?",
+            (session_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]   # content omitted from lists (can be large)
+    return _with_conn(q)
+
+
+def get_artifact(artifact_id: int) -> Optional[dict]:
+    def q(conn):
+        row = conn.execute("SELECT * FROM chat_artifacts WHERE id=?", (artifact_id,)).fetchone()
+        return dict(row) if row else None
+    return _with_conn(q)
 
 
 # ── Cross-session search ──────────────────────────────────────────────────────
