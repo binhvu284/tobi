@@ -523,7 +523,7 @@ function WorkspaceTabsBar() {
             {tabs.map((tab, i) => {
               const base = getWorkspaceRouteMeta(tab.route)
               const meta = { ...base, label: tabLabels[tab.id] ?? base.label }
-              const emoji = tabIcons[tab.id]
+              const iconData = tabIcons[tab.id]
               const Icon = meta.Icon
               const active = tab.id === activeId
               const showDivider = !active && i < tabs.length - 1 && tabs[i + 1].id !== activeId
@@ -545,8 +545,8 @@ function WorkspaceTabsBar() {
                   } ${dragId === tab.id ? 'opacity-60' : ''}`}>
                   <button onClick={() => focusTab(tab.id)} title={meta.label}
                     className="relative z-10 flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-t-[8px]">
-                    {emoji
-                      ? <span className={`shrink-0 text-[14px] leading-none transition-opacity duration-200 ${active ? '' : 'opacity-80 group-hover:opacity-100'}`}>{emoji}</span>
+                    {iconData
+                      ? <span className={`flex shrink-0 items-center justify-center transition-opacity duration-200 ${active ? '' : 'opacity-80 group-hover:opacity-100'}`}><ProjectIcon project={iconData} size={14} /></span>
                       : <Icon size={13} className={`shrink-0 transition-colors duration-200 ${active ? 'text-accent' : 'text-muted opacity-80 group-hover:opacity-100'}`} />}
                     <span className={`truncate text-xs font-medium transition-colors duration-200 ${active ? 'text-text' : 'text-muted group-hover:text-text'}`}>
                       {meta.label}

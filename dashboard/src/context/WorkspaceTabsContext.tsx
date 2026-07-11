@@ -51,17 +51,24 @@ const ACTIVE_KEY = 'tobi.workspace.activeTab.v2'
 const LABELS_KEY = 'tobi.workspace.tabLabels.v1'
 const ICONS_KEY = 'tobi.workspace.tabIcons.v1'
 
+export type TabIconData = {
+  icon_type?: 'emoji' | 'icon' | 'custom'
+  icon_value?: string | null
+  emoji_icon?: string
+  accent_color?: string | null
+}
+
 type WorkspaceTabsContextValue = {
   tabs: WorkspaceTab[]
   activeId: string
   tabLabels: Record<string, string>
-  tabIcons: Record<string, string>
+  tabIcons: Record<string, TabIconData>
   focusTab: (id: string) => void
   closeTab: (id: string) => void
   reorderTabs: (fromId: string, toId: string) => void
   openTab: (route: string) => void
   setTabLabel: (id: string, label: string) => void
-  setTabIcon: (id: string, icon: string) => void
+  setTabIcon: (id: string, icon: TabIconData) => void
 }
 
 const WorkspaceTabsContext = createContext<WorkspaceTabsContextValue | null>(null)
@@ -112,8 +119,17 @@ export function getWorkspaceRouteMeta(route: string): WorkspaceRouteMeta {
 function loadLabels(): Record<string, string> {
   try { return JSON.parse(localStorage.getItem(LABELS_KEY) || '{}') } catch { return {} }
 }
-function loadIcons(): Record<string, string> {
-  try { return JSON.parse(localStorage.getItem(ICONS_KEY) || '{}') } catch { return {} }
+function loadIcons(): Record<string, TabIconData> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ICONS_KEY) || '{}')
+    // Migrate old format: string emoji → { emoji_icon: str, icon_type: 'emoji' }
+    const out: Record<string, TabIconData> = {}
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v === 'string') out[k] = { icon_type: 'emoji', emoji_icon: v }
+      else out[k] = v as TabIconData
+    }
+    return out
+  } catch { return {} }
 }
 
 function makeTab(route: string): WorkspaceTab {
@@ -150,7 +166,7 @@ export function WorkspaceTabsProvider({ children }: { children: ReactNode }) {
   const [tabs, setTabs] = useState<WorkspaceTab[]>(initial.tabs)
   const [activeId, setActiveId] = useState(initial.activeId)
   const [tabLabels, setTabLabels] = useState<Record<string, string>>(loadLabels)
-  const [tabIcons, setTabIcons] = useState<Record<string, string>>(loadIcons)
+  const [tabIcons, setTabIcons] = useState<Record<string, TabIconData>>(loadIcons)
 
   // Refs mirror the latest state so callbacks read current values without
   // needing them in dependency arrays — keeps callback identities stable.
@@ -258,8 +274,13 @@ export function WorkspaceTabsProvider({ children }: { children: ReactNode }) {
     setTabLabels(prev => prev[id] === label ? prev : { ...prev, [id]: label })
   }, [])
 
-  const setTabIcon = useCallback((id: string, icon: string) => {
-    setTabIcons(prev => prev[id] === icon ? prev : { ...prev, [id]: icon })
+  const setTabIcon = useCallback((id: string, icon: TabIconData) => {
+    setTabIcons(prev => {
+      const cur = prev[id]
+      if (cur && cur.icon_type === icon.icon_type && cur.icon_value === icon.icon_value && cur.emoji_icon === icon.emoji_icon)
+        return prev
+      return { ...prev, [id]: icon }
+    })
   }, [])
 
   const value = useMemo<WorkspaceTabsContextValue>(() => ({
