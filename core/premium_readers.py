@@ -19,8 +19,67 @@ from dataclasses import dataclass, field
 
 from core import youtube_reader
 
-# Rollback flag [spec §Rollback]: default on for local dev, flip to disable the layer.
+# Rollback flag [spec §Rollback]: safe built-in default (on). It is configuration-driven —
+# an owner_settings row (key `chat.premium_readers`) overrides it at runtime without a code
+# change; when no row is stored, this constant is the default (#14 follow-up).
 ENABLE_PREMIUM_READERS = True
+
+# Bound on how long transcript reading may block a chat turn. A slow/hanging fetch is
+# abandoned past this deadline and the turn continues honestly without the transcript
+# (the route wraps read_message in asyncio.wait_for with this value) (#14 follow-up).
+READER_TIMEOUT_S = 25.0
+
+_FLAG_KEY = "chat.premium_readers"
+
+
+# ── config-driven rollback flag (owner_settings, same pattern as chat_modes) ──────
+def _conn():
+    from core.database import get_connection
+    return get_connection()
+
+
+def _ensure_settings(conn) -> None:
+    conn.execute("CREATE TABLE IF NOT EXISTS owner_settings (key TEXT PRIMARY KEY, value TEXT)")
+
+
+def _get_setting(key: str, default: str) -> str:
+    try:
+        conn = _conn()
+        try:
+            _ensure_settings(conn)
+            row = conn.execute("SELECT value FROM owner_settings WHERE key=?", (key,)).fetchone()
+            return row[0] if row and row[0] is not None else default
+        finally:
+            conn.close()
+    except Exception:
+        return default
+
+
+def _set_setting(key: str, value: str) -> None:
+    conn = _conn()
+    try:
+        _ensure_settings(conn)
+        conn.execute(
+            "INSERT INTO owner_settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def premium_readers_enabled() -> bool:
+    """The rollback flag [spec §Rollback], config-driven via owner_settings (key
+    ``chat.premium_readers``). Defaults to the ENABLE_PREMIUM_READERS constant, so no
+    stored setting = the safe built-in default and toggling needs no code/schema change."""
+    default = "1" if ENABLE_PREMIUM_READERS else "0"
+    return _get_setting(_FLAG_KEY, default).strip().lower() not in ("0", "false", "off", "no")
+
+
+def set_premium_readers(enabled: bool) -> bool:
+    _set_setting(_FLAG_KEY, "1" if enabled else "0")
+    return premium_readers_enabled()
 
 
 @dataclass
@@ -38,7 +97,7 @@ class ReaderResult:
 def read_message(message: str, *, summarize: bool = True) -> ReaderResult:
     """Detect + read supported media referenced in the user's message. YouTube only in v1."""
     result = ReaderResult()
-    if not ENABLE_PREMIUM_READERS or not message:
+    if not premium_readers_enabled() or not message:
         return result
     urls = youtube_reader.find_youtube_urls(message)
     if not urls:
@@ -60,6 +119,21 @@ def read_message(message: str, *, summarize: bool = True) -> ReaderResult:
             note = res.note if res.reason == "no_dependency" else f"{res.note} ({url})"
             result.notices.append(note)
     result.youtube_context = "\n\n".join(blocks)
+    return result
+
+
+def timeout_result(message: str) -> ReaderResult:
+    """An honest 'reading timed out' result — used when the bounded reader deadline is hit,
+    so the model and the UI both report the timeout instead of silently dropping the link
+    (the abandoned executor thread's eventual result is discarded) (#14 follow-up)."""
+    result = ReaderResult(used=True)
+    for url in youtube_reader.find_youtube_urls(message or ""):
+        result.youtube.append({
+            "url": url, "video_id": youtube_reader.youtube_id_in(url), "title": None,
+            "state": "timed out", "available": False, "reason": "timeout",
+        })
+    result.notices.append("Reading the YouTube transcript took too long, so I answered "
+                          "without it. Ask me to try again if you'd like.")
     return result
 
 

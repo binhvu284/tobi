@@ -8,7 +8,7 @@ import sqlite3
 import json
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request, Body, Header, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse, RedirectResponse, Response
@@ -4949,21 +4949,28 @@ def _chat_directives(web_research: bool, thinking: bool, connectors: list[str]) 
 
 
 class ChatConfigReq(BaseModel):
-    mode_v2: bool
+    mode_v2: Optional[bool] = None
+    premium_readers: Optional[bool] = None   # #14 rollback flag (YouTube/reader layer)
 
 
 @app.get("/api/chat/config")
 def chat_config_get():
-    """Chat feature flags (#16) — the frontend picks the v2 Chat/Agent UI vs the legacy
-    five-mode UI from this."""
-    from core import chat_modes
-    return {"mode_v2": chat_modes.mode_v2_enabled()}
+    """Chat feature flags — the frontend picks the v2 Chat/Agent UI vs the legacy five-mode
+    UI (#16), plus the #14 premium-reader rollback flag, both from owner_settings."""
+    from core import chat_modes, premium_readers
+    return {"mode_v2": chat_modes.mode_v2_enabled(),
+            "premium_readers": premium_readers.premium_readers_enabled()}
 
 
 @app.post("/api/chat/config")
 def chat_config_set(body: ChatConfigReq):
-    from core import chat_modes
-    return {"mode_v2": chat_modes.set_mode_v2(body.mode_v2)}
+    from core import chat_modes, premium_readers
+    if body.mode_v2 is not None:
+        chat_modes.set_mode_v2(body.mode_v2)
+    if body.premium_readers is not None:
+        premium_readers.set_premium_readers(body.premium_readers)
+    return {"mode_v2": chat_modes.mode_v2_enabled(),
+            "premium_readers": premium_readers.premium_readers_enabled()}
 
 
 @app.get("/api/chat/sessions")
@@ -5068,7 +5075,15 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         reader = premium_readers.ReaderResult()
         if youtube_reader.find_youtube_urls(message):
             yield f"event: thinking\ndata: {json.dumps({'phase': 'Reading the YouTube transcript…', 'tools': ['youtube']})}\n\n"
-            reader = await loop.run_in_executor(None, lambda: premium_readers.read_message(message))
+            try:
+                # Bounded so a slow/hanging transcript fetch can't stall the whole turn (#14
+                # follow-up). On timeout the executor thread is abandoned (its result discarded)
+                # and we continue honestly without the transcript rather than block forever.
+                reader = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: premium_readers.read_message(message)),
+                    timeout=premium_readers.READER_TIMEOUT_S)
+            except asyncio.TimeoutError:
+                reader = premium_readers.timeout_result(message)
             yield f"event: notice\ndata: {json.dumps(premium_readers.notice_payload(reader))}\n\n"
 
         # Turn metadata (#16) — persisted onto the assistant message so mode/chips/steps
