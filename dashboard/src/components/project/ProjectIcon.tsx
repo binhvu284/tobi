@@ -24,7 +24,7 @@ export const ICON_PACK: Record<string, LucideIcon> = {
 /** Renders a project's icon whatever its type: emoji (default), icon-pack key, or
  * custom uploaded image (served from the DB via /api/pm/icons/{id}). */
 export default function ProjectIcon({ project, size = 24, className = '' }: {
-  project: Pick<PMProject, 'emoji_icon' | 'icon_type' | 'icon_value' | 'accent_color'>
+  project: { emoji_icon?: string; icon_type?: 'emoji' | 'icon' | 'custom'; icon_value?: string | null; accent_color?: string | null }
   size?: number
   className?: string
 }) {

@@ -13,10 +13,11 @@ import { useTheme } from '../context/ThemeProvider'
 import { THEME_GROUPS, THEME_DEFS } from '../context/themeTokens'
 import { useToast } from '../context/ToastProvider'
 import { WORKSPACE_ROUTES, MAX_WORKSPACE_TABS, getWorkspaceRouteMeta, useWorkspaceTabs } from '../context/WorkspaceTabsContext'
-import { getOfficeStats, getEvolution, type OfficeStats, type EvolutionReport } from '../api'
+import { getOfficeStats, getEvolution, pmListProjects, type OfficeStats, type EvolutionReport, type PMProject } from '../api'
 import CommandPalette from './CommandPalette'
 import TierEmblem from './TierEmblem'
 import ClockCalendar from './ClockCalendar'
+import ProjectIcon from './project/ProjectIcon'
 import { SPRING, DUR, EASE } from '../lib/motion'
 
 const APP_VERSION = 'v3.0'
@@ -161,7 +162,13 @@ function NavSection({ group, links, collapsed, onNavigate, open, onToggle }: {
 }
 
 // ── Sidebar: recently-opened project workspaces under the Projects entry ─────
-export type RecentProject = { id: number; name: string; icon: string }
+export type RecentProject = {
+  id: number; name: string
+  icon_type?: 'emoji' | 'icon' | 'custom'
+  icon_value?: string | null
+  emoji_icon?: string
+  accent_color?: string | null
+}
 const RECENTS_KEY = 'tobi.projects.recents.v1'
 
 export function pushRecentProject(p: RecentProject) {
@@ -177,12 +184,41 @@ export function pushRecentProject(p: RecentProject) {
 function useRecentProjects(): RecentProject[] {
   const [items, setItems] = useState<RecentProject[]>([])
   useEffect(() => {
-    const load = () => {
-      try { setItems(JSON.parse(localStorage.getItem(RECENTS_KEY) || '[]')) } catch { setItems([]) }
+    const load = async () => {
+      let recents: RecentProject[] = []
+      try {
+        recents = JSON.parse(localStorage.getItem(RECENTS_KEY) || '[]') as RecentProject[]
+        // Migrate old entries: {icon: "🚀"} → {emoji_icon: "🚀", icon_type: "emoji"}
+        for (const r of recents) {
+          if ((r as Record<string, unknown>).icon && !r.emoji_icon && !r.icon_type) {
+            r.emoji_icon = (r as Record<string, unknown>).icon as string
+            r.icon_type = 'emoji'
+          }
+        }
+      } catch { /* ignore */ }
+
+      // Fetch live project data so icons are always correct (not stale localStorage)
+      try {
+        const resp = await pmListProjects({ size: 'all' })
+        const byId = new Map<number, PMProject>()
+        for (const p of resp.items) byId.set(p.id, p)
+        recents = recents.map(r => {
+          const live = byId.get(r.id)
+          if (live) return {
+            id: live.id, name: live.name,
+            icon_type: live.icon_type, icon_value: live.icon_value,
+            emoji_icon: live.emoji_icon, accent_color: live.accent_color,
+          }
+          return r
+        })
+      } catch { /* API unavailable — use localStorage as-is */ }
+
+      setItems(recents)
     }
     load()
-    window.addEventListener('tobi:recent-projects', load)
-    return () => window.removeEventListener('tobi:recent-projects', load)
+    const handler = () => { load() }
+    window.addEventListener('tobi:recent-projects', handler)
+    return () => window.removeEventListener('tobi:recent-projects', handler)
   }, [])
   return items
 }
@@ -198,7 +234,9 @@ function ProjectRecents({ items, onNavigate }: { items: RecentProject[]; onNavig
           <NavLink key={p.id} to={`/projects/${p.id}/overview`} onClick={onNavigate}
             className={`flex items-center gap-2 rounded-md px-2 py-1 text-[12px] transition-colors ${
               active ? 'bg-accent/10 text-accent' : 'text-muted hover:bg-overlay/5 hover:text-text'}`}>
-            <span className="w-4 shrink-0 text-center text-[13px] leading-none">{p.icon || '📁'}</span>
+            <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+              <ProjectIcon project={p} size={15} />
+            </span>
             <span className="truncate">{p.name}</span>
           </NavLink>
         )

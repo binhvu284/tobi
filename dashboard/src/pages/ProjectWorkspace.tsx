@@ -75,7 +75,11 @@ export default function ProjectWorkspace() {
     const key = projectTabKey(`/projects/${pid}`)
     const emoji = (p.icon_type === 'emoji' || !p.icon_type) ? (p.icon_value || p.emoji_icon || '📁') : '📁'
     if (key) { setTabLabel(key, p.name); setTabIcon(key, emoji) }
-    pushRecentProject({ id: p.id, name: p.name, icon: emoji })
+    pushRecentProject({
+      id: p.id, name: p.name,
+      icon_type: p.icon_type, icon_value: p.icon_value,
+      emoji_icon: p.emoji_icon, accent_color: p.accent_color,
+    })
   }, [ov, pid, setTabLabel, setTabIcon])
   useEffect(() => { registered.current = false }, [pid])
 
