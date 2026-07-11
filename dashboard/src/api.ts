@@ -69,7 +69,7 @@ export type TaskStatus =
   | 'cancelled'
 
 export type TaskPriority = 'P0' | 'P1' | 'P2' | 'P3'
-export type TaskAgent = 'tobi' | 'research' | 'coder' | 'ceo'
+export type TaskAgent = 'tobi' | 'research' | 'coder' | 'ceo' | 'owner'
 
 export type TaskActivity = {
   id: number

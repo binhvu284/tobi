@@ -57,7 +57,7 @@ HIGH_RISK_TRANSITIONS = {
     "cancelled",
 }
 
-ALLOWED_AGENTS = {"tobi", "research", "coder", "ceo"}
+ALLOWED_AGENTS = {"tobi", "research", "coder", "ceo", "owner"}
 ALLOWED_PRIORITIES = {"P0", "P1", "P2", "P3"}
 
 

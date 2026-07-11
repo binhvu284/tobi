@@ -82,13 +82,22 @@ export function projectTabKey(route: string): string | null {
   return m ? `/projects/${m[1]}` : null
 }
 
+// Chat sessions (/chat/123) each get their own workspace tab keyed chat:{id},
+// so the owner can have multiple conversations open side-by-side.
+const CHAT_SESSION_RE = /^\/chat\/(\d+)(?:\/.*)?$/
+
+export function chatTabKey(route: string): string | null {
+  const m = CHAT_SESSION_RE.exec(normalizeWorkspaceRoute(route))
+  return m ? `chat:${m[1]}` : null
+}
+
 function tabKeyFor(route: string): string {
-  return projectTabKey(route) ?? normalizeWorkspaceRoute(route)
+  return projectTabKey(route) ?? chatTabKey(route) ?? normalizeWorkspaceRoute(route)
 }
 
 function isTabbable(route: string): boolean {
   const clean = normalizeWorkspaceRoute(route)
-  return ROUTE_META.has(clean) || PROJECT_ROUTE_RE.test(clean)
+  return ROUTE_META.has(clean) || PROJECT_ROUTE_RE.test(clean) || CHAT_SESSION_RE.test(clean)
 }
 
 export function getWorkspaceRouteMeta(route: string): WorkspaceRouteMeta {

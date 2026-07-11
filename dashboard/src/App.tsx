@@ -43,6 +43,7 @@ function RouteSet({ location }: { location?: string }) {
       <Route path="/inbox" element={<Inbox />} />
       <Route path="/brain" element={<Brain />} />
       <Route path="/chat" element={<Chat />} />
+      <Route path="/chat/:sessionId" element={<Chat />} />
       <Route path="/actions" element={<Actions />} />
       <Route path="/graph" element={
         <Suspense fallback={<PageLoader preset="graph" />}><Graph /></Suspense>

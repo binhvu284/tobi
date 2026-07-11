@@ -412,9 +412,19 @@ export default function Chat() {
   }
   const jumpToLatest = () => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); atBottomRef.current = true; setAtBottom(true) }
 
-  // auto-grow composer to ~200px then scroll
-  const autoGrow = () => { const el = taRef.current; if (!el) return; el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 200)}px` }
+  // auto-grow composer to ~200px then scroll. Guard: when the textarea isn't laid out yet
+  // (session switch / route transition / hidden tab) scrollHeight reads 0 — pinning inline
+  // height to that collapsed the input to nothing. Fall back to natural rows={1} height,
+  // and clamp to a one-line minimum otherwise (the min-h class is the hard CSS floor).
+  const autoGrow = () => {
+    const el = taRef.current; if (!el) return
+    el.style.height = 'auto'
+    if (!el.scrollHeight) { el.style.height = ''; return }
+    el.style.height = `${Math.min(Math.max(el.scrollHeight, 30), 200)}px`
+  }
   useEffect(() => { autoGrow(); setSlashIdx(0) }, [input])
+  // re-measure after a session switch too — input '' → '' doesn't trigger the effect above
+  useEffect(() => { const t = setTimeout(autoGrow, 50); return () => clearTimeout(t) }, [activeId])
 
   const openSession = async (id: number, list?: ChatSession[]) => {
     setActiveId(id); setPending(null); setActivityOpen(false); setModelIssue(false); setAutoAcceptChat(false); setReaderChips([])
@@ -1376,7 +1386,7 @@ export default function Chat() {
                 <textarea ref={taRef} value={input} onChange={e => setInput(e.target.value)} onPaste={onPaste}
                   onKeyDown={onComposerKey}
                   rows={1} placeholder={`${modePlaceholder}  (Enter to send - / for commands)`}
-                  className="block max-h-[200px] w-full resize-none overflow-y-auto bg-transparent py-1 text-sm leading-relaxed text-text outline-none placeholder:text-muted/55" />
+                  className="block min-h-[30px] max-h-[200px] w-full resize-none overflow-y-auto bg-transparent py-1 text-sm leading-relaxed text-text outline-none placeholder:text-muted/55" />
               </div>
 
               {/* bottom toolbar — tools left · model + send right */}

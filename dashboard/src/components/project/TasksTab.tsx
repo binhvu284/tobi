@@ -308,7 +308,7 @@ function TaskDrawer({ projectId, task, allTasks, onClose, onChanged }: {
           <div>
             <span className={label}>Assignee</span>
             <select value={task.agent} onChange={e => patch({ agent: e.target.value as any }, true)} className={input}>
-              <option value="tobi">TOBI</option><option value="research">Research</option>
+              <option value="owner">Me</option><option value="tobi">TOBI</option><option value="research">Research</option>
               <option value="coder">Coder</option><option value="ceo">CEO</option>
             </select>
           </div>
