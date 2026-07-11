@@ -152,6 +152,22 @@ def extra_tools_for(ctx: dict) -> Optional[list[str]]:
     return tools or None
 
 
+# ── mode = a REAL capability boundary (not just prompting) [D11][D23] ──────────────
+# The terminal surface (shell + package/tool acquisition) is an **Agent-only** capability:
+# Terminal folds into Agent, so Chat mode must not be able to run commands. These names are
+# rejected server-side by the Conductor when the mode denies them — the selected mode changes
+# the actual backend capability, not just the timeline/prompt.
+_TERMINAL_SURFACE = {"run_command", "install_package", "configure_tool",
+                     "connect_tool", "kill_job", "set_terminal_mode"}
+
+
+def denied_tools_for(ctx: dict) -> set[str]:
+    """Tools the normalized mode must REJECT server-side (passed to conductor.answer as an
+    allow/deny policy). Chat denies the terminal surface (Agent-only [D11][D23]); Agent denies
+    nothing. Empty for any non-'chat' context, so this only ever tightens Chat mode."""
+    return set(_TERMINAL_SURFACE) if (ctx or {}).get("mode") == "chat" else set()
+
+
 # ── auto project context (#16 [D19][D20]) ─────────────────────────────────────────
 _CTX_MAX_MSG = 2000        # skip detection on very long messages (cheap guard)
 _CTX_MAX_CHARS = 1500      # cap on injected context text

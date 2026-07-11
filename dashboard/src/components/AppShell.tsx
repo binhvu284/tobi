@@ -7,7 +7,7 @@ import {
   Menu, X, Bell, Palette, Circle, FolderKanban, TrendingUp,
   ChevronsLeft, ChevronsRight, ChevronUp, ChevronDown, Brain, MessagesSquare,
   Share2, KeyRound, Inbox, FileText, Code2, Workflow, History, Cpu, HardDrive,
-  Newspaper, Activity, Plus,
+  Newspaper, Activity, Plus, Search,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeProvider'
 import { THEME_GROUPS, THEME_DEFS } from '../context/themeTokens'
@@ -455,15 +455,24 @@ function Stat({ value, label, tone }: { value: string; label: string; tone: stri
 
 function NewTabButton({ openTab, openRoutes }: { openTab: (r: string) => void; openRoutes: string[] }) {
   const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const ref = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!open) return
     const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { if (query) setQuery(''); else setOpen(false) } }
     document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey)
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey) }
-  }, [open])
+  }, [open, query])
+
+  // Focus search on open, reset on close
+  useEffect(() => { if (open) setTimeout(() => searchRef.current?.focus(), 50); else setQuery('') }, [open])
+
+  const filtered = query.trim()
+    ? WORKSPACE_ROUTES.filter(r => r.label.toLowerCase().includes(query.toLowerCase()))
+    : WORKSPACE_ROUTES
 
   const pick = (route: string) => { openTab(route); setOpen(false) }
 
@@ -486,20 +495,32 @@ function NewTabButton({ openTab, openRoutes }: { openTab: (r: string) => void; o
             exit={{ opacity: 0, y: -6, scale: 0.97 }}
             transition={{ duration: DUR.sm, ease: EASE.out }}
             className="absolute left-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-2xl border border-border bg-surface/95 p-1.5 shadow-[0_10px_44px_-10px_rgba(0,0,0,0.55)] ring-1 ring-overlay/[0.04] backdrop-blur-xl">
-            <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">Open in new tab</div>
+            {/* Search input */}
+            <div className="mb-1 flex items-center gap-2 rounded-lg border border-border bg-bg/60 px-2.5 py-1.5">
+              <Search size={13} className="shrink-0 text-muted/70" />
+              <input ref={searchRef} value={query} onChange={e => setQuery(e.target.value)}
+                placeholder="Search pages…"
+                className="w-full bg-transparent text-xs text-text placeholder:text-muted/60 focus:outline-none" />
+              {query && <button onClick={() => setQuery('')} className="shrink-0 text-muted hover:text-text"><X size={12} /></button>}
+            </div>
+            <div className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted">{query ? `${filtered.length} match${filtered.length === 1 ? '' : 'es'}` : 'Open in new tab'}</div>
             <div className="scroll-subtle max-h-[min(60vh,360px)] overflow-y-auto">
-              {WORKSPACE_ROUTES.map(r => {
-                const isOpen = openRoutes.includes(r.route)
-                const Icon = r.Icon
-                return (
-                  <button key={r.route} onClick={() => pick(r.route)}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs text-text transition-colors duration-150 hover:bg-bg/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
-                    <Icon size={15} className={isOpen ? 'shrink-0 text-accent' : 'shrink-0 text-muted'} />
-                    <span className="flex-1 truncate font-medium">{r.label}</span>
-                    {isOpen && <span className="rounded-full bg-accent/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">Open</span>}
-                  </button>
-                )
-              })}
+              {filtered.length === 0 ? (
+                <div className="px-2.5 py-4 text-center text-xs text-muted/60">No pages match "{query}"</div>
+              ) : (
+                filtered.map(r => {
+                  const isOpen = openRoutes.includes(r.route)
+                  const Icon = r.Icon
+                  return (
+                    <button key={r.route} onClick={() => pick(r.route)}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs text-text transition-colors duration-150 hover:bg-bg/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
+                      <Icon size={15} className={isOpen ? 'shrink-0 text-accent' : 'shrink-0 text-muted'} />
+                      <span className="flex-1 truncate font-medium">{r.label}</span>
+                      {isOpen && <span className="rounded-full bg-accent/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">Open</span>}
+                    </button>
+                  )
+                })
+              )}
             </div>
           </motion.div>
         )}
