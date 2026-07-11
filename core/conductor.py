@@ -2215,9 +2215,18 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
     on_reset = (lambda: on_event({"type": "reset"})) if on_event else None
 
     def _final(text: str) -> dict:
-        """Finish a turn: strip reasoning, continue if it was truncated, flag a model issue."""
+        """Finish a turn: strip reasoning, continue if it was truncated, flag a model issue.
+
+        Guard: NEVER surface a raw tool-call JSON to the owner. A weaker model sometimes emits
+        `{"tool": …}` where a prose answer was required (it keeps "calling" a tool — e.g. loops
+        on recall_conversations — and still emits JSON on the forced-final step). Dumping that
+        verbatim is the `{"tool":"…"}` leak owners see; instead we treat it as a model issue so
+        the UI shows a graceful notice, not machine JSON."""
         clean, reasoning = _strip_reasoning(text)
-        if not clean:
+        # Trip only on a genuine tool call: a parseable {"tool":…} object, or a leading `{"tool"`
+        # signature (a truncated/garbled one). This is precise — a legitimate fenced-JSON answer
+        # the owner asked for does NOT lead with `{"tool"` and won't parse as a call.
+        if not clean or _TOOL_SIG_RE.match(clean.lstrip()) or _parse_tool_call(clean):
             return {"reply": _MODEL_STRUGGLING, "tools_used": used, "intent": intent,
                     "model_issue": True, "streamed": False}
         return {"reply": clean, "reasoning": reasoning, "tools_used": used,
@@ -2337,7 +2346,14 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
     # Step budget exhausted → force a complete, grounded final answer from the gathered results.
     msgs.append({"role": "user", "content": "Now give your final answer to the owner using only the tool "
                  "results above. Do not call any more tools. Answer fully and do not stop mid-sentence."})
-    text, _isa, fr = _gen_step(client, msgs, system, FINAL_TOKENS, on_delta)
+    text, is_ans, fr = _gen_step(client, msgs, system, FINAL_TOKENS, on_delta, on_reset)
+    # A weak model may STILL emit a tool-call JSON here instead of answering. One blunt prose-only
+    # retry (on_reset retracts any live leak) so the owner gets a real answer — never raw JSON.
+    if not is_ans:
+        msgs.append({"role": "assistant", "content": text[:600]})
+        msgs.append({"role": "user", "content": "Answer in plain prose for the owner now. Do NOT output "
+                     "JSON and do NOT call any tool — just summarise what the tool results above show."})
+        text, is_ans, fr = _gen_step(client, msgs, system, FINAL_TOKENS, on_delta, on_reset)
     if fr == "length":
         text += _continue_answer(client, msgs, text, system, on_delta)
     return _final(text)

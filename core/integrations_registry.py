@@ -82,14 +82,25 @@ def _test_codex() -> tuple[bool, str]:
     use_api = False
 
     if not tok:
-        # Try auto-reading ~/.codex/auth.json
+        # Try auto-reading from $CODEX_HOME/auth.json or ~/.codex/auth.json
         try:
             import json
-            path = os.path.expanduser("~/.codex/auth.json")
-            if os.path.exists(path):
-                with open(path) as f:
-                    data = json.load(f)
-                tok = data.get("access_token") or data.get("api_key") or ""
+            codex_home = os.getenv("CODEX_HOME", "")
+            candidates = []
+            if codex_home:
+                candidates.append(os.path.join(codex_home, "auth.json"))
+            candidates.append(os.path.expanduser("~/.codex/auth.json"))
+            for path in candidates:
+                if os.path.exists(path):
+                    with open(path) as f:
+                        data = json.load(f)
+                    tokens = data.get("tokens")
+                    if isinstance(tokens, dict) and tokens.get("access_token"):
+                        tok = tokens["access_token"]
+                    else:
+                        tok = data.get("access_token") or data.get("api_key") or ""
+                    if tok:
+                        break
         except Exception:
             pass
 

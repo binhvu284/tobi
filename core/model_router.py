@@ -335,9 +335,11 @@ class CodexClient(BaseLLMClient):
         token = api_key or os.getenv("CODEX_ACCESS_TOKEN") or os.getenv("CODEX_API_KEY")
         account_id = (account_id or os.getenv("CODEX_CHATGPT_ACCOUNT_ID") or "").strip() or None
 
-        # Auto-read ~/.codex/auth.json as a last resort
+        # Auto-read $CODEX_HOME/auth.json (or ~/.codex/auth.json) as a last resort
         if not token:
             token = self._read_codex_auth()
+            if token and not account_id:
+                account_id = self._read_codex_account_id()
 
         if not token:
             # Try standard OPENAI_API_KEY → API-key path
@@ -370,17 +372,55 @@ class CodexClient(BaseLLMClient):
 
     @staticmethod
     def _read_codex_auth() -> Optional[str]:
-        """Try to read the access_token from ~/.codex/auth.json."""
-        try:
-            path = os.path.expanduser("~/.codex/auth.json")
-            if not os.path.exists(path):
-                return None
-            import json
-            with open(path) as f:
-                data = json.load(f)
-            return data.get("access_token") or data.get("api_key") or None
-        except Exception:
-            return None
+        """Read the access_token from the Codex CLI auth file.
+        Checks $CODEX_HOME/auth.json first, then ~/.codex/auth.json.
+        Handles both flat ({access_token: ...}) and nested ({tokens: {access_token: ...}}) formats.
+        """
+        import json
+        # Determine the auth file path: $CODEX_HOME takes precedence over the default
+        codex_home = os.getenv("CODEX_HOME", "")
+        candidates = []
+        if codex_home:
+            candidates.append(os.path.join(codex_home, "auth.json"))
+        candidates.append(os.path.expanduser("~/.codex/auth.json"))
+        for path in candidates:
+            try:
+                if not os.path.exists(path):
+                    continue
+                with open(path) as f:
+                    data = json.load(f)
+                # Nested format (codex-cli ≥ 0.1x): {tokens: {access_token, refresh_token, account_id}}
+                tokens = data.get("tokens")
+                if isinstance(tokens, dict) and tokens.get("access_token"):
+                    return tokens["access_token"]
+                # Flat format (older): {access_token: ...} or {api_key: ...}
+                return data.get("access_token") or data.get("api_key") or None
+            except Exception:
+                continue
+        return None
+
+    @staticmethod
+    def _read_codex_account_id() -> Optional[str]:
+        """Read the ChatGPT account_id from the Codex CLI auth file."""
+        import json
+        codex_home = os.getenv("CODEX_HOME", "")
+        candidates = []
+        if codex_home:
+            candidates.append(os.path.join(codex_home, "auth.json"))
+        candidates.append(os.path.expanduser("~/.codex/auth.json"))
+        for path in candidates:
+            try:
+                if not os.path.exists(path):
+                    continue
+                with open(path) as f:
+                    data = json.load(f)
+                tokens = data.get("tokens")
+                if isinstance(tokens, dict) and tokens.get("account_id"):
+                    return tokens["account_id"]
+                return data.get("account_id") or None
+            except Exception:
+                continue
+        return None
 
     @staticmethod
     def _to_input(messages: list) -> list:
@@ -837,6 +877,11 @@ def provider_catalog() -> list[dict]:
         saved = (cfg.get("providers") or {}).get(pid, {})
         key_env = spec.get("key_env")
         _kv = os.getenv(key_env) if key_env else None
+        # Codex has multiple auth paths — check all of them
+        if pid == "codex" and not _kv:
+            _kv = (os.getenv("CODEX_API_KEY")
+                   or os.getenv("OPENAI_API_KEY")
+                   or CodexClient._read_codex_auth())
         out.append({
             "id": pid,
             "label": spec["label"],
