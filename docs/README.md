@@ -1,44 +1,47 @@
-# Tobi — Documentation Index
+# TOBI Documentation
 
-> **Read this first if you are a new agent or contributor working on Tobi.**
+This directory separates current system truth from implementation plans and historical design records.
 
-## What is Tobi?
+## Read Order
 
-Tobi is being built to be a **personal Jarvis** — an AI that *understands its owner deeply*, can *operate his PC and do whatever a PC can do*, and is *available 24/7*, interacting the way Jarvis interacts with Tony Stark.
+1. [`01_VISION.md`](01_VISION.md) - product direction and non-negotiable principles.
+2. [`02_CURRENT_STATE.md`](02_CURRENT_STATE.md) - verified implementation status and known mismatches.
+3. [`ARCHITECTURE.md`](ARCHITECTURE.md) - runtime, components, data, integrations, and security boundaries.
+4. [`MISSION_CONTROL.md`](MISSION_CONTROL.md) - Mission Control pages, workspace tabs, chat, frontend state, and API domains.
+5. [`DEVELOPMENT.md`](DEVELOPMENT.md) - setup, commands, tests, and safe operating workflow.
+6. [`03_ROADMAP.md`](03_ROADMAP.md) - recommended sequencing for future work.
 
-That is the **mission**. It is bigger than what the code does today.
+## Authority Levels
 
-## ⚠️ Don't mistake the current code for the goal
+| Level | Source | How to use it |
+|---|---|---|
+| 1 | Executable code, schemas, tests | Final authority for current behavior |
+| 2 | Current docs listed above | Maintained explanation of the code and product |
+| 3 | [`feature-idea-queue/QUEUE.md`](feature-idea-queue/QUEUE.md) | Delivery ledger and links to feature plans |
+| 4 | Files inside `feature-idea-queue/` | Original requirements and worker plans; preserve for history, but verify delivery notes and code |
+| 5 | [`archive/`](archive/) | Superseded specifications, completion notes, and legacy setup material |
 
-If you open this repository and only read the code, you will see an **autonomous MMO (make-money-online) business-portfolio agent**: it researches niches, proposes business plans, waits for the owner's approval over Telegram, executes project tasks on a schedule, and runs a monthly "CEO review."
+When two sources disagree, trust the higher level and update the lower level. A plan marked complete still describes intent; its queue row and the code describe what actually shipped.
 
-**That business engine is one *capability*, not the identity.** It is a proof-of-concept that Tobi can run a self-directed loop end-to-end. The north star is the Jarvis vision in [`01_VISION.md`](01_VISION.md). Read it before assuming the MMO portfolio is "the point."
+## Current Documents
 
-## The three docs
+| Document | Maintained content |
+|---|---|
+| [`01_VISION.md`](01_VISION.md) | Jarvis mission, pillars, and product principles |
+| [`02_CURRENT_STATE.md`](02_CURRENT_STATE.md) | Honest feature and risk inventory as of 2026-07-11 |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Backend/frontend/runtime map and primary data flows |
+| [`MISSION_CONTROL.md`](MISSION_CONTROL.md) | All current MC routes and ownership boundaries |
+| [`DEVELOPMENT.md`](DEVELOPMENT.md) | Development, verification, and operations |
+| [`03_ROADMAP.md`](03_ROADMAP.md) | Near-term platform and queued work dependencies |
+| [`DOCUMENTATION_AUDIT.md`](DOCUMENTATION_AUDIT.md) | What this refactor updated, archived, removed, or intentionally preserved |
 
-| Doc | Purpose |
-|-----|---------|
-| [`01_VISION.md`](01_VISION.md) | The Jarvis ambition — the north star and its 3 pillars. |
-| [`02_CURRENT_STATE.md`](02_CURRENT_STATE.md) | Honest, real-vs-stub inventory of what actually exists today. |
-| [`03_ROADMAP.md`](03_ROADMAP.md) | % progress toward the Jarvis end-state, organized by the 3 pillars, with evidence and next steps. |
+## Special Files
 
-## Source-of-truth files in the repo
+- `../SOUL.md` and `../hermes_skills/` are runtime inputs, not ordinary documentation. They were not changed during this docs refactor.
+- `.tobi/` and `.hermes/` contain ignored runtime or user data. Copies of Markdown files there are not canonical docs.
+- `graphify-out/` is generated navigation data. It can help locate code, but its local index may lag recent commits and must not override the code.
+- The feature queue is deliberately preserved. Do not rewrite old plans merely because the implementation evolved.
 
-- `SOUL.md` — Tobi's persona, operating modes, and decision rules (hand-written; synced into `~/.hermes/`).
-- `main.py` — the orchestrator and entry point; defines all run modes and the scheduler.
-- `core/` — the engines: model routing, task classification, research, execution, CEO loop, database, Telegram bot, integrations.
-- `api/` + `dashboard/` — REST API (FastAPI) and the React dashboard.
-- `HERMES_*.md` — setup/operation guides for the Hermes framework (the always-on runtime layer).
+## Maintenance Rule
 
-## Key decisions guiding this documentation
-
-- **Identity = Jarvis-first.** All roadmap percentages are measured against the *Jarvis* end-state, not the MMO-agent end-state. (Measured against the latter, the code is far more mature — see the roadmap's "Business engine" sub-section.)
-- **Runtime = personal PC, always-on.** The long-term target is Tobi running locally on the owner's machine for true desktop/file/app/shell control. Current `HERMES_*.md` guides assume a VPS — treat that as a *migration item*, not the goal.
-
-## Open item to confirm
-
-`SOUL.md` names the owner **"Thomas (binhvu284)"**, while the active git/user identity is **"Vũ Lê Bình / vubinh2843@gmail.com"**. Confirm the canonical owner name/persona before relying on either.
-
----
-
-*These docs describe intent and current state. Code is the source of truth for behavior; when they disagree, trust the code and update the docs.*
+Update `02_CURRENT_STATE.md`, `ARCHITECTURE.md`, and `MISSION_CONTROL.md` when a change alters a user-visible capability, API domain, persistent state owner, security boundary, route, or execution flow. Update the queue row when a queued feature changes status. Move superseded narrative into `archive/` rather than letting two files claim to be current.

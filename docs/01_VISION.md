@@ -1,42 +1,63 @@
-# 01 — Vision: Tobi as a Personal Jarvis
+# TOBI Vision
 
-## Mission statement
+## Mission
 
-**Tobi is a personal AI in the mold of Jarvis (from Iron Man): an assistant that fully understands its owner, can operate his computer and do anything a PC can do, and is available 24/7 — a continuous, proactive presence, not a chatbot you open and close.**
+TOBI is being built as a personal Jarvis: an assistant that understands its owner over time, safely performs real work across a computer and connected services, and remains available as a continuous presence rather than a disposable chat session.
 
-The relationship to aim for is Jarvis ↔ Tony Stark:
-- It *knows* him — his projects, preferences, habits, context, history — without being re-told.
-- It *acts* for him — on the machine, across his tools, with judgment about what to do autonomously vs. confirm first.
-- It's *always there* — listening, anticipating, surfacing the right thing at the right time.
+The current system is a foundation for that goal, not the finished product.
 
-## Foundation: the Hermes framework
+## Three Product Pillars
 
-Tobi is built on the **Hermes framework** (NousResearch) as its always-on agent runtime, providing:
-- a persistent agent process that runs 24/7,
-- persistent memory that accumulates across sessions,
-- a skills system (Tobi ships skill files in `hermes_skills/`, synced into `~/.hermes/skills/tobi/`).
+### 1. Understand the owner
 
-On top of Hermes, the custom Python layer in `core/` supplies Tobi's own engines (research, execution, CEO loop), its database, its model router, and its integrations. `SOUL.md` defines the persona and is synced into `~/.hermes/SOUL.md` at startup.
+TOBI should retain durable facts, decisions, preferences, routines, project context, and feedback. It should retrieve only relevant context, distinguish known facts from inference, let the owner review or delete memory, and avoid repeatedly asking for information already provided.
 
-> The two layers (custom Python app + Hermes runtime) currently coexist loosely. Tightening that integration is part of the roadmap, not a solved problem.
+Current foundations include the Brain memory store, conversation history, project resources, lessons, semantic retrieval, and the static persona in `SOUL.md`. The remaining challenge is a deeper and more reliable preference/habit model with proactive recall.
 
-## The three vision pillars
+### 2. Perform real work safely
 
-Everything Tobi should become reduces to three pillars. These are also the axes of the [roadmap](03_ROADMAP.md).
+TOBI should be able to use Mission Control, files, the terminal, the browser, applications, and connected services. Capability must be paired with visible execution, audit history, reversible defaults, permission-aware behavior, and confirmation before destructive or sensitive work.
 
-### Pillar 1 — Understand me fully
-A **learned, evolving user model**: preferences, active projects, working habits, relationships, recurring context, and decisions — captured automatically from interactions and reused before every task. Today this is approximated by conversation history, a lessons table, and a *hand-written* `SOUL.md`. The vision is a model Tobi maintains itself, so it never has to be told the same thing twice.
+Current foundations include Conductor tools, the full-machine terminal engine, project/task operations, integrations, MCP, research, and workflow engines. Browser and desktop control, broader automation, and stronger policy enforcement remain future work.
 
-### Pillar 2 — Do anything a PC can
-**Real local computer control**: the filesystem, applications, the shell, the browser, and GUI automation — with a sensible permission model so Tobi acts freely on low-risk things and confirms high-risk ones. Today this is a single coding agent deliberately confined to the project directory. The vision is full-machine capability: if a human can do it on the PC, Tobi can do it.
+### 3. Remain available and proactive
 
-### Pillar 3 — Always-on Jarvis presence
-**24/7 availability that is proactive, not just reactive**, and reachable across channels. Today Tobi is always-on via a scheduler and reachable over Telegram, and it does push proactive reports/alerts. The vision adds: running on the owner's **personal PC**, initiative beyond fixed cron jobs (noticing and suggesting), and richer interfaces over time (voice, desktop presence).
+TOBI should run reliably, preserve state across sessions, surface important events, and be reachable through appropriate channels. Proactivity should eventually come from meaningful events and learned context, not only fixed schedules.
 
-## The MMO business engine: one capability, not the identity
+Current foundations include Mission Control, Telegram, the CLI, scheduled jobs, health reporting, storage/usage visibility, and Hermes synchronization. Voice, event-driven observation, personal-PC service hardening, and context-aware interruption are not complete.
 
-Tobi can autonomously run a make-money-online business portfolio: discover niches → propose plans → (owner approves) → execute tasks → review monthly → learn. This is genuinely useful and the most complete part of the codebase. **But it is one thing Tobi *does*, not what Tobi *is*.** It serves the vision as living proof that Tobi can own a goal-directed loop from research to execution to self-review — a pattern that generalizes well beyond making money.
+## System Roles
 
-## What "done" looks like
+TOBI is currently a composed system:
 
-A future where the owner can say anything to Tobi — by text or voice, anytime — and Tobi either does it on his machine immediately, or tells him exactly why it's pausing for confirmation; where Tobi already knows the context so it rarely has to ask; and where it occasionally reaches out first because it noticed something worth his attention. That is the bar.
+- The Python application is the main orchestrator and execution layer.
+- Mission Control is the owner-facing cockpit for chat, memory, projects, tools, settings, and governance.
+- The Conductor translates conversation into grounded reads and audited actions.
+- SQLite and project resource storage hold most application state.
+- Hermes is an integrated runtime for persona, skills, memory, and model-routing sync, but the integration is one-way in several places and Hermes is not the only source of truth.
+- The MMO/business portfolio loop is a substantial capability and proving ground, not TOBI's identity.
+
+## Product Principles
+
+1. Show real capability, not optimistic badges.
+2. Ground state claims in live data or label them as unknown.
+3. Keep the owner in control of destructive, external, or sensitive actions.
+4. Make actions observable, cancellable where practical, and auditable.
+5. Reuse one memory, tool, permission, and model-routing architecture across surfaces.
+6. Preserve user data and backward compatibility when replacing modes or modules.
+7. Prefer local/private ownership of state and secrets.
+8. Treat web pages, project files, and external tool output as untrusted input.
+9. Keep Mission Control understandable to the owner and precise enough for an AI coding agent.
+
+## Definition of Done
+
+TOBI reaches the vision when the owner can state an outcome in ordinary language and TOBI can:
+
+- recover the relevant owner and project context without re-explanation;
+- explain what it can and cannot do;
+- choose a safe execution path;
+- request approval only when the risk warrants it;
+- perform the work across the required tools;
+- report progress and evidence;
+- preserve the result and lessons for the next session;
+- proactively surface genuinely important changes through the right channel.

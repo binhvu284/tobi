@@ -456,6 +456,103 @@ def tool_read_drive(query: str = "", service: str = "", **_: Any) -> dict:
     }
 
 
+# ── Episodic recall: cross-session memory ────────────────────────────────────
+
+import re as _re
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+_PAST_REF_RE = _re.compile(
+    r'(yesterday|last\s+\w+|\d+\s*days?\s*ago|earlier|before|'
+    r'what\s+did\s+we|do\s+you\s+remember|recall|when\s+did\s+we|'
+    r'when\s+were\s+we|what\s+were\s+we\s+discuss\w*|what\s+have\s+we\s+been|'
+    r'previous\s+(session|chat|conversation)|other\s+(session|chat|conversation)|'
+    r'what\s+about\s+our|talked\s+about|discussed)',
+    _re.IGNORECASE,
+)
+
+
+def _detect_past_reference(message: str) -> bool:
+    """True when the owner is likely asking about past conversations."""
+    return bool(_PAST_REF_RE.search(message or ""))
+
+
+def _resolve_when(when: str) -> tuple[str, str]:
+    """Parse a natural-language time reference into (date_from, date_to) in YYYY-MM-DD.
+
+    Supports: 'yesterday', 'today', 'last week', 'last month',
+    'N days ago', 'YYYY-MM-DD', or empty (all time).
+    """
+    now = _dt.now(_tz.utc)
+    w = (when or "").strip().lower()
+    if not w or w in ("today", "now"):
+        d = now.strftime("%Y-%m-%d")
+        return d, d
+    if w == "yesterday":
+        d = (now - _td(days=1)).strftime("%Y-%m-%d")
+        return d, d
+    if "last week" in w or "past week" in w:
+        return (now - _td(days=7)).strftime("%Y-%m-%d"), now.strftime("%Y-%m-%d")
+    if "last month" in w or "past month" in w:
+        return (now - _td(days=30)).strftime("%Y-%m-%d"), now.strftime("%Y-%m-%d")
+    m = _re.match(r'(\d+)\s*days?\s*ago', w)
+    if m:
+        d = (now - _td(days=int(m.group(1)))).strftime("%Y-%m-%d")
+        return d, d
+    try:
+        _dt.strptime(w, "%Y-%m-%d")
+        return w, w
+    except ValueError:
+        pass
+    return "", ""
+
+
+def tool_recall_conversations(query: str = "", when: str = "", limit: int = 30, **_: Any) -> dict:
+    """Recall past conversations across ALL chat sessions and Telegram.
+
+    Use when the owner asks what you discussed, when you talked about a topic,
+    or references a previous conversation.
+
+    Args:
+      query (str): topic or keyword to search for (e.g., "Project X", "GitHub").
+      when (str): time filter — 'yesterday', 'today', 'last week', 'last month',
+                  'N days ago', or 'YYYY-MM-DD'.
+      limit (int): max messages to return (default 30).
+    """
+    from core.chat_store import search_all_messages
+
+    date_from, date_to = _resolve_when(when)
+    messages = search_all_messages(
+        query=query.strip(), date_from=date_from, date_to=date_to, limit=limit,
+    )
+    if not messages:
+        return {
+            "available": True,
+            "count": 0,
+            "messages": [],
+            "note": (f"No conversations found"
+                     + (f" {when}" if when else "")
+                     + (f" mentioning '{query}'" if query else "")
+                     + "."),
+        }
+    return {
+        "available": True,
+        "count": len(messages),
+        "query": query or None,
+        "when": when or None,
+        "date_range": f"{date_from} to {date_to}" if date_from else "all time",
+        "messages": [
+            {
+                "source": m["source"],
+                "session": m.get("session_title", m.get("source", "")),
+                "role": m["role"],
+                "content": m["content"],
+                "time": m["created_at"],
+            }
+            for m in messages
+        ],
+    }
+
+
 def tool_storage_status(feature: str = "", **_: Any) -> dict:
     """Storage & Usage (#10): what's eating local disk — total, biggest consumer,
     per-feature top list; pass a feature name for its drill-down [S25]."""
@@ -635,6 +732,7 @@ READ_TOOLS: dict[str, tuple[Callable[..., dict], str]] = {
     "read_github": (tool_read_github, "Read a GitHub repo's info, issues, commits, and optionally files. Args: repo ('owner/name'), path (file/dir), readme (bool), branches (bool), tree (bool)."),
     "list_github_repos": (tool_list_github_repos, "List GitHub repositories for the authenticated user or an org. Args: limit (int), org (optional org name)."),
     "read_drive": (tool_read_drive, "Read Google Drive/Gmail/Calendar via OAuth2. Args: query (search), service ('drive'|'gmail'|'calendar', default drive)."),
+    "recall_conversations": (tool_recall_conversations, "Recall past conversations across ALL chat sessions + Telegram. Args: query (topic to search), when ('yesterday'|'today'|'last week'|'YYYY-MM-DD'|'N days ago'), limit (int)."),
     "storage_status": (tool_storage_status, "What's eating local disk: total/biggest/per-feature storage. Optional arg: feature (e.g. 'Brain') for its biggest items."),
     "llm_spend": (tool_llm_spend, "LLM spend & tokens: totals, top models, per-surface split, budget state. Optional arg: range (day|week|month|all)."),
     "terminal_status": (tool_terminal_status, "Terminal engine status: approval mode (plan/ask/accept/auto), kill-switch, OS/shell, package managers, tools registered. No args."),
@@ -1597,6 +1695,14 @@ def _system_prompt(profile: str, tools_enabled: bool, surface: str = "mc",
     s = _BUTLER
     if profile:
         s += f"\n\nWhat you know about the owner (use it to be personal):\n{profile}"
+    # Episodic memory — TOBI must always know it can recall past conversations
+    s += (
+        "\n\nEPISODIC MEMORY: You can recall exact messages from ALL past chat sessions and "
+        "Telegram conversations using the recall_conversations tool. When the owner asks about "
+        "past discussions, previous conversations, 'what did we talk about', or whether you can "
+        "remember something — ALWAYS use recall_conversations to retrieve the actual messages. "
+        "NEVER say you cannot access past sessions or other chats. You CAN."
+    )
     # Always inject full tier context so TOBI has the complete roadmap
     s += f"\n\n{_build_tier_context()}"
     # Smart datetime injection — only when the query is time-sensitive
@@ -1855,7 +1961,7 @@ _TOOL_PHASE = {
     "office_status": "Looking in on the office…", "list_projects": "Reading your projects…",
     "list_tasks": "Reading your tasks…", "check_health": "Running a health check…",
     "recall": "Searching your memory…", "read_notion": "Reading Notion…",
-    "read_github": "Reading GitHub…", "list_github_repos": "Listing repos…", "read_drive": "Checking Drive…", "web_search": "Searching the web…",
+    "read_github": "Reading GitHub…", "list_github_repos": "Listing repos…", "read_drive": "Checking Drive…", "recall_conversations": "Searching past conversations…", "web_search": "Searching the web…",
     "remember": "Saving that to memory…", "create_project": "Creating the project…",
     "create_task": "Adding the task…", "complete_task": "Completing the task…",
     "assign_task": "Assigning the task…", "update_project_progress": "Updating progress…",
@@ -2064,6 +2170,19 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
         message = f"{message}\n\n[Attached content the owner shared]\n{attachments_text}"
     tools_enabled = intent not in ("SMALLTALK", "CODING")
     system = _system_prompt(profile, tools_enabled, surface, directives, extra_tools, user_message=message)
+
+    # Smart trigger: when the owner references past conversations, nudge the LLM
+    # to use the recall_conversations tool before answering.
+    if tools_enabled and _detect_past_reference(message):
+        system += (
+            "\n\n⚠ EPISODIC RECALL: The owner is asking about past conversations. "
+            "Use the recall_conversations tool to retrieve relevant messages BEFORE responding. "
+            "Extract the time reference (e.g., 'yesterday', 'last week') and topic from their "
+            "message and pass them as the 'when' and 'query' args. "
+            "If the owner asks broadly ('what did we discuss yesterday?'), summarize the returned "
+            "messages. If they ask specifically ('when did we discuss X?'), report exact messages "
+            "with timestamps and which session they came from."
+        )
 
     try:
         # Keep the legacy call shape when no model override is given, so callers/tests that

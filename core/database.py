@@ -1480,6 +1480,58 @@ def save_conversation_message(chat_id: int, role: str, content: str) -> None:
     conn.close()
 
 
+def search_conversations(query: str = "", date_from: str = "", date_to: str = "",
+                         role: str = "", limit: int = 50) -> list[dict]:
+    """Search the conversations table (Telegram + Brain chat + mirrored sessions).
+
+    Returns [{source, session_id, session_title, role, content, created_at, chat_id}].
+    """
+    conn = get_connection()
+    sql = "SELECT content, role, chat_id, created_at FROM conversations WHERE 1=1"
+    params: list = []
+    if query:
+        sql += " AND content LIKE ?"
+        params.append(f"%{query}%")
+    if date_from:
+        sql += " AND date(created_at) >= ?"
+        params.append(date_from)
+    if date_to:
+        sql += " AND date(created_at) <= ?"
+        params.append(date_to)
+    if role:
+        sql += " AND role = ?"
+        params.append(role)
+    sql += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+
+    results = []
+    for r in rows:
+        cid = r["chat_id"] if isinstance(r, sqlite3.Row) else r[2]
+        content = r["content"] if isinstance(r, sqlite3.Row) else r[0]
+        r_role = r["role"] if isinstance(r, sqlite3.Row) else r[1]
+        created = r["created_at"] if isinstance(r, sqlite3.Row) else r[3]
+
+        if cid == 990001:
+            source, title = "brain", "Brain Chat"
+        elif cid > 0:
+            source, title = "telegram", "Telegram"
+        else:
+            source, title = "session", f"Session (chat_id {cid})"
+
+        results.append({
+            "source": source,
+            "session_id": None,
+            "session_title": title,
+            "role": r_role,
+            "content": (content or "")[:500],
+            "created_at": created or "",
+            "chat_id": cid,
+        })
+    return results
+
+
 # ─────────────────────────────────────────
 # CLI Quick Test
 # ─────────────────────────────────────────

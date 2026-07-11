@@ -286,3 +286,69 @@ def auto_title(session_id: int, first_user_message: str) -> str:
     title = title[:60].rstrip() or "New chat"
     update_session(session_id, title=title)
     return title
+
+
+# ── Cross-session search ──────────────────────────────────────────────────────
+
+def search_all_messages(query: str = "", date_from: str = "", date_to: str = "",
+                        role: str = "", limit: int = 50) -> list[dict]:
+    """Unified search across ALL premium chat sessions AND Telegram/Brain conversations.
+
+    Args:
+      query: keyword filter (case-insensitive LIKE).
+      date_from / date_to: YYYY-MM-DD bounds (inclusive).
+      role: filter by role ('user', 'assistant').
+      limit: cap results.
+
+    Returns list of dicts sorted newest-first:
+      {source, session_id, session_title, role, content, created_at}
+    """
+    results: list[dict] = []
+
+    def _q(conn):
+        sql = (
+            "SELECT m.content, m.role, m.created_at, m.session_id, s.title "
+            "FROM chat_messages m "
+            "LEFT JOIN chat_sessions s ON m.session_id = s.id "
+            "WHERE 1=1"
+        )
+        params: list = []
+        if query:
+            sql += " AND m.content LIKE ?"
+            params.append(f"%{query}%")
+        if date_from:
+            sql += " AND date(m.created_at) >= ?"
+            params.append(date_from)
+        if date_to:
+            sql += " AND date(m.created_at) <= ?"
+            params.append(date_to)
+        if role:
+            sql += " AND m.role = ?"
+            params.append(role)
+        sql += " ORDER BY m.created_at DESC LIMIT ?"
+        params.append(limit)
+        return conn.execute(sql, params).fetchall()
+
+    for r in _with_conn(_q):
+        results.append({
+            "source": "session",
+            "session_id": r["session_id"],
+            "session_title": r["title"] or f"Session #{r['session_id']}",
+            "role": r["role"],
+            "content": (r["content"] or "")[:500],
+            "created_at": r["created_at"] or "",
+        })
+
+    # Also search the conversations table (Telegram + Brain + mirrored sessions)
+    try:
+        from core.database import search_conversations
+        results.extend(search_conversations(
+            query=query, date_from=date_from, date_to=date_to,
+            role=role, limit=limit,
+        ))
+    except Exception:
+        pass
+
+    # Sort all by created_at DESC, cap at limit
+    results.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return results[:limit]

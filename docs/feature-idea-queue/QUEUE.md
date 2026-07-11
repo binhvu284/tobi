@@ -1,7 +1,7 @@
 # Feature Development Queue
 
-Planned features waiting to be built. Each entry links to a full spec in this folder.
-Pick one to develop, then move its status to **In progress** → **Done**.
+Delivery ledger and future feature queue. Each entry links to its original requirements or worker plan.
+Use the status column and delivery notes for implementation state; preserve old plans as design history.
 
 | # | Feature | Status | Spec | Notes |
 |---|---------|--------|------|-------|

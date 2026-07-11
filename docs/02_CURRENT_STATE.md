@@ -1,84 +1,73 @@
-# 02 — Current State (Honest Inventory)
+# Current State
 
-> **Rule for this document: report what the code actually does, real vs. stub — not the aspirational framing from the dashboard.** Its entire value to a future agent is honesty.
->
-> Last refreshed **2026-07-04**, after queue feature #10 (Storage & Usage) shipped. The feature
-> queue's per-feature build notes live in [`feature-idea-queue/QUEUE.md`](feature-idea-queue/QUEUE.md).
+> Verified from the D-drive repository on 2026-07-11 through commit `c3b171b`. This is a code inspection, not a live integration or credential test. Configuration-dependent capabilities are labeled accordingly.
 
-## Architecture map
+## Executive Summary
 
-Every message/flow travels through these components:
+TOBI is now a broad single-owner agent platform, not only the original MMO business loop. The strongest implemented areas are Mission Control, persistent memory, project/task management, conversational tool execution, terminal control, model routing, integrations management, and cross-agent interoperability.
 
-| Layer | File(s) | What it is |
-|-------|---------|-----------|
-| Orchestrator | `main.py` | Entry point + scheduler. Run modes: `start` (full system), `bot`, `api`, `research`, `execute`, `ceo`, `status`, `test`, `terminal`. |
-| Persona sync | `main.py` (`sync_soul_and_skills`) | Copies `SOUL.md` → `~/.hermes/SOUL.md` and `hermes_skills/*.md` → `~/.hermes/skills/tobi/` on startup. |
-| Model router | `core/model_router.py` | **7-provider registry** (Anthropic native + OpenAI/OpenRouter/Gemini/Grok/Ollama/custom) with vault-backed keys, default + per-task overrides + ordered fallback (`llm_config` table), streaming, vision, and **auto-logging of every call** to `llm_usage`. Legacy `PRIMARY_MODEL` env still honored. |
-| Conductor | `core/conductor.py` | **The conversational command engine** (queue #7): classifier pre-route → memory-first grounding → provider-agnostic JSON tool-loop. 12 read tools + 8 act tools with **tiered risk** (low/medium auto-execute; high = propose → owner confirms), `tobi_actions` audit, butler EN/VN voice, shared by MC chat + Telegram (Telegram capped at read + low-risk). |
-| Second brain | `core/brain.py`, `core/embeddings.py` | Long-term owner memory (queue #1): 8-category vault, import/dedup/review, **Telegram auto-learn sweep**, confidence decay, semantic search (fastembed, keyword fallback), one-way Hermes mirror, GraphRAG `owner_context`. |
-| Knowledge graph | `core/graph_engine.py` | Obsidian-style graph (queue #2): unified `graph_nodes`/`graph_edges` over memories/tasks/projects + Notion/GitHub mirrors, ref/tag/semantic edges, communities, 45-min sync job. |
-| Task classifier | `core/task_classifier.py` | Pure-regex router (no LLM): `SMALLTALK / CODING / RESEARCH / STATUS / EXECUTION / QUESTION`. |
-| Telegram UI | `core/telegram_bot.py` | Telegram bot: chat (STATUS/QUESTION routed through the Conductor), `/commands`, inline approval buttons, the sandboxed coding agent, terminal session. |
-| Chat store | `core/chat_store.py`, `core/attachments.py` | Premium Chat (queue #8): DB sessions/messages, per-session model, edit→branch forking, compaction; file/image/PDF attachments with native vision. |
-| Secrets vault | `core/vault.py`, `core/integrations_registry.py` | Genesis vault (queue #4): scrypt→AES-256-GCM encrypted secrets, `/integrations` page, connect-tests keys and injects `os.environ` live, audit log, profiles, encrypted export/import. |
-| MCP hub | `core/mcp_server.py`, `core/mcp_client.py`, `core/mcp_security.py`, `core/a2a.py`, `core/mcp_tunnel.py` | Queue #5: TOBI as MCP **server** (FastMCP at `/mcp`, bearer + OAuth 2.1 JWT, scopes, approval queue) and **client** (multi-transport, per-tool allow/ask/deny), A2A agent card + peers, cloudflared tunnel. |
-| Research | `core/research_engine.py` | Tavily web search → LLM niche scoring → business-plan generation. |
-| Execution | `core/project_executor.py`, `core/office.py`, `core/office_stream.py` | Runs agent tasks per project; the Office mission engine streams per-step deltas to the Phaser office UI. |
-| CEO loop | `core/ceo_loop.py` | Monthly portfolio review, ROI, strategy update, lessons. |
-| Storage & usage analytics | `core/storage_scan.py`, `core/usage_meter.py`, `core/usage.py` | Queue #10: per-table + filesystem storage scans → `storage_snapshots` (growth history), price table (`config/llm_prices.yaml` → `llm_prices`), range-aware spend analytics, plans + monthly budget with in-app alerts. `/storage` page. |
-| Database | `core/database.py` | SQLite, **~55 tables** across the business core (`projects, tasks, revenue, lessons, strategy, reports, conversations`) + PM system (`pm_*`), Brain (`brain_*`), Graph (`graph_*`), vault (`vault_*`), MCP (`mcp_*`), chat (`chat_*`), skills, office/missions, usage/storage analytics. |
-| Integrations | `core/integrations.py` | Notion, GitHub, Google, Vercel, Supabase connectors (key-gated; see below). |
-| API + UI | `api/server.py`, `api/dashboard.py`, `dashboard/` | FastAPI REST API + the React **Mission Control** (18+ routes: Dashboard, Chat, Brain, Graph, Office, Projects/Tasks, Actions, Integrations, MCP, Models, Storage, Health, Evolution…) with an 8-theme system and a site-wide motion pass (queue #6). |
+The largest truth gaps are no longer "nothing is built." They are alignment and hardening problems: Chat modes do not yet define distinct backend policy, Evolution reports from an outdated ability registry, Ability does not mirror live Hermes skills, the dashboard API is a large mostly unauthenticated monolith, and automated test coverage is narrow relative to the surface area.
 
-DB path: `~/.mmo_agent/agent.db` by default (`DB_PATH` env var).
+## Implemented and Materially Usable
 
-## What genuinely works today
+| Area | Current evidence |
+|---|---|
+| Mission Control shell | React 18 app with 20 top-level destinations, responsive navigation, persistent header tabs, themes, motion, command palette, notifications, and lazy-loaded heavy pages |
+| Workspace tabs | Up to five mounted route panes, drag reorder, close/focus, localStorage restore, and one dynamic tab per Project v2 workspace |
+| Chat | Persistent sessions/messages, streaming, model selection, attachments, web-search opt-in, edit/fork, compaction, feedback, process timeline, action confirmations, and terminal output |
+| Conductor | Live-data read tools, project/task/goal/resource actions, memory writes, integration reads, terminal tools, multi-step tool loop, risk tiers, confirmation cards, and `tobi_actions` audit |
+| Brain | Structured memories, categories, confidence, versions, conflicts, import, deduplication, review, semantic retrieval with keyword fallback, sweeps, decay, and one-way Hermes mirror |
+| Graph | Unified memory/task/project/resource graph, internal and external source sync, search/retrieval, communities, paths, editing, timeline, and saved layout |
+| Project v2 | Full-page project workspaces, overview, tasks, goals, resources, activity, custom icons, dependencies, reminders, resource extraction/RAG, graph sync, and Conductor tools |
+| Tasks | Standalone task board plus PM-linked tasks, task details, owner-input workflow, notes, commands, high-risk transitions, and audit history |
+| Terminal | Full-machine PowerShell/cmd or POSIX shell, Plan/Ask/Accept/Auto modes, low/medium/high risk gate, hard denylist, kill-switch, output redaction, timeouts, background jobs, package installation, and installed-tool registry |
+| Model routing | Anthropic, GLM/Z.ai, OpenAI, OpenRouter, Gemini, Grok, Codex, Ollama, and custom OpenAI-compatible providers; per-task routing, fallback, streaming, vision, and usage logging |
+| Vault and integrations | Encrypted vault, profiles, auto-unlock option, key slots, audit, export/import, live environment injection, and integration management in MC |
+| Google connector | OAuth code paths for Drive, Gmail, and Calendar reads are implemented. Actual availability depends on configured credentials and was not live-tested in this audit |
+| Other connectors | Notion and GitHub have read/write methods; Vercel has deployment reads; Supabase has table query/insert methods. Actual availability remains configuration-dependent |
+| MCP and A2A | Inbound MCP server, outbound MCP clients, tool permissions, approvals, OAuth/JWT support, tunnel management, call logs, agent card, peers, and messaging |
+| Office and missions | Agent registry, workflows, missions, streaming mission events, Phaser office visualization, and control surfaces |
+| Explore/News | News, model, tool, and social ingestion; source configuration; scoring; digest; scheduler jobs; News page |
+| Storage and usage | Per-feature storage scans, snapshots, usage/cost analytics, plans, budget, call log, dashboard widget, and scheduler jobs |
+| Always-on surfaces | `main.py start` runs Telegram polling, both FastAPI services, scheduler jobs, vault startup behavior, and the built Mission Control app |
 
-- **Conversational command of Mission Control** (queue #7/#8): both MC chat and Telegram route through the Conductor — ask about evolution/agents/projects/health, create projects/tasks, run high-risk actions via Confirm/Cancel cards, all grounded in live DB reads and audited in `tobi_actions`.
-- **A real owner memory**: the Brain auto-learns durable facts from chat (30-min sweep), supports import/review/dedup, decays stale confidence daily, and is consulted memory-first by chat and the task engines.
-- **The full business loop**: research cycle → proposals to Telegram with ✅/❌/✏️ buttons → executor runs tasks every 6h → monthly CEO review → lessons feed back. All wired in `main.py`'s scheduler.
-- **Premium chat**: multi-provider model picker, streaming with visible thinking/progress phases, attachments + vision, web-research toggle, edit→branch, session compaction, full-width rich blocks.
-- **Encrypted secrets**: keys live in the Genesis vault, injected into `os.environ` on unlock/boot; integrations connect/test/reveal from the `/integrations` page without restarts.
-- **Cross-agent interop**: MCP server + client with security (scopes, rate limits, approvals, kill-switch) and A2A discovery/messaging.
-- **Cost & storage visibility** (queue #10): every LLM call logs tokens/cost/latency tagged by surface; `/storage` shows what's eating disk and where dollars go, with plans, budget alerts, and Conductor queries ("what's eating my storage?").
-- **Scheduler** (`schedule` library, Vietnam GMT+7): daily 08:00 report; 6-hourly execution; Sunday 20:00 research + reflection; brain sweep 30m + decay 04:00; graph sync 45m; storage scans (db hourly, fs daily 04:30); monthly CEO review.
-- **REST API** (`api/server.py`) with API-key auth, plus the full dashboard API in `api/dashboard.py`.
+## Partial, Misleading, or Split
 
-## The coding agent — stated honestly
+| Area | Honest status |
+|---|---|
+| Chat modes | `Chat`, `Agent`, `Terminal`, `Research`, and `Project` are selected and persisted in the frontend. Research enables web search and Terminal exposes terminal UI, but the backend request contract does not yet enforce a centralized mode/capability policy. Queue item #16 plans this change |
+| Evolution | `_TIER_DEFINITIONS` and `_detect_abilities()` still describe several delivered Brain features as missing and mark terminal abilities largely by module presence. The displayed tier/Jarvis percentage is not a reliable product completion metric. Queue item #17 plans an evidence-based Tier 1 model |
+| Ability | The page combines curated cards with the `skills`, `skill_metrics`, `skill_versions`, and proposal tables. It is not yet a live dashboard of repository/Hermes skill files. Queue item #14 plans that upgrade |
+| Hermes | Persona, skill, memory, and model config sync paths exist, but ownership is split and mostly one-way. TOBI can run without Hermes for many MC features. Older claims that "TOBI is the Hermes daemon" are not true of the current code |
+| Project data | Legacy `projects`/business tables coexist with `pm_projects`/Project v2. Some code intentionally bridges them, but the duplicate model increases migration and reporting risk |
+| API topology | Port 8080 hosts the built UI, MC APIs, MCP mount, and 238 route handlers in one 5,700+ line module. Port 8000 hosts a smaller API-key-protected legacy/external API |
+| Dashboard security | Most port-8080 MC endpoints have no general authentication and CORS allows all origins. Vault/MCP-sensitive operations add vault sessions or MCP auth, but the overall dashboard assumes a trusted single-owner deployment. Public exposure is a material risk |
+| Integration status | Code paths exist, but no claim that an external service is connected should be made without its current MC status/test result |
+| Personal computer control | Terminal execution is real. Browser automation, screen understanding, GUI control, and a hardened personal-PC service are not implemented |
+| Proactivity | Scheduler and Telegram push are real. General event-driven observation and context-aware interruption are not |
+| Tests | Tracked automated tests focus on terminal safety and storage/usage. Many API, UI, integration, migration, and cross-system paths rely on manual or one-off verification |
 
-`core/telegram_bot.py` (`_CODING_TOOLS`, `_execute_tool`, `_run_coding_agent`) runs a Claude `tool_use` loop with four tools: `write_file`, `read_file`, `run_bash`, `list_files`.
+## Runtime and Persistence
 
-**It is deliberately confined:**
-- File writes are forced to stay inside `PROJECT_DIR` (path normalized, rejected if it escapes).
-- `run_bash` runs with `cwd=PROJECT_DIR`, a 30s timeout, and a denylist `_BLOCKED_CMDS`.
-- Requires `ANTHROPIC_API_KEY`; without it, falls back to a plain (no-tools) LLM completion.
+- Default database: `~/.mmo_agent/agent.db`, configurable with `DB_PATH`.
+- Project files: `<database directory>/projects/{project_id}/resources/`.
+- Hermes state: `~/.hermes/`, with one-way writes from TOBI.
+- Built web application: `dashboard/dist/`, served by `api/dashboard.py`.
+- Browser-only preferences: workspace tabs, theme, motion, chat mode, and selected UI options in localStorage.
+- The schema is additive and distributed across `core/database.py` plus feature-local lazy initializers. Static inspection finds 70 table names.
 
-This is still **the only shell/filesystem control that exists, and it is sandboxed to the project directory.** The upgrade to a real, tiered-permission, full-machine terminal engine is **specced but not built** — queue **#11 TOBI CLI** ([spec](feature-idea-queue/TOBI_CLI_SPEC.md)). Note the *Conductor's* tiered risk model (low/med/high + confirm) **is** built — but it governs MC actions (projects/tasks/missions), not shell access.
+## Current Queue Reality
 
-## Integrations — reality vs. badges
+- #1 through #12 are recorded as delivered, although several have known follow-ups.
+- #13 Theme v2 is in owner-review/in-progress state.
+- #14 Premium Ability, #15 Office V3, #16 Chat Mode Backend Upgrade, and #17 Awakening Tier 1 Completion are queued.
+- Original plans remain under `feature-idea-queue/`; they are requirements history, not proof of current behavior.
 
-`core/integrations.py` defines connectors for **Notion, GitHub, Google, Vercel, Supabase**, key-gated via `is_available()`. Since Genesis (queue #4), keys are stored encrypted in the vault, injected live on unlock, and each integration can be connect-tested from `/integrations` — the page's status chips reflect real `test()` calls, and boot auto-connect re-injects cached secrets.
+## Highest-Risk Gaps
 
-- **Google is still a stub** for Drive/Gmail reading (`read_drive` reports this honestly); its connector test is a placeholder.
-- Notion / GitHub / Vercel / Supabase have real REST calls when their keys are configured; the Conductor's `read_notion` / `read_github` tools work against them.
-- The honest availability is whatever `core.integrations.check_all()` returns given the currently configured keys — run `python main.py test`.
-
-## Memory — reality
-
-This section used to say "no structured, self-updating model of the owner." **That is no longer true.** What exists now:
-
-- `brain_memories` + categories/versions/conflicts: a structured, confidence-scored owner memory with auto-learn (Telegram sweep), manual `/remember`, import pipelines, review queues, and daily confidence decay.
-- **Memory-first retrieval is real**: the Conductor grounds every answer in a profile pass; research/execute/CEO consult task-level memory first; GraphRAG `owner_context` feeds retrieval.
-- `conversations` = chat history; `lessons` = outcome self-reflection — both still present and feeding the above.
-- `SOUL.md` remains the hand-written persona layer, synced to `~/.hermes/`; freshly-learned memories mirror one-way into Hermes.
-
-Remaining honest gaps: the psychology-profile depth is shallow (facts more than models of mood/intent), and the app↔Hermes memory unification is one-way mirror, not one store.
-
-## Hermes status
-
-- Hermes was configured on **2026-05-27**; `main.py` syncs `SOUL.md` + skills into `~/.hermes/` on startup, the Brain mirrors memories one-way, and `core/hermes_sync.py` pushes LLM routing config one-way on save.
-- **The custom Python app and the Hermes runtime remain two loosely-coupled layers.** The `HERMES_*.md` guides still assume a **VPS**, which conflicts with the personal-PC runtime target (see [roadmap](03_ROADMAP.md)) — treat the VPS setup as a migration item.
-
-## Bottom line
-
-Measured as an **autonomous MMO-business agent**, this is a substantially complete system. Measured against the **Jarvis vision**: the owner-model pillar has genuinely moved (Brain + Conductor + memory-first grounding), the always-on plumbing is solid, and **real computer control is still the big gap** — the shell is sandboxed to one directory until queue #11 ships.
+1. Secure or constrain the port-8080 dashboard before treating it as safely internet-accessible.
+2. Centralize Chat/Agent capability policy so frontend labels cannot diverge from backend permissions.
+3. Replace Evolution's stale registry with evidence from real subsystems.
+4. Define the live source of truth for skills across the Ability tables, repository skills, and Hermes.
+5. Add integration, API, migration, and browser-level regression tests around the highest-value workflows.
+6. Reduce the ownership and change-collision risk in `api/dashboard.py` and the dual project models.
