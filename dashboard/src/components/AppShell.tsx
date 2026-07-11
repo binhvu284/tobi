@@ -27,7 +27,7 @@ const NAV = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/inbox', icon: Inbox, label: 'Inbox' },
     { to: '/chat', icon: MessagesSquare, label: 'Chat' },
-    { to: '/actions', icon: History, label: 'Actions' },
+    { to: '/projects', icon: FolderKanban, label: 'Projects' },
   ] },
   { group: 'Persona', links: [
     { to: '/brain', icon: Brain, label: 'Brain' },
@@ -36,10 +36,10 @@ const NAV = [
     { to: '/ability', icon: Zap, label: 'Ability' },
     { to: '/evolution', icon: TrendingUp, label: 'Evolution' },
     { to: '/health', icon: HeartPulse, label: 'Health' },
+    { to: '/actions', icon: History, label: 'Actions' },
   ] },
   { group: 'Operation', links: [
     { to: '/office', icon: Building2, label: 'Office' },
-    { to: '/projects', icon: FolderKanban, label: 'Projects' },
     { to: '/task', icon: Kanban, label: 'Tasks' },
   ] },
   { group: 'Explore', links: [
@@ -197,11 +197,14 @@ function useRecentProjects(): RecentProject[] {
         }
       } catch { /* ignore */ }
 
-      // Fetch live project data so icons are always correct (not stale localStorage)
+      // Fetch live project data so icons are always correct (not stale localStorage),
+      // and sort the list to MATCH the All Projects page order (the API returns the
+      // owner's drag-reordered sort_order) instead of recently-opened order.
       try {
         const resp = await pmListProjects({ size: 'all' })
         const byId = new Map<number, PMProject>()
-        for (const p of resp.items) byId.set(p.id, p)
+        const orderOf = new Map<number, number>()
+        resp.items.forEach((p, i) => { byId.set(p.id, p); orderOf.set(p.id, i) })
         recents = recents.map(r => {
           const live = byId.get(r.id)
           if (live) return {
@@ -211,6 +214,7 @@ function useRecentProjects(): RecentProject[] {
           }
           return r
         })
+        recents.sort((a, b) => (orderOf.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (orderOf.get(b.id) ?? Number.MAX_SAFE_INTEGER))
       } catch { /* API unavailable — use localStorage as-is */ }
 
       setItems(recents)
