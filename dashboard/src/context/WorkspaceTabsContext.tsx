@@ -102,8 +102,10 @@ function isTabbable(route: string): boolean {
 
 export function getWorkspaceRouteMeta(route: string): WorkspaceRouteMeta {
   const clean = normalizeWorkspaceRoute(route)
-  const key = projectTabKey(clean)
-  if (key) return { route: key, label: `Project ${key.split('/')[2]}`, Icon: FolderKanban }
+  const pkey = projectTabKey(clean)
+  if (pkey) return { route: pkey, label: `Project ${pkey.split('/')[2]}`, Icon: FolderKanban }
+  const ckey = chatTabKey(clean)
+  if (ckey) return { route: ckey, label: 'Chat', Icon: MessagesSquare }
   return ROUTE_META.get(clean) ?? WORKSPACE_ROUTES[0]
 }
 

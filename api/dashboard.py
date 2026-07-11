@@ -5015,7 +5015,7 @@ def chat_session_append(sid: int, body: ChatAppendReq):
 
 
 @app.post("/api/chat/sessions/{sid}/stream")
-async def chat_session_stream(sid: int, payload: ChatSendReq):
+async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
     """Premium chat turn over SSE with **typed events**: `thinking` (phase + tool chips),
     `delta` (smoothed answer chunks), `action` (a high-risk act awaiting confirmation),
     `usage` (tokens + latency), then `done`. Conductor-powered, per-session model + history.
@@ -5222,6 +5222,30 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
         seen_tools: list[str] = []
         seen_phases: list[str] = []
         term_lines: list[str] = []
+        _persisted = False  # guards against double-persist (normal path vs bg task)
+
+        async def _bg_persist():
+            """Detached persistence — if the client disconnects mid-stream, wait for
+            the LLM to finish and save the reply so it appears when they reopen."""
+            nonlocal _persisted
+            try:
+                bg_res = await fut
+                if _persisted:
+                    return
+                _persisted = True
+                bg_reply = bg_res.get("reply", "") or ""
+                if not bg_reply.strip():
+                    return
+                bg_reasoning = bg_res.get("reasoning") or None
+                bg_tools = bg_res.get("tools_used") or []
+                bg_thinking = bg_reasoning or (("Consulted: " + ", ".join(bg_tools)) if bg_tools else None)
+                bg_ctok = model_router.estimate_tokens(bg_reply)
+                await loop.run_in_executor(
+                    None, lambda: chat_store.add_message(sid, "assistant", bg_reply, model=model,
+                                                         tokens=bg_ctok, thinking=bg_thinking))
+                await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", bg_reply))
+            except Exception:
+                pass
 
         def _record_step(step_type, title, **kw):
             if run_id is None:
@@ -5231,6 +5255,11 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
 
         try:
             while not fut.done() or not q.empty():
+                # Client disconnect check — spawn bg persistence and stop yielding
+                if await request.is_disconnected():
+                    if not fut.done() and not _persisted:
+                        asyncio.ensure_future(_bg_persist())
+                    return
                 try:
                     ev = await asyncio.wait_for(q.get(), timeout=0.12)
                 except asyncio.TimeoutError:
@@ -5304,6 +5333,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq):
                 turn_meta.setdefault("artifact_ids", []).append(aid)
         ctok = model_router.estimate_tokens(reply)
         ptok = model_router.estimate_tokens(message + (atext or "") + " ".join(m.get("content", "") for m in history))
+        _persisted = True  # normal path handles persistence; bg task (if any) will skip
         mid = await loop.run_in_executor(
             None, lambda: chat_store.add_message(sid, "assistant", reply, model=model,
                                                  tokens=ctok, thinking=thinking_meta,

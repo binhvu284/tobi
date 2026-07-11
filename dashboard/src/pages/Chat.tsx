@@ -18,7 +18,7 @@ import {
   forkChatSession, setMessageFeedback, getSessionActivity, getIntegrations, compactSession,
   getEvolution, pmListProjects, getChatConfig,
 } from '../api'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useToast } from '../context/ToastProvider'
 import { useReducedMotionPref } from '../context/MotionProvider'
 import MarkdownView from '../components/chat/MarkdownView'
@@ -242,7 +242,9 @@ export default function Chat() {
   const reduced = useReducedMotionPref() !== 'full'
 
   const [sessions, setSessions] = useState<ChatSession[]>([])
-  const [activeId, setActiveId] = useState<number | null>(null)
+  const navigate = useNavigate()
+  const { sessionId: urlSid } = useParams()
+  const activeId = urlSid ? Number(urlSid) : null
   const [model, setModel] = useState<string | null>(null)
   const [models, setModels] = useState<AvailableModel[]>([])
   const [messages, setMessages] = useState<Msg[]>([])
@@ -366,12 +368,33 @@ export default function Chat() {
       } catch { /* ignore */ }
       try {
         const r = await getChatSessions()
-        if (r.sessions.length === 0) { const s = await createChatSession(); setSessions([s]); openSession(s.id, [s]) }
-        else { setSessions(r.sessions); openSession(r.sessions[0].id, r.sessions) }
+        if (r.sessions.length === 0) { const s = await createChatSession(); setSessions([s]); navigate(`/chat/${s.id}`, { replace: true }) }
+        else { setSessions(r.sessions); if (activeId == null) navigate(`/chat/${r.sessions[0].id}`, { replace: true }) }
       } catch { /* ignore */ }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // URL-driven session loading: when the :sessionId param changes, load that session.
+  // This lets each chat session have its own workspace tab.
+  useEffect(() => {
+    if (activeId == null) return
+    let cancelled = false
+    setPending(null); setActivityOpen(false); setModelIssue(false); setAutoAcceptChat(false); setReaderChips([])
+    setMessages([]); setSending(false); setStreaming(false)
+    const s = sessions.find(x => x.id === activeId)
+    setModel(s?.model ?? null)
+    try { setInput(localStorage.getItem(`tobi.chat.draft.${activeId}`) || '') } catch { setInput('') }
+    try { setObjective(localStorage.getItem(`tobi.chat.objective.${activeId}`) || '') } catch { setObjective('') }
+    setObjectiveEditing(false)
+    getChatSession(activeId).then(r => {
+      if (cancelled) return
+      setModel(r.session.model ?? null)
+      setMessages(r.messages.map(storedToMsg))
+    }).catch(() => { if (!cancelled) setMessages([]) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId])
 
   // auto-scroll only when the user is already at the bottom (P2 C: pause + Jump-to-latest)
   useEffect(() => { if (atBottomRef.current) endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, sending])
@@ -426,19 +449,7 @@ export default function Chat() {
   // re-measure after a session switch too — input '' → '' doesn't trigger the effect above
   useEffect(() => { const t = setTimeout(autoGrow, 50); return () => clearTimeout(t) }, [activeId])
 
-  const openSession = async (id: number, list?: ChatSession[]) => {
-    setActiveId(id); setPending(null); setActivityOpen(false); setModelIssue(false); setAutoAcceptChat(false); setReaderChips([])
-    const s = (list || sessions).find(x => x.id === id)
-    setModel(s?.model ?? null)
-    try { setInput(localStorage.getItem(`tobi.chat.draft.${id}`) || '') } catch { setInput('') }
-    try { setObjective(localStorage.getItem(`tobi.chat.objective.${id}`) || '') } catch { setObjective('') }
-    setObjectiveEditing(false)
-    try {
-      const r = await getChatSession(id)
-      setModel(r.session.model ?? null)
-      setMessages(r.messages.map(storedToMsg))
-    } catch { setMessages([]) }
-  }
+  const openSession = (id: number) => { navigate(`/chat/${id}`) }
 
   const refreshSessions = async () => { try { setSessions((await getChatSessions()).sessions) } catch { /* ignore */ } }
   const reloadMessages = async (sid: number) => {
@@ -453,7 +464,7 @@ export default function Chat() {
   }
 
   const newSession = async () => {
-    try { const s = await createChatSession(model); setSessions(p => [s, ...p]); openSession(s.id, [s, ...sessions]) }
+    try { const s = await createChatSession(model); setSessions(p => [s, ...p]); navigate(`/chat/${s.id}`) }
     catch (e) { toast({ kind: 'error', title: 'Could not create chat', detail: (e as Error).message }) }
   }
   const removeSession = async (id: number) => {
@@ -461,7 +472,7 @@ export default function Chat() {
       await deleteChatSession(id)
       setPinnedIds(p => p.filter(x => x !== id))
       const next = sessions.filter(s => s.id !== id); setSessions(next)
-      if (activeId === id) { if (next.length) openSession(next[0].id, next); else { const s = await createChatSession(); setSessions([s]); openSession(s.id, [s]) } }
+      if (activeId === id) { if (next.length) navigate(`/chat/${next[0].id}`); else { const s = await createChatSession(); setSessions([s]); navigate(`/chat/${s.id}`) } }
     } catch (e) { toast({ kind: 'error', title: 'Delete failed', detail: (e as Error).message }) }
   }
   const togglePin = (id: number) => setPinnedIds(p => p.includes(id) ? p.filter(x => x !== id) : [id, ...p])
@@ -663,7 +674,7 @@ export default function Chat() {
     try {
       const nb = await forkChatSession(activeId, mid)
       setSessions(p => [nb, ...p])
-      await openSession(nb.id, [nb, ...sessions])
+      await openSession(nb.id)
       runTurn(text, nb.id, baseOpts())
       toast({ kind: 'success', title: 'Branched', detail: 'Original chat preserved in the sidebar.' })
     } catch (e) { toast({ kind: 'error', title: 'Branch failed', detail: (e as Error).message }) }
