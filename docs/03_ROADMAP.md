@@ -4,7 +4,7 @@ This roadmap uses evidence and dependency order rather than a single Jarvis perc
 
 ## Current Baseline
 
-The platform already has persistent memory, grounded conversational tools, real project/task operations, a full-machine terminal, configurable model routing, integrations, MCP/A2A, a broad Mission Control UI, scheduled jobs, and Telegram access.
+The platform already has persistent memory, grounded conversational tools, real project/task operations, a full-machine terminal, configurable model routing, Premium readers, a read-only Hermes skill dashboard, integrations, MCP/A2A, a broad Mission Control UI, scheduled jobs, and Telegram access.
 
 The next phase should turn those systems into one coherent and defensible assistant rather than adding disconnected surfaces.
 
@@ -12,8 +12,7 @@ The next phase should turn those systems into one coherent and defensible assist
 
 ```mermaid
 flowchart LR
-  A[Finish Theme v2 owner review] --> B[Premium Ability - queue 14]
-  B --> C[Chat Mode Backend Upgrade - queue 16]
+  A[Finish Theme v2 owner review] --> C[Chat Mode Backend Upgrade - queue 16]
   C --> D[Awakening Tier 1 evidence model - queue 17]
   A --> E[Office V3 - queue 15]
   C --> F[Security and API hardening]
@@ -24,23 +23,17 @@ flowchart LR
 
 Finish the owner review for queue #13 before broad changes to Chat, Ability, Office, or shared theme components. Record final status in the queue.
 
-### 2. Deliver Premium Ability (#14)
-
-Implement YouTube reading in Chat, clearer image-reading behavior, repository/Hermes skill discovery, and a live Ability dashboard. This resolves the current split between curated Ability data and actual skills.
-
-Do not run this work in parallel with changes to `Chat.tsx`, Ability APIs/pages, or the model router without explicit file ownership.
-
-### 3. Centralize Chat modes (#16)
+### 2. Centralize Chat modes (#16)
 
 Replace frontend-only mode labels with a backend mode and capability contract. Keep Chat as the default, make Agent the execution surface, merge Terminal into Agent, move Deep Research to a capability toggle, and inject project context automatically.
 
 This should become the policy layer used by the Conductor, terminal, tools, approvals, message metadata, and UI.
 
-### 4. Make Awakening evidence-based (#17)
+### 3. Make Awakening evidence-based (#17)
 
 After mode/tool contracts stabilize, replace the stale Tier 1 registry with nine evidence-backed abilities. Evolution and Ability should read the same status service. `partial` and `setup_needed` must remain distinct from `active`.
 
-### 5. Upgrade Office independently (#15)
+### 4. Upgrade Office independently (#15)
 
 Office V3 can proceed after Theme v2 settles if its worker owns Office-specific frontend files and does not rewrite shared agent/mission contracts. It must continue using the existing mission APIs, event stream, and Conductor rather than creating a parallel backend.
 
@@ -68,8 +61,7 @@ These tasks are not represented well by a visual feature queue but are required 
 
 | Pair | Parallel safety |
 |---|---|
-| #13 Theme v2 + #14 Premium Ability | Unsafe while both touch Chat/Ability/shared UI |
-| #14 Premium Ability + #16 Chat modes | Unsafe; both change Chat, attachments, modes, and tool behavior |
+| Premium Ability follow-ups + #16 Chat modes | Unsafe if both change Chat streaming, readers, attachments, model selection, or tool behavior |
 | #16 Chat modes + #17 Awakening | Sequential; Awakening evidence should consume the new mode/capability contract |
 | #15 Office V3 + #16 Chat modes | Possible only with strict frontend file ownership and no shared agent/mission API rewrite |
 | Any feature + API decomposition | Unsafe unless domain files and endpoint compatibility are locked first |

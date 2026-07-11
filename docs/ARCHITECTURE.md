@@ -73,12 +73,12 @@ The scheduler currently registers daily reports, six-hour execution, two-minute 
 | Subsystem | Primary files | Responsibility | Current notes |
 |---|---|---|---|
 | Process orchestration | `main.py` | Startup, services, Telegram, scheduled jobs, CLI commands | One process coordinates several threads and async loops |
-| Mission Control API | `api/dashboard.py` | UI APIs, SSE, static React host, MCP mount | 5,700+ lines and 238 route handlers; largest change-collision point |
+| Mission Control API | `api/dashboard.py` | UI APIs, SSE, static React host, MCP mount | 5,700+ lines and 239 route handlers; largest change-collision point |
 | External/legacy API | `api/server.py` | Small API-key-protected project/task/revenue API | Separate contract and default-key risk |
 | Conductor | `core/conductor.py` | Conversation routing, grounded tool loop, permissions, confirmations, action log | Shared by MC Chat and significant Telegram paths |
 | Model router | `core/model_router.py` | Provider catalog, fallback, streaming, vision, usage logging | Nine provider types/config entries including local/custom |
-| Chat persistence | `core/chat_store.py` | Sessions, messages, forking, compaction metadata | Attachments are processed per turn rather than stored as project resources |
-| Attachments | `core/attachments.py` | Text/PDF extraction and image data-URL routing | Per-file and total context caps; up to four images |
+| Chat persistence | `core/chat_store.py` | Sessions, messages, forking, compaction, and cross-session message search | Premium Chat and bridged conversation history can be searched for episodic recall |
+| Attachments/readers | `core/attachments.py`, `premium_readers.py`, `youtube_reader.py`, `model_capabilities.py` | Text/PDF extraction, YouTube transcript context, image routing, capability checks | Context caps, up to four images, two YouTube URLs, optional transcript dependency, rollback flag |
 | Brain | `core/brain.py`, `core/embeddings.py` | Durable owner memory, retrieval, review, conflict/version handling | Fastembed optional; keyword fallback |
 | Knowledge graph | `core/graph_engine.py` | Graph sync, edges, search, retrieval, communities, layout | Includes internal records and supported external mirrors |
 | Project management | `core/database.py`, `core/pm_resources.py`, `core/pm_reminders.py` | Project v2 data, files/links, extraction/RAG, reminders | Coexists with legacy business project tables |
@@ -90,7 +90,7 @@ The scheduler currently registers daily reports, six-hour execution, two-minute 
 | Business engines | `core/research_engine.py`, `project_executor.py`, `ceo_loop.py` | Niche research, task execution, portfolio review | Legacy but active capability |
 | Explore | `core/explore.py` | News/models/tools/social collection and digest | Scheduler-backed and source-configurable |
 | Storage/usage | `core/storage_scan.py`, `usage.py`, `usage_meter.py` | Storage attribution, LLM usage/cost, plans, budgets | Writes feature snapshots and usage records |
-| Hermes bridge | `main.py`, `core/hermes_sync.py`, Brain mirror paths | Persona/skill sync, memory mirror, model-routing push | Multiple one-way paths, not a unified state owner |
+| Hermes bridge | `main.py`, `core/hermes_sync.py`, `core/hermes_skills.py`, Brain mirror paths | Persona/skill sync, read-only repository skill metadata, memory mirror, model-routing push | Multiple one-way paths, not a unified state owner |
 
 ## Frontend Architecture
 
@@ -147,7 +147,7 @@ sequenceDiagram
   A-->>C: SSE updates
 ```
 
-Current turn options include attachments, web research, and connector choices. The selected frontend mode is not yet a first-class backend policy field. Research changes web-search behavior and Terminal exposes terminal UI/events, but mode-specific capability enforcement remains queued work.
+Current turn options include attachments, YouTube reader context, web research, and connector choices. Image turns can borrow another configured vision-capable model when needed. The selected frontend mode is not yet a first-class backend policy field. Research changes web-search behavior and Terminal exposes terminal UI/events, but mode-specific capability enforcement remains queued work.
 
 ### Conductor Action
 

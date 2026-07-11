@@ -14,7 +14,7 @@ The audit compared:
 
 Ignored runtime/user data under `.tobi/` and `.hermes/` was inventoried but not read as canonical documentation or modified.
 
-During verification, uncommitted changes appeared in `core/chat_store.py`, `core/conductor.py`, and `core/database.py`. They add cross-session conversation recall and were not produced, edited, or reverted by this documentation task. The maintained docs use committed revision `c3b171b` as their explicit baseline so incomplete concurrent work is not presented as delivered behavior.
+During the audit, concurrent commits delivered Premium Ability (#14) and cross-session conversation recall. Those code changes were not produced, edited, or reverted by this documentation task. The final maintained docs were refreshed through commit `389c151` so both delivered systems are represented.
 
 ## Active Documents Updated
 
@@ -64,7 +64,7 @@ Short redirect files remain at commonly referenced legacy paths where removing t
 
 ## Intentionally Preserved
 
-- Every feature plan under `docs/feature-idea-queue/` remains unchanged except the queue index introduction.
+- The documentation refactor did not rewrite feature plans. The concurrent #14 delivery updated its own plan and queue row separately; the queue introduction was corrected here.
 - `SOUL.md` remains unchanged because it is copied into Hermes and affects runtime behavior.
 - `hermes_skills/` and `.claude/skills/` remain unchanged because they are agent instructions/runtime inputs.
 - `.tobi/`, `.hermes/`, database files, project resources, logs, generated Graphify output, and built application assets remain unchanged.
@@ -74,10 +74,11 @@ Short redirect files remain at commonly referenced legacy paths where removing t
 
 1. The in-app Architecture page contains stale Codespaces/MMO-focused descriptions and should later consume a maintained architecture data source.
 2. Evolution's ability definitions and detector are stale; its completion percentage is not reliable.
-3. Ability does not represent live repository/Hermes skill files.
+3. Ability now shows repository Hermes skills read-only, but its curated DB registry and runtime Hermes state remain separate.
 4. Chat modes are still mostly frontend state.
 5. Mission Control lacks general authentication on most port-8080 endpoints.
 6. `api/dashboard.py` has become a 5,700+ line, 238-route ownership hotspot.
 7. The current automated test set is small relative to the product surface.
+8. The existing `venv` records a stale WindowsApps base-interpreter path and must be recreated before its Python executable can be relied on.
 
 These findings are reflected in current docs and roadmap, but no code fix was made.

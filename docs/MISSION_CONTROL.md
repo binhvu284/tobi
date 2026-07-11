@@ -56,7 +56,7 @@ MC exposes 20 top-level workspace destinations plus dynamic project workspaces.
 | Intelligence | `/brain` | Owner memory browse/edit/review/import/chat | Brain APIs |
 | Intelligence | `/graph` | Knowledge graph exploration and editing | Graph APIs |
 | Intelligence | `/architecture` | In-app explanatory diagram | Static frontend content; currently stale in places |
-| Intelligence | `/ability` | Curated abilities, usage, coaching, versions | Ability/skill tables and APIs |
+| Intelligence | `/ability` | Curated abilities, usage, coaching, versions, and read-only repository Hermes skills | Ability/skill tables plus Hermes skill parser/API |
 | Intelligence | `/evolution` | Tier progression and reflection | Evolution definitions/detector and lessons |
 | Intelligence | `/health` | Service, engine, and integration health | health/deep-test APIs |
 | Work | `/office` | Agents, missions, workflows, visual office | Office/mission APIs and stream |
@@ -102,9 +102,11 @@ The chat stream can emit:
 
 - Text, code, JSON, CSV, YAML, and similar uploads are folded into prompt context.
 - PDFs use `pypdf` extraction with an honest fallback when extraction fails.
-- Images remain data URLs and are sent through the model router's vision path when supported.
+- Up to two YouTube links per turn can be read through the optional transcript dependency, summarized when long, and reduced to a capped excerpt if summarization fails. Unavailable transcripts produce an explicit reader notice.
+- Images remain data URLs and use the selected model when it supports vision. Otherwise Chat transparently borrows the first configured vision-capable model; it refuses honestly when none is available.
 - Per-file and total text limits protect context size; image count is capped.
 - Chat attachments are turn inputs. They are not automatically durable Project resources.
+- Premium-reader processing can be disabled with `ENABLE_PREMIUM_READERS` as a rollback switch.
 
 ### Modes: current truth
 
@@ -184,6 +186,7 @@ The browser client should use domain functions in `dashboard/src/api.ts`, not ad
 | `/api/brain` | Memories, categories, import, review, conflicts, narrative, chat |
 | `/api/graph` | Graph data, search, paths, timeline, editing, sync |
 | `/api/abilities`, `/api/proposals` | Ability metrics, details, coaching, version governance |
+| `/api/hermes/skills` | Read-only repository Hermes skill metadata |
 | `/api/evolution` | Tier report and reflection |
 | `/api/agents`, `/api/missions`, `/api/workflows`, `/api/office` | Office and mission system |
 | `/api/vault`, `/api/integrations`, `/api/keys` | Secrets, profiles, provider credentials, connectors |
@@ -199,7 +202,7 @@ Sensitive vault/MCP management calls use `X-Vault-Session`. The broader MC API d
 
 1. `/architecture` still describes the older Codespaces/MMO-focused system and understates the current database, Brain, Conductor, Project v2, MCP, terminal, and MC web interface.
 2. `/evolution` uses stale static tier definitions and incomplete detection. Its percentage is not authoritative.
-3. `/ability` does not enumerate live repository/Hermes skills; queue #14 addresses this.
+3. `/ability` now enumerates repository Hermes skills read-only, but those records remain separate from curated DB abilities and runtime Hermes execution state.
 4. Chat modes overstate backend differentiation; queue #16 addresses this.
 5. Several integration and health labels are configuration-dependent and must not be treated as successful without live evidence.
 

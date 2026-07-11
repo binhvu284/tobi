@@ -5,7 +5,7 @@ This guide describes the current repository commands. It does not replace the ar
 ## Prerequisites
 
 - Windows development is the actively represented local setup (`venv/Scripts/python.exe`, PowerShell-capable terminal engine).
-- The current D-drive virtual environment reports Python 3.11.9. The repository has no formal Python-version pin, so use a compatible 3.11 environment unless a dedicated upgrade validates all dependencies.
+- The existing D-drive virtual environment was created with Python 3.11.9, but its recorded base-interpreter path is stale in the current environment. The repository has no formal Python-version pin. Recreate the environment with a compatible Python 3.11 installation if `venv\Scripts\python.exe --version` fails.
 - Node.js and npm are required for Mission Control.
 - Optional native/runtime tools are needed only for the features that use them, such as Hermes, cloudflared, package managers, or fastembed dependencies.
 
@@ -85,20 +85,12 @@ Back up the configured database directory before schema or migration work. Do no
 
 ### Backend tests
 
-Tracked tests currently cover terminal safety/execution and storage/usage behavior:
+Tracked tests are standalone Python scripts rather than pytest suites. They currently cover terminal safety/execution and storage/usage behavior:
 
 ```powershell
-venv\Scripts\python.exe -m pytest tests
+venv\Scripts\python.exe tests\test_terminal_engine.py
+venv\Scripts\python.exe tests\test_storage_usage.py
 ```
-
-Run focused modules while iterating:
-
-```powershell
-venv\Scripts\python.exe -m pytest tests\test_terminal_engine.py
-venv\Scripts\python.exe -m pytest tests\test_storage_usage.py
-```
-
-`pytest` is not pinned in `requirements.txt`; use the existing development environment or add it only in a dedicated dependency change.
 
 ### Frontend checks
 
