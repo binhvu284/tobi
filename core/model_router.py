@@ -310,30 +310,77 @@ class OpenAICompatibleClient(BaseLLMClient):
 
 
 class CodexClient(BaseLLMClient):
-    """ChatGPT Plus subscription's Codex quota via the chatgpt.com backend Responses
-    API. Auth uses the ``access_token`` from ``codex login`` (stored in
-    ``~/.codex/auth.json``) — paste it into the vault as ``CODEX_ACCESS_TOKEN``.
-    Optional ``CODEX_CHATGPT_ACCOUNT_ID`` routes the call to a specific workspace."""
+    """OpenAI Codex via ChatGPT subscription or platform API key.
 
-    BASE_URL = "https://chatgpt.com/backend-api/codex"
+    Two auth paths (auto-detected):
+      1. **ChatGPT subscription** (Plus/Pro) — paste the ``access_token`` from
+         ``~/.codex/auth.json`` (after ``codex login``) into the vault as
+         ``CODEX_ACCESS_TOKEN``. Calls ``chatgpt.com/backend-api/codex/responses``.
+      2. **API key** — set ``OPENAI_API_KEY`` (or ``CODEX_API_KEY``). Calls the
+         standard ``api.openai.com/v1/responses`` endpoint. Billed to your
+         platform account, no subscription needed.
+
+    If neither is set, tries to auto-read ``~/.codex/auth.json``.
+
+    Optional ``CODEX_CHATGPT_ACCOUNT_ID`` routes subscription calls to a workspace.
+    """
+
+    SUBSCRIPTION_BASE = "https://chatgpt.com/backend-api/codex"
+    API_BASE = "https://api.openai.com/v1"
 
     def __init__(self, model: str, api_key: Optional[str] = None,
                  account_id: Optional[str] = None):
         from openai import OpenAI
-        token = api_key or os.getenv("CODEX_ACCESS_TOKEN")
+
+        token = api_key or os.getenv("CODEX_ACCESS_TOKEN") or os.getenv("CODEX_API_KEY")
+        account_id = (account_id or os.getenv("CODEX_CHATGPT_ACCOUNT_ID") or "").strip() or None
+
+        # Auto-read ~/.codex/auth.json as a last resort
         if not token:
-            raise ValueError(
-                "CODEX_ACCESS_TOKEN missing — run `codex login`, then paste the "
-                "access_token from ~/.codex/auth.json into the vault."
-            )
-        self.account_id = (account_id or os.getenv("CODEX_CHATGPT_ACCOUNT_ID") or "").strip() or None
-        default_headers = {"chatgpt-account-id": self.account_id} if self.account_id else None
-        # The OpenAI SDK appends /responses to base_url, landing on the codex backend.
-        self.client = OpenAI(base_url=self.BASE_URL, api_key=token,
+            token = self._read_codex_auth()
+
+        if not token:
+            # Try standard OPENAI_API_KEY → API-key path
+            openai_key = os.getenv("OPENAI_API_KEY", "")
+            if openai_key:
+                token = openai_key
+                self.base_url = self.API_BASE
+            else:
+                raise ValueError(
+                    "Codex auth missing. Either:\n"
+                    "  1. Run `codex login` (auto-reads ~/.codex/auth.json), OR\n"
+                    "  2. Set CODEX_ACCESS_TOKEN in the vault, OR\n"
+                    "  3. Set OPENAI_API_KEY for platform API billing."
+                )
+        else:
+            # If the token looks like a standard OpenAI key (sk-...), use the API endpoint.
+            # Otherwise it's a ChatGPT session token → use the subscription backend.
+            if token.startswith("sk-"):
+                self.base_url = self.API_BASE
+            else:
+                self.base_url = self.SUBSCRIPTION_BASE
+
+        default_headers = {"chatgpt-account-id": account_id} if account_id else None
+        self.client = OpenAI(base_url=self.base_url, api_key=token,
                              default_headers=default_headers)
+        self.account_id = account_id
         self.model = model
         self.provider = "codex"
         self.last_usage = {}
+
+    @staticmethod
+    def _read_codex_auth() -> Optional[str]:
+        """Try to read the access_token from ~/.codex/auth.json."""
+        try:
+            path = os.path.expanduser("~/.codex/auth.json")
+            if not os.path.exists(path):
+                return None
+            import json
+            with open(path) as f:
+                data = json.load(f)
+            return data.get("access_token") or data.get("api_key") or None
+        except Exception:
+            return None
 
     @staticmethod
     def _to_input(messages: list) -> list:
@@ -514,11 +561,12 @@ PROVIDERS: dict[str, dict] = {
         "models": ["grok-4", "grok-3", "grok-3-mini"],
     },
     "codex": {
-        # OpenAI Codex via the ChatGPT Plus subscription — uses the chatgpt.com backend
-        # Responses API with the access_token from `codex login` (no API key needed).
-        "label": "Codex", "kind": "codex", "key_env": "CODEX_ACCESS_TOKEN",
+        # OpenAI Codex — auto-detects auth: ChatGPT subscription token (chatgpt.com
+        # backend) or platform API key (api.openai.com). Run `codex login` or set
+        # CODEX_ACCESS_TOKEN / OPENAI_API_KEY.
+        "label": "OpenAI Codex", "kind": "codex", "key_env": "CODEX_ACCESS_TOKEN",
         "base_url": "https://chatgpt.com/backend-api/codex", "needs_key": True, "editable_base_url": False,
-        "models": ["gpt-5-codex", "gpt-5"],
+        "models": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6", "gpt-5.5", "gpt-5.4-mini"],
     },
     "ollama": {
         "label": "Ollama (local)", "kind": "openai", "key_env": None,
@@ -532,20 +580,11 @@ PROVIDERS: dict[str, dict] = {
     },
 }
 
-# Per-model context windows for the energy bar (P3). Pattern-matched, generous defaults.
-_CONTEXT_LIMITS = [
-    ("claude", 200000), ("gpt-4o", 128000), ("o3", 200000), ("gemini", 1000000),
-    ("grok", 131072), ("nemotron", 131072), ("qwen", 32768), ("llama", 131072),
-    ("glm-4.6", 200000), ("glm", 131072), ("gpt-5", 200000), ("codex", 200000),
-]
-
-
 def context_limit(model_id: str) -> int:
-    name = (model_id or "").lower()
-    for frag, lim in _CONTEXT_LIMITS:
-        if frag in name:
-            return lim
-    return 128000
+    """Per-model context window for the energy bar (P3). Single source of truth: delegates
+    to the model_capabilities registry (#14) so the two can't diverge (#14 follow-up)."""
+    from core.model_capabilities import context_window
+    return context_window(model_id)
 
 
 # ════════════════════════════════════════════════════════════════════════════

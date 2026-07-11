@@ -73,26 +73,64 @@ def _test_llm() -> tuple[bool, str]:
 
 
 def _test_codex() -> tuple[bool, str]:
-    """Validate the Codex access_token by issuing a 1-token request against the
-    chatgpt.com backend Responses API (uses Plus subscription quota)."""
+    """Validate Codex auth (subscription token or API key) with a 1-token ping."""
     import requests
-    tok = os.getenv("CODEX_ACCESS_TOKEN")
+
+    # Determine auth path: subscription token vs platform API key
+    tok = os.getenv("CODEX_ACCESS_TOKEN") or os.getenv("CODEX_API_KEY")
+    openai_key = os.getenv("OPENAI_API_KEY", "")
+    use_api = False
+
     if not tok:
-        return False, "Paste the access_token from ~/.codex/auth.json (run `codex login` first)."
-    headers = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
-    aid = os.getenv("CODEX_CHATGPT_ACCOUNT_ID")
-    if aid:
-        headers["chatgpt-account-id"] = aid
-    try:
-        r = requests.post(
-            "https://chatgpt.com/backend-api/codex/responses",
-            headers=headers, timeout=20,
-            json={"model": "gpt-5-codex", "input": "ping", "max_output_tokens": 1},
+        # Try auto-reading ~/.codex/auth.json
+        try:
+            import json
+            path = os.path.expanduser("~/.codex/auth.json")
+            if os.path.exists(path):
+                with open(path) as f:
+                    data = json.load(f)
+                tok = data.get("access_token") or data.get("api_key") or ""
+        except Exception:
+            pass
+
+    if not tok and openai_key:
+        tok = openai_key
+        use_api = True
+
+    if not tok:
+        return False, (
+            "No Codex auth found. Either:\n"
+            "  • Run `codex login` (auto-reads the token), or\n"
+            "  • Paste CODEX_ACCESS_TOKEN, or\n"
+            "  • Set OPENAI_API_KEY for API billing."
         )
+
+    # If the key looks like a standard OpenAI key, use the official API endpoint
+    if tok.startswith("sk-"):
+        use_api = True
+
+    headers = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
+    model = "gpt-5.6"
+
+    if use_api:
+        url = "https://api.openai.com/v1/responses"
+    else:
+        url = "https://chatgpt.com/backend-api/codex/responses"
+        aid = os.getenv("CODEX_CHATGPT_ACCOUNT_ID")
+        if aid:
+            headers["chatgpt-account-id"] = aid
+
+    try:
+        r = requests.post(url, headers=headers, timeout=20,
+                          json={"model": model, "input": "ping", "max_output_tokens": 1})
         if r.status_code == 200:
-            return True, "Codex token valid — Plus subscription linked."
+            mode = "API key" if use_api else "ChatGPT subscription"
+            return True, f"Codex valid — {mode} auth confirmed."
         if r.status_code in (401, 403):
-            return False, f"Codex rejected the token (HTTP {r.status_code}) — re-run `codex login` and refresh it."
+            hint = "Re-run `codex login`" if not use_api else "Check your API key"
+            return False, f"Codex rejected the token (HTTP {r.status_code}). {hint}."
+        if r.status_code == 404 and not use_api:
+            return False, f"Model '{model}' not found on subscription endpoint — the chatgpt.com backend may have changed. Try using OPENAI_API_KEY instead."
         return False, f"Codex backend returned HTTP {r.status_code}."
     except Exception:
         return False, "Could not reach the Codex backend — check your connection."
@@ -202,11 +240,11 @@ REGISTRY: list[dict] = [
         "test": _test_supabase,
     },
     {
-        "id": "codex", "label": "Codex", "category": "tools", "required": False,
+        "id": "codex", "label": "OpenAI Codex", "category": "tools", "required": False,
         "icon": "codex", "available": True,
-        "blurb": "Use your ChatGPT Plus subscription's Codex quota. Run `codex login` locally, then paste the access_token from ~/.codex/auth.json.",
+        "blurb": "Use GPT-5.6 models (Sol/Terra/Luna) via ChatGPT subscription or OpenAI API key. Run `codex login` to auto-auth, or paste a token / API key.",
         "fields": [
-            {"name": "CODEX_ACCESS_TOKEN", "label": "Codex access token", "type": "api_key",
+            {"name": "CODEX_ACCESS_TOKEN", "label": "Codex access token (subscription)", "type": "api_key",
              "help_url": "https://chatgpt.com/codex"},
             {"name": "CODEX_CHATGPT_ACCOUNT_ID", "label": "ChatGPT account ID (optional)", "type": "api_key",
              "help_url": "https://chatgpt.com/codex"},
