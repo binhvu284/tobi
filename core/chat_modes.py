@@ -1,0 +1,150 @@
+"""
+CHAT MODES — Chat Mode Backend Upgrade (#16).
+
+The central **mode/capability contract** between the chat UI and the backend, so a
+selected mode *actually changes behavior* instead of being a frontend label [D1][D4]:
+
+- ``normalize()``   — raw UI mode (+ legacy labels) → a resolved ModeContext dict.
+                      Main modes are **chat | agent** [D23]; ``terminal`` folds into
+                      agent with a terminal intent [D11]; ``research`` folds into chat
+                      (Deep Research is a one-message capability toggle, not a mode
+                      [D15]); ``project`` folds into chat (project context is automatic
+                      [D19]); unknown/null → chat.
+- ``build_directives()`` — the single place per-turn directives are composed (web
+                      research, connectors, thinking, the agent plan-then-act
+                      instruction [D9], terminal intent) so mode policy is not
+                      scattered across the route or React components.
+- ``mode_v2_enabled()/set_mode_v2()`` — the rollout feature flag [D29], stored in
+                      ``owner_settings`` (key ``chat.mode_v2``, default ON). Off →
+                      the route ignores the new fields and behaves exactly as before.
+
+The Conductor receives resolved directives/extra_tools — never raw UI labels.
+"""
+from __future__ import annotations
+
+from typing import Optional
+
+MODES = ("chat", "agent")
+_FLAG_KEY = "chat.mode_v2"
+
+# Legacy UI labels → (mode, extras). Anything not listed normalizes to plain chat. [D27]
+_LEGACY = {
+    "chat": ("chat", {}),
+    "agent": ("agent", {}),
+    "terminal": ("agent", {"terminal_intent": True}),
+    "research": ("chat", {"web_search": True}),   # old research mode implied web research
+    "project": ("chat", {}),                      # project context is auto now [D19]
+}
+
+
+# ── feature flag (owner_settings, same pattern as terminal_engine) ────────────────
+def _conn():
+    from core.database import get_connection
+    return get_connection()
+
+
+def _ensure_settings(conn) -> None:
+    conn.execute("CREATE TABLE IF NOT EXISTS owner_settings (key TEXT PRIMARY KEY, value TEXT)")
+
+
+def _get_setting(key: str, default: str) -> str:
+    try:
+        conn = _conn()
+        try:
+            _ensure_settings(conn)
+            row = conn.execute("SELECT value FROM owner_settings WHERE key=?", (key,)).fetchone()
+            return row[0] if row and row[0] is not None else default
+        finally:
+            conn.close()
+    except Exception:
+        return default
+
+
+def _set_setting(key: str, value: str) -> None:
+    conn = _conn()
+    try:
+        _ensure_settings(conn)
+        conn.execute(
+            "INSERT INTO owner_settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def mode_v2_enabled() -> bool:
+    """The #16 rollout flag [D29]. Default ON; '0'/'false'/'off'/'no' disable."""
+    return _get_setting(_FLAG_KEY, "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def set_mode_v2(enabled: bool) -> bool:
+    _set_setting(_FLAG_KEY, "1" if enabled else "0")
+    return mode_v2_enabled()
+
+
+# ── normalization ────────────────────────────────────────────────────────────────
+def normalize(mode: Optional[str] = None, web_research: bool = False,
+              deep_research: bool = False, connectors: Optional[list[str]] = None,
+              review_mode: Optional[str] = None) -> dict:
+    """Raw request fields → resolved ModeContext. Never raises; unknown → chat."""
+    raw = (mode or "").strip().lower()
+    resolved, extras = _LEGACY.get(raw, ("chat", {}))
+    caps = {
+        "web_search": bool(web_research) or bool(extras.get("web_search")),
+        "deep_research": bool(deep_research),
+        "terminal_intent": bool(extras.get("terminal_intent")),
+        "connectors": [c for c in (connectors or []) if c],
+    }
+    rm = (review_mode or "").strip().lower()
+    return {
+        "mode": resolved,
+        "capabilities": caps,
+        "legacy_mode": raw if (raw and raw != resolved) else None,
+        "review_mode": rm if rm in ("ask", "session", "always") else "ask",
+    }
+
+
+# ── per-turn directives (absorbs api.dashboard._chat_directives) ──────────────────
+_AGENT_DIRECTIVE = (
+    "- Agent mode: the owner wants this handled as a TASK, not a chat answer. For any "
+    "multi-step task, FIRST call outline_plan with the short ordered list of steps you "
+    "intend to take, THEN execute them with tools step by step. Finish with a concise "
+    "summary of what was done and the result. If a step fails, stop and report honestly."
+)
+_TERMINAL_DIRECTIVE = (
+    "- The owner is describing a command / local operation — prefer run_command "
+    "(the terminal safety gate still applies to every command)."
+)
+
+
+def build_directives(ctx: dict, thinking: bool = False) -> Optional[str]:
+    """Compose the per-turn directive block from a ModeContext (+ the thinking flag).
+    Chat-mode output is line-identical to the legacy _chat_directives, so behavior is
+    preserved when nothing new is enabled [D3]."""
+    caps = ctx.get("capabilities") or {}
+    lines: list[str] = []
+    if caps.get("web_search"):
+        lines.append("- Web research: use the web_search tool for anything current/factual and cite the sources you use in a ```tobi:reference``` block.")
+    connectors = caps.get("connectors") or []
+    if connectors:
+        lines.append(f"- Connectors: {', '.join(connectors)} — prefer their tools (e.g. read_notion / read_github) when relevant.")
+    if thinking:
+        lines.append("- Briefly show your reasoning before the final answer.")
+    if ctx.get("mode") == "agent":
+        lines.append(_AGENT_DIRECTIVE)
+        if caps.get("terminal_intent"):
+            lines.append(_TERMINAL_DIRECTIVE)
+    return "\n".join(lines) or None
+
+
+def extra_tools_for(ctx: dict) -> Optional[list[str]]:
+    """The OPTIONAL_TOOLS to advertise this turn: web_search when enabled, plus
+    outline_plan in agent mode (plan-then-act [D9])."""
+    tools: list[str] = []
+    if (ctx.get("capabilities") or {}).get("web_search"):
+        tools.append("web_search")
+    if ctx.get("mode") == "agent":
+        tools.append("outline_plan")
+    return tools or None

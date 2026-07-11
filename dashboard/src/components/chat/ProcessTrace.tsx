@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Check, ChevronRight } from 'lucide-react'
 import { useReducedMotionPref } from '../../context/MotionProvider'
-import { Orb, CAT_TOKEN, PHRASES, phaseCategory, type OrbCat } from './ThinkingOrb'
+import { Orb, CAT_TOKEN, PHRASES, phaseCategory, resolvePhaseIcon, type OrbCat } from './ThinkingOrb'
 
 /* ProcessTrace — TOBI's "show your work", with the old thinking-orb's soul.
 
@@ -34,6 +34,7 @@ const PHASE_BY_TOOL: Record<string, string> = {
   connect_tool: 'Connected the tool', kill_job: 'Stopped a job', set_terminal_mode: 'Switched terminal mode',
   terminal_status: 'Checked the terminal', list_jobs: 'Checked jobs', job_output: 'Read job output',
   list_installed_tools: 'Reviewed your toolset',
+  recall_conversations: 'Recalled past conversations', list_github_repos: 'Listed your repos',
 }
 
 export function toolPhase(tool: string): string {
@@ -116,13 +117,14 @@ function LiveTrace({ steps, startedAt, reduced }: { steps: string[]; startedAt: 
           </span>
           <span className="ml-auto pl-3 font-mono text-[10px] tabular-nums text-muted/70">{elapsed.toFixed(1)}s</span>
         </div>
-        {/* checkpoint timeline — orb leads the current step, faint category checks on the done ones */}
+        {/* checkpoint timeline — orb leads the current step, tool icons on the done ones */}
         <ol className="space-y-1.5">
           <AnimatePresence initial={false}>
             {shown.map((s, i) => {
               const isLast = i === shown.length - 1
               const cat = catOf(s)
               const tok = CAT_TOKEN[cat]
+              const Icon = resolvePhaseIcon(s)
               return (
                 <motion.li key={`${i}-${s}`} layout={!reduced}
                   initial={{ opacity: 0, y: reduced ? 0 : 6, filter: reduced ? 'none' : 'blur(3px)' }}
@@ -131,8 +133,11 @@ function LiveTrace({ steps, startedAt, reduced }: { steps: string[]; startedAt: 
                   className="flex items-center gap-2.5 text-[12.5px]">
                   {isLast
                     ? <span className="proc-orb"><Orb cat={cat} reduced={reduced} /></span>
-                    : <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center">
-                        <Check size={13} style={{ color: rgb(tok, 0.7) }} />
+                    : <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md"
+                        style={{ background: rgb(tok, 0.08) }}>
+                        {Icon
+                          ? <Icon size={13} style={{ color: rgb(tok, 0.85) }} />
+                          : <Check size={13} style={{ color: rgb(tok, 0.7) }} />}
                       </span>}
                   <span className={isLast ? 'font-medium' : 'text-muted'} style={isLast ? { color: rgb(tok) } : undefined}>{s}</span>
                 </motion.li>
@@ -175,11 +180,21 @@ function FinishedTrace({ steps, reasoning, tools, elapsedMs, tokens, reduced }:
             <div className="mt-1.5 rounded-lg border border-border bg-bg/40 p-2.5">
               {steps.length > 0 && (
                 <ol className="space-y-1">
-                  {steps.map((s, i) => (
-                    <li key={i} className="flex items-center gap-2 text-[12px] text-muted">
-                      <Check size={12} className="shrink-0" style={{ color: rgb(CAT_TOKEN[catOf(s)], 0.7) }} /> {s}
-                    </li>
-                  ))}
+                  {steps.map((s, i) => {
+                    const stepTok = CAT_TOKEN[catOf(s)]
+                    const StepIcon = resolvePhaseIcon(s)
+                    return (
+                      <li key={i} className="flex items-center gap-2 text-[12px] text-muted">
+                        <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded"
+                          style={{ background: rgb(stepTok, 0.08) }}>
+                          {StepIcon
+                            ? <StepIcon size={11} style={{ color: rgb(stepTok, 0.85) }} />
+                            : <Check size={12} style={{ color: rgb(stepTok, 0.7) }} />}
+                        </span>
+                        {s}
+                      </li>
+                    )
+                  })}
                 </ol>
               )}
               {reasoning && (
@@ -188,7 +203,15 @@ function FinishedTrace({ steps, reasoning, tools, elapsedMs, tokens, reduced }:
               {tools.length > 0 && (
                 <div className={`flex flex-wrap gap-1 ${(steps.length || reasoning) ? 'mt-2 border-t border-border/60 pt-2' : ''}`}>
                   <span className="text-[10px] uppercase tracking-wide text-muted/70">Tools</span>
-                  {tools.map(t => <span key={t} className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-muted">{t.replace(/_/g, ' ')}</span>)}
+                  {tools.map(t => {
+                    const ToolIcon = resolvePhaseIcon(t)
+                    return (
+                      <span key={t} className="flex items-center gap-1 rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-muted">
+                        {ToolIcon && <ToolIcon size={10} />}
+                        {t.replace(/_/g, ' ')}
+                      </span>
+                    )
+                  })}
                 </div>
               )}
             </div>

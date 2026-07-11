@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useReducedMotionPref } from '../../context/MotionProvider'
+import {
+  TrendingUp, Layers, Users, Briefcase, ListChecks, FolderOpen, Activity, Brain,
+  Globe, HardDrive, Coins, Search, Clock, BookmarkPlus, FolderPlus, Plus,
+  Terminal, Package, MessageSquare, GitBranch, Sparkles, CheckSquare, Wrench,
+  Zap, Trash2, Edit3, Target, Gauge, Server, FileSearch, Plug, type LucideIcon,
+} from 'lucide-react'
+import { SiGithub, SiGoogle, SiNotion } from '@icons-pack/react-simple-icons'
 
 /**
  * The signature TOBI "thinking" orb (Premium Chat v2 · P2, polished).
@@ -29,13 +36,97 @@ export const CAT_TOKEN: Record<OrbCat, string> = {
   think: 'accent', recall: 'purple', read: 'accent', act: 'success', web: 'warning',
 }
 
+/** Tool-specific icon mapping — each checkpoint gets a distinctive icon.
+ *  Falls back to a category-based default when no specific match. */
+export const TOOL_ICONS: Record<string, LucideIcon> = {
+  // evolution / architecture
+  get_evolution: TrendingUp, explain_architecture: Layers,
+  // office / agents
+  office_status: Users,
+  // projects / tasks
+  list_projects: Briefcase, project_overview: FolderOpen, list_tasks: ListChecks,
+  create_project: FolderPlus, create_task: Plus, complete_task: CheckSquare,
+  delete_task: Trash2, delete_project: Trash2, assign_task: Users,
+  update_project_progress: Gauge, create_goal: Target, edit_goal: Target,
+  rename_project: Edit3, set_project_description: Edit3, pick_project_icon: Sparkles,
+  create_resource: Plus,
+  // memory / recall
+  recall: Brain, remember: BookmarkPlus, recall_conversations: MessageSquare,
+  // integrations
+  read_notion: SiNotion as unknown as LucideIcon,
+  read_github: SiGithub as unknown as LucideIcon,
+  list_github_repos: SiGithub as unknown as LucideIcon,
+  read_drive: SiGoogle as unknown as LucideIcon,
+  // web
+  web_search: Globe,
+  // system
+  check_health: Activity, storage_status: HardDrive, llm_spend: Coins,
+  search_project_resources: FileSearch, get_current_datetime: Clock,
+  // terminal
+  run_command: Terminal, install_package: Package, configure_tool: Wrench,
+  connect_tool: Plug, terminal_status: Server, list_jobs: ListChecks,
+  job_output: Terminal, kill_job: Zap, set_terminal_mode: Wrench,
+  list_installed_tools: Package, ask_owner_details: MessageSquare,
+  run_mission: Zap,
+}
+
+/** Get the icon for a tool name, or null if no specific icon. */
+export function getToolIcon(toolName: string): LucideIcon | null {
+  return TOOL_ICONS[toolName] || null
+}
+
+/** Resolve an icon from a phase string (tries tool name, then keyword matching). */
+export function resolvePhaseIcon(phase: string): LucideIcon | null {
+  const lower = (phase || '').toLowerCase()
+  // direct tool name match
+  for (const [name, icon] of Object.entries(TOOL_ICONS)) {
+    if (lower.includes(name.replace(/_/g, ' '))) return icon
+  }
+  // keyword matching
+  if (/github/.test(lower)) return SiGithub as unknown as LucideIcon
+  if (/notion/.test(lower)) return SiNotion as unknown as LucideIcon
+  if (/drive|gmail|calendar|google/.test(lower)) return SiGoogle as unknown as LucideIcon
+  if (/memory|recall/.test(lower)) return Brain
+  if (/web|search/.test(lower)) return Globe
+  if (/terminal|command|install|package/.test(lower)) return Terminal
+  if (/project/.test(lower)) return Briefcase
+  if (/task/.test(lower)) return ListChecks
+  if (/health/.test(lower)) return Activity
+  if (/storage|disk/.test(lower)) return HardDrive
+  if (/spend|cost|token/.test(lower)) return Coins
+  if (/evolution|tier/.test(lower)) return TrendingUp
+  if (/architecture/.test(lower)) return Layers
+  if (/time|date/.test(lower)) return Clock
+  return null
+}
+
 // themed phrase pools so the label keeps evolving even when the backend phase is static
+// each category has a rich set so the cycling feels alive, not repetitive
 export const PHRASES: Record<OrbCat, string[]> = {
-  think: ['Thinking it through…', 'Reasoning…', 'Connecting the dots…', 'Weighing the options…', 'Composing a reply…'],
-  recall: ['Searching your memory…', 'Recalling the context…', 'Pulling the details…', 'Piecing it together…'],
-  read: ['Reading the data…', 'Checking the board…', 'Looking it over…', 'Gathering the facts…'],
-  act: ['Making it happen…', 'Applying the change…', 'Updating things…', 'Putting it in place…'],
-  web: ['Searching the web…', 'Scanning sources…', 'Gathering results…', 'Cross-checking…'],
+  think: [
+    'Thinking it through…', 'Reasoning…', 'Connecting the dots…', 'Weighing the options…',
+    'Processing that…', 'Holding it in mind…', 'Turning it over…', 'Composing a reply…',
+    'Structuring the answer…', 'Putting it together…',
+  ],
+  recall: [
+    'Searching your memory…', 'Recalling the context…', 'Pulling the details…', 'Piecing it together…',
+    'Looking back through what I know…', 'Finding the right thread…', 'Digging into the archives…',
+    'Recalling what we discussed…', 'Retrieving the context…',
+  ],
+  read: [
+    'Reading the data…', 'Checking the board…', 'Looking it over…', 'Gathering the facts…',
+    'Pulling up the numbers…', 'Scanning the overview…', 'Reviewing the latest…',
+    'Checking the system…', 'Looking into it…', 'Getting the full picture…',
+  ],
+  act: [
+    'Making it happen…', 'Applying the change…', 'Updating things…', 'Putting it in place…',
+    'Executing the action…', 'Working on it…', 'Setting that up…', 'Taking care of it…',
+  ],
+  web: [
+    'Searching the web…', 'Scanning sources…', 'Gathering results…', 'Cross-checking…',
+    'Browsing for answers…', 'Looking it up…', 'Checking multiple sources…',
+    'Finding the most current info…',
+  ],
 }
 
 export function ThinkingOrb({ phase, tools, startedAt }: { phase: string; tools?: string[]; startedAt: number }) {
@@ -96,11 +187,15 @@ export function ThinkingOrb({ phase, tools, startedAt }: { phase: string; tools?
           <i className="orb-dot" style={{ ['--i' as string]: 2 }} />
         </span>
         <span className="font-mono text-[10px] tabular-nums text-muted/70">{elapsed.toFixed(1)}s</span>
-        {tools?.map(t => (
-          <span key={t} className="rounded-full border border-accent/30 bg-accent/5 px-1.5 py-0.5 text-[10px] text-accent">
-            {t.replace(/_/g, ' ')}
-          </span>
-        ))}
+        {tools?.map(t => {
+          const ToolIcon = TOOL_ICONS[t]
+          return (
+            <span key={t} className="flex items-center gap-1 rounded-full border border-accent/30 bg-accent/5 px-1.5 py-0.5 text-[10px] text-accent">
+              {ToolIcon && <ToolIcon size={10} />}
+              {t.replace(/_/g, ' ')}
+            </span>
+          )
+        })}
       </div>
     </motion.div>
   )

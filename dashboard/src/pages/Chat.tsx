@@ -208,8 +208,8 @@ export default function Chat() {
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [plusOpen, setPlusOpen] = useState(false)
   const [plusPanel, setPlusPanel] = useState<'connectors' | 'confirmations' | null>('connectors')
-  const [webResearch, setWebResearch] = useState(false)
-  const [connectors, setConnectors] = useState<string[]>([])
+  const [webResearch, setWebResearch] = useState(() => { try { return localStorage.getItem('tobi.chat.webResearch') === '1' } catch { return false } })
+  const [connectors, setConnectors] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem('tobi.chat.connectors') || '[]') } catch { return [] } })
   const [connectorOpts, setConnectorOpts] = useState<{ id: string; label: string }[]>([])
   const [thinkingStartedAt, setThinkingStartedAt] = useState(0)
   const [thinkingSteps, setThinkingSteps] = useState<string[]>([])   // accumulated checkpoint timeline
@@ -300,6 +300,8 @@ export default function Chat() {
   useEffect(() => { activeIdRef.current = activeId }, [activeId])
   useEffect(() => { try { localStorage.setItem('tobi.chat.mode', mode) } catch { /* ignore */ } }, [mode])
   useEffect(() => { try { localStorage.setItem('tobi.chat.pinned', JSON.stringify(pinnedIds)) } catch { /* ignore */ } }, [pinnedIds])
+  useEffect(() => { try { localStorage.setItem('tobi.chat.webResearch', webResearch ? '1' : '0') } catch { /* ignore */ } }, [webResearch])
+  useEffect(() => { try { localStorage.setItem('tobi.chat.connectors', JSON.stringify(connectors)) } catch { /* ignore */ } }, [connectors])
   useEffect(() => {
     if (!plusOpen && !modeOpen) return
     const onDoc = (e: MouseEvent) => {
