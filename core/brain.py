@@ -1058,12 +1058,18 @@ def remember(content: str, category: Optional[str] = None) -> dict:
         category = (raw or "").strip().lower()
         if category not in CATEGORY_IDS:
             category = "identity"
-    # Route through route_candidate so duplicates are merged, not re-created.
-    # remember() uses high confidence (0.9) so facts go straight to active unless
-    # they match an existing memory (→ merged) or are in a sensitive category (→ pending).
-    res = route_candidate(content, category, 0.9, "remember")
-    return {"ok": True, "id": res.get("memory_id"), "category": category,
-            "action": res.get("action", "active")}
+    # Dedup: if nearly identical to an existing memory (≥ MERGE_THRESHOLD), merge.
+    # Otherwise create as active immediately — never route to conflict queue,
+    # because the user explicitly asked to remember this.
+    best_id, score = _best_match(content)
+    if best_id is not None and score >= MERGE_THRESHOLD:
+        conn = get_connection()
+        _confirm_raise(conn, best_id)
+        conn.commit()
+        conn.close()
+        return {"ok": True, "id": best_id, "category": category, "action": "merged"}
+    mid = add_memory(content, category, confidence=0.9, source="remember", status="active")
+    return {"ok": True, "id": mid, "category": category, "action": "active"}
 
 
 # ── stats ────────────────────────────────────────────────────────────────────
