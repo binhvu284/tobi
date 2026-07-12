@@ -21,23 +21,39 @@ import json
 import time
 import sqlite3
 from abc import ABC, abstractmethod
+from contextvars import ContextVar
 from typing import Optional
 from core.env_utils import safe_load_dotenv
 safe_load_dotenv()
 
 
-# Usage tagging (#8 P3): a process-global surface/feature tag the caller sets just before
-# an LLM call so the auto-logger can attribute it (chat / agent / research…). Plain module
-# state (not a contextvar) so it survives the run_in_executor thread hop the chat uses.
-_USAGE_CTX = {"surface": "agent", "feature": ""}
+# Per-turn usage attribution. Callers that cross an executor boundary must set the context
+# inside that worker (``run_with_usage_context`` does this); concurrent turns no longer race
+# through one process-global dictionary.
+_USAGE_CTX: ContextVar[dict] = ContextVar(
+    "tobi_llm_usage_context", default={"surface": "agent", "feature": ""}
+)
+DEFAULT_TIMEOUT_S = max(10, int(os.getenv("LLM_TIMEOUT_S", "60")))
 
 
 def set_usage_context(surface: str = "agent", feature: str = "") -> dict:
     """Set the usage tag for subsequent LLM calls; returns the previous tag (to restore)."""
-    prev = dict(_USAGE_CTX)
-    _USAGE_CTX["surface"] = surface or "agent"
-    _USAGE_CTX["feature"] = feature or ""
+    prev = dict(_USAGE_CTX.get())
+    _USAGE_CTX.set({"surface": surface or "agent", "feature": feature or ""})
     return prev
+
+
+def get_usage_context() -> dict:
+    return dict(_USAGE_CTX.get())
+
+
+def run_with_usage_context(surface: str, feature: str, fn, *args, **kwargs):
+    """Run a callable with isolated usage attribution inside the current worker thread."""
+    previous = set_usage_context(surface, feature)
+    try:
+        return fn(*args, **kwargs)
+    finally:
+        set_usage_context(previous["surface"], previous["feature"])
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -95,7 +111,7 @@ class BaseLLMClient(ABC):
             ctok = u.get("completion_tokens") or estimate_tokens(text)
             usage.log(getattr(self, "provider", "?"), getattr(self, "model", "?"),
                       ptok, ctok, int((time.time() - t0) * 1000),
-                      surface=_USAGE_CTX["surface"], feature=_USAGE_CTX["feature"])
+                      surface=_USAGE_CTX.get()["surface"], feature=_USAGE_CTX.get()["feature"])
         except Exception:
             pass
 
@@ -126,7 +142,8 @@ class OpenRouterClient(BaseLLMClient):
         api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY missing in .env")
-        self.client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+        self.client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key,
+                             timeout=DEFAULT_TIMEOUT_S)
         self.model = model or self.FREE_MODELS.get(task_type, self.FREE_MODELS["default"])
         self.provider = "openrouter"
         self.last_usage = {}
@@ -185,6 +202,10 @@ class OpenRouterClient(BaseLLMClient):
             if acc or self.last_usage:
                 self._log_usage(t0, acc)
         except Exception:
+            # Never append a fallback response after visible partial output. The runtime can
+            # reset/recover the turn, but concatenating providers corrupts the answer.
+            if acc:
+                raise
             yield self.complete(messages, max_tokens=max_tokens)
 
 
@@ -195,7 +216,8 @@ class ClaudeClient(BaseLLMClient):
         import anthropic
         # `base_url` lets us point the Anthropic SDK at a Claude-compatible endpoint
         # (e.g. the GLM Coding Plan at https://api.z.ai/api/anthropic).
-        kwargs = {"api_key": api_key or os.getenv("ANTHROPIC_API_KEY")}
+        kwargs = {"api_key": api_key or os.getenv("ANTHROPIC_API_KEY"),
+                  "timeout": DEFAULT_TIMEOUT_S}
         if base_url:
             kwargs["base_url"] = base_url
         self.client = anthropic.Anthropic(**kwargs)
@@ -253,7 +275,8 @@ class OpenAICompatibleClient(BaseLLMClient):
                  extra_headers: Optional[dict] = None, provider: str = "openai"):
         from openai import OpenAI
         # OpenAI SDK requires a non-empty key string even when the backend ignores it (Ollama).
-        self.client = OpenAI(base_url=base_url, api_key=api_key or "no-key-required")
+        self.client = OpenAI(base_url=base_url, api_key=api_key or "no-key-required",
+                             timeout=DEFAULT_TIMEOUT_S)
         self.model = model
         self.provider = provider
         self.extra_headers = extra_headers or None
@@ -306,6 +329,8 @@ class OpenAICompatibleClient(BaseLLMClient):
             if acc or self.last_usage:
                 self._log_usage(t0, acc)
         except Exception:
+            if acc:
+                raise
             yield self.complete(messages, max_tokens=max_tokens)
 
 
@@ -533,8 +558,8 @@ class FallbackClient(BaseLLMClient):
 
     def complete_stream(self, messages, system=None, max_tokens=2000):
         for i, c in enumerate(self.clients):
+            yielded = False
             try:
-                yielded = False
                 for delta in c.complete_stream(messages, system=system, max_tokens=max_tokens):
                     yielded = True
                     yield delta
@@ -543,6 +568,8 @@ class FallbackClient(BaseLLMClient):
                 if yielded:
                     return
             except Exception:
+                if yielded:
+                    raise
                 if i == len(self.clients) - 1:
                     raise
                 continue
@@ -818,6 +845,31 @@ def get_llm(task_type: str = "default", model: Optional[str] = None) -> BaseLLMC
     if len(chain) == 1:
         return chain[0]
     return FallbackClient(chain)
+
+
+def get_escalation_llm(current_model: Optional[str] = None) -> tuple[Optional[BaseLLMClient], Optional[str]]:
+    """Return one explicitly configured stronger/fallback client for malformed output.
+
+    This is intentionally separate from transport fallback: callers can disclose the model
+    switch and invoke it only before any valid owner-facing response has been committed.
+    """
+    cfg = load_llm_config()
+    current = (current_model or "").strip()
+    candidates = list(cfg.get("fallback") or [])
+    default = (cfg.get("default_model") or "").strip()
+    if default:
+        candidates.append(default)
+    seen: set[str] = set()
+    for candidate in candidates:
+        candidate = str(candidate or "").strip()
+        if not candidate or candidate == current or candidate in seen:
+            continue
+        seen.add(candidate)
+        try:
+            return build_client(candidate, cfg), candidate
+        except Exception:
+            continue
+    return None, None
 
 
 def llm_complete(prompt: str, task_type: str = "default",

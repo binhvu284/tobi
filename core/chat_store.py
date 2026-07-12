@@ -66,6 +66,12 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             created_at TEXT DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_chat_artifacts_session ON chat_artifacts(session_id, id);
+        CREATE TABLE IF NOT EXISTS chat_session_summaries (
+            session_id         INTEGER PRIMARY KEY REFERENCES chat_sessions(id) ON DELETE CASCADE,
+            summary            TEXT NOT NULL,
+            through_message_id INTEGER NOT NULL DEFAULT 0,
+            updated_at         TEXT NOT NULL
+        );
         """
     )
     # migrate older installs that predate the feedback / meta columns (additive only)
@@ -227,6 +233,11 @@ def recent_history(session_id: int, limit: int = 8) -> list[dict]:
     conversation context. A compaction `summary` message is surfaced as a user-role
     context line so the model keeps the gist of the older, trimmed turns."""
     msgs = get_messages(session_id, limit=400)
+    def summary_q(conn):
+        row = conn.execute("SELECT summary,through_message_id FROM chat_session_summaries WHERE session_id=?",
+                           (session_id,)).fetchone()
+        return dict(row) if row else None
+    rolling = _with_conn(summary_q)
     out = []
     for m in msgs:
         if not m["content"]:
@@ -235,13 +246,19 @@ def recent_history(session_id: int, limit: int = 8) -> list[dict]:
             out.append({"role": m["role"], "content": m["content"]})
         elif m["role"] == "summary":
             out.append({"role": "user", "content": f"[Summary of earlier conversation]\n{m['content']}"})
+    if rolling and rolling.get("summary"):
+        recent = [m for m in msgs if int(m.get("id") or 0) > int(rolling.get("through_message_id") or 0)]
+        recent_out = []
+        for m in recent:
+            if m.get("content") and m.get("role") in ("user", "assistant"):
+                recent_out.append({"role": m["role"], "content": m["content"]})
+        return ([{"role": "user", "content": f"[Summary of earlier conversation]\n{rolling['summary']}"}]
+                + recent_out[-max(1, limit - 1):])
     return out[-limit:]
 
 
 def compact_session(session_id: int, summary_text: str, keep: int = 6) -> Optional[list[dict]]:
-    """Compaction: replace older turns with a single `summary` message while keeping the
-    most recent `keep` turns verbatim. Returns the new message list, or None if there was
-    nothing old enough to compact. The summary persists and feeds back as context."""
+    """Persist a rolling summary without deleting the original conversation messages."""
     def q(conn):
         rows = conn.execute(
             "SELECT id, role, content, model, tokens, thinking, feedback, meta FROM chat_messages "
@@ -250,26 +267,22 @@ def compact_session(session_id: int, summary_text: str, keep: int = 6) -> Option
         msgs = [dict(r) for r in rows]
         if len(msgs) <= keep + 1:
             return None
-        recent = msgs[-keep:]
-        # rebuild the message list: one summary, then the recent turns (preserves order via ids)
-        conn.execute("DELETE FROM chat_messages WHERE session_id=?", (session_id,))
+        through_id = int(msgs[-keep - 1]["id"])
         conn.execute(
-            "INSERT INTO chat_messages (session_id, role, content, created_at) VALUES (?,?,?,?)",
-            (session_id, "summary", (summary_text or "").strip()[:6000], _now()),
+            "INSERT INTO chat_session_summaries(session_id,summary,through_message_id,updated_at) VALUES (?,?,?,?) "
+            "ON CONFLICT(session_id) DO UPDATE SET summary=excluded.summary, "
+            "through_message_id=excluded.through_message_id,updated_at=excluded.updated_at",
+            (session_id, (summary_text or "").strip()[:6000], through_id, _now()),
         )
-        for m in recent:
-            conn.execute(
-                "INSERT INTO chat_messages (session_id, role, content, model, tokens, thinking, feedback, meta, created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
-                (session_id, m["role"], m["content"], m["model"], m["tokens"], m["thinking"], m["feedback"], m["meta"], _now()),
-            )
         conn.execute("UPDATE chat_sessions SET updated_at=? WHERE id=?", (_now(), session_id))
         conn.commit()
-        new_rows = conn.execute(
-            "SELECT id, role, content, parent_id, model, tokens, thinking, feedback, meta, created_at "
-            "FROM chat_messages WHERE session_id=? ORDER BY id ASC", (session_id,)
-        ).fetchall()
-        return [dict(r) for r in new_rows]
+        # Preserve the historical return contract (summary + kept turns) for API/UI callers,
+        # while the database retains every original row.
+        recent = msgs[-keep:]
+        virtual_summary = {"id": 0, "role": "summary", "content": (summary_text or "").strip()[:6000],
+                           "parent_id": None, "model": None, "tokens": None, "thinking": None,
+                           "feedback": None, "meta": None, "created_at": _now()}
+        return [virtual_summary] + recent
     return _with_conn(q)
 
 
@@ -277,10 +290,17 @@ def older_messages_text(session_id: int, keep: int = 6) -> str:
     """The transcript of the turns that *would* be compacted (everything but the last
     `keep`), as plain text to summarize. Empty when there's nothing old enough."""
     msgs = get_messages(session_id, limit=400)
-    if len(msgs) <= keep + 1:
+    def summary_q(conn):
+        row = conn.execute("SELECT summary,through_message_id FROM chat_session_summaries WHERE session_id=?",
+                           (session_id,)).fetchone()
+        return dict(row) if row else None
+    rolling = _with_conn(summary_q)
+    through = int((rolling or {}).get("through_message_id") or 0)
+    unsummarized = [m for m in msgs if int(m.get("id") or 0) > through]
+    if len(unsummarized) <= keep + 1:
         return ""
-    older = msgs[:-keep]
-    lines = []
+    older = unsummarized[:-keep]
+    lines = ([f"Previous summary: {rolling['summary']}"] if rolling and rolling.get("summary") else [])
     for m in older:
         who = "TOBI" if m["role"] == "assistant" else ("Summary" if m["role"] == "summary" else "Owner")
         lines.append(f"{who}: {m['content']}")

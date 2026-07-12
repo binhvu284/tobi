@@ -12,11 +12,11 @@ import { SiGithub, SiGoogle, SiNotion, SiVercel, SiSupabase, type IconType } fro
 import {
   type PendingAction, type ChatSession, type AvailableModel, type ChatUsage,
   type ChatStoredMessage, type ChatAttachment, type ConductorAction, type ChatPicker, type ReaderChip,
-  type ChatModeId, type ContextChip, type ChatArtifactEvent,
+  type ChatModeId, type ContextChip, type ChatArtifactEvent, type ChatRuntimeEvent, type ChatTurnTrace,
   getChatSessions, createChatSession, getChatSession, patchChatSession, deleteChatSession,
   appendChatMessage, streamChatSession, getLlmModels, confirmConductorAction, rememberFact,
   forkChatSession, setMessageFeedback, getSessionActivity, getIntegrations, compactSession,
-  getEvolution, pmListProjects, getChatConfig,
+  getEvolution, pmListProjects, getChatConfig, commandAgentRun, getChatTurnTrace,
 } from '../api'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useToast } from '../context/ToastProvider'
@@ -114,12 +114,14 @@ type Meta = {
   mode?: ChatModeId; run_id?: number; artifact_ids?: number[]
   context?: { projects?: ContextChip[]; resources?: { name?: string }[] }
   artifacts?: ChatArtifactEvent[]
+  turn_id?: string
 }
 type Msg = { id?: number; role: string; content: string; model?: string | null; meta?: Meta; thinking?: string | null; feedback?: number | null; created_at?: string }
 type ChatMode = 'chat' | 'agent' | 'terminal' | 'research' | 'project'
 type TurnOpts = {
   attachments?: ChatAttachment[]; web_research?: boolean; connectors?: string[]
   mode?: ChatModeId; deep_research?: boolean; review_mode?: 'ask' | 'session' | 'always'   // #16
+  client_turn_id?: string; resume_run_id?: number
 }
 type QueuedTurn = {
   text: string
@@ -292,6 +294,12 @@ export default function Chat() {
   const [deepResearch, setDeepResearch] = useState(false)           // one-message DR toggle (#16 D15)
   const [contextChips, setContextChips] = useState<ContextChip[]>([])  // auto project context (D20)
   const [runPaused, setRunPaused] = useState(false)                 // failed agent step → Retry/Skip/Revise (D10)
+  const [pausedRunId, setPausedRunId] = useState<number | null>(null)
+  const [revisionRunId, setRevisionRunId] = useState<number | null>(null)
+  const [activeTurnId, setActiveTurnId] = useState<string | null>(null)
+  const [runtimeEvents, setRuntimeEvents] = useState<ChatRuntimeEvent[]>([])
+  const [turnTrace, setTurnTrace] = useState<ChatTurnTrace | null>(null)
+  const [traceLoading, setTraceLoading] = useState(false)
   const [terminalLines, setTerminalLines] = useState<string[]>([])   // live run_command stdout (#11)
   const [modeOpen, setModeOpen] = useState(false)
   const [objective, setObjective] = useState('')
@@ -533,7 +541,8 @@ export default function Chat() {
     const tag = opts.attachments?.length ? `  📎×${opts.attachments.length}` : ''
     setMessages(m => [...m, { role: 'user', content: text + tag }])
     setSending(true); setPending(null); setModelIssue(false)
-    setContextChips([]); setRunPaused(false)
+    setContextChips([]); setRunPaused(false); setPausedRunId(null)
+    setRuntimeEvents([]); setTurnTrace(null)
     // YouTube reader chip (#14): show 'reading' immediately if the message has a link;
     // the backend confirms real per-link states via a `reader` notice event.
     const ytIds = findYouTube(text)
@@ -546,6 +555,7 @@ export default function Chat() {
     let modeSeen: ChatModeId | undefined
     let contextSeen: Meta['context']
     let artifactsSeen: ChatArtifactEvent[] = []
+    let turnIdSeen: string | undefined
     const pushStep = (phase: string) => {
       if (phase && stepsRef.current[stepsRef.current.length - 1] !== phase) {
         stepsRef.current = [...stepsRef.current, phase]; setThinkingSteps(stepsRef.current)
@@ -574,6 +584,7 @@ export default function Chat() {
         onPicker: (p) => { flushDelta(); setPicker(p) },
         onNotice: (n) => {
           if (n.kind === 'model_issue') setModelIssue(true)
+          else if (n.kind === 'model_escalated') toast({ kind: 'info', title: 'Model escalated', detail: 'The selected model returned malformed output, so TOBI retried once with the configured fallback.' })
           else if (n.kind === 'reader' && n.items) setReaderChips(n.items)
           else if (n.kind === 'run_paused') setRunPaused(true)   // failed step → Retry/Skip/Revise (D10)
           else if (n.kind === 'dr_images_skipped') toast({ kind: 'info', title: 'Deep Research', detail: 'Images are skipped during research — ask about them separately.' })
@@ -589,6 +600,14 @@ export default function Chat() {
           p.steps.slice(0, 12).forEach((s, i) => pushStep(`${i + 1}. ${s}`))
         },
         onArtifact: (a) => { artifactsSeen = [...artifactsSeen, a] },
+        onTurnStarted: (e) => { turnIdSeen = e.turn_id; setActiveTurnId(e.turn_id) },
+        onRuntimeEvent: (e) => setRuntimeEvents(prev => [...prev, e].slice(-80)),
+        onRecoveryRequired: (e) => {
+          const rid = Number(e.data?.run_id)
+          if (Number.isFinite(rid) && rid > 0) setPausedRunId(rid)
+          if (e.data?.code === 'model.malformed_output') setModelIssue(true)
+          else setRunPaused(true)
+        },
         onTerminal: (line) => setTerminalLines(ls => [...ls, line]),
         onReset: () => {
           // a chatty model leaked a prose preamble before a tool call → drop it, show the orb again
@@ -606,6 +625,7 @@ export default function Chat() {
           lastMetaRef.current = {
             elapsedMs: u.latency_ms, tokens: u.completion_tokens, tools: toolsSeen, steps: stepsRef.current,
             mode: modeSeen, context: contextSeen, artifacts: artifactsSeen.length ? artifactsSeen : undefined,
+            turn_id: turnIdSeen,
           }
           setMessages(m => { const next = [...m]; const last = next[next.length - 1]; if (last && last.role === 'assistant') next[next.length - 1] = { ...last, meta: { ...last.meta, ...lastMetaRef.current } }; return next })
         },
@@ -636,14 +656,25 @@ export default function Chat() {
     ...(modeV2 ? { mode: (mode === 'agent' ? 'agent' : 'chat') as ChatModeId, review_mode: reviewMode } : {}),
   })
 
-  const send = () => {
-    const text = input.trim()
+  const send = async () => {
+    let text = input.trim()
     if ((!text && !attachments.length) || activeId == null) return
     const opts: TurnOpts = {
       ...baseOpts(),
       attachments,
       web_research: webResearch || mode === 'research',
       ...(modeV2 && deepResearch ? { deep_research: true } : {}),
+    }
+    if (revisionRunId != null) {
+      try {
+        const recovery = await commandAgentRun(revisionRunId, 'revise', text)
+        opts.resume_run_id = revisionRunId
+        text = recovery.recovery_prompt || text
+        setRevisionRunId(null)
+      } catch (e) {
+        toast({ kind: 'error', title: 'Could not revise run', detail: (e as Error).message })
+        return
+      }
     }
     // Deep Research is ONE message [D15] — reset here (covers both queue + immediate
     // paths); regenerate still replays it from lastTurnRef.opts without re-arming.
@@ -663,6 +694,40 @@ export default function Chat() {
     setMessages(m => (m.length && m[m.length - 1].role === 'assistant') ? m.slice(0, -1) : m)
     setMessages(m => (m.length && m[m.length - 1].role === 'user') ? m.slice(0, -1) : m)
     runTurn(lastTurnRef.current.text, activeId, lastTurnRef.current.opts)
+  }
+
+  const recoverRun = async (command: 'resume' | 'retry_step' | 'skip_step' | 'cancel') => {
+    if (pausedRunId == null || activeId == null) {
+      toast({ kind: 'error', title: 'Recovery unavailable', detail: 'This older run has no resumable checkpoint.' })
+      return
+    }
+    try {
+      const result = await commandAgentRun(pausedRunId, command)
+      setRunPaused(false)
+      if (result.requires_turn && result.recovery_prompt) {
+        await runTurn(result.recovery_prompt, activeId, { ...baseOpts(), mode: 'agent', resume_run_id: pausedRunId })
+      } else if (command === 'cancel') {
+        toast({ kind: 'info', title: 'Run cancelled' })
+      }
+    } catch (e) {
+      toast({ kind: 'error', title: 'Recovery failed', detail: (e as Error).message })
+    }
+  }
+
+  const reviseRun = () => {
+    if (pausedRunId == null) return
+    setRevisionRunId(pausedRunId)
+    setRunPaused(false)
+    setInput(lastTurnRef.current.text)
+    setTimeout(() => taRef.current?.focus(), 0)
+  }
+
+  const loadTurnTrace = async () => {
+    if (!activeTurnId) return
+    setTraceLoading(true)
+    try { setTurnTrace(await getChatTurnTrace(activeTurnId)) }
+    catch (e) { toast({ kind: 'error', title: 'Trace unavailable', detail: (e as Error).message }) }
+    finally { setTraceLoading(false) }
   }
 
   // ── edit → branch ──
@@ -1149,13 +1214,30 @@ export default function Chat() {
                   <div className="mb-1.5 flex items-center gap-2 text-sm font-semibold text-warning"><AlertTriangle size={15} /> The run paused on a failed step</div>
                   <div className="mb-3 text-[13px] text-text">TOBI stopped rather than guessing, sir — the report above says exactly what happened. How shall we proceed?</div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <button onClick={() => { setRunPaused(false); if (activeId != null) runTurn('Retry the failed step and continue the task.', activeId, baseOpts()) }}
+                    <button onClick={() => recoverRun('retry_step')}
                       className="flex items-center gap-1.5 rounded-lg border border-warning/50 bg-warning/15 px-3 py-1.5 text-xs font-medium text-warning hover:bg-warning/25"><RotateCcw size={13} /> Retry</button>
-                    <button onClick={() => { setRunPaused(false); if (activeId != null) runTurn('Skip the failed step and continue with the remaining steps.', activeId, baseOpts()) }}
+                    <button onClick={() => recoverRun('skip_step')}
                       className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text"><ChevronRight size={13} /> Skip</button>
-                    <button onClick={() => { setRunPaused(false); setInput(lastTurnRef.current.text); setTimeout(() => taRef.current?.focus(), 0) }}
+                    <button onClick={reviseRun}
                       className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text"><Pencil size={13} /> Revise</button>
+                    <button onClick={() => recoverRun('cancel')}
+                      className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-danger"><X size={13} /> Stop</button>
+                    {activeTurnId && <button onClick={loadTurnTrace}
+                      className="ml-auto flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-text"><Activity size={13} /> {traceLoading ? 'Loading…' : 'Details'}</button>}
                   </div>
+                  {turnTrace && (
+                    <div className="mt-3 border-t border-border/70 pt-2.5">
+                      <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted">
+                        <span>Route: {turnTrace.route || 'legacy'}</span>
+                        <span>First event: {turnTrace.first_event_ms ?? '-'}ms</span>
+                        <span>First token: {turnTrace.first_token_ms ?? '-'}ms</span>
+                        <span>Total: {turnTrace.total_ms ?? '-'}ms</span>
+                      </div>
+                      <div className="max-h-36 space-y-1 overflow-y-auto font-mono text-[10px] text-muted">
+                        {turnTrace.events.map(e => <div key={e.seq} className="flex gap-2"><span className="w-5 text-right text-muted/60">{e.seq}</span><span className="w-24 text-accent">{e.stage}</span><span className="truncate">{e.event_type}</span></div>)}
+                      </div>
+                    </div>
+                  )}
                 </motion.div>
               )}
 
@@ -1166,7 +1248,7 @@ export default function Chat() {
                   <div className="mb-3 text-[13px] text-text">It kept returning incomplete output, sir. Switch to a stronger model and I’ll pick this straight back up.</div>
                   <div className="flex flex-wrap items-center gap-2">
                     <ModelMenu models={models} value={model} onChange={changeModel} />
-                    <button onClick={() => { setModelIssue(false); regenerate() }} className="flex items-center gap-1.5 rounded-lg border border-warning/50 bg-warning/15 px-3 py-1.5 text-xs font-medium text-warning hover:bg-warning/25"><Zap size={13} /> Retry</button>
+                    <button onClick={() => { setModelIssue(false); pausedRunId != null ? recoverRun('retry_step') : regenerate() }} className="flex items-center gap-1.5 rounded-lg border border-warning/50 bg-warning/15 px-3 py-1.5 text-xs font-medium text-warning hover:bg-warning/25"><Zap size={13} /> Retry</button>
                   </div>
                 </motion.div>
               )}

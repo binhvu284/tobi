@@ -4920,6 +4920,8 @@ class ChatSendReq(BaseModel):
     mode: str | None = None                                  # 'chat' | 'agent' (+ legacy labels)
     deep_research: bool = False                              # one-message Deep Research toggle
     review_mode: str | None = None                           # 'ask' | 'session' | 'always'
+    client_turn_id: str | None = None                        # runtime trace/idempotency correlation
+    resume_run_id: int | None = None                         # continue an existing paused Agent run
 
 
 class ChatAppendReq(BaseModel):
@@ -4933,6 +4935,11 @@ class ChatForkReq(BaseModel):
 
 class ChatFeedbackReq(BaseModel):
     value: int | None = None    # 1 👍 | -1 👎 | null clear
+
+
+class AgentRunCommandReq(BaseModel):
+    command: str
+    revision: str = ""
 
 
 def _chat_directives(web_research: bool, thinking: bool, connectors: list[str]) -> str | None:
@@ -4951,26 +4958,31 @@ def _chat_directives(web_research: bool, thinking: bool, connectors: list[str]) 
 class ChatConfigReq(BaseModel):
     mode_v2: Optional[bool] = None
     premium_readers: Optional[bool] = None   # #14 rollback flag (YouTube/reader layer)
+    chat_runtime_v2: Optional[str] = None    # off | shadow | on
 
 
 @app.get("/api/chat/config")
 def chat_config_get():
     """Chat feature flags — the frontend picks the v2 Chat/Agent UI vs the legacy five-mode
     UI (#16), plus the #14 premium-reader rollback flag, both from owner_settings."""
-    from core import chat_modes, premium_readers
+    from core import chat_modes, premium_readers, chat_runtime
     return {"mode_v2": chat_modes.mode_v2_enabled(),
-            "premium_readers": premium_readers.premium_readers_enabled()}
+            "premium_readers": premium_readers.premium_readers_enabled(),
+            "chat_runtime_v2": chat_runtime.runtime_mode()}
 
 
 @app.post("/api/chat/config")
 def chat_config_set(body: ChatConfigReq):
-    from core import chat_modes, premium_readers
+    from core import chat_modes, premium_readers, chat_runtime
     if body.mode_v2 is not None:
         chat_modes.set_mode_v2(body.mode_v2)
     if body.premium_readers is not None:
         premium_readers.set_premium_readers(body.premium_readers)
+    if body.chat_runtime_v2 is not None:
+        chat_runtime.set_runtime_mode(body.chat_runtime_v2)
     return {"mode_v2": chat_modes.mode_v2_enabled(),
-            "premium_readers": premium_readers.premium_readers_enabled()}
+            "premium_readers": premium_readers.premium_readers_enabled(),
+            "chat_runtime_v2": chat_runtime.runtime_mode()}
 
 
 @app.get("/api/chat/sessions")
@@ -5029,7 +5041,9 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
     P2: folds in **attachments** (text → context, images → native vision), an opt-in
     **web_search** tool and **connector** emphasis, all gated by the chat's `+` menu."""
     from core import chat_store, conductor, model_router, attachments as attach
-    from core import premium_readers, youtube_reader, chat_modes
+    from core import premium_readers, youtube_reader, chat_modes, chat_runtime, context_manager
+    from core.chat_runtime_contracts import TurnError, TurnRequest
+    from core.task_classifier import classify
     import time as _time
 
     sess = chat_store.get_session(sid)
@@ -5050,12 +5064,47 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         ctx = chat_modes.normalize(None, payload.web_research, False, payload.connectors)
     directives = chat_modes.build_directives(ctx, thinking=payload.thinking)
     extra_tools = chat_modes.extra_tools_for(ctx)
+    # Mode capability boundary (#16 [D11][D23]) + Human Review policy — enforced server-side by
+    # the Conductor, so the selected mode is a real backend capability, not just prompting.
+    denied_tools = chat_modes.denied_tools_for(ctx) if mode_v2 else set()
+    review_mode = ctx.get("review_mode") if mode_v2 else None
+    runtime_state = chat_runtime.runtime_mode()
+    runtime_request = TurnRequest(
+        session_id=sid, message=message, mode=ctx["mode"], model=model,
+        client_turn_id=(payload.client_turn_id or None), resume_run_id=payload.resume_run_id,
+        capabilities=ctx.get("capabilities") or {},
+    )
+    try:
+        runtime_intent = classify(message)
+    except Exception:
+        runtime_intent = "QUESTION"
+    route_decision = chat_runtime.route_turn(runtime_request, runtime_intent)
+    runtime_active = runtime_state == "on"
+    runtime_allowed = None
+    if runtime_active and route_decision.allowed_tools:
+        runtime_allowed = set(route_decision.allowed_tools) | set(extra_tools or [])
+    elif runtime_active and route_decision.route == "direct":
+        runtime_allowed = set()
 
     async def gen():
         loop = asyncio.get_event_loop()
         if not message and not img_urls and not att_text:
             yield "event: done\ndata: {}\n\n"
             return
+        recorder = (chat_runtime.TurnRecorder.start(runtime_request, route_decision)
+                    if runtime_state in ("shadow", "on") else None)
+
+        def runtime_frame(event_type: str, stage: str, data: Optional[dict] = None) -> str:
+            if recorder is None:
+                return ""
+            envelope = recorder.event(event_type, stage, data or {})
+            return f"event: {event_type}\ndata: {json.dumps(envelope)}\n\n"
+
+        if recorder:
+            yield runtime_frame("turn_started", "gateway", {
+                "route": route_decision.route, "intent": route_decision.intent,
+                "confidence": route_decision.confidence, "runtime_mode": runtime_state,
+            })
         # Echo the normalized mode as the FIRST frame so the UI can chip it before
         # anything streams (#16). Old clients silently ignore unknown SSE events.
         if mode_v2:
@@ -5069,6 +5118,27 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         await loop.run_in_executor(None, lambda: chat_store.auto_title(sid, message or "Attachment"))
         t0 = _time.time()
 
+        # A clear request to mutate state from Chat mode does not need an LLM round-trip.
+        # The clarification gate gives one deterministic, recoverable instruction instead.
+        if runtime_active and route_decision.requires_clarification:
+            reply = "Switch this conversation to **Agent** mode and send the request again, sir — it requires execution tools."
+            for chunk in conductor._stream_chunks(reply):
+                yield f"event: delta\ndata: {json.dumps({'text': chunk})}\n\n"
+            await loop.run_in_executor(None, lambda: chat_store.add_message(
+                sid, "assistant", reply, model=model,
+                meta=json.dumps({"mode": ctx["mode"], "turn_id": recorder.turn_id if recorder else None})))
+            await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", reply))
+            if recorder:
+                yield runtime_frame("recovery_required", "clarification", {
+                    "code": "turn.agent_mode_required", "actions": ["switch_to_agent"],
+                    "message": route_decision.reason,
+                })
+                recorder.complete("waiting_user", TurnError(
+                    "turn.agent_mode_required", "clarification", route_decision.reason, False))
+                yield runtime_frame("turn_completed", "gateway", {"status": "waiting_user"})
+            yield "event: done\ndata: {}\n\n"
+            return
+
         # ── Premium readers (#14): read YouTube transcripts referenced in the message
         # BEFORE answering, so both the vision and tool-loop paths get the context. A
         # pasted link is treated as consent to fetch [spec]. Honest notice if unavailable.
@@ -5077,10 +5147,12 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             yield f"event: thinking\ndata: {json.dumps({'phase': 'Reading the YouTube transcript…', 'tools': ['youtube']})}\n\n"
             try:
                 # Bounded so a slow/hanging transcript fetch can't stall the whole turn (#14
-                # follow-up). On timeout the executor thread is abandoned (its result discarded)
-                # and we continue honestly without the transcript rather than block forever.
+                # follow-up). On timeout the fetch is abandoned (its result discarded) and we
+                # continue honestly without the transcript. It runs on a DEDICATED bounded pool
+                # so repeated hangs can never exhaust the app-wide default executor.
                 reader = await asyncio.wait_for(
-                    loop.run_in_executor(None, lambda: premium_readers.read_message(message)),
+                    loop.run_in_executor(premium_readers.reader_executor(),
+                                         lambda: premium_readers.read_message(message)),
                     timeout=premium_readers.READER_TIMEOUT_S)
             except asyncio.TimeoutError:
                 reader = premium_readers.timeout_result(message)
@@ -5090,6 +5162,8 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         # survive a reload. Empty (→ NULL column) when the flag is off.
         turn_meta: dict = ({"mode": ctx["mode"], "legacy_mode": ctx["legacy_mode"],
                             "capabilities": ctx["capabilities"]} if mode_v2 else {})
+        if recorder:
+            turn_meta["turn_id"] = recorder.turn_id
 
         # ── Auto project context (#16 [D19][D20]): detect a referenced PM project and
         # inject a read-only summary as evidence; visible to the owner as chips. Skipped
@@ -5101,11 +5175,27 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                 yield f"event: context\ndata: {json.dumps({'projects': pctx['projects'], 'resources': pctx['resources'], 'auto': True})}\n\n"
                 turn_meta["context"] = {"projects": pctx["projects"], "resources": pctx["resources"]}
 
+        manifest = None
+        if runtime_state in ("shadow", "on"):
+            base_attachment_context = premium_readers.compose_context(att_text, reader)
+            manifest = await loop.run_in_executor(None, lambda: context_manager.build_manifest(
+                message, ctx["mode"], history, pctx, base_attachment_context))
+            if recorder:
+                recorder.set_context(manifest.to_dict())
+                yield runtime_frame("context_ready", "context", {
+                    "total_tokens": manifest.total_tokens,
+                    "token_budget": manifest.token_budget,
+                    "sources": [{"source": i.source, "label": i.label, "trust": i.trust,
+                                 "tokens": i.token_cost} for i in manifest.items],
+                })
+
         # ── Deep Research (#16 [D14][D15]): one-message cited-report workflow. Beats the
         # vision path (an explicit command wins over an implicit affordance — images are
         # skipped with an honest notice); YouTube/attachment context rides in as evidence. ──
         if mode_v2 and ctx["capabilities"]["deep_research"]:
             from core import deep_research
+            if recorder:
+                yield runtime_frame("step_started", "deep_research", {"label": "Deep Research"})
             if img_urls:
                 yield f"event: notice\ndata: {json.dumps({'kind': 'dr_images_skipped'})}\n\n"
             dr_q: asyncio.Queue = asyncio.Queue()
@@ -5128,6 +5218,10 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                     yield f"event: thinking\ndata: {json.dumps({'phase': ev.get('phase', ''), 'tools': ['deep_research']})}\n\n"
                 dr = await fut
             except Exception as e:
+                if recorder:
+                    err = TurnError("research.failed", "deep_research", "Deep Research failed", True, str(e)[:200])
+                    yield runtime_frame("step_failed", "deep_research", err.to_dict())
+                    recorder.complete("failed", err)
                 yield f"event: error\ndata: {json.dumps({'detail': str(e)[:200]})}\n\n"
                 yield "event: done\ndata: {}\n\n"
                 return
@@ -5151,6 +5245,10 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                      "completion_tokens": ctok, "model": model or sess.get("model") or "default",
                      "latency_ms": round((_time.time() - t0) * 1000)}
             yield f"event: usage\ndata: {json.dumps(usage)}\n\n"
+            if recorder:
+                yield runtime_frame("step_completed", "deep_research", {"artifact_id": aid})
+                recorder.complete("done")
+                yield runtime_frame("turn_completed", "gateway", {"status": "done"})
             yield "event: done\ndata: {}\n\n"
             return
 
@@ -5166,6 +5264,8 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             if alt:
                 vision_model, borrowed = alt, True
         if img_urls and vision_model:
+            if recorder:
+                yield runtime_frame("step_started", "vision", {"model": vision_model})
             yield f"event: thinking\ndata: {json.dumps({'phase': 'Looking at the image…', 'tools': ['vision']})}\n\n"
             try:
                 from core import brain as _brain
@@ -5199,6 +5299,10 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             usage = {"prompt_tokens": model_router.estimate_tokens(vtext), "completion_tokens": ctok,
                      "model": vision_model, "latency_ms": round((_time.time() - t0) * 1000)}
             yield f"event: usage\ndata: {json.dumps(usage)}\n\n"
+            if recorder:
+                yield runtime_frame("step_completed", "vision", {"model": vision_model})
+                recorder.complete("done")
+                yield runtime_frame("turn_completed", "gateway", {"status": "done"})
             yield "event: done\ndata: {}\n\n"
             return
 
@@ -5207,7 +5311,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         # context (#16) into the turn context.
         image_note = premium_readers.image_unavailable_note(len(img_urls)) if img_urls else None
         atext = premium_readers.compose_context(att_text, reader, image_note)
-        if pctx["context_text"]:
+        if pctx["context_text"] and not runtime_active:
             atext = (atext + "\n\n" if atext else "") + pctx["context_text"]
 
         # ── Agent run persistence (#16 [D8]): one durable run per Agent turn, steps recorded
@@ -5215,9 +5319,24 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         run_id = None
         if mode_v2 and ctx["mode"] == "agent":
             from core import agent_runs
-            run_id = await loop.run_in_executor(
-                None, lambda: agent_runs.create_run(sid, title=(message or "Agent task")[:120]))
+            if payload.resume_run_id is not None:
+                existing_run = await loop.run_in_executor(None, lambda: agent_runs.get_run(payload.resume_run_id))
+                if not existing_run or int(existing_run.get("session_id") or 0) != sid:
+                    err = TurnError("run.not_found", "recovery", "The Agent run could not be resumed", False)
+                    if recorder:
+                        yield runtime_frame("step_failed", "recovery", err.to_dict())
+                        recorder.complete("failed", err)
+                    yield f"event: error\ndata: {json.dumps({'detail': err.message})}\n\n"
+                    yield "event: done\ndata: {}\n\n"
+                    return
+                run_id = int(payload.resume_run_id)
+                await loop.run_in_executor(None, lambda: agent_runs.set_status(run_id, "running"))
+            else:
+                run_id = await loop.run_in_executor(
+                    None, lambda: agent_runs.create_run(sid, title=(message or "Agent task")[:120]))
             turn_meta["run_id"] = run_id
+            if recorder:
+                recorder.bind_run(run_id)
 
         # ── Standard tool-loop turn — live tool-step + token events via a thread→async queue ──
         yield f"event: thinking\ndata: {json.dumps({'phase': 'Thinking…'})}\n\n"
@@ -5230,13 +5349,24 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                 pass
 
         _prev = model_router.set_usage_context("chat", "")
-        fut = loop.run_in_executor(None, lambda: conductor.answer(
+        fut = loop.run_in_executor(chat_runtime.chat_executor(), lambda: conductor.answer(
             message or "(see attached)", cid, "mc", model=model, history=history,
-            attachments_text=atext or None, directives=directives, extra_tools=extra_tools,
+            attachments_text=atext or None,
+            directives=directives, extra_tools=extra_tools,
+            denied_tools=denied_tools, review_mode=review_mode,
+            mode=ctx["mode"], route=(route_decision.route if runtime_active else None),
+            allowed_tools=runtime_allowed,
+            context_manifest=(manifest if runtime_active else None),
+            turn_id=(recorder.turn_id if recorder else None),
+            max_tool_steps=(route_decision.max_tool_steps if runtime_active else None),
+            step_tokens=(route_decision.step_tokens if runtime_active else None),
+            final_tokens=(route_decision.final_tokens if runtime_active else None),
+            usage_context={"surface": ctx["mode"], "feature": "chat_runtime_v2"},
             on_event=_emit, on_delta=lambda t: _emit({"type": "delta", "text": t})))
         seen_tools: list[str] = []
         seen_phases: list[str] = []
         term_lines: list[str] = []
+        first_delta_recorded = False
         _persisted = False  # guards against double-persist (normal path vs bg task)
 
         async def _bg_persist():
@@ -5280,6 +5410,9 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                 except asyncio.TimeoutError:
                     continue
                 if ev.get("type") == "delta":
+                    if recorder and not first_delta_recorded:
+                        recorder.event("delta", "response", {"chars": len(ev.get("text", ""))})
+                        first_delta_recorded = True
                     yield f"event: delta\ndata: {json.dumps({'text': ev.get('text', '')})}\n\n"
                 elif ev.get("type") == "terminal":
                     # live stdout from a run_command execution (#11) → xterm-style console
@@ -5287,9 +5420,18 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                     yield f"event: terminal\ndata: {json.dumps({'line': ev.get('line', '')})}\n\n"
                 elif ev.get("type") == "reset":
                     yield "event: reset\ndata: {}\n\n"
+                elif ev.get("type") == "model_escalated":
+                    notice = {"kind": "model_escalated", "from_model": ev.get("from_model"),
+                              "to_model": ev.get("to_model"), "reason": ev.get("reason")}
+                    yield f"event: notice\ndata: {json.dumps(notice)}\n\n"
+                    if recorder:
+                        yield runtime_frame("model_escalated", "model", notice)
                 elif ev.get("type") == "plan":
                     # agent-mode declared plan (#16 D9) → structured timeline event
                     yield f"event: plan\ndata: {json.dumps({'steps': ev.get('steps') or [], 'title': ev.get('title', '')})}\n\n"
+                    if recorder:
+                        yield runtime_frame("plan_ready", "planning", {
+                            "steps": ev.get("steps") or [], "title": ev.get("title", "")})
                     step = _record_step("plan", ev.get("title") or "Plan",
                                         payload={"steps": ev.get("steps") or []})
                     if step is not None:
@@ -5303,12 +5445,19 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                                 await step
                     if ev.get("phase") and ev["phase"] not in seen_phases:
                         seen_phases.append(ev["phase"])
+                        if recorder:
+                            yield runtime_frame("step_started", "execution", {
+                                "label": ev.get("phase", ""), "tool": ev.get("tool")})
                     yield f"event: thinking\ndata: {json.dumps({'phase': ev.get('phase', ''), 'tools': seen_tools})}\n\n"
             res = await fut
         except Exception as e:
+            err = TurnError("turn.internal", "execution", "The turn failed unexpectedly", True, str(e)[:200])
             if run_id is not None:
                 from core import agent_runs
                 await loop.run_in_executor(None, lambda: agent_runs.complete_run(run_id, "failed", error=str(e)[:300]))
+            if recorder:
+                yield runtime_frame("step_failed", "execution", err.to_dict())
+                recorder.complete("failed", err)
             yield f"event: error\ndata: {json.dumps({'detail': str(e)[:200]})}\n\n"
             yield "event: done\ndata: {}\n\n"
             return
@@ -5320,14 +5469,27 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         # The streamed answer already reached the client via on_delta; only special replies
         # (proposals, failures, model-issue notices) still need to be sent here.
         if not res.get("streamed"):
+            if recorder and reply and not first_delta_recorded:
+                recorder.event("delta", "response", {"chars": min(len(reply), 32)})
+                first_delta_recorded = True
             for chunk in conductor._stream_chunks(reply):
                 yield f"event: delta\ndata: {json.dumps({'text': chunk})}\n\n"
         if res.get("model_issue"):
             yield f"event: notice\ndata: {json.dumps({'kind': 'model_issue'})}\n\n"
+            if recorder:
+                yield runtime_frame("recovery_required", "model", {
+                    "run_id": run_id, "code": "model.malformed_output",
+                    "actions": ["retry_step", "revise", "cancel"],
+                })
         # A chain stopped on a failed step → the run is paused awaiting the owner's call
         # (Retry / Skip / Revise quick actions in the UI) [D10].
         if res.get("stopped_on_error"):
             yield f"event: notice\ndata: {json.dumps({'kind': 'run_paused'})}\n\n"
+            if recorder:
+                yield runtime_frame("recovery_required", "execution", {
+                    "run_id": run_id, "actions": ["resume", "retry_step", "skip_step", "revise", "cancel"],
+                    "code": "tool.execution",
+                })
         thinking_meta = reasoning or (("Consulted: " + ", ".join(tools)) if tools else None)
         if mode_v2 and (seen_phases or tools):
             turn_meta["steps"] = seen_phases
@@ -5376,6 +5538,14 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                  "model": model or sess.get("model") or "default",
                  "latency_ms": round((_time.time() - t0) * 1000)}
         yield f"event: usage\ndata: {json.dumps(usage)}\n\n"
+        if recorder:
+            final_status = ("waiting_user" if res.get("stopped_on_error")
+                            else "waiting_approval" if pending
+                            else "failed" if res.get("model_issue") else "done")
+            yield runtime_frame("step_completed", "response", {
+                "tools": tools, "model": usage["model"], "latency_ms": usage["latency_ms"]})
+            recorder.complete(final_status)
+            yield runtime_frame("turn_completed", "gateway", {"status": final_status, "run_id": run_id})
         yield "event: done\ndata: {}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream",
@@ -5422,6 +5592,27 @@ def chat_run_detail(run_id: int):
     if not run:
         raise HTTPException(status_code=404, detail="run not found")
     return run
+
+
+@app.post("/api/chat/runs/{run_id}/commands")
+def chat_run_command(run_id: int, body: AgentRunCommandReq):
+    from core import agent_runs
+    try:
+        result = agent_runs.command_run(run_id, body.command, body.revision)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not result:
+        raise HTTPException(status_code=404, detail="run not found")
+    return result
+
+
+@app.get("/api/chat/turns/{turn_id}/trace")
+def chat_turn_trace(turn_id: str):
+    from core import chat_runtime
+    trace = chat_runtime.get_trace(turn_id)
+    if not trace:
+        raise HTTPException(status_code=404, detail="turn not found")
+    return trace
 
 
 @app.get("/api/chat/sessions/{sid}/artifacts")

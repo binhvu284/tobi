@@ -1162,8 +1162,10 @@ export type ChatTurnMeta = {
   mode?: ChatModeId; legacy_mode?: string | null; capabilities?: ChatCapabilities
   steps?: string[]; tools?: string[]; run_id?: number; artifact_ids?: number[]
   context?: { projects?: ContextChip[]; resources?: { name?: string }[] }
+  turn_id?: string
 }
-export async function getChatConfig(): Promise<{ mode_v2: boolean }> { return get('/api/chat/config') }
+export type ChatRuntimeMode = 'off' | 'shadow' | 'on'
+export async function getChatConfig(): Promise<{ mode_v2: boolean; chat_runtime_v2?: ChatRuntimeMode }> { return get('/api/chat/config') }
 export async function setChatConfig(modeV2: boolean): Promise<{ mode_v2: boolean }> {
   return request('/api/chat/config', { method: 'POST', body: JSON.stringify({ mode_v2: modeV2 }) })
 }
@@ -1181,6 +1183,26 @@ export async function getSessionRuns(id: number, limit = 20): Promise<{ runs: Ag
   return get(`/api/chat/sessions/${id}/runs?limit=${limit}`)
 }
 export async function getAgentRun(runId: number): Promise<AgentRun> { return get(`/api/chat/runs/${runId}`) }
+export type AgentRunCommand = 'resume' | 'retry_step' | 'skip_step' | 'revise' | 'cancel'
+export type AgentRunCommandResult = {
+  run_id: number; session_id?: number; status: string; requires_turn: boolean; recovery_prompt?: string
+}
+export async function commandAgentRun(runId: number, command: AgentRunCommand, revision = ''): Promise<AgentRunCommandResult> {
+  return request(`/api/chat/runs/${runId}/commands`, {
+    method: 'POST', body: JSON.stringify({ command, revision }),
+  })
+}
+export type ChatRuntimeEvent = {
+  turn_id: string; seq: number; type: string; stage: string; timestamp: string; data: Record<string, any>
+}
+export type ChatTurnTrace = {
+  id: string; session_id: number; run_id?: number | null; status: string; mode: string; model?: string | null
+  route?: string | null; first_event_ms?: number | null; first_token_ms?: number | null; total_ms?: number | null
+  error_code?: string | null; events: Array<{ seq: number; event_type: string; stage: string; payload: Record<string, any>; created_at: string }>
+}
+export async function getChatTurnTrace(turnId: string): Promise<ChatTurnTrace> {
+  return get(`/api/chat/turns/${encodeURIComponent(turnId)}/trace`)
+}
 export type ChatArtifact = {
   id: number; session_id: number; run_id?: number | null; kind: string
   title?: string | null; content?: string; meta_json?: string | null; created_at: string
@@ -1216,6 +1238,9 @@ export type ChatStreamHandlers = {
   onContext?: (ctx: ChatContextEvent) => void     // auto project context chips
   onPlan?: (plan: ChatPlanEvent) => void          // agent-mode declared plan
   onArtifact?: (artifact: ChatArtifactEvent) => void  // durable artifact produced
+  onTurnStarted?: (event: ChatRuntimeEvent) => void
+  onRuntimeEvent?: (event: ChatRuntimeEvent) => void
+  onRecoveryRequired?: (event: ChatRuntimeEvent) => void
 }
 
 export async function getChatSessions(): Promise<{ sessions: ChatSession[] }> { return get('/api/chat/sessions') }
@@ -1249,6 +1274,7 @@ export type ChatAttachment = { name: string; mime: string; kind: 'text' | 'image
 export type ChatTurnOptions = {
   attachments?: ChatAttachment[]; web_research?: boolean; thinking?: boolean; connectors?: string[]
   mode?: ChatModeId; deep_research?: boolean; review_mode?: 'ask' | 'session' | 'always'   // #16
+  client_turn_id?: string; resume_run_id?: number
 }
 
 /** Stream a premium chat turn: typed SSE (thinking / delta / action / usage / done).
@@ -1259,7 +1285,9 @@ export async function streamChatSession(
 ): Promise<void> {
   const res = await fetch(`/api/chat/sessions/${sessionId}/stream`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, model, ...(options || {}) }), signal,
+    body: JSON.stringify({
+      message, model, ...(options || {}), client_turn_id: options?.client_turn_id || crypto.randomUUID(),
+    }), signal,
   })
   if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
   const reader = res.body.getReader()
@@ -1291,6 +1319,11 @@ export async function streamChatSession(
       else if (event === 'context') { const o = parse(); if (o && Array.isArray(o.projects)) handlers.onContext?.(o as ChatContextEvent) }
       else if (event === 'plan') { const o = parse(); if (o && Array.isArray(o.steps)) handlers.onPlan?.(o as ChatPlanEvent) }
       else if (event === 'artifact') { const o = parse(); if (o && o.id != null) handlers.onArtifact?.(o as ChatArtifactEvent) }
+      else if (event === 'turn_started') { const o = parse() as ChatRuntimeEvent; if (o?.turn_id) { handlers.onTurnStarted?.(o); handlers.onRuntimeEvent?.(o) } }
+      else if (event === 'recovery_required') { const o = parse() as ChatRuntimeEvent; if (o?.turn_id) { handlers.onRecoveryRequired?.(o); handlers.onRuntimeEvent?.(o) } }
+      else if (['context_ready', 'plan_ready', 'step_started', 'step_completed', 'step_failed', 'model_escalated', 'turn_completed'].includes(event)) {
+        const o = parse() as ChatRuntimeEvent; if (o?.turn_id) handlers.onRuntimeEvent?.(o)
+      }
       else if (event === 'error') { throw new Error(parse().detail || 'stream error') }
       else if (event === 'done') return
     }

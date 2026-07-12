@@ -108,6 +108,47 @@ def complete_run(run_id: int, status: str = "done", error: Optional[str] = None,
     _with_conn(q)
 
 
+def set_status(run_id: int, status: str, error: Optional[str] = None) -> Optional[dict]:
+    """Move an existing run to a valid state without creating a replacement run."""
+    if status not in STATUSES:
+        raise ValueError(f"invalid run status: {status}")
+    def q(conn):
+        if not conn.execute("SELECT 1 FROM agent_runs WHERE id=?", (run_id,)).fetchone():
+            return None
+        completed = _now() if status in ("done", "failed", "cancelled") else None
+        conn.execute("UPDATE agent_runs SET status=?,error=?,updated_at=?,completed_at=? WHERE id=?",
+                     (status, error or None, _now(), completed, run_id))
+        conn.commit()
+        return dict(conn.execute("SELECT * FROM agent_runs WHERE id=?", (run_id,)).fetchone())
+    return _with_conn(q)
+
+
+def command_run(run_id: int, command: str, revision: str = "") -> Optional[dict]:
+    """Record a recovery command and return the prompt used to continue the same run."""
+    command = (command or "").strip().lower()
+    prompts = {
+        "resume": "Resume the paused task from its last completed checkpoint.",
+        "retry_step": "Retry only the failed step, then continue from the existing checkpoints.",
+        "skip_step": "Skip the failed step and continue with the remaining existing plan.",
+        "revise": (revision or "Revise the remaining plan using my latest instructions, then continue.").strip(),
+    }
+    run = get_run(run_id)
+    if not run:
+        return None
+    if command == "cancel":
+        set_status(run_id, "cancelled")
+        add_step(run_id, "note", "Run cancelled by owner", summary="cancel", status="done")
+        return {"run_id": run_id, "status": "cancelled", "requires_turn": False}
+    if command not in prompts:
+        raise ValueError("command must be resume, retry_step, skip_step, revise, or cancel")
+    if run["status"] == "done":
+        raise ValueError("a completed run cannot be resumed")
+    set_status(run_id, "running")
+    add_step(run_id, "note", f"Owner command: {command}", summary=revision[:1000], status="done")
+    return {"run_id": run_id, "session_id": run["session_id"], "status": "running",
+            "requires_turn": True, "recovery_prompt": prompts[command]}
+
+
 def get_run(run_id: int) -> Optional[dict]:
     def q(conn):
         row = conn.execute("SELECT * FROM agent_runs WHERE id=?", (run_id,)).fetchone()
