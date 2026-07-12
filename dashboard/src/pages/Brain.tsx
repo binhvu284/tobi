@@ -135,12 +135,15 @@ export default function Brain() {
     } finally { setNarrativeBusy(false) }
   }
 
+  const [sweeping, setSweeping] = useState(false)
   const sweep = async () => {
+    setSweeping(true)
     try {
       const res = await runBrainSweep()
       toast({ kind: 'info', title: 'Brain sweep', detail: res.processed ? `Processed ${res.processed} messages` : 'Nothing new' })
       afterChange()
     } catch (e) { toast({ kind: 'error', title: 'Sweep failed', detail: (e as Error).message }) }
+    finally { setSweeping(false) }
   }
 
   if (loading) return <PageLoader preset="brain" />
@@ -180,7 +183,9 @@ export default function Brain() {
           <Chip label="Pending" value={stats.pending} tone={stats.pending ? 'warning' : undefined} icon={<Inbox size={11} />} />
           <Chip label="Conflicts" value={stats.conflicts} tone={stats.conflicts ? 'danger' : undefined} icon={<AlertTriangle size={11} />} />
           <Chip label="Stale" value={stats.stale} tone={stats.stale ? 'warning' : undefined} icon={<Clock size={11} />} />
-          <button onClick={sweep} className="ml-auto flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-muted hover:text-text"><RefreshCw size={11} /> Sweep chat</button>
+          <button onClick={sweep} disabled={sweeping} className="ml-auto flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-muted hover:text-text disabled:opacity-50">
+            <RefreshCw size={11} className={sweeping ? 'animate-spin' : ''} /> {sweeping ? 'Sweeping…' : 'Sweep chat'}
+          </button>
         </div>
       )}
 

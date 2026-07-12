@@ -791,9 +791,14 @@ export default function Chat() {
   }
 
   const copy = (text: string) => { navigator.clipboard?.writeText(text).then(() => toast({ kind: 'success', title: 'Copied' })).catch(() => {}) }
-  const remember = async (content: string) => {
-    try { const r = await rememberFact(content); toast({ kind: 'success', title: 'Remembered', detail: r.category ? `Saved to ${r.category}` : undefined }) }
-    catch (e) { toast({ kind: 'error', title: 'Could not save', detail: (e as Error).message }) }
+  const [remembering, setRemembering] = useState<number | null>(null)
+  const remember = async (content: string, msgId?: number) => {
+    if (msgId) setRemembering(msgId)
+    try {
+      const r = await rememberFact(content)
+      toast({ kind: 'success', title: 'Remembered', detail: r.category ? `Saved to ${r.category}` : undefined })
+    } catch (e) { toast({ kind: 'error', title: 'Could not save', detail: (e as Error).message }) }
+    finally { if (msgId) setRemembering(null) }
   }
 
   const loadActivity = async (sid: number) => { try { setActivity((await getSessionActivity(sid)).actions) } catch { /* ignore */ } }
@@ -1195,7 +1200,9 @@ export default function Chat() {
                           <div className="mt-1 flex justify-end gap-3 opacity-0 transition-opacity group-hover:opacity-100">
                             <button onClick={() => copy(m.content.replace(/\s*📎×\d+$/, ''))} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent"><Copy size={10} /> Copy</button>
                             <button onClick={() => startWith(m.content.replace(/\s*📎×\d+$/, ''))} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent"><RotateCcw size={10} /> Resend</button>
-                            <button onClick={() => remember(m.content.replace(/\s*📎×\d+$/, ''))} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent"><Sparkles size={10} /> Remember</button>
+                            <button onClick={() => remember(m.content.replace(/\s*📎×\d+$/, ''), m.id)} disabled={remembering === m.id} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent disabled:opacity-50">
+                              {remembering === m.id ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />} Remember
+                            </button>
                             {m.id != null && <button onClick={() => startEdit(m)} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent"><Pencil size={10} /> Edit → branch</button>}
                           </div>
                         </>
@@ -1227,7 +1234,9 @@ export default function Chat() {
                           <button onClick={() => copy(m.content)} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent"><Copy size={10} /> Copy</button>
                           {isLast && <button onClick={regenerate} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent"><RotateCcw size={10} /> Regenerate</button>}
                           <button onClick={() => quoteReply(m.content)} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent"><Quote size={10} /> Quote</button>
-                          <button onClick={() => remember(m.content)} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent"><Sparkles size={10} /> Remember</button>
+                          <button onClick={() => remember(m.content, m.id)} disabled={remembering === m.id} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent disabled:opacity-50">
+                            {remembering === m.id ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />} Remember
+                          </button>
                           {m.id != null && <>
                             <button onClick={() => giveFeedback(m, 1)} className={`flex items-center gap-1 text-[10px] hover:text-success ${m.feedback === 1 ? 'text-success' : 'text-muted'}`}><ThumbsUp size={10} /></button>
                             <button onClick={() => giveFeedback(m, -1)} className={`flex items-center gap-1 text-[10px] hover:text-danger ${m.feedback === -1 ? 'text-danger' : 'text-muted'}`}><ThumbsDown size={10} /></button>
