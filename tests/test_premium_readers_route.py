@@ -64,8 +64,9 @@ _captured: dict = {}
 
 def _fake_answer(message, chat_id=None, surface="mc", model=None, history=None,
                  attachments_text=None, directives=None, extra_tools=None,
-                 on_event=None, on_delta=None):
-    """Capture what the route folds into the model turn; stream a canned reply."""
+                 on_event=None, on_delta=None, **kwargs):
+    """Capture what the route folds into the model turn; stream a canned reply.
+    (**kwargs tolerates newer route-passed params like denied_tools/review_mode.)"""
     _captured["attachments_text"] = attachments_text or ""
     _captured["directives"] = directives
     if on_delta:

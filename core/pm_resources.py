@@ -241,10 +241,14 @@ def fetch_gdrive_meta(url: str) -> str | None:
 
 
 def fetch_readable(url: str) -> tuple[str | None, str | None]:
-    """(title, text) from a web page — best effort, dependency-light HTML strip."""
+    """(title, text) from a web page — best effort, dependency-light HTML strip.
+
+    SSRF-guarded (#16 follow-up): only http/https to public hosts, every redirect re-validated,
+    and the body size-capped (via ``net_guard.safe_get``). An unsafe/private/loopback URL or a
+    metadata endpoint yields ``(None, None)`` rather than an internal request."""
     try:
-        import requests
-        r = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0 TOBI"})
+        from core import net_guard
+        r = net_guard.safe_get(url, timeout=15)
         if r.status_code != 200 or "html" not in r.headers.get("content-type", ""):
             return None, None
         html = r.text

@@ -15,6 +15,7 @@ layer be switched off for rollback without touching the route.
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from core import youtube_reader
@@ -30,6 +31,20 @@ ENABLE_PREMIUM_READERS = True
 READER_TIMEOUT_S = 25.0
 
 _FLAG_KEY = "chat.premium_readers"
+
+# A small DEDICATED thread pool for reader fetches (#14 follow-up). asyncio.wait_for stops
+# WAITING on a slow transcript fetch but cannot kill the thread — so an abandoned fetch keeps
+# running. Bounding it to its own pool means repeated hangs occupy at most these threads and
+# can NEVER exhaust the app-wide default executor that serves every other request.
+_READER_POOL: ThreadPoolExecutor | None = None
+
+
+def reader_executor() -> ThreadPoolExecutor:
+    """The dedicated bounded executor the chat route runs reader work on (lazy singleton)."""
+    global _READER_POOL
+    if _READER_POOL is None:
+        _READER_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tobi-reader")
+    return _READER_POOL
 
 
 # ── config-driven rollback flag (owner_settings, same pattern as chat_modes) ──────
