@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { motion } from 'framer-motion'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   Brain as BrainIcon, Search, Plus, Upload, Sparkles, Inbox, Filter,
   RefreshCw, ScrollText, X, AlertTriangle, Clock,
   FileText, MessagesSquare, Pencil, Wand2, CircleDot,
-  CheckSquare, Square, Trash2, ListChecks, Loader2, ArrowDownUp,
+  CheckSquare, Square, Trash2, ListChecks, Loader2,
+  ArrowDownUp, Sparkle, CalendarClock, TrendingUp, ArrowDownAZ, Check,
 } from 'lucide-react'
 import {
   type Memory, type MemoryCategory, type BrainStats,
@@ -31,7 +32,7 @@ export default function Brain() {
   const [showFilters, setShowFilters] = useState(false)
   const [source, setSource] = useState('all')
   const [staleOnly, setStaleOnly] = useState(false)
-  const [sortBy, setSortBy] = useState('newest')
+  const [sortBy, setSortBy] = useState('default')
 
   const [modal, setModal] = useState<Memory | 'new' | null>(null)
   const [showImport, setShowImport] = useState(false)
@@ -50,15 +51,31 @@ export default function Brain() {
   const sorted = useMemo(() => {
     const arr = [...memories]
     switch (sortBy) {
-      case 'oldest':       return arr.sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))
-      case 'updated':      return arr.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''))
-      case 'confidence_high': return arr.sort((a, b) => b.confidence - a.confidence)
-      case 'confidence_low':  return arr.sort((a, b) => a.confidence - b.confidence)
-      case 'confirmed':    return arr.sort((a, b) => (b.last_confirmed_at || '').localeCompare(a.last_confirmed_at || ''))
-      case 'category':     return arr.sort((a, b) => (catMap[a.category]?.label || a.category).localeCompare(catMap[b.category]?.label || b.category))
-      default:             return arr // 'newest' — server order
+      case 'latest':
+        // Latest first — by the most recent of created_at / updated_at
+        return arr.sort((a, b) => {
+          const ta = Math.max(new Date(a.updated_at || 0).getTime(), new Date(a.created_at || 0).getTime())
+          const tb = Math.max(new Date(b.updated_at || 0).getTime(), new Date(b.created_at || 0).getTime())
+          return tb - ta
+        })
+      case 'confidence':
+        // Confidence first — high to low, stale items pushed below non-stale at same level
+        return arr.sort((a, b) => {
+          if (a.stale !== b.stale) return a.stale ? 1 : -1
+          return b.confidence - a.confidence
+        })
+      case 'az':
+        // A-Z — alphabetical by content
+        return arr.sort((a, b) => (a.content || '').localeCompare(b.content || ''))
+      default:
+        // Default — importance: non-stale first, then confidence, then recency
+        return arr.sort((a, b) => {
+          if (a.stale !== b.stale) return a.stale ? 1 : -1
+          if (b.confidence !== a.confidence) return b.confidence - a.confidence
+          return (b.created_at || '').localeCompare(a.created_at || '')
+        })
     }
-  }, [memories, sortBy, catMap])
+  }, [memories, sortBy])
 
   const reloadMeta = useCallback(() => {
     getBrainStats().then(setStats).catch(() => {})
@@ -191,19 +208,7 @@ export default function Brain() {
           className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs ${semantic ? 'border-accent/50 bg-accent/15 text-accent' : 'border-border text-muted hover:text-text'} disabled:opacity-40`}>
           <Sparkles size={13} /> Semantic
         </button>
-        <label className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-2 text-xs text-muted hover:text-text">
-          <ArrowDownUp size={13} />
-          <select value={sortBy} onChange={e => setSortBy(e.target.value)}
-            className="cursor-pointer bg-transparent text-xs outline-none [&>option]:bg-surface [&>option]:text-text">
-            <option value="newest">Newest first</option>
-            <option value="oldest">Oldest first</option>
-            <option value="updated">Recently updated</option>
-            <option value="confidence_high">Confidence: High → Low</option>
-            <option value="confidence_low">Confidence: Low → High</option>
-            <option value="confirmed">Recently confirmed</option>
-            <option value="category">Category A → Z</option>
-          </select>
-        </label>
+        <SortMenu sortBy={sortBy} setSortBy={setSortBy} />
         <button onClick={() => setShowFilters(f => !f)} className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs ${showFilters ? 'border-accent/50 text-accent' : 'border-border text-muted hover:text-text'}`}>
           <Filter size={13} /> Filter
         </button>
@@ -298,6 +303,64 @@ export default function Brain() {
       {showImport && <BrainImportModal categories={categories} onClose={() => setShowImport(false)} onDone={(saved, merged) => { setShowImport(false); toast({ kind: 'success', title: 'Imported', detail: `${saved} saved, ${merged} merged` }); afterChange() }} />}
       {showDupes && <CleanDuplicatesModal onClose={() => setShowDupes(false)} onDone={(merged) => { setShowDupes(false); toast({ kind: 'success', title: 'Duplicates cleaned', detail: `${merged} merged` }); afterChange() }} />}
       {showReview && <ReviewInbox onClose={() => setShowReview(false)} onChange={afterChange} />}
+    </div>
+  )
+}
+
+// ── Sort menu ─────────────────────────────────────────────────────────────────
+const SORT_OPTIONS = [
+  { id: 'default',    label: 'Default',         desc: 'By importance',              Icon: Sparkle },
+  { id: 'latest',     label: 'Latest First',    desc: 'Most recent activity',       Icon: CalendarClock },
+  { id: 'confidence', label: 'Confidence First', desc: 'High → low confidence',     Icon: TrendingUp },
+  { id: 'az',         label: 'A → Z',           desc: 'Alphabetical',               Icon: ArrowDownAZ },
+] as const
+
+function SortMenu({ sortBy, setSortBy }: { sortBy: string; setSortBy: (v: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const cur = SORT_OPTIONS.find(o => o.id === sortBy) ?? SORT_OPTIONS[0]
+  const CurIcon = cur.Icon
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey) }
+  }, [open])
+
+  return (
+    <div className="relative" ref={ref}>
+      <button onClick={() => setOpen(o => !o)}
+        className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs transition-colors ${open ? 'border-accent/50 text-accent' : 'border-border text-muted hover:text-text'}`}>
+        <CurIcon size={13} /> {cur.label}
+        <ArrowDownUp size={11} className={`opacity-50 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.97 }}
+            transition={{ duration: 0.16, ease: 'easeOut' }}
+            className="absolute right-0 top-full z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-border bg-surface/95 p-1 shadow-[0_10px_44px_-10px_rgba(0,0,0,0.55)] ring-1 ring-overlay/[0.04] backdrop-blur-xl">
+            {SORT_OPTIONS.map(o => {
+              const Icon = o.Icon
+              const active = o.id === sortBy
+              return (
+                <button key={o.id} onClick={() => { setSortBy(o.id); setOpen(false) }}
+                  className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ${active ? 'bg-accent/10 text-accent' : 'text-text hover:bg-bg/60'}`}>
+                  <Icon size={14} className={active ? 'text-accent' : 'text-muted'} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-medium">{o.label}</div>
+                    <div className={`text-[10px] ${active ? 'text-accent/70' : 'text-muted/70'}`}>{o.desc}</div>
+                  </div>
+                  {active && <Check size={13} className="shrink-0 text-accent" />}
+                </button>
+              )
+            })}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
