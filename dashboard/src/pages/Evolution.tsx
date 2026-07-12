@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   CheckCircle2, XCircle, Lock, Brain, Cpu, Wifi,
   ChevronDown, ChevronUp, X, Clock, Zap, TrendingUp, Sparkles, Loader2,
+  ArrowRight, Wrench, CircleDashed, MinusCircle,
 } from 'lucide-react'
 import { getEvolution, reflectNow, type EvolutionReport, type TierData, type TierAbility } from '../api'
 import { useSound } from '../hooks/useSound'
@@ -102,6 +104,15 @@ const PILLAR_META = {
   presence:   { label: 'Always-On Presence', icon: Wifi },
 }
 
+// 4-valued Awakening (#17) ability status → icon + colour + label
+const AWK_STATUS: Record<string, { label: string; text: string; chip: string; Icon: typeof CheckCircle2 }> = {
+  active:       { label: 'Active',       text: 'text-green-400', chip: 'bg-green-500/15 text-green-400', Icon: CheckCircle2 },
+  partial:      { label: 'Partial',      text: 'text-amber-400', chip: 'bg-amber-500/15 text-amber-400', Icon: CircleDashed },
+  setup_needed: { label: 'Setup needed', text: 'text-sky-400',   chip: 'bg-sky-500/15 text-sky-400',     Icon: Wrench },
+  inactive:     { label: 'Inactive',     text: 'text-muted',     chip: 'bg-muted/10 text-muted',         Icon: MinusCircle },
+}
+const isAwakeningAbility = (ab: TierAbility) => !!ab.category
+
 const EFFORT_STYLE: Record<string, string> = {
   done:    'bg-green-500/15 text-green-400',
   '1 day': 'bg-blue-500/15 text-blue-300',
@@ -136,18 +147,24 @@ function ProgressRing({ pct, size = 90, stroke = 6, color = 'rgb(var(--accent))'
 
 function AbilityRow({ ab, locked, onClick }: { ab: TierAbility; locked: boolean; onClick: () => void }) {
   const isActive = ab.status === 'active'
+  const awk = isAwakeningAbility(ab)
+  const st = AWK_STATUS[ab.status] ?? AWK_STATUS.inactive
   return (
     <button onClick={onClick}
       className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-overlay/5 active:bg-overlay/10">
       <span className="mt-0.5 shrink-0">
-        {locked        ? <Lock size={14} className="text-muted/40" /> :
-         isActive      ? <CheckCircle2 size={14} className="text-green-400" /> :
-                         <XCircle size={14} className="text-red-400/60" />}
+        {locked   ? <Lock size={14} className="text-muted/40" /> :
+         awk      ? <st.Icon size={14} className={st.text} /> :
+         isActive ? <CheckCircle2 size={14} className="text-green-400" /> :
+                    <XCircle size={14} className="text-red-400/60" />}
       </span>
       <span className={`flex-1 text-xs leading-snug ${locked ? 'text-muted/40' : isActive ? 'text-text' : 'text-muted'}`}>
         {ab.name}
       </span>
-      {!isActive && ab.effort !== 'done' && (
+      {awk && !isActive && (
+        <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${st.chip}`}>{st.label}</span>
+      )}
+      {!awk && !isActive && ab.effort && ab.effort !== 'done' && (
         <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${EFFORT_STYLE[ab.effort] ?? 'bg-muted/10 text-muted'}`}>
           {ab.effort}
         </span>
@@ -246,7 +263,7 @@ function TierCard({
                     <div className="mb-1 flex items-center gap-1.5 px-2">
                       <Icon size={11} className="text-muted" />
                       <span className="text-[10px] font-semibold uppercase tracking-widest text-muted">
-                        {meta.label}
+                        {tier.pillar_labels?.[key] ?? meta.label}
                       </span>
                     </div>
                     {abilities.map(ab => (
@@ -269,6 +286,9 @@ function AbilityDrawer({ ab, tier, onClose, onReflected }: {
 }) {
   const c = TIER_COLORS[tier.color_key] ?? TIER_COLORS.gray
   const isActive = ab.status === 'active'
+  const awk = isAwakeningAbility(ab)
+  const st = AWK_STATUS[ab.status] ?? AWK_STATUS.inactive
+  const nav = useNavigate()
   const [reflecting, setReflecting] = useState(false)
   const [reflectErr, setReflectErr] = useState<string | null>(null)
   const [reflected, setReflected] = useState<string | null>(null)
@@ -304,11 +324,15 @@ function AbilityDrawer({ ab, tier, onClose, onReflected }: {
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
         {/* Status badge */}
         <div className="flex items-center gap-2">
-          {isActive
+          {awk ? (
+            <span className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${st.chip}`}>
+              <st.Icon size={12} /> {st.label.toUpperCase()}
+            </span>
+          ) : isActive
             ? <span className="flex items-center gap-1.5 rounded-full bg-green-500/15 px-3 py-1 text-xs font-semibold text-green-400"><CheckCircle2 size={12} /> ACTIVE</span>
             : <span className="flex items-center gap-1.5 rounded-full bg-red-500/15 px-3 py-1 text-xs font-semibold text-red-400"><XCircle size={12} /> INACTIVE</span>
           }
-          {ab.effort !== 'done' && (
+          {!awk && ab.effort && ab.effort !== 'done' && (
             <span className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium ${EFFORT_STYLE[ab.effort] ?? ''}`}>
               <Clock size={11} /> {ab.effort}
             </span>
@@ -321,6 +345,39 @@ function AbilityDrawer({ ab, tier, onClose, onReflected }: {
         {/* Description */}
         <p className="text-sm text-muted leading-relaxed">{ab.description}</p>
 
+        {/* Awakening (#17): live evidence / what's missing / setup deep-links */}
+        {awk && ab.evidence && ab.evidence.length > 0 && (
+          <div className="rounded-lg border border-green-500/25 bg-green-500/5 p-3 space-y-1.5">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-green-400">
+              <CheckCircle2 size={11} /> Evidence
+            </div>
+            <ul className="space-y-1">
+              {ab.evidence.map((e, i) => <li key={i} className="text-xs text-muted leading-relaxed">• {e}</li>)}
+            </ul>
+          </div>
+        )}
+        {awk && !isActive && ab.missing && ab.missing.length > 0 && (
+          <div className="rounded-lg border border-border bg-bg/50 p-3 space-y-1.5">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-400">
+              <Zap size={11} /> What's missing
+            </div>
+            <ul className="space-y-1">
+              {ab.missing.map((m, i) => <li key={i} className="text-xs text-muted leading-relaxed">• {m}</li>)}
+            </ul>
+          </div>
+        )}
+        {awk && !isActive && ab.setup_actions && ab.setup_actions.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {ab.setup_actions.map((s, i) => (
+              <button key={i} onClick={() => { onClose(); nav(s.route) }}
+                className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-black transition-opacity hover:opacity-90"
+                style={{ background: c.gradient }}>
+                {s.label} <ArrowRight size={13} />
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* How to unlock (if inactive) */}
         {!isActive && ab.how_to_unlock && (
           <div className="rounded-lg border border-border bg-bg/50 p-3 space-y-1.5">
@@ -331,7 +388,7 @@ function AbilityDrawer({ ab, tier, onClose, onReflected }: {
           </div>
         )}
 
-        {!isActive && !ab.how_to_unlock && (
+        {!awk && !isActive && !ab.how_to_unlock && (
           <div className="rounded-lg border border-border bg-bg/50 p-3">
             <p className="text-xs text-muted italic">This capability unlocks as the cumulative result of earlier tiers. Build the prerequisite tiers first.</p>
           </div>
@@ -430,6 +487,77 @@ function TierUnlockOverlay({ tierId, tierName, colorKey, onDone }: {
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
+
+// ── Guided "Complete Awakening" panel (#17) — checklist of the 9 with setup deep-links ──
+function CompleteAwakeningPanel({ tier, onOpenAbility }: {
+  tier: TierData; onOpenAbility: (ab: TierAbility) => void
+}) {
+  const nav = useNavigate()
+  const c = TIER_COLORS[tier.color_key] ?? TIER_COLORS.bronze
+  const done = tier.active_count === tier.total_count && tier.total_count > 0
+  const pillarOrder = ['understand', 'presence', 'control'] as const
+  return (
+    <div className="rounded-xl border p-4"
+      style={{ borderColor: 'rgba(205,127,50,0.35)', background: 'rgba(205,127,50,0.05)' }}>
+      <div className="mb-3 flex items-center gap-2">
+        <Sparkles size={15} style={{ color: c.hex }} />
+        <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: c.hex }}>
+          Complete Awakening
+        </span>
+        <span className="ml-auto text-[11px] font-medium text-muted">
+          {tier.active_count}/{tier.total_count} active · {tier.progress_pct}%
+        </span>
+      </div>
+      <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-overlay/10">
+        <motion.div className="h-full rounded-full" style={{ background: c.gradient }}
+          initial={{ width: 0 }} animate={{ width: `${tier.progress_pct}%` }}
+          transition={{ duration: 0.8, ease: 'easeOut' }} />
+      </div>
+
+      {done ? (
+        <div className="flex items-center gap-2 rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-2 text-xs text-green-400">
+          <CheckCircle2 size={14} /> Awakening complete, sir — all 9 abilities are active on real evidence.
+        </div>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-3">
+          {pillarOrder.map(pk => {
+            const abs = tier.pillars[pk]
+            if (!abs || abs.length === 0) return null
+            const label = tier.pillar_labels?.[pk] ?? PILLAR_META[pk].label
+            return (
+              <div key={pk} className="space-y-1.5">
+                <div className="text-[10px] font-semibold uppercase tracking-widest text-muted">{label}</div>
+                {abs.map(ab => {
+                  const st = AWK_STATUS[ab.status] ?? AWK_STATUS.inactive
+                  const setup = ab.setup_actions?.[0]
+                  return (
+                    <div key={ab.id} className="rounded-lg border border-border bg-bg/40 p-2">
+                      <button onClick={() => onOpenAbility(ab)} className="flex w-full items-center gap-1.5 text-left">
+                        <st.Icon size={13} className={`shrink-0 ${st.text}`} />
+                        <span className="flex-1 text-[11px] font-medium leading-tight text-text">{ab.short_name ?? ab.name}</span>
+                      </button>
+                      {ab.status !== 'active' && (
+                        <div className="mt-1 flex items-center gap-1.5">
+                          <span className={`rounded px-1.5 py-0.5 text-[9px] font-semibold ${st.chip}`}>{st.label}</span>
+                          {setup && (
+                            <button onClick={() => nav(setup.route)}
+                              className="flex items-center gap-0.5 text-[10px] font-medium text-accent hover:underline">
+                              {setup.label} <ArrowRight size={10} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function Evolution() {
   const [data, setData] = useState<EvolutionReport | null>(null)
@@ -559,8 +687,17 @@ export default function Evolution() {
           )}
         </div>
 
+        {/* ── Guided "Complete Awakening" panel (#17) ─────────────────────── */}
+        {(() => {
+          const awakeningTier = data.tiers.find(t => t.id === 1)
+          return awakeningTier ? (
+            <CompleteAwakeningPanel tier={awakeningTier}
+              onOpenAbility={ab => { setDrawerAb({ ab, tier: awakeningTier }); sfx.select() }} />
+          ) : null
+        })()}
+
         {/* ── Priority unlock (missing in current tier) ───────────────────── */}
-        {data.missing_in_current_tier.length > 0 && (
+        {data.missing_in_current_tier.length > 0 && data.current_tier !== 1 && (
           <div className="rounded-xl border border-border bg-surface/40 p-4">
             <div className="mb-3 flex items-center gap-2">
               <Zap size={14} className="text-warning" />
@@ -576,7 +713,7 @@ export default function Evolution() {
                   className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-overlay/5 transition-colors">
                   <XCircle size={13} className="shrink-0 text-red-400/60" />
                   <span className="flex-1 text-xs text-muted">{ab.name}</span>
-                  {ab.effort !== 'done' && (
+                  {ab.effort && ab.effort !== 'done' && (
                     <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${EFFORT_STYLE[ab.effort] ?? ''}`}>
                       {ab.effort}
                     </span>

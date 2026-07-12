@@ -38,7 +38,7 @@ The largest truth gaps are no longer "nothing is built." They are alignment and 
 | Area | Honest status |
 |---|---|
 | Chat modes | `Chat`, `Agent`, `Terminal`, `Research`, and `Project` are selected and persisted in the frontend. Research enables web search and Terminal exposes terminal UI, but the backend request contract does not yet enforce a centralized mode/capability policy. Queue item #16 plans this change |
-| Evolution | `_TIER_DEFINITIONS` and `_detect_abilities()` still describe several delivered Brain features as missing and mark terminal abilities largely by module presence. The displayed tier/Jarvis percentage is not a reliable product completion metric. Queue item #17 plans an evidence-based Tier 1 model |
+| Evolution | Tier 1 (Awakening) is now an **evidence-based 9-ability registry** (`core/awakening.py`) surfaced at `/api/evolution` (Tier 1 only) + `/api/awakening`: each ability reports `active/partial/setup_needed/inactive` from real Brain/Conductor/Integrations/Tasks evidence, and Tier 1 reaches 100% only when all 9 are genuinely active (never hardcoded). Other tiers still use the legacy `_TIER_DEFINITIONS`/`_detect_abilities()` bool detector, so the overall Jarvis percentage is still not a full product-completion metric (#17) |
 | Ability | The page combines curated cards and DB-backed coaching/version flows with a new read-only repository Hermes Skills section. Repository skill availability is live, but execution remains disabled and the curated DB registry is still a separate model |
 | Hermes | Persona, skill, memory, and model config sync paths exist, but ownership is split and mostly one-way. TOBI can run without Hermes for many MC features. Older claims that "TOBI is the Hermes daemon" are not true of the current code |
 | Project data | Legacy `projects`/business tables coexist with `pm_projects`/Project v2. Some code intentionally bridges them, but the duplicate model increases migration and reporting risk |
@@ -63,7 +63,8 @@ The largest truth gaps are no longer "nothing is built." They are alignment and 
 - #1 through #12 are recorded as delivered, although several have known follow-ups.
 - #13 Theme v2 is in owner-review/in-progress state.
 - #14 Premium Ability is delivered at v1, including the follow-up vision-model borrowing and Ability reorganization.
-- #15 Office V3, #16 Chat Mode Backend Upgrade, and #17 Awakening Tier 1 Completion are queued.
+- #16 Chat Mode Backend Upgrade and #17 Awakening Tier 1 Completion are delivered (v1); #19 Performance "System Doctor" is delivered (v1).
+- #15 Office V3 and #18 TOBI Coding Agent remain queued.
 - Original plans remain under `feature-idea-queue/`; they are requirements history, not proof of current behavior.
 
 ## Highest-Risk Gaps

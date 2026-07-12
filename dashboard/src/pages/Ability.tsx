@@ -1,15 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Plus, Check, GitBranch, Sparkles, Inbox, ThumbsUp, ThumbsDown, FileCode2, ShieldAlert, Lock } from 'lucide-react'
+import { X, Plus, Check, GitBranch, Sparkles, Inbox, ThumbsUp, ThumbsDown, FileCode2, ShieldAlert, Lock, ArrowRight } from 'lucide-react'
 import Logo from '../components/Logo'
 import StatBar from '../components/StatBar'
 import RadarChart from '../components/RadarChart'
 import { AmbientField } from '../components/motion'
 import {
   getAbilities, getAbilityDetail, coachAbility, getProposals, approveProposal, rejectProposal, rollbackAbility,
-  getHermesSkills,
+  getHermesSkills, getAwakening,
   type AbilitiesReport, type AbilityUsage, type SkillDetail, type Proposal, type HermesSkill,
+  type AwakeningReport,
 } from '../api'
+
+// Tier 1 (Awakening #17) mirror — colours match the Evolution page's 4-valued status.
+const AWK_DOT: Record<string, string> = {
+  active: 'bg-green-400', partial: 'bg-amber-400', setup_needed: 'bg-sky-400', inactive: 'bg-muted',
+}
 
 // ── Model ──────────────────────────────────────────────────────────
 type Dim = 'autonomy' | 'reliability' | 'speed' | 'impact'
@@ -240,6 +247,11 @@ export default function Ability() {
   // Hermes repo skills are static files — one quiet fetch, no polling needed (#14).
   useEffect(() => { getHermesSkills().then(r => setHermes(r.items)).catch(() => setHermes([])) }, [])
 
+  // Awakening (#17) Tier 1 mirror — single source is /api/awakening (same as Evolution).
+  const nav = useNavigate()
+  const [awakening, setAwakening] = useState<AwakeningReport | null>(null)
+  useEffect(() => { getAwakening().then(setAwakening).catch(() => setAwakening(null)) }, [])
+
   // Fetch version history when a skill is opened.
   useEffect(() => {
     if (!selected) { setDetail(null); return }
@@ -356,6 +368,42 @@ export default function Ability() {
             <span className="text-purple">◆ {hermes.length} Hermes skill{hermes.length === 1 ? '' : 's'}</span>
           </div>
         </motion.div>
+
+        {/* Awakening (#17) mirror — Tier 1 status, single source /api/awakening → full detail on /evolution */}
+        {awakening && (
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+            className="mb-6 rounded-xl border border-border bg-surface/40 p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-widest text-muted">Tier 1 · Awakening</span>
+              <span className="rounded-full bg-overlay/10 px-2 py-0.5 text-[10px] font-semibold text-text">
+                {awakening.active_count}/{awakening.total} active · {awakening.progress_pct}%
+              </span>
+              <button onClick={() => nav('/evolution')}
+                className="ml-auto flex items-center gap-1 text-[11px] font-medium text-accent hover:underline">
+                Open Evolution <ArrowRight size={11} />
+              </button>
+            </div>
+            <div className="grid gap-1.5 sm:grid-cols-3">
+              {awakening.abilities.map(a => (
+                <div key={a.id} className="flex items-center gap-2 rounded-md border border-border bg-bg/40 px-2 py-1.5">
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${AWK_DOT[a.status] ?? 'bg-muted'}`} />
+                  <span className="flex-1 truncate text-[11px] text-text">{a.short_name}</span>
+                  {a.status !== 'active' && (
+                    <span className="shrink-0 text-[9px] font-medium uppercase tracking-wide text-muted">
+                      {a.status === 'setup_needed' ? 'setup' : a.status}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+            {awakening.sensitive_pending_review > 0 && (
+              <button onClick={() => nav('/brain')}
+                className="mt-2 text-[11px] text-amber-400 hover:underline">
+                {awakening.sensitive_pending_review} sensitive memory(ies) awaiting your review →
+              </button>
+            )}
+          </motion.div>
+        )}
 
         {/* Section switch — two clear groups: Mission Control vs Hermes */}
         <div className="mb-6 inline-flex rounded-xl border border-border bg-surface/40 p-1">

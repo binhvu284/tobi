@@ -147,16 +147,26 @@ export async function rollbackAbility(id: string, version: number): Promise<{ ok
 }
 
 // ── Evolution / Tier progression ────────────────────────────────────
-export type AbilityStatus = 'active' | 'inactive'
+export type AbilityStatus = 'active' | 'partial' | 'setup_needed' | 'inactive'
+
+export type AbilitySetupAction = { label: string; route: string }
 
 export type TierAbility = {
   id: string
   name: string
   description: string
-  how_to_unlock: string | null
-  effort: string
+  how_to_unlock?: string | null
+  effort?: string
   status: AbilityStatus
   just_activated: boolean
+  // Rich fields present on Tier 1 (Awakening) abilities (#17)
+  category?: string
+  category_label?: string
+  short_name?: string
+  evidence?: string[]
+  missing?: string[]
+  setup_actions?: AbilitySetupAction[]
+  risk?: 'low' | 'medium' | 'high'
 }
 
 export type TierPillars = {
@@ -172,10 +182,39 @@ export type TierData = {
   tagline: string
   color_key: string
   pillars: TierPillars
+  pillar_labels?: Partial<Record<'understand' | 'control' | 'presence', string>>
   active_count: number
   total_count: number
   progress_pct: number
   complete: boolean
+}
+
+// ── Awakening (#17): Tier 1 evidence report ─────────────────────────────────────
+export type AwakeningAbility = TierAbility & {
+  category: string
+  category_label: string
+  short_name: string
+  evidence: string[]
+  missing: string[]
+  setup_actions: AbilitySetupAction[]
+  status: AbilityStatus
+}
+
+export type AwakeningReport = {
+  tier: number
+  tier_name: string
+  categories: { key: string; label: string }[]
+  abilities: AwakeningAbility[]
+  active_count: number
+  total: number
+  progress_pct: number
+  complete: boolean
+  sensitive_pending_review: number
+  timestamp: string
+}
+
+export async function getAwakening(): Promise<AwakeningReport> {
+  return get('/api/awakening')
 }
 
 export type EvolutionReport = {

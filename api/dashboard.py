@@ -3668,10 +3668,11 @@ def _load_evo_snapshot(conn: sqlite3.Connection) -> dict[str, str]:
         return {}
 
 
-def _save_evo_snapshot(conn: sqlite3.Connection, statuses: dict[str, bool]) -> None:
+def _save_evo_snapshot(conn: sqlite3.Connection, statuses: dict) -> None:
     now = datetime.now(timezone.utc).isoformat()
-    for ability_id, is_active in statuses.items():
-        status = "active" if is_active else "inactive"
+    for ability_id, val in statuses.items():
+        # values are bool (legacy detector) or a 4-valued string (Awakening registry #17)
+        status = val if isinstance(val, str) else ("active" if val else "inactive")
         conn.execute("""
             INSERT INTO evolution_snapshots (ability_id, status, detected_at, first_activated_at)
             VALUES (?, ?, ?, ?)
@@ -3687,25 +3688,46 @@ def _save_evo_snapshot(conn: sqlite3.Connection, statuses: dict[str, bool]) -> N
     conn.commit()
 
 
-def _build_evo_response(statuses: dict[str, bool], prev: dict[str, str]):
+def _build_evo_response(statuses: dict[str, bool], prev: dict[str, str], conn=None):
     just_unlocked: list[int] = []
     tiers_out = []
 
+    # Tier 1 (Awakening) is sourced from the evidence-based registry (#17), not the static
+    # bool detector — its 9 abilities carry a 4-valued status (active|partial|setup_needed|
+    # inactive) + evidence/missing/setup_actions, and only 'active' counts toward progress.
+    awakening_pillars = None
+    awakening_labels = None
+    if conn is not None:
+        try:
+            from core import awakening as _awk
+            awakening_pillars = _awk.tier1_pillars(conn)
+            awakening_labels = _awk.pillar_labels()
+        except Exception:
+            awakening_pillars = None
+
     for tier in _TIER_DEFINITIONS:
+        use_awakening = tier["id"] == 1 and awakening_pillars is not None
+        pillars_src = awakening_pillars if use_awakening else tier["pillars"]
+
         all_ids: list[str] = []
         active_count = 0
         pillars_out: dict = {}
 
-        for pillar_key, abilities in tier["pillars"].items():
+        for pillar_key, abilities in pillars_src.items():
             out = []
             for ab in abilities:
                 ab_id = ab["id"]
-                is_active = statuses.get(ab_id, False)
+                if "status" in ab:  # Awakening ability: 4-valued status already resolved
+                    status = ab["status"]
+                    is_active = status == "active"
+                else:
+                    is_active = statuses.get(ab_id, False)
+                    status = "active" if is_active else "inactive"
                 was_active = prev.get(ab_id) == "active"
                 all_ids.append(ab_id)
                 if is_active:
                     active_count += 1
-                out.append({**ab, "status": "active" if is_active else "inactive",
+                out.append({**ab, "status": status,
                              "just_activated": is_active and not was_active})
             pillars_out[pillar_key] = out
 
@@ -3715,14 +3737,17 @@ def _build_evo_response(statuses: dict[str, bool], prev: dict[str, str]):
         if complete and not was_complete:
             just_unlocked.append(tier["id"])
 
-        tiers_out.append({
+        tier_obj = {
             **{k: v for k, v in tier.items() if k != "pillars"},
             "pillars": pillars_out,
             "active_count": active_count,
             "total_count": total,
             "progress_pct": round(active_count / total * 100) if total else 0,
             "complete": complete,
-        })
+        }
+        if use_awakening and awakening_labels:
+            tier_obj["pillar_labels"] = awakening_labels
+        tiers_out.append(tier_obj)
 
     return tiers_out, just_unlocked
 
@@ -3732,8 +3757,14 @@ async def get_evolution():
     conn = _get_conn()
     statuses = _detect_abilities(conn)
     prev = _load_evo_snapshot(conn)
-    tiers, just_unlocked = _build_evo_response(statuses, prev)
-    _save_evo_snapshot(conn, statuses)
+    tiers, just_unlocked = _build_evo_response(statuses, prev, conn)
+    # persist the Awakening 4-valued statuses too so just-activated survives reloads (#17)
+    try:
+        from core import awakening as _awk
+        awk_status = _awk.status_map(conn)
+    except Exception:
+        awk_status = {}
+    _save_evo_snapshot(conn, {**statuses, **awk_status})
     conn.close()
 
     total_abilities = sum(t["total_count"] for t in tiers)
@@ -3744,7 +3775,7 @@ async def get_evolution():
     current_tier_data = tiers[current_tier]
     missing = [
         ab for pillar in current_tier_data["pillars"].values()
-        for ab in pillar if ab["status"] == "inactive"
+        for ab in pillar if ab["status"] != "active"
     ]
 
     return {
@@ -3755,6 +3786,35 @@ async def get_evolution():
         "total_abilities": total_abilities,
         "just_unlocked": just_unlocked,
         "missing_in_current_tier": missing,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/api/awakening")
+async def get_awakening():
+    """Tier 1 (Awakening) evidence report (#17) — the single source read by the Evolution
+    guided panel, the Ability page mirror, and TOBI's awakening_status tool."""
+    from core import awakening
+    conn = _get_conn()
+    try:
+        abilities = awakening.evaluate(conn)
+        summary = awakening.summary(conn)
+    finally:
+        conn.close()
+    return {
+        "tier": 1,
+        "tier_name": "Awakening",
+        "categories": [
+            {"key": "persistent_memory", "label": "Persistent Memory"},
+            {"key": "identity_personality", "label": "Identity & Personality"},
+            {"key": "basic_real_world_action", "label": "Basic Real-World Action"},
+        ],
+        "abilities": abilities,
+        "active_count": summary["active_count"],
+        "total": summary["total"],
+        "progress_pct": summary["progress_pct"],
+        "complete": summary["complete"],
+        "sensitive_pending_review": summary["sensitive_pending_review"],
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
