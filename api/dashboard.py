@@ -5687,6 +5687,8 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                 "tools": tools, "model": usage["model"], "latency_ms": usage["latency_ms"]})
             recorder.complete(final_status)
             yield runtime_frame("turn_completed", "gateway", {"status": final_status, "run_id": run_id})
+        # Trigger brain auto-learning sweep (non-blocking — runs in background thread)
+        loop.run_in_executor(None, lambda: brain.sweep_once())
         yield "event: done\ndata: {}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream",

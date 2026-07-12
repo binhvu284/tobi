@@ -505,12 +505,16 @@ _EXTRACT_SYS = (
 )
 
 
-def extract_from_messages(messages: list[dict]) -> list[dict]:
+def extract_from_messages(messages: list[dict]) -> list[dict] | None:
+    """Extract durable facts from a conversation.
+    Returns None on LLM failure (so the caller can retry), [] when nothing durable was found."""
     if not messages:
         return []
     convo = "\n".join(f"{m.get('role','user')}: {m.get('content','')}" for m in messages)[:6000]
     raw = _llm(f"Conversation:\n{convo}\n\nExtract durable facts about the owner as a JSON array.",
                system=_EXTRACT_SYS, max_tokens=700, task_type="simple")
+    if raw is None:
+        return None  # LLM failure — caller should NOT advance HWM
     return _coerce_items(_parse_json(raw))
 
 
@@ -530,24 +534,64 @@ def _set_sweep_state(last_id: int) -> None:
 
 
 def sweep_once(limit: int = 60) -> dict:
-    """Process new conversation messages → extract → route. Idempotent via high-water mark."""
+    """Process new conversation messages → extract → route.
+
+    Sweeps **per chat_id** (session) so the LLM gets coherent context, not a
+    jumble of mixed sessions. Uses smaller batches (≤15 msgs per session) for
+    better extraction quality. Only advances the high-water mark when extraction
+    succeeds — failed batches are retried next tick.
+    """
     last = _sweep_state()
     conn = get_connection()
+    # Fetch unswept messages, grouped by chat_id so each session is extracted separately
     rows = conn.execute(
-        "SELECT id, role, content FROM conversations WHERE id > ? ORDER BY id ASC LIMIT ?",
+        "SELECT id, chat_id, role, content FROM conversations WHERE id > ? ORDER BY id ASC LIMIT ?",
         (last, limit),
     ).fetchall()
     conn.close()
     if not rows:
         return {"processed": 0, "active": 0, "pending": 0, "conflict": 0, "merged": 0}
-    msgs = [{"role": r["role"], "content": r["content"]} for r in rows]
-    max_id = rows[-1]["id"]
-    candidates = extract_from_messages(msgs)
+
+    # Group by chat_id — each group is a coherent conversation
+    from collections import OrderedDict
+    sessions: OrderedDict[int, list] = OrderedDict()
+    for r in rows:
+        sessions.setdefault(r["chat_id"], []).append(r)
+
     tally = {"processed": len(rows), "active": 0, "pending": 0, "conflict": 0, "merged": 0, "skipped": 0}
-    for c in candidates:
-        res = route_candidate(c["content"], c["category"], c["confidence"], "auto")
-        tally[res["action"]] = tally.get(res["action"], 0) + 1
-    _set_sweep_state(max_id)
+    max_swept_id = last  # only advance HWM past messages we actually processed
+
+    for cid, sess_rows in sessions.items():
+        # Process in chunks of 15 to stay within token limits and keep context coherent
+        for chunk_start in range(0, len(sess_rows), 15):
+            chunk = sess_rows[chunk_start:chunk_start + 15]
+            msgs = [{"role": r["role"], "content": r["content"]} for r in chunk]
+            chunk_max_id = chunk[-1]["id"]
+
+            try:
+                candidates = extract_from_messages(msgs)
+            except Exception as e:
+                logger.warning("brain extract failed for chat_id=%s ids %d-%d: %s",
+                               cid, chunk[0]["id"], chunk_max_id, e)
+                candidates = None
+
+            if candidates is None:
+                # LLM failure — do NOT advance HWM; retry this chunk next tick
+                logger.info("brain sweep: chat_id=%s ids %d-%d → LLM failure, will retry",
+                            cid, chunk[0]["id"], chunk_max_id)
+                continue
+            elif candidates:
+                for c in candidates:
+                    res = route_candidate(c["content"], c["category"], c["confidence"], "auto")
+                    tally[res["action"]] = tally.get(res["action"], 0) + 1
+                max_swept_id = max(max_swept_id, chunk_max_id)
+            else:
+                # LLM said nothing durable — advance past this chunk
+                logger.debug("brain sweep: chat_id=%s ids %d-%d → 0 facts (nothing durable)",
+                             cid, chunk[0]["id"], chunk_max_id)
+                max_swept_id = max(max_swept_id, chunk_max_id)
+
+    _set_sweep_state(max_swept_id)
     return tally
 
 
@@ -1014,8 +1058,12 @@ def remember(content: str, category: Optional[str] = None) -> dict:
         category = (raw or "").strip().lower()
         if category not in CATEGORY_IDS:
             category = "identity"
-    mid = add_memory(content, category, confidence=0.9, source="remember", status="active")
-    return {"ok": True, "id": mid, "category": category}
+    # Route through route_candidate so duplicates are merged, not re-created.
+    # remember() uses high confidence (0.9) so facts go straight to active unless
+    # they match an existing memory (→ merged) or are in a sensitive category (→ pending).
+    res = route_candidate(content, category, 0.9, "remember")
+    return {"ok": True, "id": res.get("memory_id"), "category": category,
+            "action": res.get("action", "active")}
 
 
 # ── stats ────────────────────────────────────────────────────────────────────
