@@ -4,7 +4,7 @@ import {
   Brain as BrainIcon, Search, Plus, Upload, Sparkles, Inbox, Filter,
   RefreshCw, ScrollText, X, AlertTriangle, Clock,
   FileText, MessagesSquare, Pencil, Wand2, CircleDot,
-  CheckSquare, Square, Trash2, ListChecks, Loader2,
+  CheckSquare, Square, Trash2, ListChecks, Loader2, ArrowDownUp,
 } from 'lucide-react'
 import {
   type Memory, type MemoryCategory, type BrainStats,
@@ -31,6 +31,7 @@ export default function Brain() {
   const [showFilters, setShowFilters] = useState(false)
   const [source, setSource] = useState('all')
   const [staleOnly, setStaleOnly] = useState(false)
+  const [sortBy, setSortBy] = useState('newest')
 
   const [modal, setModal] = useState<Memory | 'new' | null>(null)
   const [showImport, setShowImport] = useState(false)
@@ -45,6 +46,19 @@ export default function Brain() {
   const [deleting, setDeleting] = useState(false)
 
   const catMap = useMemo(() => Object.fromEntries(categories.map(c => [c.id, c])), [categories])
+
+  const sorted = useMemo(() => {
+    const arr = [...memories]
+    switch (sortBy) {
+      case 'oldest':       return arr.sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))
+      case 'updated':      return arr.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''))
+      case 'confidence_high': return arr.sort((a, b) => b.confidence - a.confidence)
+      case 'confidence_low':  return arr.sort((a, b) => a.confidence - b.confidence)
+      case 'confirmed':    return arr.sort((a, b) => (b.last_confirmed_at || '').localeCompare(a.last_confirmed_at || ''))
+      case 'category':     return arr.sort((a, b) => (catMap[a.category]?.label || a.category).localeCompare(catMap[b.category]?.label || b.category))
+      default:             return arr // 'newest' — server order
+    }
+  }, [memories, sortBy, catMap])
 
   const reloadMeta = useCallback(() => {
     getBrainStats().then(setStats).catch(() => {})
@@ -177,6 +191,19 @@ export default function Brain() {
           className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs ${semantic ? 'border-accent/50 bg-accent/15 text-accent' : 'border-border text-muted hover:text-text'} disabled:opacity-40`}>
           <Sparkles size={13} /> Semantic
         </button>
+        <label className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-2 text-xs text-muted hover:text-text">
+          <ArrowDownUp size={13} />
+          <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+            className="cursor-pointer bg-transparent text-xs outline-none [&>option]:bg-surface [&>option]:text-text">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="updated">Recently updated</option>
+            <option value="confidence_high">Confidence: High → Low</option>
+            <option value="confidence_low">Confidence: Low → High</option>
+            <option value="confirmed">Recently confirmed</option>
+            <option value="category">Category A → Z</option>
+          </select>
+        </label>
         <button onClick={() => setShowFilters(f => !f)} className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs ${showFilters ? 'border-accent/50 text-accent' : 'border-border text-muted hover:text-text'}`}>
           <Filter size={13} /> Filter
         </button>
@@ -237,7 +264,7 @@ export default function Brain() {
           <div className="rounded-xl border border-dashed border-border py-12 text-center text-sm text-muted">
             No memories here yet. {activeCat === 'all' ? 'Chat with TOBI or import a file to get started.' : 'Add one or pick another category.'}
           </div>
-        ) : memories.map(m => {
+        ) : sorted.map(m => {
           const c = catMap[m.category]
           const color = c?.color ?? '#a78bfa'
           const isSel = selected.has(m.id)

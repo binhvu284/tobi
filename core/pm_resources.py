@@ -157,18 +157,19 @@ _YT = re.compile(r"(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/shorts/)([A
 def classify_url(url: str) -> tuple[str, str]:
     """(source, rtype) for an online link — drives icon + ingestion. [D42]"""
     u = (url or "").lower()
-    host = urlparse(u).netloc
+    parsed = urlparse(u)
+    host = (parsed.hostname or "").rstrip(".")
     if _YT.search(u):
         return "youtube", "youtube"
-    if "docs.google.com/spreadsheets" in u:
+    if host == "docs.google.com" and parsed.path.startswith("/spreadsheets"):
         return "drive", "sheet"
-    if "docs.google.com/presentation" in u:
+    if host == "docs.google.com" and parsed.path.startswith("/presentation"):
         return "drive", "slides"
-    if "docs.google.com/document" in u:
+    if host == "docs.google.com" and parsed.path.startswith("/document"):
         return "drive", "doc"
-    if "drive.google.com" in u:
+    if host == "drive.google.com":
         return "drive", "file"
-    if "github.com" in host or "raw.githubusercontent.com" in host:
+    if host in ("github.com", "raw.githubusercontent.com") or host.endswith(".github.com"):
         return "github", "github"
     if u.endswith(".pdf"):
         return "pdf", "pdf"
@@ -219,8 +220,11 @@ def fetch_youtube_meta(url: str) -> dict:
 def fetch_gdrive_meta(url: str) -> str | None:
     """Best-effort title for public Google Docs / Sheets / Slides / Drive links."""
     try:
-        import requests
-        r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0 TOBI"}, allow_redirects=True)
+        from core import net_guard
+        source, _ = classify_url(url)
+        if source != "drive":
+            return None
+        r = net_guard.safe_get(url, timeout=10)
         if r.status_code != 200:
             return None
         page = r.text

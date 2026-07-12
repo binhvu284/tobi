@@ -58,6 +58,9 @@ check("trace has ordered events", [e["seq"] for e in trace["events"]] == sorted(
 check("trace omits prompt body", "message" not in (trace.get("request") or {}), trace.get("request"))
 
 run_id = agent_runs.create_run(session["id"], "recover me")
+agent_runs.add_step(run_id, "tool", "failed read", tool="list_projects", risk="read",
+                    payload={"tool": "list_projects", "args": {}, "risk": "read", "error": "temporary"},
+                    status="failed")
 agent_runs.set_status(run_id, "waiting_user", "failed")
 command = client.post(f"/api/chat/runs/{run_id}/commands", json={"command": "retry_step"})
 payload = command.json()

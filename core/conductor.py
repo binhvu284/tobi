@@ -581,6 +581,31 @@ def tool_llm_spend(range: str = "month", **_: Any) -> dict:
         return {"error": str(e)[:200]}
 
 
+def tool_analyze_performance(depth: str = "quick", latest: bool = False, **_: Any) -> dict:
+    """Performance 'system doctor' (#19): analyze MC's runtime + code/architecture and report
+    whether it's optimized or needs refactoring. depth='quick' (graph+metrics, ~free) runs a
+    fresh scan; depth='deep' adds an LLM diagnosis (costs a little); latest=True reports the
+    last stored run without recomputing. Returns a compact grounded scorecard."""
+    from core import performance_doctor as pdoc
+    try:
+        r = pdoc.latest() if latest else pdoc.analyze("deep" if str(depth).lower() == "deep" else "quick")
+        if not r:
+            return {"available": False, "note": "No analysis yet — run one from Health ▸ Performance."}
+        subs = r.get("subsystems") or []
+        return {
+            "available": True,
+            "overall_score": r["overall"]["score"], "overall_grade": r["overall"]["grade"],
+            "weakest": (subs[0]["name"] + f" ({subs[0]['grade']})") if subs else None,
+            "strongest": (subs[-1]["name"] + f" ({subs[-1]['grade']})") if subs else None,
+            "high_severity": sum(1 for f in r.get("findings", []) if f.get("severity") == "high"),
+            "top_findings": [f["title"] for f in (r.get("findings") or [])[:5]],
+            "graph_freshness": (r.get("freshness") or {}).get("behind_label", "fresh"),
+            "diagnosis": r.get("diagnosis", ""),
+        }
+    except Exception as e:
+        return {"error": str(e)[:200]}
+
+
 def tool_web_search(query: str = "", **_: Any) -> dict:
     """Search the live web (Tavily research pipeline) and return sources to cite (P2)."""
     query = (query or "").strip()
@@ -752,6 +777,7 @@ READ_TOOLS: dict[str, tuple[Callable[..., dict], str]] = {
     "list_jobs": (tool_list_jobs, "Background terminal jobs (id, command, status, exit code). No args."),
     "job_output": (tool_job_output, "The output + status of one background terminal job. Arg: job_id (int)."),
     "list_installed_tools": (tool_list_installed_tools, "TOBI's capability registry — tools it has installed/configured/connected via the terminal. No args."),
+    "analyze_performance": (tool_analyze_performance, "Performance 'system doctor' (#19): THIS is how you run the performance analysis / 'performance test' shown on the Health ▸ Performance page — call it directly and it runs in-process. You do NOT need the terminal, run_command, a browser, or GitHub for this; it reads the local Mission Control codebase itself. Use it whenever the owner asks to run/check performance, run the Health-page performance test, analyze the architecture, or whether the system is optimized / needs a refactor. Args: depth ('quick' = fast, near-free | 'deep' = adds a written diagnosis), latest (bool — report the last run instead of recomputing). Returns overall grade, weakest/strongest subsystems, top refactor findings, and a diagnosis."),
 }
 
 # Opt-in tools (P2): advertised to the model only when the owner enables them for a turn
@@ -1627,6 +1653,11 @@ def confirm_action(action_id: int, decision: str = "approve", surface: str = "mc
         return {"ok": False, "error": f"action already {row['status']}", "status": row["status"]}
     if str(decision).lower() in ("reject", "no", "cancel", "deny"):
         _set_status(action_id, "rejected")
+        try:
+            from core import agent_runs
+            agent_runs.resolve_action(action_id, "rejected")
+        except Exception as exc:
+            logger.warning("agent run approval propagation failed: %s", exc)
         return {"ok": True, "status": "rejected", "summary": row["summary"]}
     args = {}
     try:
@@ -1636,6 +1667,11 @@ def confirm_action(action_id: int, decision: str = "approve", surface: str = "mc
     result = _exec_tool({"tool": row["tool"], "args": args})
     status = "failed" if isinstance(result, dict) and result.get("error") else "executed"
     _set_status(action_id, status, result)
+    try:
+        from core import agent_runs
+        agent_runs.resolve_action(action_id, status)
+    except Exception as exc:
+        logger.warning("agent run approval propagation failed: %s", exc)
     if status == "executed":
         _maybe_learn(row["tool"])
     return {"ok": status == "executed", "status": status, "summary": row["summary"], "result": result}
@@ -2030,6 +2066,7 @@ _TOOL_PHASE = {
     "kill_job": "Stopping the job…", "set_terminal_mode": "Switching mode…",
     "terminal_status": "Checking the terminal…", "list_jobs": "Checking jobs…",
     "job_output": "Reading job output…", "list_installed_tools": "Reviewing your toolset…",
+    "analyze_performance": "Running a system-health diagnosis…",
 }
 
 
@@ -2189,7 +2226,8 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
            allowed_tools: Optional[set] = None, context_manifest: Any = None,
            turn_id: Optional[str] = None, max_tool_steps: Optional[int] = None,
            step_tokens: Optional[int] = None, final_tokens: Optional[int] = None,
-           usage_context: Optional[dict] = None) -> dict:
+           usage_context: Optional[dict] = None,
+           recovery_checkpoint: Optional[dict] = None) -> dict:
     """Core turn: confirm-pending? → classify → (optional) tool-loop with tiered act gating →
     grounded butler reply (+ pending_action when a high-risk act needs confirmation). No
     persistence (the chat/stream wrappers persist + learn). `surface` = 'mc' | 'telegram'.
@@ -2202,9 +2240,10 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
     `denied_tools` is the mode capability boundary (#16 [D11][D23]): any tool in this set is
     NOT advertised AND is rejected server-side if the model calls it anyway — so the selected
     mode changes the real backend capability, not just prompting (Chat denies the terminal
-    surface). `review_mode` = 'ask' (default) | 'session' | 'always'; **'always'** makes the
-    backend authoritative for human-in-the-loop by proposing EVERY acting tool for confirmation
-    (never auto-running low/medium acts), so the client can't define the authorization policy."""
+    surface). Review policy is server-authoritative: ``ask`` proposes every mutation,
+    ``session`` trusts low/medium mutations but proposes high-risk work, and ``always`` executes
+    all otherwise-allowed mutations autonomously. Recovery checkpoints come from persisted run
+    state rather than browser-supplied tool arguments."""
     message = (message or "").strip()
     if not message:
         return {"reply": "", "tools_used": [], "error": "empty"}
@@ -2296,6 +2335,62 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
     step_fails = 0             # truncated/garbled steps → model self-diagnosis
     # When a chatty model leaks a prose preamble before a tool call, retract it from the UI.
     on_reset = (lambda: on_event({"type": "reset"})) if on_event else None
+
+    # Recover the persisted failed checkpoint before model planning. Retry replays the exact
+    # validated call; Skip creates an explicit result that prevents the model calling it again.
+    if recovery_checkpoint:
+        command = recovery_checkpoint.get("command")
+        failed = recovery_checkpoint.get("failed_step") or {}
+        tool = recovery_checkpoint.get("tool") or failed.get("tool")
+        args = failed.get("args") or {}
+        risk = failed.get("risk") or RISK.get(tool, "read")
+        if command == "retry_step" and tool:
+            validation_error = _tool_registry.validate_call(
+                {"tool": tool, "args": args}, TOOL_SPECS.get(tool), mode, allowed_tools)
+            if tool in denied_tools or validation_error:
+                reason = "tool is denied in this mode" if tool in denied_tools else validation_error.message
+                return {"reply": f"I couldn't retry that checkpoint, sir — {reason}.",
+                        "tools_used": [], "intent": intent, "stopped_on_error": True,
+                        "failed_step": failed, "streamed": False}
+            if on_event:
+                on_event({"type": "thinking", "phase": _phase_for(tool), "tool": tool})
+            if tool in TERMINAL_TOOLS:
+                from core import terminal_engine as te
+                cmd = _terminal_command_for(tool, args)
+                gate = te.gate(cmd, surface=surface) if cmd else {"decision": "run", "risk": risk}
+                risk = gate.get("risk", risk)
+                if gate.get("decision") == "refuse":
+                    result = {"error": gate.get("reason") or "terminal safety gate refused the command"}
+                elif gate.get("decision") == "plan":
+                    result = te.plan(cmd, surface)
+                elif gate.get("decision") == "confirm":
+                    return _propose_actions([(tool, args, risk)], chat_id, surface, used, intent)
+                else:
+                    result = _execute_terminal_and_log(chat_id, surface, tool, args, risk, on_event)
+            else:
+                if risk == "high" and review_mode != "always":
+                    return _propose_actions([(tool, args, risk)], chat_id, surface, used, intent)
+                result = _execute_and_log(chat_id, surface, tool, args, risk, mode=mode,
+                                          allowed_tools=allowed_tools, turn_id=turn_id, step_index=0)
+            used.append(tool)
+            msgs.append({"role": "user", "content":
+                         f"CHECKPOINT_RETRY_RESULT {tool}: {json.dumps(result, default=str)[:3000]}"})
+            if isinstance(result, dict) and result.get("error"):
+                failed_now = {"tool": tool, "args": args, "risk": risk, "error": result["error"]}
+                return {"reply": _failure_report([], _action_summary(tool, args), result["error"]),
+                        "tools_used": used, "intent": intent, "stopped_on_error": True,
+                        "failed_step": failed_now, "streamed": False}
+            done_acts.append(_action_summary(tool, args))
+        elif command == "skip_step" and tool:
+            msgs.append({"role": "user", "content":
+                         f"CHECKPOINT_SKIPPED {tool}: the owner explicitly skipped this failed step. "
+                         "Continue only with remaining work; do not call it again."})
+        elif command == "revise" and recovery_checkpoint.get("revision"):
+            msgs.append({"role": "user", "content":
+                         "PLAN_REVISION: " + str(recovery_checkpoint["revision"])[:1000]})
+        elif command == "resume":
+            msgs.append({"role": "user", "content":
+                         "RESUME_CHECKPOINT: continue after the last persisted completed step."})
 
     def _final(text: str) -> dict:
         """Finish a turn: strip reasoning, continue if it was truncated, flag a model issue.
@@ -2469,8 +2564,9 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
             if surface == "telegram" and risk in ("medium", "high"):
                 result = {"blocked": f"That's a {risk}-risk change, sir — please do it from Mission Control "
                                      "(Telegram stays read-only and safe)."}
-            elif risk == "high":
-                # Defer: gather all high-risk calls so 'delete 3 projects' asks once, for all three.
+            elif risk == "high" and review_mode != "always":
+                # Ask/session retain the destructive-action checkpoint. Autonomous mode is an
+                # explicit owner choice enforced here rather than silently approved by the UI.
                 highs.append((tool, args))
                 continue
             elif risk == "read":
@@ -2482,10 +2578,8 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
                     picker = result["__picker__"]
                     return {"reply": _picker_intro(picker), "tools_used": used + [tool],
                             "intent": intent, "pending_picker": picker, "streamed": False}
-            else:  # low / medium → act + report
-                # Human Review = 'always' (#16): the backend is authoritative — every acting tool
-                # is PROPOSED for confirmation, never auto-run, so the client can't self-approve.
-                if review_mode == "always":
+            else:  # low / medium (and high under autonomous mode) → act + report
+                if review_mode == "ask":
                     highs.append((tool, args, risk))
                     continue
                 try:
@@ -2500,8 +2594,10 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
                     result = _execute_and_log(chat_id, surface, tool, args, risk)
                 # Stop-on-failure: a failed state change halts the chain and reports cleanly.
                 if isinstance(result, dict) and result.get("error"):
+                    failed_step = {"tool": tool, "args": args, "risk": risk, "error": result["error"]}
                     return {"reply": _failure_report(done_acts, _action_summary(tool, args), result["error"]),
-                            "tools_used": used + [tool], "intent": intent, "stopped_on_error": True, "streamed": False}
+                            "tools_used": used + [tool], "intent": intent, "stopped_on_error": True,
+                            "failed_step": failed_step, "streamed": False}
                 done_acts.append(_action_summary(tool, args))
 
             used.append(tool)

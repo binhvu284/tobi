@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { RefreshCw, Activity, AlertTriangle, CheckCircle2, Database, Server, Loader2, KeyRound, ExternalLink, Cpu } from 'lucide-react'
+import { RefreshCw, Activity, AlertTriangle, CheckCircle2, Database, Server, Loader2, KeyRound, ExternalLink, Cpu, Stethoscope } from 'lucide-react'
 import Logo from '../components/Logo'
 import HealthBar from '../components/HealthBar'
 import PageLoader from '../components/PageLoader'
+import PerformanceDoctor from '../components/PerformanceDoctor'
 import { Stagger, StaggerItem } from '../components/motion'
 import { useReducedMotionPref } from '../context/MotionProvider'
 import {
@@ -70,6 +71,7 @@ export default function Health() {
   const [deepLoading, setDeepLoading] = useState(false)
   const [gen, setGen] = useState<IntegrationsResponse | null>(null)
   const [usage, setUsage] = useState<UsageSummary | null>(null)
+  const [tab, setTab] = useState<'overview' | 'performance'>('overview')
   const reduced = useReducedMotionPref() !== 'full'
 
   const load = async () => {
@@ -128,18 +130,34 @@ export default function Health() {
           </h1>
           <p className="mt-1 text-xs text-muted">Live diagnostics — where Tobi is healthy and where to look if not.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={runFull} disabled={deepLoading}
-            className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-50">
-            {deepLoading ? <Loader2 size={13} className="animate-spin" /> : <Activity size={13} />}
-            {deepLoading ? 'Checking all APIs…' : 'Run full health check'}
-          </button>
-          <button onClick={load} className="flex items-center gap-1.5 rounded border border-border px-3 py-1.5 text-xs text-muted transition-colors hover:text-text">
-            <RefreshCw size={13} /> {updated && `Updated ${updated}`}
-          </button>
-        </div>
+        {tab === 'overview' && (
+          <div className="flex items-center gap-2">
+            <button onClick={runFull} disabled={deepLoading}
+              className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-50">
+              {deepLoading ? <Loader2 size={13} className="animate-spin" /> : <Activity size={13} />}
+              {deepLoading ? 'Checking all APIs…' : 'Run full health check'}
+            </button>
+            <button onClick={load} className="flex items-center gap-1.5 rounded border border-border px-3 py-1.5 text-xs text-muted transition-colors hover:text-text">
+              <RefreshCw size={13} /> {updated && `Updated ${updated}`}
+            </button>
+          </div>
+        )}
       </div>
 
+      {/* Tabs: Overview (live checks) | Performance (system doctor) */}
+      <div className="flex items-center gap-1 border-b border-border">
+        {([['overview', 'Overview', Activity], ['performance', 'Performance', Stethoscope]] as const).map(([key, label, Icon]) => (
+          <button key={key} onClick={() => setTab(key)}
+            className={`relative flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${tab === key ? 'text-accent' : 'text-muted hover:text-text'}`}>
+            <Icon size={13} /> {label}
+            {tab === key && <motion.span layoutId="health-tab" className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-accent" />}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'performance' && <PerformanceDoctor />}
+
+      {tab === 'overview' && (<>
       {/* Overall health hero — the HP bar */}
       <motion.div
         initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
@@ -370,6 +388,7 @@ export default function Health() {
           </Stagger>
         )}
       </Section>
+      </>)}
     </div>
   )
 }

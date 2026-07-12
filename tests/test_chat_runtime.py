@@ -71,6 +71,9 @@ class ChatRuntimeTests(unittest.TestCase):
 
     def test_recovery_commands_keep_same_run(self):
         run_id = agent_runs.create_run(12, "test")
+        agent_runs.add_step(run_id, "tool", "failed mutation", tool="create_project", risk="low",
+                            payload={"tool": "create_project", "args": {"name": "Retry"},
+                                     "risk": "low", "error": "temporary"}, status="failed")
         agent_runs.set_status(run_id, "waiting_user", "failed step")
         result = agent_runs.command_run(run_id, "retry_step")
         self.assertEqual(result["run_id"], run_id)

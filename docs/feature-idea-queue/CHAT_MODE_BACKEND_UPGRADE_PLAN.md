@@ -6,6 +6,25 @@
 > sources / 3 page reads). Key deviation from §7: `#11 TOBI CLI` had already shipped, so the
 > terminal adapter integrates the real `core/terminal_engine` gate (no placeholder needed).
 > Owner decisions captured: 30/30 via picker batches.
+
+## Final Review Closure — 2026-07-12
+
+The post-delivery findings are closed:
+
+- Human Review is server-authoritative and matches the UI: `ask` proposes every mutation,
+  `session` trusts low/medium work but reviews high-risk work, and `always` executes allowed
+  actions autonomously. The browser never silently approves an action event.
+- SSRF protection now covers Google Drive metadata, uses exact hostname classification, validates
+  every redirect, and pins the validated public DNS answer into the socket connection.
+- Retry/Skip/Revise remains on the same run and consumes a persisted failed-tool checkpoint.
+  Retry executes the exact stored tool and arguments before model continuation; Skip records the
+  skipped checkpoint; recovery status is durable.
+- Pending actions are linked to their Agent run, and approval/rejection updates the run status.
+- Stored artifact IDs rehydrate on session load; artifact chips open a full report viewer.
+- Deep Research sources use structured JSON evidence envelopes instead of forgeable delimiters.
+
+The earlier queue-row text describing two open UX follow-ups and missing approval propagation is
+superseded by this closure. Focused and regression suites plus TypeScript and production build pass.
 > Target implementer: cheaper worker LLM. Follow the task graph exactly; avoid broad refactors.
 
 ## 0. Locked Decisions
@@ -581,4 +600,3 @@ Queued
 
 Queue notes:
 Turns chat modes from frontend labels into a backend mode/capability contract. Main selector becomes Chat/Agent; Terminal merges into Agent; Research becomes one-message Deep Research toggle; Project context becomes automatic. High conflict risk with Premium Chat, TOBI CLI, Office V3, Theme v2, and Conductor/tool registry work.
-

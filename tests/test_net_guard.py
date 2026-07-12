@@ -86,6 +86,10 @@ class _FakeResp:
     def content(self):
         return self._content if self._content is not False else self._body
 
+    @property
+    def text(self):
+        return self.content.decode("utf-8", errors="replace")
+
 
 class _FakeRequests:
     class compat:
@@ -104,16 +108,13 @@ class _FakeRequests:
 
 
 def _with_fake_requests(fake, fn):
-    import sys as _sys
-    prev = _sys.modules.get("requests")
-    _sys.modules["requests"] = fake
+    previous = ng._pinned_get
+    ng._pinned_get = lambda url, ips, *, timeout, headers: fake.get(
+        url, timeout=timeout, headers=headers, allow_redirects=False, stream=True)
     try:
         return fn()
     finally:
-        if prev is not None:
-            _sys.modules["requests"] = prev
-        else:
-            _sys.modules.pop("requests", None)
+        ng._pinned_get = previous
 
 
 # a safe URL that 302-redirects to a private host must be blocked at the next hop
@@ -129,5 +130,37 @@ ok("redirect hop was validated (one request made)", fake.calls == ["http://8.8.8
 big = _FakeRequests([_FakeResp(200, headers={"content-type": "text/html"}, body=b"a" * 20000)])
 r = _with_fake_requests(big, lambda: ng.safe_get("http://8.8.8.8/", max_bytes=10000))
 ok("body capped at max_bytes", 0 < len(r.content) <= 10000, str(len(r.content)))
+
+# Validation and connect share one DNS answer; a second lookup cannot rebind the socket target.
+resolve_calls = []
+old_resolve = ng._resolved_ips
+old_pinned = ng._pinned_get
+ng._resolved_ips = lambda host: resolve_calls.append(host) or ["8.8.8.8"]
+ng._pinned_get = lambda url, ips, **kw: (_FakeResp(200, body=b"ok")
+                                        if ips == ["8.8.8.8"] else (_ for _ in ()).throw(AssertionError(ips)))
+try:
+    ng.safe_get("http://example.test/")
+    ok("DNS answer pinned without re-resolution", resolve_calls == ["example.test"], str(resolve_calls))
+finally:
+    ng._resolved_ips = old_resolve
+    ng._pinned_get = old_pinned
+
+# Drive classification must be hostname-based; an attacker cannot smuggle a marker in the path.
+from core import pm_resources as pmr
+ok("drive host classified exactly", pmr.classify_url("https://docs.google.com/document/d/abc")[0] == "drive")
+ok("drive substring on attacker host rejected",
+   pmr.classify_url("http://127.0.0.1/?next=docs.google.com/document")[0] == "web")
+
+seen_drive = []
+old_safe_get = ng.safe_get
+ng.safe_get = lambda url, **kw: seen_drive.append(url) or _FakeResp(
+    200, headers={"content-type": "text/html"}, body=b'<meta property="og:title" content="Safe Doc">')
+try:
+    ok("drive metadata uses guarded fetch",
+       pmr.fetch_gdrive_meta("https://docs.google.com/document/d/abc") == "Safe Doc" and len(seen_drive) == 1)
+    ok("non-drive metadata fails closed",
+       pmr.fetch_gdrive_meta("http://127.0.0.1/?docs.google.com/document") is None and len(seen_drive) == 1)
+finally:
+    ng.safe_get = old_safe_get
 
 print(f"\n🎉 ALL {PASS} CHECKS PASSED")

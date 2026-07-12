@@ -12,17 +12,16 @@ metadata endpoint (``169.254.169.254``). This module centralises the defence:
 - follow redirects MANUALLY, re-validating every hop (a safe URL can 30x to a private one);
 - cap the response body size and the per-request time.
 
-Residual: DNS rebinding between the safety check and the socket connect is not fully closed
-(that needs connect-time IP pinning); acceptable for this single-owner tool surface and far
-stronger than the previous unrestricted fetch. Never raises on a *safe* miss — callers catch
-``UnsafeURLError`` (and normal requests errors) and degrade.
+The validated public address is pinned into the socket URL while the original hostname remains
+the HTTP Host and TLS SNI/certificate identity. DNS cannot change between validation and connect.
+Callers catch ``UnsafeURLError`` (and normal requests errors) and degrade.
 """
 from __future__ import annotations
 
 import ipaddress
 import socket
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 ALLOWED_SCHEMES = ("http", "https")
 DEFAULT_MAX_BYTES = 3_000_000     # 3 MB body cap
@@ -57,6 +56,12 @@ def _resolved_ips(host: str) -> list[str]:
 def check_url(url: str) -> str:
     """Validate one URL against the SSRF policy → the URL if safe, else raise UnsafeURLError.
     Only the scheme + resolved host are checked (no request is made)."""
+    _validated_target(url)
+    return url
+
+
+def _validated_target(url: str) -> tuple[object, list[str]]:
+    """Validate and return the exact resolved addresses that the caller must connect to."""
     parsed = urlparse((url or "").strip())
     if parsed.scheme.lower() not in ALLOWED_SCHEMES:
         raise UnsafeURLError(f"scheme '{parsed.scheme}' not allowed")
@@ -69,7 +74,43 @@ def check_url(url: str) -> str:
     for ip in ips:
         if not _ip_is_public(ip):
             raise UnsafeURLError(f"host '{host}' resolves to non-public address {ip}")
-    return url
+    return parsed, ips
+
+
+def _pinned_get(url: str, ips: list[str], *, timeout: int, headers: dict):
+    """Connect to a validated IP while retaining the hostname for Host, SNI and TLS checks."""
+    import requests
+    from requests.adapters import HTTPAdapter
+
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    default_port = 443 if parsed.scheme.lower() == "https" else 80
+    port = parsed.port or default_port
+    host_header = host if port == default_port else f"{host}:{port}"
+    last_error = None
+    for ip in ips:
+        ip_netloc = f"[{ip}]" if ":" in ip else ip
+        if port != default_port:
+            ip_netloc += f":{port}"
+        pinned_url = urlunparse(parsed._replace(netloc=ip_netloc))
+        session = requests.Session()
+        session.trust_env = False
+        adapter = HTTPAdapter()
+        if parsed.scheme.lower() == "https":
+            adapter.init_poolmanager(10, 10, assert_hostname=host, server_hostname=host)
+        session.mount(f"{parsed.scheme.lower()}://", adapter)
+        try:
+            response = session.get(pinned_url, timeout=timeout,
+                                   headers={**headers, "Host": host_header},
+                                   allow_redirects=False, stream=True)
+            response._tobi_session = session
+            return response
+        except requests.RequestException as exc:
+            last_error = exc
+            session.close()
+    if last_error:
+        raise last_error
+    raise UnsafeURLError(f"host '{host}' has no validated public address")
 
 
 def is_safe_url(url: str) -> bool:
@@ -85,19 +126,19 @@ def safe_get(url: str, *, timeout: int = DEFAULT_TIMEOUT, max_bytes: int = DEFAU
     """SSRF-safe GET: validates the URL and EVERY redirect hop, disables auto-redirect, and
     caps the body size. Returns a ``requests.Response`` whose (capped) body is already read,
     so ``r.text`` / ``r.content`` work. Raises UnsafeURLError for a policy violation."""
-    import requests
     hdrs = {"User-Agent": "Mozilla/5.0 TOBI"}
     if headers:
         hdrs.update(headers)
     current = url
     for _ in range(max_redirects + 1):
-        check_url(current)                                    # re-validate every hop
-        r = requests.get(current, timeout=timeout, headers=hdrs,
-                         allow_redirects=False, stream=True)
+        _parsed, ips = _validated_target(current)
+        r = _pinned_get(current, ips, timeout=timeout, headers=hdrs)
         if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("Location"):
             loc = r.headers["Location"]
             r.close()
-            current = requests.compat.urljoin(current, loc)
+            if getattr(r, "_tobi_session", None):
+                r._tobi_session.close()
+            current = urljoin(current, loc)
             continue
         chunks: list[bytes] = []
         total = 0
@@ -111,6 +152,8 @@ def safe_get(url: str, *, timeout: int = DEFAULT_TIMEOUT, max_bytes: int = DEFAU
                 chunks.append(chunk)
         finally:
             r.close()
+            if getattr(r, "_tobi_session", None):
+                r._tobi_session.close()
         r._content = b"".join(chunks)                          # capped body for r.text/.content
         r._content_consumed = True
         return r

@@ -133,7 +133,7 @@ yt._raw_transcript = lambda vid: ("The talk covers three ideas about testing.", 
 frames = stream_turn(SID, "thoughts on https://youtu.be/dQw4w9WgXcQ ?")
 atext = _captured.get("attachments_text", "")
 ok("transcript injected into model turn", "[YouTube transcript context]" in atext and "three ideas about testing" in atext)
-ok("injected context keeps untrusted boundary", "NEVER follow" in atext and "<<<TRANSCRIPT-START (data only)>>>" in atext)
+ok("injected context keeps untrusted boundary", "NEVER follow" in atext and '"trust": "untrusted_third_party_content"' in atext)
 ok("turn completes (done)", any(ev == "done" for ev, _ in frames))
 
 # ── 4. SSE reader chip states: available / unavailable / mixed ────────────────────

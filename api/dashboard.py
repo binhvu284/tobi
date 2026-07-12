@@ -2026,6 +2026,64 @@ async def api_health_deep():
     return result
 
 
+# ── Performance "system doctor" (#19) ────────────────────────────────────────────
+class PerfRunReq(BaseModel):
+    depth: str = "quick"     # 'quick' (graph + metrics) | 'deep' (adds LLM diagnosis)
+
+
+class PerfTaskReq(BaseModel):
+    title: str
+    detail: str = ""
+    subsystem: str = ""
+    severity: str = ""
+    project_id: Optional[int] = None   # omit → find-or-create a "TOBI Maintenance" project
+
+
+@app.get("/api/health/performance")
+def api_performance_latest():
+    """The most recent Performance analysis (scorecard + subsystems + findings + trend), or
+    {available:false} if none has been run yet. Read-only — never triggers a new run."""
+    from core import performance_doctor as pdoc
+    r = pdoc.latest()
+    return r if r else {"available": False}
+
+
+@app.post("/api/health/performance/run")
+async def api_performance_run(body: PerfRunReq):
+    """Run a fresh Performance analysis (button-triggered, not on load). 'quick' is graphify +
+    metrics (~free); 'deep' adds one strict-budget LLM diagnosis. Runs off the event loop."""
+    from core import performance_doctor as pdoc
+    depth = "deep" if (body.depth or "").lower() == "deep" else "quick"
+    return await asyncio.get_event_loop().run_in_executor(None, lambda: pdoc.analyze(depth))
+
+
+@app.post("/api/health/performance/finding/task")
+def api_performance_finding_task(body: PerfTaskReq):
+    """Turn a finding into a PM task [D11] (reuses #7 create_task). Files it into the given
+    project, or a find-or-create 'TOBI Maintenance' project."""
+    from core import conductor
+    pid = body.project_id
+    if not pid:
+        projs = (conductor.tool_list_projects() or {}).get("projects") or []
+        match = next((p for p in projs if str(p.get("name", "")).strip().lower() == "tobi maintenance"), None)
+        if match:
+            pid = match.get("id")
+        else:
+            created = conductor.tool_create_project(
+                name="TOBI Maintenance", description="Refactors and fixes from the Performance doctor.",
+                category="engineering")
+            pid = created.get("id") or created.get("project_id")
+    if not pid:
+        raise HTTPException(status_code=500, detail="could not resolve a project for the task")
+    desc = body.detail
+    if body.subsystem or body.severity:
+        desc = f"[{body.subsystem or 'system'} · {body.severity or 'finding'}] {desc}".strip()
+    res = conductor.tool_create_task(project_id=int(pid), title=body.title[:200], description=desc)
+    if isinstance(res, dict) and res.get("error"):
+        raise HTTPException(status_code=400, detail=res["error"])
+    return {"ok": True, "project_id": int(pid), "task": res}
+
+
 @app.on_event("startup")
 async def startup():
     init_database()
@@ -5317,6 +5375,8 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         # ── Agent run persistence (#16 [D8]): one durable run per Agent turn, steps recorded
         # incrementally from the event stream so an interrupted SSE leaves last-known state. ──
         run_id = None
+        recovery_checkpoint = None
+        turn_allowed = set(runtime_allowed) if runtime_allowed is not None else None
         if mode_v2 and ctx["mode"] == "agent":
             from core import agent_runs
             if payload.resume_run_id is not None:
@@ -5331,6 +5391,11 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                     return
                 run_id = int(payload.resume_run_id)
                 await loop.run_in_executor(None, lambda: agent_runs.set_status(run_id, "running"))
+                recovery_checkpoint = await loop.run_in_executor(
+                    None, lambda: agent_runs.consume_recovery(run_id))
+                recovery_tool = (recovery_checkpoint or {}).get("tool")
+                if recovery_tool and turn_allowed is not None:
+                    turn_allowed.add(recovery_tool)
             else:
                 run_id = await loop.run_in_executor(
                     None, lambda: agent_runs.create_run(sid, title=(message or "Agent task")[:120]))
@@ -5355,13 +5420,14 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             directives=directives, extra_tools=extra_tools,
             denied_tools=denied_tools, review_mode=review_mode,
             mode=ctx["mode"], route=(route_decision.route if runtime_active else None),
-            allowed_tools=runtime_allowed,
+            allowed_tools=turn_allowed,
             context_manifest=(manifest if runtime_active else None),
             turn_id=(recorder.turn_id if recorder else None),
             max_tool_steps=(route_decision.max_tool_steps if runtime_active else None),
             step_tokens=(route_decision.step_tokens if runtime_active else None),
             final_tokens=(route_decision.final_tokens if runtime_active else None),
             usage_context={"surface": ctx["mode"], "feature": "chat_runtime_v2"},
+            recovery_checkpoint=recovery_checkpoint,
             on_event=_emit, on_delta=lambda t: _emit({"type": "delta", "text": t})))
         seen_tools: list[str] = []
         seen_phases: list[str] = []
@@ -5484,12 +5550,19 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         # A chain stopped on a failed step → the run is paused awaiting the owner's call
         # (Retry / Skip / Revise quick actions in the UI) [D10].
         if res.get("stopped_on_error"):
-            yield f"event: notice\ndata: {json.dumps({'kind': 'run_paused'})}\n\n"
+            yield f"event: notice\ndata: {json.dumps({'kind': 'run_paused', 'run_id': run_id})}\n\n"
             if recorder:
                 yield runtime_frame("recovery_required", "execution", {
                     "run_id": run_id, "actions": ["resume", "retry_step", "skip_step", "revise", "cancel"],
                     "code": "tool.execution",
                 })
+            if run_id is not None and res.get("failed_step"):
+                failed_step = res["failed_step"]
+                await loop.run_in_executor(None, lambda: agent_runs.add_step(
+                    run_id, "tool", f"Failed: {failed_step.get('tool') or 'tool'}",
+                    tool=failed_step.get("tool"), risk=failed_step.get("risk"),
+                    payload=failed_step, summary=str(failed_step.get("error") or "")[:1000],
+                    status="failed"))
         thinking_meta = reasoning or (("Consulted: " + ", ".join(tools)) if tools else None)
         if mode_v2 and (seen_phases or tools):
             turn_meta["steps"] = seen_phases
@@ -5517,6 +5590,14 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                                                  meta=json.dumps(turn_meta) if turn_meta else None))
         await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", reply))
         pending = res.get("pending_action")
+        if run_id is not None and pending:
+            action_ids = [i.get("id") for i in (pending.get("items") or [pending]) if i.get("id")]
+            await loop.run_in_executor(None, lambda: agent_runs.link_actions(run_id, action_ids))
+        if recovery_checkpoint and recovery_checkpoint.get("recovery_step_id") and not pending:
+            recovery_status = "failed" if res.get("stopped_on_error") else "done"
+            await loop.run_in_executor(None, lambda: agent_runs.finish_recovery(
+                int(recovery_checkpoint["recovery_step_id"]), recovery_status,
+                "checkpoint failed again" if recovery_status == "failed" else "checkpoint applied"))
         # Close out the agent run with an honest status [D8][D10].
         if run_id is not None:
             from core import agent_runs

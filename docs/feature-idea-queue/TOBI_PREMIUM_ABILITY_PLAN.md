@@ -6,6 +6,14 @@
 - Queue item: #14
 - Planned after: Theme v2 System Upgrade
 - Implementation owner: worker agent
+
+### Final Review Closure — 2026-07-12
+
+- Untrusted YouTube transcript and summary content now travels in a JSON data envelope rather
+  than static text delimiters that hostile content could close or impersonate.
+- The dedicated two-worker reader pool remains the timeout isolation boundary.
+- Final qualification: complete for the planned v1 scope; focused reader tests 72/72 and route
+  tests 16/16 pass.
 - Planning owner: Codex planner
 - Scope: planning and future implementation only; do not implement from this file until the queue item is selected.
 

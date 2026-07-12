@@ -10,13 +10,14 @@ import {
 } from 'lucide-react'
 import { SiGithub, SiGoogle, SiNotion, SiVercel, SiSupabase, type IconType } from '@icons-pack/react-simple-icons'
 import {
-  type PendingAction, type ChatSession, type AvailableModel, type ChatUsage,
+  type PendingAction, type ChatSession, type AvailableModel, type ChatUsage, type ChatNotice,
   type ChatStoredMessage, type ChatAttachment, type ConductorAction, type ChatPicker, type ReaderChip,
-  type ChatModeId, type ContextChip, type ChatArtifactEvent, type ChatRuntimeEvent, type ChatTurnTrace,
+  type ChatModeId, type ContextChip, type ChatArtifactEvent, type ChatArtifact, type ChatRuntimeEvent, type ChatTurnTrace,
   getChatSessions, createChatSession, getChatSession, patchChatSession, deleteChatSession,
   appendChatMessage, streamChatSession, getLlmModels, confirmConductorAction, rememberFact,
   forkChatSession, setMessageFeedback, getSessionActivity, getIntegrations, compactSession,
   getEvolution, pmListProjects, getChatConfig, commandAgentRun, getChatTurnTrace,
+  getSessionArtifacts, getChatArtifact,
 } from '../api'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useToast } from '../context/ToastProvider'
@@ -69,10 +70,11 @@ function ReaderChips({ chips, draftIds }: { chips: ReaderChip[]; draftIds: strin
 }
 
 /** #16: per-turn chips above the reply — mode, auto project context [D20], artifacts [D21]. */
-function TurnChips({ mode, context, artifacts }: {
+function TurnChips({ mode, context, artifacts, onOpenArtifact }: {
   mode?: ChatModeId
   context?: { projects?: ContextChip[]; resources?: { name?: string }[] }
   artifacts?: ChatArtifactEvent[]
+  onOpenArtifact?: (id: number) => void
 }) {
   const projects = context?.projects || []
   const resources = context?.resources || []
@@ -96,11 +98,11 @@ function TurnChips({ mode, context, artifacts }: {
         <span className="text-[10px] text-muted/60">context auto</span>
       )}
       {arts.map(a => (
-        <span key={a.id} title={a.title}
-          className="inline-flex items-center gap-1 rounded-full border border-success/35 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
+        <button key={a.id} title={`Open ${a.title}`} onClick={() => onOpenArtifact?.(a.id)}
+          className="inline-flex items-center gap-1 rounded-full border border-success/35 bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success hover:bg-success/20">
           {a.kind === 'research_report' ? <Search size={10} /> : <CheckCircle2 size={10} />}
           {a.kind === 'research_report' ? 'Research report' : 'Task result'}
-        </span>
+        </button>
       ))}
     </div>
   )
@@ -300,6 +302,8 @@ export default function Chat() {
   const [runtimeEvents, setRuntimeEvents] = useState<ChatRuntimeEvent[]>([])
   const [turnTrace, setTurnTrace] = useState<ChatTurnTrace | null>(null)
   const [traceLoading, setTraceLoading] = useState(false)
+  const [artifactOpen, setArtifactOpen] = useState<ChatArtifact | null>(null)
+  const [artifactLoading, setArtifactLoading] = useState(false)
   const [terminalLines, setTerminalLines] = useState<string[]>([])   // live run_command stdout (#11)
   const [modeOpen, setModeOpen] = useState(false)
   const [objective, setObjective] = useState('')
@@ -336,10 +340,16 @@ export default function Chat() {
   const plusRef = useRef<HTMLDivElement>(null)
   const modeRef = useRef<HTMLDivElement>(null)
 
-  const storedToMsg = (m: ChatStoredMessage): Msg => {
+  const storedToMsg = (m: ChatStoredMessage, artifactMap?: Map<number, ChatArtifact>): Msg => {
     // #16: the meta column persists mode/steps/tools/chips/artifacts across reloads
     let parsed: Meta = {}
     if (m.meta) { try { parsed = JSON.parse(m.meta) as Meta } catch { /* ignore */ } }
+    if (parsed.artifact_ids?.length && artifactMap) {
+      parsed.artifacts = parsed.artifact_ids
+        .map(id => artifactMap.get(id))
+        .filter((a): a is ChatArtifact => Boolean(a))
+        .map(a => ({ id: a.id, kind: a.kind, title: a.title || 'Artifact' }))
+    }
     return {
       id: m.id, role: m.role, content: m.content, model: m.model, thinking: m.thinking,
       feedback: m.feedback, created_at: m.created_at, meta: { ...parsed, tokens: m.tokens ?? undefined },
@@ -395,10 +405,14 @@ export default function Chat() {
     try { setInput(localStorage.getItem(`tobi.chat.draft.${activeId}`) || '') } catch { setInput('') }
     try { setObjective(localStorage.getItem(`tobi.chat.objective.${activeId}`) || '') } catch { setObjective('') }
     setObjectiveEditing(false)
-    getChatSession(activeId).then(r => {
+    Promise.all([
+      getChatSession(activeId),
+      getSessionArtifacts(activeId, 200).catch(() => ({ artifacts: [] as ChatArtifact[] })),
+    ]).then(([r, artifactResult]) => {
       if (cancelled) return
       setModel(r.session.model ?? null)
-      setMessages(r.messages.map(storedToMsg))
+      const artifactMap = new Map(artifactResult.artifacts.map(a => [a.id, a]))
+      setMessages(r.messages.map(m => storedToMsg(m, artifactMap)))
     }).catch(() => { if (!cancelled) setMessages([]) })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -462,9 +476,13 @@ export default function Chat() {
   const refreshSessions = async () => { try { setSessions((await getChatSessions()).sessions) } catch { /* ignore */ } }
   const reloadMessages = async (sid: number) => {
     try {
-      const r = await getChatSession(sid)
+      const [r, artifactResult] = await Promise.all([
+        getChatSession(sid),
+        getSessionArtifacts(sid, 200).catch(() => ({ artifacts: [] as ChatArtifact[] })),
+      ])
+      const artifactMap = new Map(artifactResult.artifacts.map(a => [a.id, a]))
       setMessages(r.messages.map((m, i, arr) => {
-        const msg = storedToMsg(m)
+        const msg = storedToMsg(m, artifactMap)
         if (i === arr.length - 1 && m.role === 'assistant') msg.meta = { ...msg.meta, ...lastMetaRef.current }
         return msg
       }))
@@ -580,13 +598,18 @@ export default function Chat() {
           deltaBufRef.current += delta
           if (deltaRafRef.current == null) deltaRafRef.current = requestAnimationFrame(flushDelta)
         },
-        onAction: (a) => { flushDelta(); if (confirmMode === 'auto' || autoAcceptChat) resolveAction('approve', a); else setPending(a) },
+        // Authorization is server-side. An action event always represents a real checkpoint.
+        onAction: (a) => { flushDelta(); setPending(a) },
         onPicker: (p) => { flushDelta(); setPicker(p) },
         onNotice: (n) => {
           if (n.kind === 'model_issue') setModelIssue(true)
           else if (n.kind === 'model_escalated') toast({ kind: 'info', title: 'Model escalated', detail: 'The selected model returned malformed output, so TOBI retried once with the configured fallback.' })
           else if (n.kind === 'reader' && n.items) setReaderChips(n.items)
-          else if (n.kind === 'run_paused') setRunPaused(true)   // failed step → Retry/Skip/Revise (D10)
+          else if (n.kind === 'run_paused') {
+            const rid = Number((n as ChatNotice & { run_id?: number }).run_id)
+            if (Number.isFinite(rid) && rid > 0) setPausedRunId(rid)
+            setRunPaused(true)
+          }
           else if (n.kind === 'dr_images_skipped') toast({ kind: 'info', title: 'Deep Research', detail: 'Images are skipped during research — ask about them separately.' })
         },
         onMode: (m) => { modeSeen = m.mode },
@@ -730,6 +753,13 @@ export default function Chat() {
     finally { setTraceLoading(false) }
   }
 
+  const openArtifact = async (artifactId: number) => {
+    setArtifactLoading(true)
+    try { setArtifactOpen(await getChatArtifact(artifactId)) }
+    catch (e) { toast({ kind: 'error', title: 'Artifact unavailable', detail: (e as Error).message }) }
+    finally { setArtifactLoading(false) }
+  }
+
   // ── edit → branch ──
   const startEdit = (m: Msg) => { if (m.id == null) return; setEditing(m.id); setEditVal(m.content.replace(/\s*📎×\d+$/, '')) }
   const saveBranch = async () => {
@@ -827,7 +857,7 @@ export default function Chat() {
     setCompacting(true)
     try {
       const r = await compactSession(activeId, model)
-      if (r.compacted) { setMessages(r.messages.map(storedToMsg)); toast({ kind: 'success', title: 'Compacted', detail: 'Older turns summarized; recent ones kept.' }) }
+      if (r.compacted) { await reloadMessages(activeId); toast({ kind: 'success', title: 'Compacted', detail: 'Older turns summarized; recent ones kept.' }) }
       else toast({ kind: 'info', title: 'Nothing to compact', detail: r.detail })
     } catch (e) { toast({ kind: 'error', title: 'Compact failed', detail: (e as Error).message }) }
     finally { setCompacting(false) }
@@ -948,6 +978,27 @@ export default function Chat() {
 
   return (
     <div className="relative flex h-full" onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
+      <AnimatePresence>
+        {(artifactLoading || artifactOpen) && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[180] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-8"
+            onMouseDown={(e) => { if (e.target === e.currentTarget && !artifactLoading) setArtifactOpen(null) }}>
+            <motion.section initial={{ opacity: 0, y: 10, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8, scale: 0.98 }}
+              className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2xl">
+              <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
+                <FileText size={16} className="text-success" />
+                <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-text">{artifactOpen?.title || 'Loading artifact…'}</h2>
+                <button onClick={() => setArtifactOpen(null)} disabled={artifactLoading} title="Close artifact"
+                  className="flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-bg/60 hover:text-text disabled:opacity-40"><X size={16} /></button>
+              </header>
+              <div className="scroll-subtle overflow-y-auto p-4 sm:p-6">
+                {artifactLoading ? <div className="flex items-center gap-2 text-sm text-muted"><Loader2 size={15} className="animate-spin" /> Loading…</div>
+                  : <MarkdownView content={artifactOpen?.content || 'This artifact has no content.'} />}
+              </div>
+            </motion.section>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {/* drag & drop overlay (Feature 8) */}
       <AnimatePresence>
         {dragOver && (
@@ -1162,8 +1213,8 @@ export default function Chat() {
                         : <ProcessTrace steps={m.meta?.steps} tools={m.meta?.tools} thinking={m.thinking} elapsedMs={m.meta?.elapsedMs} tokens={m.meta?.tokens} />}
                       {/* #16: mode / project-context / artifact chips (live for the running turn, meta afterwards) */}
                       {isLast && busy
-                        ? <TurnChips mode={mode === 'agent' ? 'agent' : undefined} context={contextChips.length ? { projects: contextChips } : undefined} />
-                        : <TurnChips mode={m.meta?.mode} context={m.meta?.context} artifacts={m.meta?.artifacts} />}
+                        ? <TurnChips mode={mode === 'agent' ? 'agent' : undefined} context={contextChips.length ? { projects: contextChips } : undefined} onOpenArtifact={openArtifact} />
+                        : <TurnChips mode={m.meta?.mode} context={m.meta?.context} artifacts={m.meta?.artifacts} onOpenArtifact={openArtifact} />}
                       <div className="tobi-answer max-w-none text-[15px] leading-relaxed">
                         {m.content ? <MarkdownView content={m.content} /> : (isLast && busy ? null : <span className="text-sm text-muted">…</span>)}
                         {streaming && isLast && <span className={`ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] bg-accent align-middle ${reduced ? '' : 'chat-caret'}`} />}

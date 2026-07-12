@@ -65,6 +65,13 @@ def _ensure(conn: sqlite3.Connection) -> None:
             completed_at TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_agent_run_steps_run ON agent_run_steps(run_id, id);
+        CREATE TABLE IF NOT EXISTS agent_run_actions (
+            run_id       INTEGER NOT NULL,
+            action_id    INTEGER NOT NULL,
+            created_at   TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (run_id, action_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_run_actions_action ON agent_run_actions(action_id);
         """
     )
 
@@ -124,7 +131,7 @@ def set_status(run_id: int, status: str, error: Optional[str] = None) -> Optiona
 
 
 def command_run(run_id: int, command: str, revision: str = "") -> Optional[dict]:
-    """Record a recovery command and return the prompt used to continue the same run."""
+    """Persist a recovery command against the latest failed checkpoint in this run."""
     command = (command or "").strip().lower()
     prompts = {
         "resume": "Resume the paused task from its last completed checkpoint.",
@@ -143,10 +150,64 @@ def command_run(run_id: int, command: str, revision: str = "") -> Optional[dict]
         raise ValueError("command must be resume, retry_step, skip_step, revise, or cancel")
     if run["status"] == "done":
         raise ValueError("a completed run cannot be resumed")
+    failed = next((s for s in reversed(run.get("steps") or [])
+                   if s.get("status") == "failed" and s.get("tool")), None)
+    if command in ("retry_step", "skip_step") and not failed:
+        raise ValueError("this run has no failed tool checkpoint to recover")
+    recovery = {"command": command, "revision": revision[:1000]}
+    if failed:
+        recovery["failed_step_id"] = failed["id"]
+        recovery["tool"] = failed.get("tool")
+        try:
+            recovery["failed_step"] = json.loads(failed.get("payload_json") or "{}")
+        except Exception:
+            recovery["failed_step"] = {}
     set_status(run_id, "running")
-    add_step(run_id, "note", f"Owner command: {command}", summary=revision[:1000], status="done")
+    add_step(run_id, "recovery", f"Owner command: {command}", summary=revision[:1000],
+             payload=recovery, status="pending")
     return {"run_id": run_id, "session_id": run["session_id"], "status": "running",
-            "requires_turn": True, "recovery_prompt": prompts[command]}
+            "requires_turn": True, "recovery_prompt": prompts[command], "recovery": recovery}
+
+
+def consume_recovery(run_id: int) -> Optional[dict]:
+    """Atomically consume the newest pending recovery command for the resumed turn."""
+    def q(conn):
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT * FROM agent_run_steps WHERE run_id=? AND type='recovery' AND status='pending' "
+            "ORDER BY id DESC LIMIT 1", (run_id,)).fetchone()
+        if not row:
+            conn.commit()
+            return None
+        conn.execute("UPDATE agent_run_steps SET status='running' WHERE id=?", (row["id"],))
+        conn.commit()
+        try:
+            payload = json.loads(row["payload_json"] or "{}")
+        except Exception:
+            payload = {}
+        payload["recovery_step_id"] = row["id"]
+        return payload
+    return _with_conn(q)
+
+
+def finish_recovery(step_id: int, status: str = "done", summary: str = "") -> None:
+    status = status if status in ("done", "failed", "skipped") else "done"
+    def q(conn):
+        row = conn.execute("SELECT payload_json FROM agent_run_steps WHERE id=?", (step_id,)).fetchone()
+        conn.execute("UPDATE agent_run_steps SET status=?,summary=?,completed_at=? WHERE id=?",
+                     (status, summary[:1000], _now(), step_id))
+        if status == "done" and row:
+            try:
+                payload = json.loads(row["payload_json"] or "{}")
+            except Exception:
+                payload = {}
+            target = payload.get("failed_step_id")
+            if target and payload.get("command") in ("retry_step", "skip_step"):
+                target_status = "skipped" if payload["command"] == "skip_step" else "done"
+                conn.execute("UPDATE agent_run_steps SET status=?,completed_at=? WHERE id=?",
+                             (target_status, _now(), int(target)))
+        conn.commit()
+    _with_conn(q)
 
 
 def get_run(run_id: int) -> Optional[dict]:
@@ -190,3 +251,60 @@ def add_step(run_id: int, step_type: str, title: str = "", *, summary: str = "",
         conn.commit()
         return cur.lastrowid
     return _with_conn(q)
+
+
+def link_actions(run_id: int, action_ids: list[int]) -> None:
+    """Associate pending Conductor actions with the Agent run that proposed them."""
+    ids = sorted({int(a) for a in action_ids if int(a) > 0})
+    if not ids:
+        return
+    def q(conn):
+        conn.executemany("INSERT OR IGNORE INTO agent_run_actions(run_id,action_id) VALUES (?,?)",
+                         [(run_id, aid) for aid in ids])
+        conn.commit()
+    _with_conn(q)
+
+
+def resolve_action(action_id: int, action_status: str) -> None:
+    """Back-propagate an approval result once every linked action has resolved."""
+    def q(conn):
+        run_rows = conn.execute(
+            "SELECT run_id FROM agent_run_actions WHERE action_id=?", (action_id,)).fetchall()
+        for rr in run_rows:
+            run_id = rr["run_id"]
+            states = [r["status"] for r in conn.execute(
+                "SELECT a.status FROM agent_run_actions l JOIN tobi_actions a ON a.id=l.action_id "
+                "WHERE l.run_id=?", (run_id,)).fetchall()]
+            if any(s == "proposed" for s in states):
+                status = "waiting_approval"
+            elif any(s == "failed" for s in states):
+                status = "failed"
+            else:
+                status = "done"
+            conn.execute("UPDATE agent_runs SET status=?,error=?,updated_at=?,completed_at=? WHERE id=?",
+                         (status, "action approval failed" if status == "failed" else None, _now(),
+                          _now() if status in ("done", "failed") else None, run_id))
+            if status in ("done", "failed"):
+                recovery_row = conn.execute(
+                    "SELECT id,payload_json FROM agent_run_steps WHERE run_id=? AND type='recovery' "
+                    "AND status='running' ORDER BY id DESC LIMIT 1", (run_id,)).fetchone()
+                if recovery_row:
+                    all_rejected = bool(states) and all(s == "rejected" for s in states)
+                    recovery_status = "failed" if status == "failed" else "skipped" if all_rejected else "done"
+                    conn.execute("UPDATE agent_run_steps SET status=?,completed_at=? WHERE id=?",
+                                 (recovery_status, _now(), recovery_row["id"]))
+                    try:
+                        recovery_payload = json.loads(recovery_row["payload_json"] or "{}")
+                    except Exception:
+                        recovery_payload = {}
+                    target = recovery_payload.get("failed_step_id")
+                    if target and recovery_status in ("done", "skipped"):
+                        conn.execute("UPDATE agent_run_steps SET status=?,completed_at=? WHERE id=?",
+                                     (recovery_status, _now(), int(target)))
+            conn.execute(
+                "INSERT INTO agent_run_steps (run_id,type,status,title,summary,payload_json,created_at,completed_at) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (run_id, "approval", "done", f"Action {action_status}", str(action_id),
+                 json.dumps({"action_id": action_id, "status": action_status}), _now(), _now()))
+        conn.commit()
+    _with_conn(q)
