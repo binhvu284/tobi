@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import re
 import logging
+import threading
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -533,13 +534,30 @@ def _set_sweep_state(last_id: int) -> None:
     conn.close()
 
 
-def sweep_once(limit: int = 60) -> dict:
-    """Process new conversation messages → extract → route.
+_SWEEP_LOCK = threading.Lock()
 
-    Sweeps **per chat_id** (session) so the LLM gets coherent context, not a
-    jumble of mixed sessions. Uses smaller batches (≤15 msgs per session) for
-    better extraction quality. Only advances the high-water mark when extraction
-    succeeds — failed batches are retried next tick.
+
+def sweep_once(limit: int = 60) -> dict:
+    """Extract durable memories from new conversation messages.
+
+    Serialized by a process lock — chat, Brain, Conductor, the scheduler, and the manual
+    endpoint can all trigger a sweep, and concurrent sweeps would double-extract the same
+    messages and race the cursor. If another sweep is already running this returns a
+    ``skipped_busy`` tally instead of starting a second one.
+    """
+    if not _SWEEP_LOCK.acquire(blocking=False):
+        return {"processed": 0, "active": 0, "pending": 0, "conflict": 0,
+                "merged": 0, "skipped": 0, "skipped_busy": True}
+    try:
+        return _sweep_once_locked(limit)
+    finally:
+        _SWEEP_LOCK.release()
+
+
+def _sweep_once_locked(limit: int = 60) -> dict:
+    """Per-chat_id sweep (≤15 msgs/session batches). The high-water mark only advances to a
+    point where every message below it was processed — it NEVER crosses a failed batch, so a
+    transient LLM failure is retried next tick instead of being permanently skipped.
     """
     last = _sweep_state()
     conn = get_connection()
@@ -560,6 +578,7 @@ def sweep_once(limit: int = 60) -> dict:
 
     tally = {"processed": len(rows), "active": 0, "pending": 0, "conflict": 0, "merged": 0, "skipped": 0}
     max_swept_id = last  # only advance HWM past messages we actually processed
+    first_failed_id: Optional[int] = None  # the earliest failed batch — HWM must not cross it
 
     for cid, sess_rows in sessions.items():
         # Process in chunks of 15 to stay within token limits and keep context coherent
@@ -576,7 +595,11 @@ def sweep_once(limit: int = 60) -> dict:
                 candidates = None
 
             if candidates is None:
-                # LLM failure — do NOT advance HWM; retry this chunk next tick
+                # LLM failure — record the gap so the HWM can't advance past it. A single
+                # global cursor + max() would otherwise let a LATER session's success drag
+                # the mark past this failed batch, permanently skipping it.
+                first_failed_id = (chunk[0]["id"] if first_failed_id is None
+                                   else min(first_failed_id, chunk[0]["id"]))
                 logger.info("brain sweep: chat_id=%s ids %d-%d → LLM failure, will retry",
                             cid, chunk[0]["id"], chunk_max_id)
                 continue
@@ -591,6 +614,10 @@ def sweep_once(limit: int = 60) -> dict:
                              cid, chunk[0]["id"], chunk_max_id)
                 max_swept_id = max(max_swept_id, chunk_max_id)
 
+    # Never advance the cursor across a failed gap: cap it just before the earliest failure so
+    # that batch (and everything after it) is retried next tick rather than skipped forever.
+    if first_failed_id is not None:
+        max_swept_id = min(max_swept_id, first_failed_id - 1)
     _set_sweep_state(max_swept_id)
     return tally
 

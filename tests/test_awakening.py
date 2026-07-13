@@ -80,7 +80,7 @@ ok("consistent_persona active (shared _BUTLER)", st["consistent_persona"] == "ac
 ok("evolution_tracking active (registry wired)", st["evolution_tracking"] == "active")
 ok("contextual_self_awareness active (awakening_status tool)", st["contextual_self_awareness"] == "active")
 ok("internal_task_management active (6 task tools incl. update_task)", st["internal_task_management"] == "active")
-ok("simple_automation active (3 workflows registered)", st["simple_automation"] == "active")
+ok("simple_automation partial until workflows have a logged receipt (not just registered)", st["simple_automation"] == "partial")
 
 # ── memory abilities + external read are setup_needed on an empty/unconfigured system ─
 ok("owner_profile_memory setup_needed when Brain is empty", st["owner_profile_memory"] == "setup_needed")
@@ -116,17 +116,15 @@ conn.close()
 ok("sensitive pending memory is surfaced for review", summ2["sensitive_pending_review"] >= 1, str(summ2["sensitive_pending_review"]))
 # it stays pending, so it does not push any ability's evidence (owner_profile counts active only)
 
-# ── missing connector → setup_needed → configured → active ──────────────────────────
+# ── connector states: configured ≠ authorized ≠ usable (High #17 fix) ───────────────
 ok("external_read_access still setup_needed (no connector)", _statuses()["external_read_access"] == "setup_needed")
+os.environ["GOOGLE_CLIENT_ID"] = "gid"
+os.environ["GOOGLE_CLIENT_SECRET"] = "gsecret"
+ok("Google configured but OAuth NOT completed → still setup_needed (no false-active)",
+   _statuses()["external_read_access"] == "setup_needed")
 os.environ["GITHUB_TOKEN"] = "ghp_dummy_for_test"
-ok("external_read_access active once a read connector is configured", _statuses()["external_read_access"] == "active")
-
-# ── all 9 now active → progress is exactly 100, complete ────────────────────────────
-conn = get_connection()
-final = A.summary(conn)
-conn.close()
-ok("progress reaches 100 only when all 9 active", final["progress_pct"] == 100 and final["complete"],
-   f"{final['active_count']}/9")
+ok("external_read_access active once a usable read connector is present",
+   _statuses()["external_read_access"] == "active")
 
 # ── tier1_pillars groups the 9 into the 3 render pillars with category labels ────────
 conn = get_connection()
@@ -162,7 +160,7 @@ ok("delete_task works", C.tool_delete_task(task_id=tid).get("deleted"))
 ok("delete_task is registered high-risk (confirmation-gated)", C.ACT_TOOLS["delete_task"][1] == "high")
 ok("update_task is registered medium-risk", C.ACT_TOOLS["update_task"][1] == "medium")
 
-# ── Conductor: the three packaged workflows (#17) ───────────────────────────────────
+# ── Conductor: the three packaged workflows (#17) run ───────────────────────────────
 conv = C.tool_create_task_from_conversation(tasks=["Follow up with the designer", {"title": "Ship the beta", "description": "by Friday"}])
 ok("create_task_from_conversation creates tasks in an Inbox project", conv.get("ok") and conv["count"] == 2)
 conn = get_connection()
@@ -177,10 +175,39 @@ ok("save_note saves to the Brain by default", note.get("ok") and note.get("saved
 note2 = C.tool_save_note(text="Project-scoped note", project_id=pid)
 ok("save_note saves to a project resource when project_id is given",
    isinstance(note2, dict) and (note2.get("saved_to") == "project_resource" or note2.get("error")))
-
-repo = C.tool_summarize_repo(repo="octocat/Hello-World")
-ok("summarize_repo returns a dict without raising (graceful when GitHub off)", isinstance(repo, dict))
 ok("summarize_repo validates the repo argument", C.tool_summarize_repo(repo="not-a-repo").get("error"))
+
+# ── Simple Automation is gated on real logged receipts, not registration (High #17) ──
+ok("simple_automation partial before any workflow receipt exists", _statuses()["simple_automation"] == "partial")
+ok("summarize_repo is audited as a workflow read-tool", "summarize_repo" in C._WORKFLOW_READ_TOOLS)
+# with GitHub off, summarize_repo reports unavailable — so it can NOT be a false success receipt
+os.environ.pop("GITHUB_TOKEN", None)
+_unavail = C.tool_summarize_repo(repo="octocat/Hello-World")
+ok("summarize_repo reports unavailable when GitHub is off (not a false success)",
+   isinstance(_unavail, dict) and not (_unavail.get("available") and not _unavail.get("error")))
+os.environ["GITHUB_TOKEN"] = "ghp_dummy_for_test"
+# a FAILED workflow receipt does not activate the ability
+C._log_action(0, "mc", "summarize_repo", {"repo": "octocat/Hello-World"}, "read", "failed", "summarize", {"available": False})
+ok("a failed workflow receipt does not activate Simple Automation", _statuses()["simple_automation"] == "partial")
+# once each of the 3 workflows has a SUCCESSFUL logged receipt → active
+for _wt in ("create_task_from_conversation", "save_note", "summarize_repo"):
+    C._log_action(0, "mc", _wt, {}, "read" if _wt == "summarize_repo" else "low", "executed", "ran", {"ok": True})
+ok("simple_automation active only after all 3 workflows have successful receipts",
+   _statuses()["simple_automation"] == "active")
+
+# ── persona verified BEHAVIORALLY across surfaces, not just string length (Medium #17) ─
+_mc = C._system_prompt("", True, surface="mc")
+_tg = C._system_prompt("", True, surface="telegram")
+_anchor = C._BUTLER[:120]
+ok("the same butler persona anchors MC chat AND Telegram system prompts", bool(_anchor) and _anchor in _mc and _anchor in _tg)
+ok("consistent_persona evidence is behavioral (active)", _statuses()["consistent_persona"] == "active")
+
+# ── all 9 now genuinely active → progress is exactly 100, complete ──────────────────
+conn = get_connection()
+final = A.summary(conn)
+conn.close()
+ok("progress reaches 100 only when all 9 are genuinely active", final["progress_pct"] == 100 and final["complete"],
+   f"{final['active_count']}/9")
 
 # ── awakening_status read tool is grounded ──────────────────────────────────────────
 aw = C.tool_awakening_status()
@@ -188,7 +215,36 @@ ok("awakening_status reports tier 1 with 9 abilities", aw.get("tier") == 1 and a
 ok("awakening_status is grounded (100% now that all evidence exists)", aw.get("progress_pct") == 100)
 ok("awakening_status tool is a READ tool", "awakening_status" in C.READ_TOOLS)
 
-# ── persona is shared/structural ────────────────────────────────────────────────────
-ok("consistent persona: shared _BUTLER exists", isinstance(C._BUTLER, str) and len(C._BUTLER) > 200)
+# ── Brain sweep: a failed batch is NEVER skipped by a later success (High #17) ───────
+conn = get_connection()
+conn.execute("UPDATE brain_sweep_state SET last_processed_convo_id=0 WHERE id=1")
+conn.execute("INSERT INTO conversations (chat_id, role, content) VALUES (7001,'user','alpha message')")
+conn.execute("INSERT INTO conversations (chat_id, role, content) VALUES (7002,'user','bravo message')")
+conn.commit()
+first_id = conn.execute("SELECT MIN(id) FROM conversations WHERE chat_id IN (7001,7002)").fetchone()[0]
+conn.close()
+_orig_extract = brain.extract_from_messages
+def _fail_alpha(messages):
+    if any("alpha" in (m.get("content") or "") for m in messages):
+        raise RuntimeError("simulated LLM failure")
+    return []
+brain.extract_from_messages = _fail_alpha
+try:
+    brain.sweep_once(limit=60)
+finally:
+    brain.extract_from_messages = _orig_extract
+conn = get_connection()
+hwm = conn.execute("SELECT last_processed_convo_id FROM brain_sweep_state WHERE id=1").fetchone()[0]
+conn.close()
+ok("brain sweep does not advance the cursor past a failed batch", hwm < first_id, f"hwm={hwm} first={first_id}")
+
+# ── Brain sweep is serialized — a concurrent sweep is skipped (Medium #17) ──────────
+_held = brain._SWEEP_LOCK.acquire(blocking=False)
+try:
+    busy = brain.sweep_once(limit=10)
+    ok("a concurrent sweep is skipped while one holds the lock", busy.get("skipped_busy") is True)
+finally:
+    if _held:
+        brain._SWEEP_LOCK.release()
 
 print(f"\n🎉 ALL {PASS} CHECKS PASSED")

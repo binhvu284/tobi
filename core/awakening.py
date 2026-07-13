@@ -116,24 +116,41 @@ def _tool_catalog() -> tuple[set, set]:
         return set(), set()
 
 
-def _persona_ok() -> bool:
+_WORKFLOW_TOOLS = ("create_task_from_conversation", "save_note", "summarize_repo")
+
+
+def _workflow_receipts(conn) -> set:
+    """Workflow tools with at least one SUCCESSFUL execution receipt in tobi_actions —
+    so Simple Automation is gated on real, logged use, not on tool registration."""
     try:
-        from core import conductor as C
-        return isinstance(C._BUTLER, str) and len(C._BUTLER) > 200
+        rows = conn.execute(
+            "SELECT DISTINCT tool FROM tobi_actions WHERE status='executed' AND tool IN (?,?,?)",
+            _WORKFLOW_TOOLS,
+        ).fetchall()
+        return {str(r[0]) for r in rows}
     except Exception:
-        return False
+        return set()
 
 
 def _read_connectors() -> list[str]:
-    """Read-safe connectors that are configured (vault injects keys into env on connect),
-    detected from credential presence — no live network call."""
-    out = []
-    if os.getenv("GITHUB_TOKEN"):
-        out.append("GitHub")
-    if os.getenv("NOTION_API_KEY"):
-        out.append("Notion")
-    if os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET"):
-        out.append("Google")
+    """Read-safe connectors that are genuinely USABLE — using each integration's own
+    readiness check (no live network probe). Google requires a completed OAuth token
+    (`is_connected`), not merely a configured client id/secret; GitHub/Notion require their
+    token to be present (`is_available`). Credential presence alone is NOT counted."""
+    out: list[str] = []
+    try:
+        from core.integrations import get_integration
+    except Exception:
+        return out
+    for iid, label, method in (("github", "GitHub", "is_available"),
+                               ("notion", "Notion", "is_available"),
+                               ("google", "Google", "is_connected")):
+        try:
+            integ = get_integration(iid)
+            if integ and getattr(integ, method, lambda: False)():
+                out.append(label)
+        except Exception:
+            continue
     return out
 
 
@@ -171,9 +188,25 @@ def _eval_preference(mem: list[tuple]) -> tuple:
 
 
 def _eval_persona() -> tuple:
-    if _persona_ok():
-        return "active", ["Shared British-butler persona drives MC chat, Telegram, and action replies"], []
-    return "partial", [], ["Shared persona module not detected"]
+    """Behavioral check: the SAME butler persona must actually anchor every surface's
+    system prompt (MC chat, Telegram, and action-confirmation replies all run through
+    conductor._system_prompt), not merely exist as a string."""
+    try:
+        from core import conductor as C
+    except Exception:
+        return "partial", [], ["Conductor persona module not importable"]
+    butler = getattr(C, "_BUTLER", "")
+    if not (isinstance(butler, str) and len(butler) > 200):
+        return "partial", [], ["Shared persona module not detected"]
+    try:
+        anchor = butler[:120]
+        mc = C._system_prompt("", True, surface="mc")
+        tg = C._system_prompt("", True, surface="telegram")
+        if anchor and anchor in mc and anchor in tg:
+            return "active", ["One British-butler persona anchors MC chat, Telegram, and action replies (shared system prompt)"], []
+    except Exception:
+        pass
+    return "partial", ["Shared _BUTLER persona present"], ["Persona not confirmed identical across surfaces"]
 
 
 def _eval_self_awareness(reads: set) -> tuple:
@@ -205,19 +238,21 @@ def _eval_external_read(connectors: list[str]) -> tuple:
     return "setup_needed", [], ["No read-safe connector configured — connect GitHub, Notion, or Google in Integrations"]
 
 
-def _eval_automation(acts: set, reads: set) -> tuple:
-    have = []
-    if "create_task_from_conversation" in acts:
-        have.append("conversation→task")
-    if "save_note" in acts:
-        have.append("save-note")
-    if "summarize_repo" in reads:
-        have.append("summarize-repo")
-    if len(have) == 3:
-        return "active", ["3 workflows available and logged to Actions: " + ", ".join(have)], []
-    if have:
-        return "partial", [f"{len(have)} of 3 workflows: " + ", ".join(have)], ["Register the remaining workflow tool(s)"]
-    return "setup_needed", [], ["Automation workflows not registered"]
+def _eval_automation(acts: set, reads: set, receipts: set) -> tuple:
+    """Active only once each of the three workflows has actually RUN successfully (a logged
+    tobi_actions receipt) — registration alone is not evidence, so this can't fake a 100%."""
+    registered = [w for w in _WORKFLOW_TOOLS if w in acts or w in reads]
+    if len(registered) < 3:
+        missing = [w for w in _WORKFLOW_TOOLS if w not in acts and w not in reads]
+        return "setup_needed", [], [f"Workflow tool(s) not registered: {', '.join(missing)}"]
+    proven = [w for w in _WORKFLOW_TOOLS if w in receipts]
+    if len(proven) == 3:
+        return "active", ["All 3 workflows have run successfully and are logged to Actions"], []
+    pending = [w for w in _WORKFLOW_TOOLS if w not in receipts]
+    detail = ("conversation→task, save a note, summarize a GitHub repo")
+    if proven:
+        return "partial", [f"{len(proven)}/3 workflows proven by a logged receipt"], [f"Run each once via chat to activate: {', '.join(pending)}"]
+    return "partial", [f"3 workflows available ({detail})"], ["Run each once via chat to activate — they log to Actions"]
 
 
 # ── public API ─────────────────────────────────────────────────────────────────────
@@ -230,6 +265,7 @@ def evaluate(conn) -> list[dict]:
         mem = []
     reads, acts = _tool_catalog()
     connectors = _read_connectors()
+    receipts = _workflow_receipts(conn)
 
     results = {
         "owner_profile_memory": _eval_owner_profile(mem),
@@ -240,7 +276,7 @@ def evaluate(conn) -> list[dict]:
         "evolution_tracking": _eval_evolution_tracking(),
         "internal_task_management": _eval_task_management(acts, reads),
         "external_read_access": _eval_external_read(connectors),
-        "simple_automation": _eval_automation(acts, reads),
+        "simple_automation": _eval_automation(acts, reads, receipts),
     }
 
     out: list[dict] = []
