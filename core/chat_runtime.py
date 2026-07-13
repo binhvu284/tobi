@@ -214,10 +214,12 @@ def route_turn(req: TurnRequest, intent: str) -> RouteDecision:
                                      reason="project mutations require Agent mode")
             return RouteDecision("action", intent, 0.9,
                                  ("list_projects", "list_tasks", "project_overview", "create_task",
-                                  "create_project", "complete_task", "update_project_progress"),
+                                  "create_project", "complete_task", "update_project_progress",
+                                  "search_project_resources", "list_project_resources", "read_resource"),
                                  max_tool_steps=4, reason="project action")
         return RouteDecision("read", intent, 0.9,
-                             ("list_projects", "list_tasks", "project_overview", "search_project_resources"),
+                             ("list_projects", "list_tasks", "project_overview", "search_project_resources",
+                              "list_project_resources", "read_resource"),
                              max_tool_steps=2)
     if req.mode == "agent":
         return RouteDecision("agent", intent, 0.8, max_tool_steps=4, reason="Agent execution path")
