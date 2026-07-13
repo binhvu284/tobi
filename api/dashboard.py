@@ -4617,6 +4617,7 @@ async def connect_integration(integration_id: str, body: IntegrationConnectReq,
         for n, v in values.items():
             os.environ[n] = v
         ok, msg = registry.test_integration(integration_id)
+        verified = bool(ok and registry.test_confirms_read_access(integration_id))
         vault._audit(conn, "test", integration_id=integration_id, ok=ok, detail=msg)
         if not ok:
             for n, old in snapshot.items():  # block: don't persist a bad key
@@ -4628,9 +4629,9 @@ async def connect_integration(integration_id: str, body: IntegrationConnectReq,
         for f in item["fields"]:
             if f["name"] in values:
                 vault.set_secret(conn, f["name"], values[f["name"]], integration_id=integration_id,
-                                 secret_type=f["type"], test_status="ok")
+                                 secret_type=f["type"], test_status="ok" if verified else "untested")
         return {"ok": True, "message": msg, "genesis": _genesis_status(conn),
-                "integrations": _integration_view(conn)}
+                "integrations": _integration_view(conn), "verified": verified}
     finally:
         conn.close()
 
@@ -4646,13 +4647,15 @@ async def test_integration_endpoint(integration_id: str,
     try:
         vault.inject_env(conn)  # ensure current vault values are live
         ok, msg = registry.test_integration(integration_id)
+        verified = bool(ok and registry.test_confirms_read_access(integration_id))
+        status = "ok" if verified else ("failed" if not ok else "untested")
         for f in item["fields"]:
             try:
-                vault.mark_tested(conn, f["name"], ok)
+                vault.mark_test_status(conn, f["name"], status)
             except Exception:
                 pass
         vault._audit(conn, "test", integration_id=integration_id, ok=ok, detail=msg)
-        return {"ok": ok, "message": msg, "genesis": _genesis_status(conn)}
+        return {"ok": ok, "verified": verified, "message": msg, "genesis": _genesis_status(conn)}
     finally:
         conn.close()
 
@@ -4739,6 +4742,18 @@ async def google_oauth_callback(request: Request, code: str | None = None, error
     result = g.exchange_code(code)
     if result.get("error"):
         raise HTTPException(status_code=400, detail=f"OAuth exchange failed: {result['error'][:300]}")
+    ok, msg = registry.test_integration("google")
+    verified = bool(ok and registry.test_confirms_read_access("google"))
+    conn = _get_conn()
+    try:
+        item = registry.get("google") or {}
+        for field in item.get("fields", []):
+            vault.mark_test_status(conn, field["name"], "ok" if verified else "failed")
+        vault._audit(conn, "test", integration_id="google", ok=verified, detail=msg)
+    finally:
+        conn.close()
+    if not verified:
+        raise HTTPException(status_code=400, detail="Google authorization completed but read access could not be verified.")
     # Close the popup — the Integrations page polls status and will refresh.
     return HTMLResponse(content="""<!DOCTYPE html><html><body>
     <h3 style="font-family:sans-serif;text-align:center;margin-top:40px">

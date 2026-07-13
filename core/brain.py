@@ -15,6 +15,7 @@ import json
 import re
 import logging
 import threading
+import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -517,7 +518,11 @@ def extract_from_messages(messages: list[dict]) -> list[dict] | None:
                system=_EXTRACT_SYS, max_tokens=700, task_type="simple")
     if raw is None:
         return None  # LLM failure — caller should NOT advance HWM
-    return _coerce_items(_parse_json(raw))
+    parsed = _parse_json(raw)
+    if parsed is None:
+        logger.warning("Brain extraction returned malformed structured output")
+        return None
+    return _coerce_items(parsed)
 
 
 # ── sweep (periodic background extraction) ───────────────────────────────────
@@ -536,12 +541,12 @@ def _set_sweep_state(last_id: int) -> None:
 
 
 # ── per-chat cursors + a DB-backed lease ────────────────────────────────────────────
-# Replaces the single global cursor + in-process lock. A failure in ONE chat can no longer
-# starve every other chat, a poison batch is skipped after a few tries so it can't block its
-# own chat forever, and a crashed sweep's lease is reclaimable after it expires (works across
-# threads AND processes).
-_LEASE_TTL_S = 300       # a sweep that dies leaves a lease reclaimable after this long
-_MAX_CHAT_FAILS = 3      # consecutive head-batch failures before a chat's poison batch is skipped
+# Per-chat cursors isolate progress, deferred payloads retain failed batches for recovery,
+# and an owner-bound DB lease serializes workers across threads and processes.
+_LEASE_TTL_S = 300
+_FAILURE_RETRY_BASE_S = 60
+_FAILURE_RETRY_MAX_S = 3600
+_FAILURE_RETRY_LIMIT = 1  # bound opportunistic post-chat latency; scheduler drains the backlog
 
 
 def _ensure_sweep_schema(conn) -> None:
@@ -552,22 +557,49 @@ def _ensure_sweep_schema(conn) -> None:
     conn.execute(
         "CREATE TABLE IF NOT EXISTS brain_sweep_lease ("
         " id INTEGER PRIMARY KEY CHECK (id = 1), holder TEXT, lease_until TEXT)")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS brain_sweep_failures ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL,"
+        " first_id INTEGER NOT NULL, last_id INTEGER NOT NULL, payload_json TEXT NOT NULL,"
+        " attempts INTEGER NOT NULL DEFAULT 1, next_retry_at TEXT NOT NULL,"
+        " last_error TEXT, status TEXT NOT NULL DEFAULT 'pending',"
+        " created_at TEXT NOT NULL, updated_at TEXT NOT NULL,"
+        " UNIQUE(chat_id, first_id, last_id))")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_brain_sweep_failures_due "
+        "ON brain_sweep_failures(status, next_retry_at)")
     conn.execute("INSERT OR IGNORE INTO brain_sweep_lease (id, holder, lease_until) VALUES (1, NULL, NULL)")
     conn.commit()
 
 
-def _acquire_lease(ttl: int = _LEASE_TTL_S) -> bool:
-    """Claim the single sweep lease with an atomic conditional UPDATE. Returns False if a valid
-    lease is already held (caller skips). An expired/crashed lease is reclaimed."""
+def _acquire_lease(ttl: int = _LEASE_TTL_S) -> Optional[str]:
+    """Claim the sweep lease and return an ownership token, or ``None`` when busy."""
     conn = get_connection()
     try:
         _ensure_sweep_schema(conn)
         now = datetime.now(timezone.utc)
-        holder = f"{os.getpid()}:{threading.get_ident()}"
+        holder = f"{os.getpid()}:{threading.get_ident()}:{uuid.uuid4().hex}"
         cur = conn.execute(
             "UPDATE brain_sweep_lease SET holder=?, lease_until=? "
             "WHERE id=1 AND (lease_until IS NULL OR lease_until < ?)",
             (holder, (now + timedelta(seconds=ttl)).isoformat(), now.isoformat()))
+        conn.commit()
+        return holder if cur.rowcount == 1 else None
+    except Exception:
+        return None
+    finally:
+        conn.close()
+
+
+def _renew_lease(holder: str, ttl: int = _LEASE_TTL_S) -> bool:
+    """Extend a lease only while the caller still owns it."""
+    conn = get_connection()
+    try:
+        now = datetime.now(timezone.utc)
+        cur = conn.execute(
+            "UPDATE brain_sweep_lease SET lease_until=? WHERE id=1 AND holder=?",
+            ((now + timedelta(seconds=ttl)).isoformat(), holder),
+        )
         conn.commit()
         return cur.rowcount == 1
     except Exception:
@@ -576,15 +608,143 @@ def _acquire_lease(ttl: int = _LEASE_TTL_S) -> bool:
         conn.close()
 
 
-def _release_lease() -> None:
+def _release_lease(holder: str) -> bool:
+    """Release only the lease represented by ``holder``; stale owners cannot clear successors."""
     conn = get_connection()
     try:
-        conn.execute("UPDATE brain_sweep_lease SET holder=NULL, lease_until=NULL WHERE id=1")
+        cur = conn.execute(
+            "UPDATE brain_sweep_lease SET holder=NULL, lease_until=NULL WHERE id=1 AND holder=?",
+            (holder,),
+        )
         conn.commit()
+        return cur.rowcount == 1
     except Exception:
-        pass
+        return False
     finally:
         conn.close()
+
+
+def _retry_delay(attempts: int) -> int:
+    return min(_FAILURE_RETRY_MAX_S, _FAILURE_RETRY_BASE_S * (2 ** max(0, attempts - 1)))
+
+
+def _defer_failed_batch(chat_id: int, rows: list, messages: list[dict], reason: str) -> int:
+    """Atomically preserve a failed batch and advance its chat cursor past the stored copy."""
+    first_id, last_id = int(rows[0]["id"]), int(rows[-1]["id"])
+    now = datetime.now(timezone.utc)
+    payload = json.dumps(messages, ensure_ascii=False)
+    conn = get_connection()
+    try:
+        _ensure_sweep_schema(conn)
+        prior = conn.execute(
+            "SELECT attempts FROM brain_sweep_failures WHERE chat_id=? AND first_id=? AND last_id=?",
+            (chat_id, first_id, last_id),
+        ).fetchone()
+        attempts = int(prior[0] or 0) + 1 if prior else 1
+        next_retry = (now + timedelta(seconds=_retry_delay(attempts))).isoformat()
+        conn.execute(
+            "INSERT INTO brain_sweep_failures "
+            "(chat_id, first_id, last_id, payload_json, attempts, next_retry_at, last_error, status, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,'pending',?,?) "
+            "ON CONFLICT(chat_id, first_id, last_id) DO UPDATE SET "
+            "payload_json=excluded.payload_json, attempts=excluded.attempts, "
+            "next_retry_at=excluded.next_retry_at, last_error=excluded.last_error, "
+            "status='pending', updated_at=excluded.updated_at",
+            (chat_id, first_id, last_id, payload, attempts, next_retry, reason[:500],
+             now.isoformat(), now.isoformat()),
+        )
+        conn.execute(
+            "INSERT INTO brain_sweep_cursors (chat_id, last_id, fail_count, updated_at) "
+            "VALUES (?,?,0,?) ON CONFLICT(chat_id) DO UPDATE SET "
+            "last_id=MAX(brain_sweep_cursors.last_id, excluded.last_id), "
+            "fail_count=0, updated_at=excluded.updated_at",
+            (chat_id, last_id, now.isoformat()),
+        )
+        conn.commit()
+        return attempts
+    finally:
+        conn.close()
+
+
+def _record_retry_failure(failure_id: int, attempts: int, reason: str) -> None:
+    now = datetime.now(timezone.utc)
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE brain_sweep_failures SET attempts=?, next_retry_at=?, last_error=?, updated_at=? "
+            "WHERE id=? AND status='pending'",
+            (attempts, (now + timedelta(seconds=_retry_delay(attempts))).isoformat(),
+             reason[:500], now.isoformat(), failure_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _resolve_retry(failure_id: int) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE brain_sweep_failures SET status='resolved', payload_json='[]', "
+            "last_error=NULL, updated_at=? WHERE id=?",
+            (datetime.now(timezone.utc).isoformat(), failure_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _route_candidates(candidates: list[dict], tally: dict) -> None:
+    for candidate in candidates:
+        result = route_candidate(
+            candidate["content"], candidate["category"], candidate["confidence"], "auto"
+        )
+        tally[result["action"]] = tally.get(result["action"], 0) + 1
+
+
+def _retry_deferred_batches(holder: str, tally: dict) -> bool:
+    """Retry due preserved payloads. Returns False if lease ownership was lost."""
+    conn = get_connection()
+    try:
+        _ensure_sweep_schema(conn)
+        rows = conn.execute(
+            "SELECT id, payload_json, attempts FROM brain_sweep_failures "
+            "WHERE status='pending' AND next_retry_at<=? ORDER BY next_retry_at, id LIMIT ?",
+            (datetime.now(timezone.utc).isoformat(), _FAILURE_RETRY_LIMIT),
+        ).fetchall()
+    finally:
+        conn.close()
+    for row in rows:
+        if not _renew_lease(holder):
+            tally["lease_lost"] = True
+            return False
+        try:
+            messages = json.loads(row["payload_json"])
+            candidates = extract_from_messages(messages)
+        except Exception as exc:
+            candidates = None
+            reason = f"retry_exception:{type(exc).__name__}:{exc}"
+        else:
+            reason = "extractor_unavailable_or_malformed"
+        if candidates is None:
+            _record_retry_failure(int(row["id"]), int(row["attempts"] or 0) + 1, reason)
+            tally["retry_failed"] += 1
+            continue
+        if not _renew_lease(holder):
+            tally["lease_lost"] = True
+            return False
+        try:
+            _route_candidates(candidates, tally)
+        except Exception as exc:
+            _record_retry_failure(
+                int(row["id"]), int(row["attempts"] or 0) + 1,
+                f"route_exception:{type(exc).__name__}:{exc}",
+            )
+            tally["retry_failed"] += 1
+            continue
+        _resolve_retry(int(row["id"]))
+        tally["recovered"] += 1
+    return True
 
 
 def sweep_once(limit: int = 60) -> dict:
@@ -595,21 +755,24 @@ def sweep_once(limit: int = 60) -> dict:
     cursors. Returns a ``skipped_busy`` tally if a valid lease is already held; a crashed
     sweep's lease is reclaimed after it expires.
     """
-    if not _acquire_lease():
+    holder = _acquire_lease()
+    if not holder:
         return {"processed": 0, "active": 0, "pending": 0, "conflict": 0,
-                "merged": 0, "skipped": 0, "skipped_busy": True}
+                "merged": 0, "skipped": 0, "deferred": 0, "recovered": 0,
+                "retry_failed": 0, "skipped_busy": True}
     try:
-        return _sweep_once_locked(limit)
+        return _sweep_once_locked(limit, holder)
     finally:
-        _release_lease()
+        _release_lease(holder)
 
 
-def _sweep_once_locked(limit: int = 60) -> dict:
-    """Sweep new messages with a **per-chat** cursor: each chat advances only to the point
-    where every message below it was processed, and a chat's failure blocks only that chat —
-    never the others. A batch that keeps failing is skipped after ``_MAX_CHAT_FAILS`` tries so
-    one poison message can't starve its chat forever.
-    """
+def _sweep_once_locked(limit: int = 60, holder: Optional[str] = None) -> dict:
+    """Sweep new messages fairly by chat and preserve failed batches for deferred retry."""
+    tally = {"processed": 0, "active": 0, "pending": 0, "conflict": 0,
+             "merged": 0, "skipped": 0, "deferred": 0, "recovered": 0,
+             "retry_failed": 0}
+    if holder and not _retry_deferred_batches(holder, tally):
+        return tally
     conn = get_connection()
     try:
         _ensure_sweep_schema(conn)
@@ -617,32 +780,36 @@ def _sweep_once_locked(limit: int = 60) -> dict:
         cursors = {r[0]: (r[1], r[2]) for r in
                    conn.execute("SELECT chat_id, last_id, fail_count FROM brain_sweep_cursors").fetchall()}
         rows = conn.execute(
-            "SELECT c.id, c.chat_id, c.role, c.content FROM conversations c "
-            "LEFT JOIN brain_sweep_cursors cur ON cur.chat_id = c.chat_id "
-            "WHERE c.id > COALESCE(cur.last_id, ?) ORDER BY c.chat_id, c.id LIMIT ?",
-            (floor, limit)).fetchall()
+            "WITH pending AS ("
+            " SELECT c.id, c.chat_id, c.role, c.content,"
+            " ROW_NUMBER() OVER (PARTITION BY c.chat_id ORDER BY c.id) AS rn"
+            " FROM conversations c LEFT JOIN brain_sweep_cursors cur ON cur.chat_id=c.chat_id"
+            " WHERE c.id > COALESCE(cur.last_id, ?)"
+            ") SELECT id, chat_id, role, content FROM pending ORDER BY rn, id LIMIT ?",
+            (floor, limit),
+        ).fetchall()
     finally:
         conn.close()
     if not rows:
-        return {"processed": 0, "active": 0, "pending": 0, "conflict": 0, "merged": 0, "skipped": 0}
+        return tally
 
     from collections import OrderedDict
     sessions: OrderedDict[int, list] = OrderedDict()
     for r in rows:
         sessions.setdefault(r["chat_id"], []).append(r)
 
-    tally = {"processed": len(rows), "active": 0, "pending": 0, "conflict": 0, "merged": 0, "skipped": 0}
     updates: dict[int, tuple[int, int]] = {}  # chat_id -> (new last_id, new fail_count)
 
     for cid, sess_rows in sessions.items():
-        chat_last, chat_fail = cursors.get(cid, (floor, 0))
+        chat_last, _chat_fail = cursors.get(cid, (floor, 0))
         chat_max = chat_last
-        failed_at: Optional[int] = None   # first id of the failed head batch, if any
-        failed_max: Optional[int] = None  # last id of that batch (for the poison-skip)
         for chunk_start in range(0, len(sess_rows), 15):
             chunk = sess_rows[chunk_start:chunk_start + 15]
             msgs = [{"role": r["role"], "content": r["content"]} for r in chunk]
             chunk_max_id = chunk[-1]["id"]
+            if holder and not _renew_lease(holder):
+                tally["lease_lost"] = True
+                return tally
             try:
                 candidates = extract_from_messages(msgs)
             except Exception as e:
@@ -650,33 +817,38 @@ def _sweep_once_locked(limit: int = 60) -> dict:
                                cid, chunk[0]["id"], chunk_max_id, e)
                 candidates = None
             if candidates is None:
-                # LLM failure — stop advancing THIS chat here; other chats are untouched.
-                failed_at, failed_max = chunk[0]["id"], chunk_max_id
-                logger.info("brain sweep: chat_id=%s ids %d-%d → LLM failure, will retry",
-                            cid, chunk[0]["id"], chunk_max_id)
+                attempts = _defer_failed_batch(
+                    cid, chunk, msgs, "extractor_unavailable_or_malformed"
+                )
+                chat_max = max(chat_max, chunk_max_id)
+                tally["processed"] += len(chunk)
+                tally["deferred"] += 1
+                logger.info("brain sweep: chat_id=%s ids %d-%d deferred (attempt %d)",
+                            cid, chunk[0]["id"], chunk_max_id, attempts)
                 break
-            if candidates:
-                for c in candidates:
-                    res = route_candidate(c["content"], c["category"], c["confidence"], "auto")
-                    tally[res["action"]] = tally.get(res["action"], 0) + 1
+            if holder and not _renew_lease(holder):
+                tally["lease_lost"] = True
+                return tally
+            try:
+                _route_candidates(candidates, tally)
+            except Exception as exc:
+                attempts = _defer_failed_batch(
+                    cid, chunk, msgs, f"route_exception:{type(exc).__name__}:{exc}"
+                )
+                chat_max = max(chat_max, chunk_max_id)
+                tally["processed"] += len(chunk)
+                tally["deferred"] += 1
+                logger.warning("brain sweep: chat_id=%s ids %d-%d route deferred (attempt %d)",
+                               cid, chunk[0]["id"], chunk_max_id, attempts)
+                break
             chat_max = max(chat_max, chunk_max_id)
-
-        if failed_at is not None:
-            new_fail = chat_fail + 1
-            if new_fail >= _MAX_CHAT_FAILS:
-                # Poison batch — skip past the whole batch so this chat isn't starved forever.
-                logger.warning("brain sweep: chat_id=%s skipping poison batch ids %d-%d after %d fails",
-                               cid, failed_at, failed_max, new_fail)
-                chat_max = max(chat_max, failed_max or failed_at)
-                new_fail = 0
-                tally["skipped"] += 1
-            else:
-                chat_max = min(chat_max, failed_at - 1)  # never cross the failed batch
-        else:
-            new_fail = 0
-        updates[cid] = (chat_max, new_fail)
+            tally["processed"] += len(chunk)
+        updates[cid] = (chat_max, 0)
 
     if updates:
+        if holder and not _renew_lease(holder):
+            tally["lease_lost"] = True
+            return tally
         conn = get_connection()
         try:
             now = datetime.now(timezone.utc).isoformat()

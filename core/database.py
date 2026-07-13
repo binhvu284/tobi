@@ -693,6 +693,34 @@ def _ensure_brain_schema(conn: sqlite3.Connection) -> None:
         last_processed_convo_id INTEGER DEFAULT 0
     );
 
+    CREATE TABLE IF NOT EXISTS brain_sweep_cursors (
+        chat_id     INTEGER PRIMARY KEY,
+        last_id     INTEGER NOT NULL DEFAULT 0,
+        fail_count  INTEGER NOT NULL DEFAULT 0,
+        updated_at  TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_sweep_lease (
+        id          INTEGER PRIMARY KEY CHECK (id = 1),
+        holder      TEXT,
+        lease_until TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_sweep_failures (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        chat_id       INTEGER NOT NULL,
+        first_id      INTEGER NOT NULL,
+        last_id       INTEGER NOT NULL,
+        payload_json  TEXT NOT NULL,
+        attempts      INTEGER NOT NULL DEFAULT 1,
+        next_retry_at TEXT NOT NULL,
+        last_error    TEXT,
+        status        TEXT NOT NULL DEFAULT 'pending',
+        created_at    TEXT NOT NULL,
+        updated_at    TEXT NOT NULL,
+        UNIQUE(chat_id, first_id, last_id)
+    );
+
     CREATE TABLE IF NOT EXISTS brain_narrative (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         content     TEXT NOT NULL,
@@ -704,6 +732,8 @@ def _ensure_brain_schema(conn: sqlite3.Connection) -> None:
     CREATE INDEX IF NOT EXISTS idx_brain_mem_status ON brain_memories(status);
     CREATE INDEX IF NOT EXISTS idx_brain_mem_conf   ON brain_memories(last_confirmed_at);
     CREATE INDEX IF NOT EXISTS idx_brain_ver_mem    ON brain_memory_versions(memory_id);
+    CREATE INDEX IF NOT EXISTS idx_brain_sweep_failures_due
+        ON brain_sweep_failures(status, next_retry_at);
     """)
     # Seed the comprehensive category set (sensitive = Psychology/Relationships/Health).
     seed = [
@@ -723,6 +753,7 @@ def _ensure_brain_schema(conn: sqlite3.Connection) -> None:
             (cid, label, color, icon, order, sensitive),
         )
     conn.execute("INSERT OR IGNORE INTO brain_sweep_state (id, last_processed_convo_id) VALUES (1, 0)")
+    conn.execute("INSERT OR IGNORE INTO brain_sweep_lease (id, holder, lease_until) VALUES (1, NULL, NULL)")
 
     # v2: one-way Brain → Hermes memory mirror tracking (idempotent migration).
     cols = {r[1] for r in conn.execute("PRAGMA table_info(brain_memories)").fetchall()}

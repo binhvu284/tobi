@@ -11,12 +11,13 @@ Evolution, the Ability page, the Conductor's ``awakening_status`` tool, and the 
 all read this one registry so none of them invent their own completion logic.
 
 Design: never raises (each check degrades to ``setup_needed``/``inactive``); reads
-existing data only (no new memory system, no live external network calls — a
-connector counts as configured from its stored/env credential, not a live probe).
+existing data only (no live network work during evaluation). Connector activation
+requires current readiness plus fresh cached evidence from a successful integration test.
 """
 from __future__ import annotations
 
 import os
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 # ── categories → the Evolution page's existing 3-pillar render keys ────────────────
@@ -132,7 +133,25 @@ def _workflow_receipts(conn) -> set:
         return set()
 
 
-def _connector_states(conn) -> tuple:
+def _connector_test_fresh(value: object) -> bool:
+    """Return whether cached connector evidence is recent enough to represent access."""
+    if not value:
+        return False
+    try:
+        tested = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if tested.tzinfo is None:
+            tested = tested.replace(tzinfo=timezone.utc)
+        try:
+            ttl_hours = max(1.0, float(os.getenv("AWAKENING_CONNECTOR_TTL_HOURS", "24")))
+        except (TypeError, ValueError):
+            ttl_hours = 24.0
+        age = datetime.now(timezone.utc) - tested.astimezone(timezone.utc)
+        return timedelta(0) <= age <= timedelta(hours=ttl_hours)
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def _connector_states(conn) -> tuple[list[str], list[str]]:
     """(verified, configured) read-safe connectors. **verified** = a CACHED successful
     connection test (vault `test_status='ok'`, set by the Integrations 'Test'/connect flow via
     `last_tested_at`); **configured** = credentials present but not verified. Only *verified*
@@ -140,12 +159,17 @@ def _connector_states(conn) -> tuple:
     (re)tested successfully cannot fake a usable connection (no live probe on this path)."""
     verified: list[str] = []
     configured: list[str] = []
-    ok_ids: set = set()
+    configured_ids: set[str] = set()
+    verified_ids: set[str] = set()
     try:
         from core import vault
         for s in vault.list_secrets(conn):
-            if s.get("test_status") == "ok":
-                ok_ids.add((s.get("integration_id") or "").lower())
+            iid = (s.get("integration_id") or "").lower()
+            if not iid:
+                continue
+            configured_ids.add(iid)
+            if s.get("test_status") == "ok" and _connector_test_fresh(s.get("last_tested_at")):
+                verified_ids.add(iid)
     except Exception:
         pass
     try:
@@ -155,17 +179,16 @@ def _connector_states(conn) -> tuple:
     for iid, label, method in (("github", "GitHub", "is_available"),
                                ("notion", "Notion", "is_available"),
                                ("google", "Google", "is_connected")):
-        if iid in ok_ids:
-            verified.append(label)
-            continue
-        if get_integration is None:
-            continue
+        ready = False
         try:
-            integ = get_integration(iid)
-            if integ and getattr(integ, method, lambda: False)():
-                configured.append(label)
+            integ = get_integration(iid) if get_integration else None
+            ready = bool(integ and getattr(integ, method, lambda: False)())
         except Exception:
-            continue
+            ready = False
+        if ready and iid in verified_ids:
+            verified.append(label)
+        elif ready or iid in configured_ids:
+            configured.append(label)
     return verified, configured
 
 

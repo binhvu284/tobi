@@ -328,3 +328,20 @@ def test_integration(integration_id: str) -> tuple[bool, str]:
     if fn is None:
         return True, "Saved (no live test for this integration)."
     return fn()
+
+
+def test_confirms_read_access(integration_id: str) -> bool:
+    """Whether a successful registry test proves the connector can currently read data.
+
+    Google has a two-stage setup: client credentials can be valid before the owner completes
+    OAuth. That first stage is successful setup, but it is not verified external read access.
+    """
+    item = get(integration_id)
+    if not item or item.get("test") is None:
+        return False
+    if integration_id == "google":
+        try:
+            return _intg.GoogleIntegration().is_connected()
+        except Exception:
+            return False
+    return True

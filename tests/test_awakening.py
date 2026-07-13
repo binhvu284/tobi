@@ -14,6 +14,7 @@ packaged workflows run; the awakening_status tool is grounded; the persona is sh
 import os
 import sys
 import tempfile
+import time
 
 _TMP = tempfile.mkdtemp(prefix="tobi_tawk_")
 os.environ["DB_PATH"] = os.path.join(_TMP, "agent.db")
@@ -125,18 +126,59 @@ ok("Google client id/secret without a completed OAuth token → still setup_need
 os.environ["GITHUB_TOKEN"] = "ghp_dummy_for_test"
 ok("configured-but-unverified connector → PARTIAL, not active (a dummy/expired token can't fake usable access)",
    _statuses()["external_read_access"] == "partial")
-# only a CACHED successful connection test (vault test_status='ok') activates External Read
+# A cached Google setup result cannot bypass incomplete OAuth.
 from core import vault  # noqa: E402
+from core import integrations_registry as integration_registry  # noqa: E402
+ok("Google credential-stage success does not claim verified read access",
+   integration_registry.test_confirms_read_access("google") is False)
 conn = get_connection()
 _prof = vault.active_profile(conn)
 conn.execute("INSERT OR REPLACE INTO vault_secrets "
              "(profile, name, integration_id, secret_type, ciphertext, nonce, last4, test_status, last_tested_at) "
              "VALUES (?,?,?,?,?,?,?,?,datetime('now'))",
+             (_prof, "GOOGLE_CLIENT_ID", "google", "oauth", b"\x00", b"\x00", "gid", "ok"))
+conn.commit()
+conn.close()
+ok("cached Google ok without completed OAuth remains PARTIAL, never active",
+   _statuses()["external_read_access"] == "partial")
+
+# Successful evidence must also be fresh; stale/revoked credentials do not remain active forever.
+conn = get_connection()
+conn.execute("INSERT OR REPLACE INTO vault_secrets "
+             "(profile, name, integration_id, secret_type, ciphertext, nonce, last4, test_status, last_tested_at) "
+             "VALUES (?,?,?,?,?,?,?,?,datetime('now','-2 days'))",
              (_prof, "GITHUB_TOKEN", "github", "api_key", b"\x00", b"\x00", "tok", "ok"))
 conn.commit()
 conn.close()
-ok("external_read_access active once a connector has a cached successful test (test_status='ok')",
+ok("stale cached connector evidence remains PARTIAL",
+   _statuses()["external_read_access"] == "partial")
+conn = get_connection()
+conn.execute("UPDATE vault_secrets SET last_tested_at=datetime('now') WHERE integration_id='github'")
+conn.commit()
+conn.close()
+ok("external_read_access active only with a ready connector and fresh successful test",
    _statuses()["external_read_access"] == "active")
+
+# Changing a secret invalidates its old successful-test evidence until it is tested again.
+_vault_key, _vault_encrypt = vault._key, vault._encrypt
+vault._key = b"test-key"
+vault._encrypt = lambda key, name, value: (b"cipher", b"nonce")
+try:
+    conn = get_connection()
+    vault.set_secret(conn, "ROTATION_TEST_SECRET", "first", integration_id="custom", test_status="ok")
+    tested = conn.execute(
+        "SELECT test_status,last_tested_at FROM vault_secrets WHERE name='ROTATION_TEST_SECRET'"
+    ).fetchone()
+    vault.set_secret(conn, "ROTATION_TEST_SECRET", "second", integration_id="custom")
+    rotated = conn.execute(
+        "SELECT test_status,last_tested_at FROM vault_secrets WHERE name='ROTATION_TEST_SECRET'"
+    ).fetchone()
+    conn.close()
+finally:
+    vault._key, vault._encrypt = _vault_key, _vault_encrypt
+ok("successful secret tests record a timestamp", tested[0] == "ok" and tested[1] is not None)
+ok("secret rotation clears stale verification evidence",
+   rotated[0] == "untested" and rotated[1] is None, str(tuple(rotated)))
 
 # ── tier1_pillars groups the 9 into the 3 render pillars with category labels ────────
 conn = get_connection()
@@ -227,11 +269,11 @@ ok("awakening_status reports tier 1 with 9 abilities", aw.get("tier") == 1 and a
 ok("awakening_status is grounded (100% now that all evidence exists)", aw.get("progress_pct") == 100)
 ok("awakening_status tool is a READ tool", "awakening_status" in C.READ_TOOLS)
 
-# ── Brain sweep: PER-CHAT cursors — a failed chat can't advance past its gap NOR starve
-#    other chats (P1 review fix: replaces the global cursor that reprocessed/starved) ───────
+# ── Brain sweep: failed batches are preserved for retry without starving other chats ──────
 conn = get_connection()
 brain._ensure_sweep_schema(conn)
 conn.execute("DELETE FROM brain_sweep_cursors")
+conn.execute("DELETE FROM brain_sweep_failures")
 conn.execute("INSERT INTO conversations (chat_id, role, content) VALUES (7001,'user','alpha message')")
 conn.execute("INSERT INTO conversations (chat_id, role, content) VALUES (7002,'user','bravo message')")
 conn.commit()
@@ -250,24 +292,96 @@ finally:
     brain.extract_from_messages = _orig_extract
 conn = get_connection()
 cur = {r[0]: r[1] for r in conn.execute("SELECT chat_id, last_id FROM brain_sweep_cursors").fetchall()}
+failure = conn.execute(
+    "SELECT id, attempts, status, payload_json FROM brain_sweep_failures WHERE chat_id=7001"
+).fetchone()
 conn.close()
-ok("failed chat's cursor does not advance past its failed batch", cur.get(7001, 0) < a_id, f"7001={cur.get(7001)} a_id={a_id}")
+ok("failed chat advances only after its payload is durably deferred",
+   cur.get(7001, -1) >= a_id and failure is not None and failure[2] == "pending",
+   f"cursor={cur.get(7001)} failure={failure}")
 ok("a healthy chat advances even while another chat keeps failing (no cross-chat starvation)",
    cur.get(7002, -1) >= b_id, f"7002={cur.get(7002)} b_id={b_id}")
+ok("deferred batch retains the original conversation payload", "alpha message" in failure[3])
 
-# ── Brain sweep is serialized by a DB LEASE — a concurrent sweep is skipped (P1 review fix) ─
+# Two more provider failures increment retry metadata but never delete the deferred payload.
+brain.extract_from_messages = lambda messages: None
+try:
+    for _ in range(2):
+        conn = get_connection()
+        conn.execute("UPDATE brain_sweep_failures SET next_retry_at='1970-01-01T00:00:00+00:00' WHERE id=?", (failure[0],))
+        conn.commit()
+        conn.close()
+        brain.sweep_once(limit=60)
+finally:
+    brain.extract_from_messages = _orig_extract
+conn = get_connection()
+failure3 = conn.execute("SELECT attempts, status FROM brain_sweep_failures WHERE id=?", (failure[0],)).fetchone()
+conn.close()
+ok("three provider failures remain recoverable instead of skipping owner memory",
+   failure3[0] == 3 and failure3[1] == "pending", str(tuple(failure3)))
+
+# Once the extractor recovers, the stored payload is retried and resolved.
+def _recover_alpha(messages):
+    if any("alpha" in (m.get("content") or "") for m in messages):
+        return [{"content": "Owner recovery sentinel is alpha.", "category": "preferences", "confidence": 0.95}]
+    return []
+brain.extract_from_messages = _recover_alpha
+try:
+    conn = get_connection()
+    conn.execute("UPDATE brain_sweep_failures SET next_retry_at='1970-01-01T00:00:00+00:00' WHERE id=?", (failure[0],))
+    conn.commit()
+    conn.close()
+    recovered = brain.sweep_once(limit=60)
+finally:
+    brain.extract_from_messages = _orig_extract
+conn = get_connection()
+failure_done = conn.execute(
+    "SELECT status,payload_json FROM brain_sweep_failures WHERE id=?", (failure[0],)
+).fetchone()
+recovered_memory = conn.execute(
+    "SELECT COUNT(*) FROM brain_memories WHERE content='Owner recovery sentinel is alpha.' AND status='active'"
+).fetchone()[0]
+conn.close()
+ok("recovered extractor resolves the deferred batch and creates its memory",
+   recovered.get("recovered") == 1 and failure_done[0] == "resolved" and recovered_memory == 1,
+   f"tally={recovered} status={failure_done[0]} memories={recovered_memory}")
+ok("resolved retry clears its duplicate raw conversation payload", failure_done[1] == "[]")
+
+# Malformed structured output is retryable, not silently interpreted as no durable facts.
+_orig_llm = brain._llm
+brain._llm = lambda *a, **k: "not valid json"
+try:
+    ok("malformed extraction output is reported as retryable failure",
+       brain.extract_from_messages([{"role": "user", "content": "remember this"}]) is None)
+finally:
+    brain._llm = _orig_llm
+
+# ── Brain sweep lease is owner-bound and survives stale-owner release ──────────────────────
 _held = brain._acquire_lease()
 try:
     busy = brain.sweep_once(limit=10)
     ok("a concurrent sweep is skipped while the DB lease is held", busy.get("skipped_busy") is True)
 finally:
     if _held:
-        brain._release_lease()
+        brain._release_lease(_held)
 brain.extract_from_messages = lambda messages: []  # keep this sweep offline (no live LLM call)
 try:
     ok("once the lease is released a sweep can run again", "skipped_busy" not in brain.sweep_once(limit=10))
 finally:
     brain.extract_from_messages = _orig_extract
+
+stale_holder = brain._acquire_lease(ttl=0)
+time.sleep(0.01)
+new_holder = brain._acquire_lease(ttl=300)
+ok("expired lease can be reclaimed by a new unique owner",
+   bool(stale_holder and new_holder and stale_holder != new_holder))
+ok("stale owner cannot release its successor's active lease",
+   brain._release_lease(stale_holder) is False)
+conn = get_connection()
+current_holder = conn.execute("SELECT holder FROM brain_sweep_lease WHERE id=1").fetchone()[0]
+conn.close()
+ok("successor lease remains intact after stale release", current_holder == new_holder)
+ok("current lease owner can renew and release", brain._renew_lease(new_holder) and brain._release_lease(new_holder))
 
 # ── P2 review fix: an ACTUAL summarize_repo call through conductor.answer() logs a receipt,
 #    and the action-capable turn's system prompt carries the butler persona ─────────────────

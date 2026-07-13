@@ -271,20 +271,24 @@ def set_secret(conn: sqlite3.Connection, name: str, value: str, *, integration_i
         raise VaultError("Secret name is required.")
     prof = profile or active_profile(conn)
     ct, nonce = _encrypt(_key, name, value)
+    status = test_status or "untested"
+    if status not in {"untested", "ok", "failed"}:
+        raise VaultError("Invalid secret test status.")
+    tested_at = _now() if status in {"ok", "failed"} else None
     existing = conn.execute("SELECT id FROM vault_secrets WHERE profile = ? AND name = ?", (prof, name)).fetchone()
     if existing:
         conn.execute(
             "UPDATE vault_secrets SET ciphertext=?, nonce=?, last4=?, integration_id=COALESCE(?, integration_id), "
-            "secret_type=?, updated_at=?, test_status=COALESCE(?, test_status) WHERE id=?",
-            (ct, nonce, _last4(value), integration_id, secret_type, _now(), test_status, existing[0]),
+            "secret_type=?, updated_at=?, test_status=?, last_tested_at=? WHERE id=?",
+            (ct, nonce, _last4(value), integration_id, secret_type, _now(), status, tested_at, existing[0]),
         )
         action = "update"
     else:
         conn.execute(
             "INSERT INTO vault_secrets (profile, name, integration_id, secret_type, ciphertext, nonce, last4, "
-            "test_status, added_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "test_status, added_at, updated_at, last_tested_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (prof, name, integration_id, secret_type, ct, nonce, _last4(value),
-             test_status or "untested", _now(), _now()),
+             status, _now(), _now(), tested_at),
         )
         action = "create"
     conn.commit()
@@ -333,6 +337,20 @@ def mark_tested(conn: sqlite3.Connection, name: str, ok: bool, profile: str | No
     prof = profile or active_profile(conn)
     conn.execute("UPDATE vault_secrets SET test_status=?, last_tested_at=? WHERE profile=? AND name=?",
                  ("ok" if ok else "failed", _now(), prof, name))
+    conn.commit()
+
+
+def mark_test_status(conn: sqlite3.Connection, name: str, status: str,
+                     profile: str | None = None) -> None:
+    """Set explicit test state; untested intentionally clears stale success evidence."""
+    if status not in {"untested", "ok", "failed"}:
+        raise VaultError("Invalid secret test status.")
+    prof = profile or active_profile(conn)
+    tested_at = _now() if status in {"ok", "failed"} else None
+    conn.execute(
+        "UPDATE vault_secrets SET test_status=?, last_tested_at=? WHERE profile=? AND name=?",
+        (status, tested_at, prof, name),
+    )
     conn.commit()
 
 
