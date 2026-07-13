@@ -51,6 +51,34 @@ check("typed turn_completed event", "event: turn_completed" in response.text)
 check("legacy delta preserved", "event: delta" in response.text)
 check("legacy done preserved", "event: done" in response.text)
 
+# Agent checkpoints must survive the live stream and be available after reload.
+def checkpoint_answer(*_args, **kwargs):
+    emit = kwargs["on_event"]
+    emit({"type": "plan", "title": "Owner task", "steps": ["Inspect state", "Apply change"]})
+    emit({"type": "thinking", "phase": "Read your projects", "tool": "list_projects"})
+    emit({"type": "thinking", "phase": "Read your projects", "tool": "list_projects"})
+    return {"reply": "Finished, sir.", "tools_used": ["list_projects", "list_projects"], "streamed": False}
+
+old_answer = conductor.answer
+conductor.answer = checkpoint_answer
+try:
+    agent_response = client.post(
+        f"/api/chat/sessions/{session['id']}/stream",
+        json={"message": "inspect twice", "mode": "agent", "client_turn_id": "checkpoint-test-turn"},
+    )
+finally:
+    conductor.answer = old_answer
+check("agent checkpoint stream 200", agent_response.status_code == 200, agent_response.text[:500])
+stored = chat_store.get_messages(session["id"])[-1]
+stored_meta = json.loads(stored["meta"] or "{}")
+check("agent plan checkpoints persist", stored_meta.get("steps", [])[:3] == [
+    "Planned 2 steps", "1. Inspect state", "2. Apply change"], stored_meta)
+check("repeated action checkpoints persist", stored_meta.get("steps", []).count("Read your projects") == 2, stored_meta)
+check("stored tool chips are deduplicated", stored_meta.get("tools") == ["list_projects"], stored_meta)
+check("stored checkpoint has elapsed time", isinstance(stored_meta.get("elapsedMs"), int), stored_meta)
+stored_run = agent_runs.get_run(stored_meta["run_id"])
+check("agent run records every action checkpoint", len(stored_run.get("steps") or []) == 3, stored_run)
+
 trace_response = client.get("/api/chat/turns/route-test-turn/trace")
 trace = trace_response.json()
 check("trace endpoint 200", trace_response.status_code == 200, trace)

@@ -1,5 +1,36 @@
 # Documentation Audit
 
+## Refresh - 2026-07-13
+
+The maintained truth documents were rechecked through commit `2f4ad68` plus the current reviewed
+#17 and Agent-checkpoint working-tree follow-ups. This refresh changed documentation only and
+preserved all original feature plans and archived specifications.
+
+Updated:
+
+- `README.md` and `docs/README.md`: current subsystem/test map and snapshot date.
+- `02_CURRENT_STATE.md`: Chat Runtime v2, Chat/Agent policy, Deep Research, Agent runs/recovery,
+  evidence-gated Awakening, Performance Doctor, Brain reliability, current API size, and test scope.
+- `ARCHITECTURE.md`: runtime/mode/tool boundaries, Agent persistence, Deep Research/network guard,
+  Awakening, Performance Doctor, frontend API-domain extraction, new table families, and security controls.
+- `MISSION_CONTROL.md`: current Chat/Agent UX, durable expandable action checkpoints, runtime events,
+  artifacts/recovery APIs, Awakening/Performance surfaces, and current truth gaps.
+- `DEVELOPMENT.md`: expanded focused test matrix, Python ABI warning, Chat reload acceptance, and
+  runtime security invariants.
+- `03_ROADMAP.md`: marks #16/#17 as delivered and sequences runtime stabilization before queue #18.
+
+Still intentionally unchanged: feature-plan bodies, archive contents, runtime persona/skills,
+ignored owner data, external services, and the in-app Architecture TypeScript page.
+
+### Office V3 delivery addendum
+
+Queue #15 is now delivered at v1. Current-state, architecture, Mission Control, Development, and
+Roadmap docs now include the flagged Office command center, additive local artifact/activity state,
+Conductor-confirmed mutation boundary, sensitive pending-payload isolation, existing mission SSE,
+legacy fallback, and focused verification. The original plan body remains preserved with a delivery
+record appended; owner visual acceptance is still open because automated browser setup failed on the
+bracketed Windows workspace path.
+
 > Audit completed 2026-07-11 against the current D-drive repository. Scope was documentation only. No Python, TypeScript, database, runtime persona, skill, generated runtime data, or external service was changed.
 
 ## Audit Method

@@ -1,6 +1,6 @@
 # Mission Control
 
-> Current product and implementation reference for the web cockpit as of 2026-07-11. The old June master specification is preserved in `archive/specifications/` and is not current architecture.
+> Current product and implementation reference for the web cockpit as of 2026-07-13. The old June master specification is preserved in `archive/specifications/` and is not current architecture.
 
 ## Purpose
 
@@ -56,10 +56,10 @@ MC exposes 20 top-level workspace destinations plus dynamic project workspaces.
 | Intelligence | `/brain` | Owner memory browse/edit/review/import/chat | Brain APIs |
 | Intelligence | `/graph` | Knowledge graph exploration and editing | Graph APIs |
 | Intelligence | `/architecture` | In-app explanatory diagram | Static frontend content; currently stale in places |
-| Intelligence | `/ability` | Curated abilities, usage, coaching, versions, and read-only repository Hermes skills | Ability/skill tables plus Hermes skill parser/API |
-| Intelligence | `/evolution` | Tier progression and reflection | Evolution definitions/detector and lessons |
-| Intelligence | `/health` | Service, engine, and integration health | health/deep-test APIs |
-| Work | `/office` | Agents, missions, workflows, visual office | Office/mission APIs and stream |
+| Intelligence | `/ability` | Curated abilities, usage, coaching, versions, repository Hermes skills, and Awakening mirror | Ability/skill tables, Hermes parser, `/api/awakening` |
+| Intelligence | `/evolution` | Tier progression, evidence, setup guidance, and reflection | Tier-1 Awakening registry plus legacy later-tier definitions |
+| Intelligence | `/health` | Service/integration health and Performance Doctor | health/deep-test/performance APIs |
+| Work | `/office` | Office V3 command floor: agents, missions, embedded TOBI, local artifacts/activity; `?legacy=1` fallback | Office V3 snapshot/read/proposal APIs plus existing mission SSE |
 | Work | `/projects` | Project list and creation | Project v2 APIs |
 | Work | `/projects/:projectId/*` | Full project workspace | Project v2 overview/tasks/goals/resources/activity |
 | Work | `/task` | Cross-project and standalone task board | Task APIs |
@@ -94,6 +94,8 @@ The chat stream can emit:
 - picker questions;
 - references/source metadata;
 - model issue notices;
+- normalized mode/context/plan/artifact events;
+- typed runtime lifecycle events (`turn_started`, context/plan/step events, recovery, completion);
 - completion/error events.
 
 `ProcessTrace.tsx`, `ThinkingOrb.tsx`, rich Markdown blocks, and terminal UI render these events. The process timeline is presentation of emitted checkpoints, not an independent execution engine.
@@ -108,19 +110,26 @@ The chat stream can emit:
 - Chat attachments are turn inputs. They are not automatically durable Project resources.
 - Premium-reader processing can be disabled with `ENABLE_PREMIUM_READERS` as a rollback switch.
 
-### Modes: current truth
+### Modes and capabilities
 
-The frontend currently exposes:
+The primary selector exposes:
 
 | Mode | Current effect |
 |---|---|
-| Chat | Default placeholder and UI selection |
-| Agent | Agent-oriented placeholder/label; no complete backend capability contract |
-| Terminal | Shows terminal status/mode/jobs UI and receives terminal stream events |
-| Research | Enables web-research behavior for the turn |
-| Project | Project-oriented placeholder/label; project context is not selected by a centralized backend mode service |
+| Chat | Default conversation mode. Terminal tools are omitted and rejected server-side |
+| Agent | Main execution mode. Supports planning, tools, terminal actions, artifacts, persisted runs, and recovery |
+| Deep Research | Per-turn capability toggle in the `+` menu; plans searches, gathers/fences sources, synthesizes a report artifact |
+| Project context | Automatically selected from explicit or high-confidence project references; ambiguous matches remain shallow and visible |
 
-The selected value is saved as `tobi.chat.mode`. It is not yet a durable message/thread contract that consistently changes backend tool availability. Queue #16 owns the redesign to Chat/Agent plus Deep Research capability and automatic project context.
+Legacy `terminal`, `research`, and `project` values are normalized to Agent or Chat-compatible behavior. Mode, capabilities, context, steps, tools, run ID, artifact IDs, and runtime turn ID are stored in message metadata. The `chat.mode_v2` and `chat_runtime_v2` owner settings provide rollback controls.
+
+### Agent run history
+
+- `agent_runs` stores each Agent turn and its status.
+- `agent_run_steps` records declared plans, every tool checkpoint, failures, terminal output, approvals, and recovery commands.
+- Retry/Skip/Revise/Cancel commands target the original run rather than creating unrelated history.
+- Assistant message metadata stores the same owner-facing checkpoint sequence, elapsed time, tools, run ID, and artifacts.
+- `ProcessTrace` collapses a completed run to a compact summary; clicking it expands or collapses the durable action history after reload.
 
 ### Human review
 
@@ -173,22 +182,22 @@ Theme #13 remains in owner-review state. Do not call it complete until the queue
 
 ## Backend API Domains
 
-The browser client should use domain functions in `dashboard/src/api.ts`, not ad hoc fetch calls.
+The browser client should use functions exported by `dashboard/src/api.ts` or its domain modules, not ad hoc fetch calls. Current extracted modules cover Tasks, Project Management, Brain, Abilities, Office, and Performance over shared `apiCore.ts`.
 
 | Prefix | Domain |
 |---|---|
 | `/api/status`, `/api/health` | General runtime and health |
 | `/api/tasks` | Shared task board and owner-input workflows |
 | `/api/pm` | Project v2, goals, tasks, resources, folders, icons, dependencies, activity |
-| `/api/chat` | Sessions, messages, streams, feedback, activity, compaction |
+| `/api/chat` | Sessions, messages, streams, runtime config/traces, runs/recovery, artifacts, feedback, activity, compaction |
 | `/api/conductor` | Tool/action status, audit, confirmation |
 | `/api/terminal` | Engine status, approval mode, kill-switch, jobs, tools |
 | `/api/brain` | Memories, categories, import, review, conflicts, narrative, chat |
 | `/api/graph` | Graph data, search, paths, timeline, editing, sync |
 | `/api/abilities`, `/api/proposals` | Ability metrics, details, coaching, version governance |
 | `/api/hermes/skills` | Read-only repository Hermes skill metadata |
-| `/api/evolution` | Tier report and reflection |
-| `/api/agents`, `/api/missions`, `/api/workflows`, `/api/office` | Office and mission system |
+| `/api/evolution`, `/api/awakening` | Tier report/reflection and evidence-gated Tier-1 status |
+| `/api/agents`, `/api/missions`, `/api/workflows`, `/api/office` | Office V3 snapshot/config/artifacts/activity/TOBI/action proposals plus existing mission system |
 | `/api/vault`, `/api/integrations`, `/api/keys` | Secrets, profiles, provider credentials, connectors |
 | `/api/mcp` and `/mcp` | MCP management and Streamable HTTP server |
 | `/api/llm` | Provider/model config, discovery, usage, Hermes push |
@@ -200,11 +209,11 @@ Sensitive vault/MCP management calls use `X-Vault-Session`. The broader MC API d
 
 ## Known UI Truth Gaps
 
-1. `/architecture` still describes the older Codespaces/MMO-focused system and understates the current database, Brain, Conductor, Project v2, MCP, terminal, and MC web interface.
-2. `/evolution` uses stale static tier definitions and incomplete detection. Its percentage is not authoritative.
-3. `/ability` now enumerates repository Hermes skills read-only, but those records remain separate from curated DB abilities and runtime Hermes execution state.
-4. Chat modes overstate backend differentiation; queue #16 addresses this.
-5. Several integration and health labels are configuration-dependent and must not be treated as successful without live evidence.
+1. `/architecture` still describes the older Codespaces/MMO-focused system and understates the current Chat Runtime, Awakening, Project v2, MCP, terminal, and security architecture.
+2. Tier 1 uses real Awakening evidence, but later Evolution tiers still rely on legacy definitions.
+3. `/ability` combines curated DB abilities, repository Hermes skills, and an Awakening mirror without one unified runtime ownership model.
+4. Runtime v2 and legacy Conductor paths coexist behind rollback flags; changes must preserve both contracts until rollout completes.
+5. Several integration and health labels remain configuration-dependent and must not be treated as successful without usable/authorized evidence.
 
 These are documented rather than fixed here because this refactor is docs-only.
 

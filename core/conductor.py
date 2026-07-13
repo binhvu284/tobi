@@ -1544,6 +1544,70 @@ def tool_create_task_from_conversation(tasks: Optional[list] = None, project_id:
     return {"ok": True, "project_id": pid, "count": len(created), "created": created}
 
 
+# ── #15 Office V3: every mutation is high-risk and therefore explicitly confirmed ──
+def tool_office_create_artifact(title: str = "", kind: str = "report", content: str = "",
+                                source_type: str = "manual", source_id: Any = None,
+                                office_payload_id: int = 0, content_chars: int = 0, **_: Any) -> dict:
+    from core import office_artifacts
+    staged = office_artifacts.resolve_action_payload("office_create_artifact", {
+        "title": title, "kind": kind, "content": content, "source_type": source_type,
+        "source_id": source_id, "office_payload_id": office_payload_id,
+    })
+    return office_artifacts.create_artifact(
+        staged.get("title", title), staged.get("kind", kind), staged.get("content", content),
+        source_type=staged.get("source_type", source_type),
+        source_id=staged.get("source_id", source_id), created_by="tobi")
+
+
+def tool_office_update_artifact(artifact_id: int = 0, title: str = "", kind: str = "",
+                                content: str = "", office_payload_id: int = 0,
+                                content_chars: int = 0, **_: Any) -> dict:
+    from core import office_artifacts
+    staged = office_artifacts.resolve_action_payload("office_update_artifact", {
+        "artifact_id": artifact_id, "title": title, "kind": kind, "content": content,
+        "office_payload_id": office_payload_id,
+    })
+    return office_artifacts.update_artifact(
+        staged.get("artifact_id", artifact_id), title=staged.get("title", title),
+        kind=staged.get("kind", kind), content=staged.get("content", content))
+
+
+def tool_office_delete_artifact(artifact_id: int = 0, **_: Any) -> dict:
+    from core import office_artifacts
+    return office_artifacts.delete_artifact(artifact_id)
+
+
+def tool_office_create_mission(title: str = "", goal: str = "", priority: str = "Normal", **_: Any) -> dict:
+    from core import office_artifacts
+    return office_artifacts.create_mission(title, goal, priority)
+
+
+def tool_office_run_mission(mission_id: int = 0, mock: bool = False, **_: Any) -> dict:
+    from core import office_artifacts
+    return office_artifacts.start_mission(mission_id, mock)
+
+
+def tool_office_control_mission(mission_id: int = 0, action: str = "", **_: Any) -> dict:
+    from core import office_artifacts
+    return office_artifacts.control_mission(mission_id, action)
+
+
+def tool_office_convert_to_tasks(tasks: Optional[list] = None, project_id: int = 0,
+                                 project: str = "", source_type: str = "artifact",
+                                 source_id: Any = None, **_: Any) -> dict:
+    result = tool_create_task_from_conversation(tasks=tasks, project_id=project_id, project=project)
+    if isinstance(result, dict) and result.get("ok"):
+        try:
+            from core import office_artifacts
+            office_artifacts.record_activity(
+                "tasks.created", "tobi", f"Created {result.get('count', 0)} task(s) from Office",
+                payload={"count": result.get("count"), "project_id": result.get("project_id")},
+                source_type=source_type, source_id=source_id)
+        except Exception:
+            pass
+    return result
+
+
 # name → (callable, risk, description)
 ACT_TOOLS: dict[str, tuple[Callable[..., dict], str, str]] = {
     "remember": (tool_remember, "low", "Save a fact to long-term memory. Args: fact (string), category (optional)."),
@@ -1574,6 +1638,13 @@ ACT_TOOLS: dict[str, tuple[Callable[..., dict], str, str]] = {
     "connect_tool": (tool_connect_tool, "medium", "Connect an acquired tool using an EXISTING vault/env credential (never a plaintext secret in chat). Args: name (string), secret_name (an existing credential's name, optional), login_command (optional setup/login command)."),
     "kill_job": (tool_kill_job, "low", "Stop a running background terminal job. Args: job_id (int)."),
     "set_terminal_mode": (tool_set_terminal_mode, "low", "Switch the terminal approval mode. Args: mode (plan|ask|accept|auto). plan=propose only; ask=confirm medium/high; accept=only high confirms; auto=run everything (denylist still blocks)."),
+    "office_create_artifact": (tool_office_create_artifact, "high", "Office V3: save a sensitive local report, plan, summary, next-actions document, or mission note. Always requires confirmation. Args: title, kind, content, source_type, source_id."),
+    "office_update_artifact": (tool_office_update_artifact, "high", "Office V3: overwrite a sensitive local artifact. Always requires confirmation. Args: artifact_id and optional title, kind, content."),
+    "office_delete_artifact": (tool_office_delete_artifact, "high", "Office V3: delete a local artifact. Always requires confirmation. Args: artifact_id."),
+    "office_create_mission": (tool_office_create_mission, "high", "Office V3: create a mission. Always requires confirmation. Args: title, goal, priority."),
+    "office_run_mission": (tool_office_run_mission, "high", "Office V3: start an existing mission and its live event stream. Always requires confirmation. Args: mission_id, mock."),
+    "office_control_mission": (tool_office_control_mission, "high", "Office V3: pause, resume, or cancel a mission. Always requires confirmation. Args: mission_id, action."),
+    "office_convert_to_tasks": (tool_office_convert_to_tasks, "high", "Office V3: convert a selected mission/artifact result into MC tasks and record Office activity. Always requires confirmation. Args: tasks, project_id or project, source_type, source_id."),
 }
 
 # Unified lookups: name → (callable, description) and name → risk ('read'|'low'|'medium'|'high').
@@ -1659,9 +1730,22 @@ def _project_name(project_id: Any) -> str:
     return f"#{project_id}"
 
 
+# #17 workflow read-tools are audited to tobi_actions like acting tools, so Simple
+# Automation can be gated on a real logged receipt (not on mere tool registration).
+_WORKFLOW_READ_TOOLS = {"summarize_repo"}
+
+
 def _action_summary(tool: str, args: dict) -> str:
     a = args or {}
     return {
+        "summarize_repo": f'summarize GitHub repo {a.get("repo", "")}',
+        "office_create_artifact": f'create Office artifact "{str(a.get("title", ""))[:60]}"',
+        "office_update_artifact": f'update Office artifact #{a.get("artifact_id")}',
+        "office_delete_artifact": f'delete Office artifact #{a.get("artifact_id")}',
+        "office_create_mission": f'create Office mission "{str(a.get("title", ""))[:60]}"',
+        "office_run_mission": f'run Office mission #{a.get("mission_id")}',
+        "office_control_mission": f'{a.get("action", "control")} Office mission #{a.get("mission_id")}',
+        "office_convert_to_tasks": f'create {len(a.get("tasks") or [])} task(s) from Office context',
         "remember": f'remember "{str(a.get("fact", ""))[:60]}"',
         "create_project": f'create project "{a.get("name", "")}"',
         "create_task": f'create task "{a.get("title", "")}" in project {a.get("project_id")}',
@@ -1737,6 +1821,30 @@ def _execute_and_log(chat_id: int, surface: str, tool: str, args: dict, risk: st
     if status == "executed":
         _maybe_learn(tool)
     return result
+
+
+def propose_action(tool: str, args: Optional[dict] = None, *, chat_id: int = 0,
+                   surface: str = "mc") -> dict:
+    """Create a normal Conductor confirmation record for a known acting tool.
+
+    Office V3 uses this bridge instead of inventing a page-local approval store. The
+    existing ``confirm_action`` path remains the only executor.
+    """
+    args = args if isinstance(args, dict) else {}
+    entry = ACT_TOOLS.get(tool)
+    if not entry:
+        return {"error": f"unknown acting tool '{tool}'"}
+    if tool in {"office_create_artifact", "office_update_artifact"}:
+        try:
+            from core import office_artifacts
+            args = office_artifacts.stage_action_payload(tool, args)
+        except Exception:
+            pass
+    risk = entry[1]
+    summary = _action_summary(tool, args)
+    action_id = _log_action(chat_id, surface, tool, args, risk, "proposed", summary)
+    return {"id": action_id, "tool": tool, "risk": risk, "status": "proposed",
+            "summary": summary, "args": args}
 
 
 def _terminal_command_for(tool: str, args: dict) -> Optional[str]:
@@ -1830,6 +1938,12 @@ def confirm_action(action_id: int, decision: str = "approve", surface: str = "mc
     if row["status"] != "proposed":
         return {"ok": False, "error": f"action already {row['status']}", "status": row["status"]}
     if str(decision).lower() in ("reject", "no", "cancel", "deny"):
+        if str(row.get("tool") or "").startswith("office_"):
+            try:
+                from core import office_artifacts
+                office_artifacts.discard_action_payload(json.loads(row.get("args_json") or "{}"))
+            except Exception:
+                pass
         _set_status(action_id, "rejected")
         try:
             from core import agent_runs
@@ -2190,7 +2304,14 @@ def _propose_actions(highs: list[tuple], chat_id: int, surface: str, used: list,
         tool, args = entry[0], entry[1]
         risk = entry[2] if len(entry) > 2 else "high"
         summary = _action_summary(tool, args)
-        aid = _log_action(chat_id, surface, tool, args, risk, "proposed", summary)
+        logged_args = args
+        if tool in {"office_create_artifact", "office_update_artifact"}:
+            try:
+                from core import office_artifacts
+                logged_args = office_artifacts.stage_action_payload(tool, args)
+            except Exception:
+                pass
+        aid = _log_action(chat_id, surface, tool, logged_args, risk, "proposed", summary)
         items.append({"id": aid, "tool": tool, "summary": summary, "risk": risk})
         out_used.append(tool)
     if len(items) == 1:
@@ -2753,6 +2874,15 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
             elif risk == "read":
                 result = _exec_tool(call, mode=mode, allowed_tools=allowed_tools,
                                     turn_id=turn_id, step_index=tool_step_index)
+                # #17: audit workflow read-tools (summarize_repo) to Actions. A receipt only
+                # counts as 'executed' when the read genuinely succeeded (available, no error).
+                if tool in _WORKFLOW_READ_TOOLS and not (isinstance(result, dict) and result.get("__picker__")):
+                    _ok = isinstance(result, dict) and result.get("available") and not result.get("error")
+                    try:
+                        _log_action(chat_id, surface, tool, args, "read",
+                                    "executed" if _ok else "failed", _action_summary(tool, args), result)
+                    except Exception:
+                        pass
                 # Picker sentinel: halt the turn and surface an interactive wizard to the
                 # owner (the answers arrive as his next message — session-scoped context).
                 if isinstance(result, dict) and result.get("__picker__"):

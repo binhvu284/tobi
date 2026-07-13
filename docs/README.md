@@ -28,7 +28,7 @@ When two sources disagree, trust the higher level and update the lower level. A 
 | Document | Maintained content |
 |---|---|
 | [`01_VISION.md`](01_VISION.md) | Jarvis mission, pillars, and product principles |
-| [`02_CURRENT_STATE.md`](02_CURRENT_STATE.md) | Honest feature and risk inventory as of 2026-07-11 |
+| [`02_CURRENT_STATE.md`](02_CURRENT_STATE.md) | Honest feature and risk inventory as of 2026-07-13 |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Backend/frontend/runtime map and primary data flows |
 | [`MISSION_CONTROL.md`](MISSION_CONTROL.md) | All current MC routes and ownership boundaries |
 | [`DEVELOPMENT.md`](DEVELOPMENT.md) | Development, verification, and operations |

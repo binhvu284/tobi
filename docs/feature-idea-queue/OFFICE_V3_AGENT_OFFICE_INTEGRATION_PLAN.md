@@ -2,11 +2,40 @@
 
 ## Status
 
-- Queue status: Queued
+- Queue status: Done (v1); owner visual acceptance remains
 - Queue item: #15
-- Planning mode: Complete; ready for worker implementation when selected
-- Implementation boundary: Do not implement from this file until the queue item is picked up
+- Delivery: implemented in the current working tree on 2026-07-13
+- Rollback: `office.v3_enabled=0` or `/office?legacy=1`; legacy Office code and all old data remain intact
 - Primary owner intent: full visible replacement of the current Office UI
+
+## V1 Delivery Record - 2026-07-13
+
+Delivered:
+
+- Flagged `/office` replacement through `pages/OfficeV3.tsx`; legacy page preserved as fallback.
+- Full-height Phaser office floor with reduced-motion/mobile static floor, agent dock, live status,
+  mission queue/detail/control, and existing mission SSE.
+- Embedded Office TOBI with explicit agent/mission/artifact context chips and suggested workflows.
+- Sensitive local artifacts and Office-local activity through additive SQLite tables.
+- Reusable report/plan/summary/next-action/mission-note outputs, latest-version-only.
+- All V3 mutations use high-risk Conductor tools and global `tobi_actions` confirmation/audit.
+- Sensitive artifact content is staged in `office_pending_payloads`; global action arguments contain
+  only a local payload reference and safe metadata.
+- Office-specific confirmed tools for create/update/delete artifact, create/run/control mission,
+  and convert selected output into tasks.
+- Additive snapshot, config, artifact read, activity read, action-proposal, and contextual TOBI APIs.
+- No new package, cloud storage, file upload, Colyseus, Redis, or copied agent-office asset/code.
+
+Verification:
+
+- `tests/test_office_v3.py`: 19/19.
+- `tests/test_conductor_final_guard.py`: 9/9.
+- `tests/test_mode_enforcement.py`: 18/18.
+- `tests/test_chat_modes.py`: 76/76.
+- TypeScript and Vite production build passed.
+- Live config/snapshot/artifact/activity and `/office` HTTP smoke passed on port 8091.
+- Automated screenshots were not produced because the in-app browser controller could not create
+  its runtime assets from this bracketed Windows workspace. Owner visual acceptance is still open.
 
 ## Executive Summary
 

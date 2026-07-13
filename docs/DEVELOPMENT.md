@@ -32,7 +32,7 @@ The Genesis vault can manage supported secrets from Mission Control after the ap
 | `npm run dev` | Runs the Python `start` process through nodemon and watches the built dashboard. This includes Telegram and scheduler behavior when configured |
 | `npm run dev:backend` | Runs nodemon using `venv/Scripts/python.exe main.py start` |
 | `npm run dev:frontend` | Type-checks/builds the dashboard in watch mode; port 8080 serves the resulting `dashboard/dist` |
-| `npm run build` | Runs TypeScript checking and a production Vite build |
+| `npm run build` | Runs TypeScript checking and a production Vite build (`npm.cmd` may be required when PowerShell script execution is disabled) |
 | `venv\Scripts\python.exe main.py api` | Starts only the two web APIs and built MC host; safer for UI/API work than the full daemon |
 | `venv\Scripts\python.exe main.py status` | Prints database-backed status without starting the daemon |
 | `venv\Scripts\python.exe main.py terminal` | Starts the interactive TOBI terminal/Conductor REPL |
@@ -85,12 +85,25 @@ Back up the configured database directory before schema or migration work. Do no
 
 ### Backend tests
 
-Tracked tests are standalone Python scripts rather than pytest suites. They currently cover terminal safety/execution and storage/usage behavior:
+Tracked tests are standalone Python scripts rather than one pytest suite. Run the narrowest affected scripts first:
 
 ```powershell
 venv\Scripts\python.exe tests\test_terminal_engine.py
 venv\Scripts\python.exe tests\test_storage_usage.py
+venv\Scripts\python.exe tests\test_premium_readers.py
+venv\Scripts\python.exe tests\test_premium_readers_route.py
+venv\Scripts\python.exe tests\test_chat_modes.py
+venv\Scripts\python.exe tests\test_mode_enforcement.py
+venv\Scripts\python.exe tests\test_net_guard.py
+venv\Scripts\python.exe tests\test_chat_runtime.py
+venv\Scripts\python.exe tests\test_chat_runtime_route.py
+venv\Scripts\python.exe tests\test_conductor_final_guard.py
+venv\Scripts\python.exe tests\test_awakening.py
+venv\Scripts\python.exe tests\test_performance_doctor.py
+venv\Scripts\python.exe tests\test_office_v3.py
 ```
+
+The route suites use FastAPI/TestClient and must run with the same Python ABI as the installed `pydantic_core`. If the checked-in virtual-environment launcher points to a removed Windows Store interpreter, recreate the venv rather than mixing an incompatible Python runtime with its site-packages.
 
 ### Frontend checks
 
@@ -99,6 +112,8 @@ npm run build
 ```
 
 For user-facing MC changes, also verify the affected route in a browser at desktop and mobile widths, plus the relevant theme/motion modes.
+
+For Chat/Agent changes, verify both the live stream and a page reload. The stored assistant message must retain mode, tools, checkpoints, run ID, artifact IDs, and elapsed time; completed `ProcessTrace` history must expand and collapse.
 
 ### API smoke
 
@@ -126,6 +141,8 @@ Read the complete target file before editing. Generated graph output is navigati
 - Vault sessions protect sensitive vault/MCP operations, but they do not secure every MC route.
 - Terminal Auto mode still has a hard denylist, but it is not an OS sandbox.
 - External content, repository files, URLs, and MCP output can contain prompt injection or unsafe instructions.
+- Deep Research/readable-link fetching must continue through `net_guard`; do not replace it with direct `requests.get` calls.
+- Chat mode capability denial and human-review policy are backend boundaries, not frontend-only controls.
 - Never use live production integrations as a routine test target.
 
 ## Documentation Delivery Rule

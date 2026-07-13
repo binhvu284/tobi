@@ -20,12 +20,12 @@ The long-term goal is a personal Jarvis: an assistant that understands its owner
 | Path | Responsibility |
 |---|---|
 | `main.py` | Process entry point, scheduler, Telegram lifecycle, API launch |
-| `core/` | Conductor, memory, model routing, terminal, projects, integrations, MCP, and business engines |
+| `core/` | Chat runtime/modes, Conductor, Agent runs, Awakening, memory, model routing, terminal, projects, integrations, MCP, and business engines |
 | `api/dashboard.py` | Mission Control API and built React application host |
 | `api/server.py` | Smaller API-key-protected legacy/external API |
 | `dashboard/` | React 18, TypeScript, Vite, Tailwind, Mission Control UI |
 | `docs/` | Current documentation, feature queue, and archive |
-| `tests/` | Focused terminal and storage/usage tests |
+| `tests/` | Focused Chat/runtime, security, Awakening, terminal, readers, storage/usage, and performance tests |
 | `SOUL.md` | Runtime persona input copied into Hermes; changing it changes behavior |
 | `hermes_skills/` | Runtime skill inputs copied into Hermes |
 
@@ -33,7 +33,8 @@ The long-term goal is a personal Jarvis: an assistant that understands its owner
 
 - Mission Control has 20 top-level workspace destinations plus dynamic project workspaces.
 - The global header keeps up to five route tabs mounted and restores them from browser storage.
-- Chat sessions stream through the Conductor, which can read live MC data, invoke approved tools, and write audited actions.
+- Chat sessions use backend-enforced Chat/Agent modes. Runtime v2 routes intent, scopes tools, records typed traces, and persists Agent runs, checkpoints, recovery state, and artifacts around the Conductor.
+- Awakening Tier 1 uses nine evidence-gated abilities rather than a hardcoded completion percentage.
 - The Brain, Graph, Project v2, Office, Terminal, Vault, Integrations, MCP, Explore, Storage, and usage systems are implemented at different maturity levels.
 - SQLite is the primary application store. Project resources are stored on disk beside the database.
 - Hermes receives persona, skills, memory, and model-routing data through one-way sync paths; it is not the sole runtime or source of truth today.

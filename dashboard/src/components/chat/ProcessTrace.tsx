@@ -167,6 +167,8 @@ function FinishedTrace({ steps, reasoning, tools, elapsedMs, tokens, reduced }:
   return (
     <div className="mb-1.5">
       <button onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        aria-label={`${open ? 'Collapse' : 'Expand'} action history`}
         className="flex items-center gap-1.5 text-[11px] text-muted transition-colors hover:text-accent">
         <span className="proc-dot" style={{ ['--orb' as string]: `var(--${tok})` }} aria-hidden />
         {summary}

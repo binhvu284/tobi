@@ -27,7 +27,7 @@ import Actions from './pages/Actions'
 // Graph carries the heavy force-graph canvas lib — lazy-load so it stays out of the main bundle.
 const Graph = lazy(() => import('./pages/Graph'))
 // Office embeds the Phaser game engine (~1.2MB) — lazy-load so it stays out of the main bundle.
-const Office = lazy(() => import('./pages/Office'))
+const Office = lazy(() => import('./pages/OfficeV3'))
 // Storage carries Recharts — lazy-load so it stays out of the main bundle.
 const Storage = lazy(() => import('./pages/Storage'))
 // News (Explore) carries Recharts too — lazy-load so it stays out of the main bundle.

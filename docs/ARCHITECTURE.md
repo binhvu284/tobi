@@ -1,6 +1,6 @@
 # TOBI Architecture
 
-> Current architecture snapshot: 2026-07-11. Code remains authoritative. Configuration-dependent services were inspected statically, not called during this documentation audit.
+> Current architecture snapshot: 2026-07-13 through commit `2f4ad68` plus reviewed working-tree follow-ups. Code and tests remain authoritative. Configuration-dependent external services were not called during this audit.
 
 ## System Context
 
@@ -73,23 +73,28 @@ The scheduler currently registers daily reports, six-hour execution, two-minute 
 | Subsystem | Primary files | Responsibility | Current notes |
 |---|---|---|---|
 | Process orchestration | `main.py` | Startup, services, Telegram, scheduled jobs, CLI commands | One process coordinates several threads and async loops |
-| Mission Control API | `api/dashboard.py` | UI APIs, SSE, static React host, MCP mount | 5,700+ lines and 239 route handlers; largest change-collision point |
+| Mission Control API | `api/dashboard.py` | UI APIs, SSE, static React host, MCP mount | About 6,400 lines and 253 route handlers; largest change-collision point |
 | External/legacy API | `api/server.py` | Small API-key-protected project/task/revenue API | Separate contract and default-key risk |
 | Conductor | `core/conductor.py` | Conversation routing, grounded tool loop, permissions, confirmations, action log | Shared by MC Chat and significant Telegram paths |
+| Chat mode/runtime | `core/chat_modes.py`, `chat_runtime.py`, `chat_runtime_contracts.py`, `chat_tool_registry.py` | Normalization, capability boundaries, intent routing, typed tools, telemetry, recovery contracts | Runtime v2 is flag-controlled; Chat denies terminal tools server-side, Agent enables execution |
+| Agent runs/artifacts | `core/agent_runs.py`, `core/chat_store.py` | Persisted runs, checkpoints, recovery commands, action links, artifacts, message metadata | Exact action checkpoints and elapsed time survive reload; run commands resume the original run |
+| Deep Research/network guard | `core/deep_research.py`, `core/net_guard.py` | Research planning, source fetch/synthesis, source fencing, SSRF protection | Per-turn capability, not a main Chat mode |
 | Model router | `core/model_router.py` | Provider catalog, fallback, streaming, vision, usage logging | Nine provider types/config entries including local/custom |
 | Chat persistence | `core/chat_store.py` | Sessions, messages, forking, compaction, and cross-session message search | Premium Chat and bridged conversation history can be searched for episodic recall |
 | Attachments/readers | `core/attachments.py`, `premium_readers.py`, `youtube_reader.py`, `model_capabilities.py` | Text/PDF extraction, YouTube transcript context, image routing, capability checks | Context caps, up to four images, two YouTube URLs, optional transcript dependency, rollback flag |
 | Brain | `core/brain.py`, `core/embeddings.py` | Durable owner memory, retrieval, review, conflict/version handling | Fastembed optional; keyword fallback |
+| Awakening | `core/awakening.py` | Nine evidence-gated Tier-1 abilities and setup/evidence output | Uses active Brain memories, connector readiness, tool contracts, and successful workflow receipts |
 | Knowledge graph | `core/graph_engine.py` | Graph sync, edges, search, retrieval, communities, layout | Includes internal records and supported external mirrors |
 | Project management | `core/database.py`, `core/pm_resources.py`, `core/pm_reminders.py` | Project v2 data, files/links, extraction/RAG, reminders | Coexists with legacy business project tables |
 | Terminal | `core/terminal_engine.py` | Risk classification, approval modes, command execution, jobs, package/tool registry | Full-machine shell with hard denylist and kill-switch |
 | Vault | `core/vault.py` | Encrypted secrets, profiles, sessions, auto-unlock, audit | Sensitive API operations use a vault-session header |
 | Integrations | `core/integrations.py`, `core/integrations_registry.py` | Notion, GitHub, Google, Vercel, Supabase capability checks and adapters | Connection state is configuration-dependent |
 | MCP/A2A | `core/mcp_server.py`, `mcp_client.py`, `mcp_security.py`, `mcp_tunnel.py`, `a2a.py` | Inbound/outbound agent tooling and policy | MCP mount has its own auth, scopes, rate limits, approvals, and logs |
-| Office/missions | `core/office.py`, `core/office_stream.py` | Agent/workflow execution and streamed mission state | Frontend also contains a Phaser visualization |
+| Office V3/missions | `core/office.py`, `core/office_stream.py`, `core/office_artifacts.py` | Agent/workflow execution, streamed mission state, local artifacts/activity, confirmed Office actions | Flagged V3 React shell reuses Phaser/SSE; legacy Office remains a zero-data-loss fallback |
 | Business engines | `core/research_engine.py`, `project_executor.py`, `ceo_loop.py` | Niche research, task execution, portfolio review | Legacy but active capability |
 | Explore | `core/explore.py` | News/models/tools/social collection and digest | Scheduler-backed and source-configurable |
 | Storage/usage | `core/storage_scan.py`, `usage.py`, `usage_meter.py` | Storage attribution, LLM usage/cost, plans, budgets | Writes feature snapshots and usage records |
+| Performance Doctor | `core/performance_doctor.py` | Graphify-assisted architecture/performance scoring, findings, trends, task creation | Quick mode is deterministic; Deep mode adds bounded model synthesis |
 | Hermes bridge | `main.py`, `core/hermes_sync.py`, `core/hermes_skills.py`, Brain mirror paths | Persona/skill sync, read-only repository skill metadata, memory mirror, model-routing push | Multiple one-way paths, not a unified state owner |
 
 ## Frontend Architecture
@@ -105,7 +110,7 @@ flowchart TD
   Tabs --> Shell[AppShell]
   Shell --> Panes[Mounted workspace route panes]
   Panes --> Pages[20 destinations plus project workspaces]
-  Pages --> Client[dashboard/src/api.ts]
+  Pages --> Client[api.ts plus domain API modules]
   Client --> DashAPI[FastAPI :8080]
 ```
 
@@ -114,7 +119,7 @@ Key ownership:
 - `App.tsx` defines route composition and lazy-loading boundaries.
 - `AppShell.tsx` owns sidebar, global header, tab strip, mobile navigation, and system menu.
 - `WorkspaceTabsContext.tsx` owns the five-tab model, persistence, focus/close/reorder, and dynamic project tab identity.
-- `api.ts` is the typed browser client for all MC domains.
+- `api.ts` remains the compatibility barrel/common client; larger domains are being split into `api.tasks.ts`, `api.pm.ts`, `api.brain.ts`, `api.abilities.ts`, `api.office.ts`, and `api.performance.ts` over shared `apiCore.ts`.
 - `ThemeProvider`, `themeTokens.ts`, and `index.css` own the token-driven theme system.
 - `MotionProvider` and `components/motion/` own global motion levels and primitives.
 - Page components own domain presentation; project subviews are split under `components/project/`.
@@ -131,6 +136,7 @@ sequenceDiagram
   participant C as Chat.tsx
   participant A as /api/chat/sessions/{id}/stream
   participant S as chat_store
+  participant R as Chat Runtime and mode policy
   participant K as Conductor
   participant M as Model router
   participant T as Tools
@@ -138,16 +144,17 @@ sequenceDiagram
   U->>C: Send message and turn options
   C->>A: Stream request
   A->>S: Persist user message
-  A->>K: Answer with memory and optional tools
+  A->>R: Normalize mode, route intent, build context and runtime trace
+  R->>K: Answer with validated capability/tool scope
   K->>M: Generate response or tool call
   K->>T: Execute allowed read/action
   T-->>K: Grounded result
-  K-->>A: Text, phase, action, terminal, notice events
-  A->>S: Persist assistant result
+  K-->>A: Text, plan, phase, action, terminal, notice events
+  A->>S: Persist assistant result, run, checkpoints, trace, and artifacts
   A-->>C: SSE updates
 ```
 
-Current turn options include attachments, YouTube reader context, web research, and connector choices. Image turns can borrow another configured vision-capable model when needed. The selected frontend mode is not yet a first-class backend policy field. Research changes web-search behavior and Terminal exposes terminal UI/events, but mode-specific capability enforcement remains queued work.
+Current turn options include Chat/Agent mode, Deep Research, attachments, premium-reader context, web search, review policy, connectors, and automatic project context. Mode is a backend contract: Chat cannot invoke terminal tools, while Agent owns tool and terminal execution. Legacy mode values are normalized for saved-conversation compatibility. Agent runs persist steps and recovery state; completed process traces are expandable after reload.
 
 ### Conductor Action
 
@@ -184,14 +191,14 @@ Static inspection finds 70 table names created across the central schema and fea
 |---|---|
 | Legacy business | `projects`, `tasks`, `revenue`, `lessons`, `strategy`, `reports`, `conversations` |
 | Task workflow | `task_activity`, `task_owner_inputs` |
-| Ability/Office | `skills`, `skill_metrics`, `skill_versions`, `skill_proposals`, `agents`, `missions`, `mission_steps`, `workflows` |
+| Ability/Office | `skills`, `skill_metrics`, `skill_versions`, `skill_proposals`, `agents`, `missions`, `mission_steps`, `workflows`, `office_artifacts`, `office_activity`, `office_pending_payloads` |
 | Project v2 | `pm_projects`, `pm_goals`, `pm_resources`, `pm_resource_chunks`, `pm_folders`, `pm_task_deps`, `pm_goal_tasks`, `pm_activity` |
 | Brain/Graph | `brain_*`, `graph_*` |
-| Chat/actions/terminal | `chat_sessions`, `chat_messages`, `tobi_actions`, `terminal_jobs`, `installed_tools` |
+| Chat/actions/terminal | `chat_sessions`, `chat_messages`, `chat_artifacts`, `chat_turns`, `chat_turn_events`, `agent_runs`, `agent_run_steps`, `agent_run_actions`, `tobi_actions`, `terminal_jobs`, `installed_tools` |
 | Vault/integrations | `vault_*`, `owner_settings` |
 | MCP/A2A | `mcp_*`, `a2a_agents` |
 | Explore/analytics | `explore_*`, `storage_snapshots`, `llm_usage`, `llm_prices`, `llm_plans`, `usage_budget` |
-| Evolution | `evolution_snapshots` |
+| Evolution/performance | `evolution_snapshots`, `performance_snapshots` |
 
 Schema initialization is additive. `core/database.py` creates the main families; several feature modules create their own tables lazily. There is no explicit migration-version ledger.
 
@@ -224,6 +231,9 @@ Implemented controls:
 - Conductor action risk tiers and confirmation records;
 - Terminal hard denylist, mode/risk matrix, kill-switch, timeouts, output limits, and secret redaction;
 - project resource path traversal checks and file-size constraints;
+- DNS-pinned outbound URL validation, redirect revalidation, private/metadata-address denial, and response-size limits for Deep Research and readable-link ingestion;
+- source/transcript fencing that labels web and premium-reader content as untrusted model evidence;
+- server-side mode and review-policy enforcement before tool invocation;
 - API-key dependency on the smaller port-8000 API.
 
 Material limitations:
@@ -240,12 +250,12 @@ Material limitations:
 
 1. `api/dashboard.py` combines static hosting, request models, domain logic, SSE, and hundreds of routes.
 2. Legacy business projects and Project v2 coexist and share parts of `tasks`.
-3. Chat modes are UI state rather than a centralized backend contract.
-4. Evolution duplicates capability knowledge and is stale relative to delivered systems.
+3. Chat Runtime v2 coexists with legacy Conductor behavior behind rollback flags; ownership is improved but not fully decomposed.
+4. Tier-1 Evolution is evidence-based, while later tiers still use legacy capability definitions.
 5. Ability metadata, repository skills, and Hermes skills do not have one proven source of truth.
 6. Hermes integration is distributed across startup, Brain, and model routing.
 7. The dashboard and external API have different security models and overlapping concepts.
-8. Automated tests cover only a small fraction of the cross-system behavior.
+8. Focused tests now cover critical Chat, security, Awakening, terminal, storage, readers, and performance paths, but broad browser/integration coverage remains limited.
 9. The generated Graphify indexes predate some recent code and must be refreshed before using exact graph claims.
 
 These are current facts, not instructions to refactor them during unrelated feature work. Preserve endpoint and data compatibility unless a dedicated migration plan explicitly owns the change.
