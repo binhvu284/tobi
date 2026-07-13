@@ -132,26 +132,41 @@ def _workflow_receipts(conn) -> set:
         return set()
 
 
-def _read_connectors() -> list[str]:
-    """Read-safe connectors that are genuinely USABLE — using each integration's own
-    readiness check (no live network probe). Google requires a completed OAuth token
-    (`is_connected`), not merely a configured client id/secret; GitHub/Notion require their
-    token to be present (`is_available`). Credential presence alone is NOT counted."""
-    out: list[str] = []
+def _connector_states(conn) -> tuple:
+    """(verified, configured) read-safe connectors. **verified** = a CACHED successful
+    connection test (vault `test_status='ok'`, set by the Integrations 'Test'/connect flow via
+    `last_tested_at`); **configured** = credentials present but not verified. Only *verified*
+    access counts toward External Read active — expired/revoked/invalid creds that were never
+    (re)tested successfully cannot fake a usable connection (no live probe on this path)."""
+    verified: list[str] = []
+    configured: list[str] = []
+    ok_ids: set = set()
+    try:
+        from core import vault
+        for s in vault.list_secrets(conn):
+            if s.get("test_status") == "ok":
+                ok_ids.add((s.get("integration_id") or "").lower())
+    except Exception:
+        pass
     try:
         from core.integrations import get_integration
     except Exception:
-        return out
+        get_integration = None
     for iid, label, method in (("github", "GitHub", "is_available"),
                                ("notion", "Notion", "is_available"),
                                ("google", "Google", "is_connected")):
+        if iid in ok_ids:
+            verified.append(label)
+            continue
+        if get_integration is None:
+            continue
         try:
             integ = get_integration(iid)
             if integ and getattr(integ, method, lambda: False)():
-                out.append(label)
+                configured.append(label)
         except Exception:
             continue
-    return out
+    return verified, configured
 
 
 # ── per-ability evaluators → (status, evidence[], missing[]) ────────────────────────
@@ -232,9 +247,12 @@ def _eval_task_management(acts: set, reads: set) -> tuple:
     return "setup_needed", [], ["Task CRUD tools not registered"]
 
 
-def _eval_external_read(connectors: list[str]) -> tuple:
-    if connectors:
-        return "active", [f"Read-safe connectors configured: {', '.join(connectors)}"], []
+def _eval_external_read(verified: list, configured: list) -> tuple:
+    if verified:
+        return "active", [f"Verified read connector(s): {', '.join(verified)}"], []
+    if configured:
+        return "partial", [f"Configured but not verified: {', '.join(configured)}"], \
+               ["Open Integrations and 'Test' the connection — it counts once a test succeeds"]
     return "setup_needed", [], ["No read-safe connector configured — connect GitHub, Notion, or Google in Integrations"]
 
 
@@ -264,7 +282,7 @@ def evaluate(conn) -> list[dict]:
     except Exception:
         mem = []
     reads, acts = _tool_catalog()
-    connectors = _read_connectors()
+    verified, configured = _connector_states(conn)
     receipts = _workflow_receipts(conn)
 
     results = {
@@ -275,7 +293,7 @@ def evaluate(conn) -> list[dict]:
         "contextual_self_awareness": _eval_self_awareness(reads),
         "evolution_tracking": _eval_evolution_tracking(),
         "internal_task_management": _eval_task_management(acts, reads),
-        "external_read_access": _eval_external_read(connectors),
+        "external_read_access": _eval_external_read(verified, configured),
         "simple_automation": _eval_automation(acts, reads, receipts),
     }
 

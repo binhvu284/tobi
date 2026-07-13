@@ -116,14 +116,26 @@ conn.close()
 ok("sensitive pending memory is surfaced for review", summ2["sensitive_pending_review"] >= 1, str(summ2["sensitive_pending_review"]))
 # it stays pending, so it does not push any ability's evidence (owner_profile counts active only)
 
-# ── connector states: configured ≠ authorized ≠ usable (High #17 fix) ───────────────
-ok("external_read_access still setup_needed (no connector)", _statuses()["external_read_access"] == "setup_needed")
+# ── connector states: configured ≠ VERIFIED (P1 review fix — no false-active) ────────
+ok("external_read_access setup_needed with nothing configured", _statuses()["external_read_access"] == "setup_needed")
 os.environ["GOOGLE_CLIENT_ID"] = "gid"
 os.environ["GOOGLE_CLIENT_SECRET"] = "gsecret"
-ok("Google configured but OAuth NOT completed → still setup_needed (no false-active)",
+ok("Google client id/secret without a completed OAuth token → still setup_needed",
    _statuses()["external_read_access"] == "setup_needed")
 os.environ["GITHUB_TOKEN"] = "ghp_dummy_for_test"
-ok("external_read_access active once a usable read connector is present",
+ok("configured-but-unverified connector → PARTIAL, not active (a dummy/expired token can't fake usable access)",
+   _statuses()["external_read_access"] == "partial")
+# only a CACHED successful connection test (vault test_status='ok') activates External Read
+from core import vault  # noqa: E402
+conn = get_connection()
+_prof = vault.active_profile(conn)
+conn.execute("INSERT OR REPLACE INTO vault_secrets "
+             "(profile, name, integration_id, secret_type, ciphertext, nonce, last4, test_status, last_tested_at) "
+             "VALUES (?,?,?,?,?,?,?,?,datetime('now'))",
+             (_prof, "GITHUB_TOKEN", "github", "api_key", b"\x00", b"\x00", "tok", "ok"))
+conn.commit()
+conn.close()
+ok("external_read_access active once a connector has a cached successful test (test_status='ok')",
    _statuses()["external_read_access"] == "active")
 
 # ── tier1_pillars groups the 9 into the 3 render pillars with category labels ────────
@@ -215,13 +227,16 @@ ok("awakening_status reports tier 1 with 9 abilities", aw.get("tier") == 1 and a
 ok("awakening_status is grounded (100% now that all evidence exists)", aw.get("progress_pct") == 100)
 ok("awakening_status tool is a READ tool", "awakening_status" in C.READ_TOOLS)
 
-# ── Brain sweep: a failed batch is NEVER skipped by a later success (High #17) ───────
+# ── Brain sweep: PER-CHAT cursors — a failed chat can't advance past its gap NOR starve
+#    other chats (P1 review fix: replaces the global cursor that reprocessed/starved) ───────
 conn = get_connection()
-conn.execute("UPDATE brain_sweep_state SET last_processed_convo_id=0 WHERE id=1")
+brain._ensure_sweep_schema(conn)
+conn.execute("DELETE FROM brain_sweep_cursors")
 conn.execute("INSERT INTO conversations (chat_id, role, content) VALUES (7001,'user','alpha message')")
 conn.execute("INSERT INTO conversations (chat_id, role, content) VALUES (7002,'user','bravo message')")
 conn.commit()
-first_id = conn.execute("SELECT MIN(id) FROM conversations WHERE chat_id IN (7001,7002)").fetchone()[0]
+a_id = conn.execute("SELECT id FROM conversations WHERE chat_id=7001").fetchone()[0]
+b_id = conn.execute("SELECT id FROM conversations WHERE chat_id=7002").fetchone()[0]
 conn.close()
 _orig_extract = brain.extract_from_messages
 def _fail_alpha(messages):
@@ -234,17 +249,59 @@ try:
 finally:
     brain.extract_from_messages = _orig_extract
 conn = get_connection()
-hwm = conn.execute("SELECT last_processed_convo_id FROM brain_sweep_state WHERE id=1").fetchone()[0]
+cur = {r[0]: r[1] for r in conn.execute("SELECT chat_id, last_id FROM brain_sweep_cursors").fetchall()}
 conn.close()
-ok("brain sweep does not advance the cursor past a failed batch", hwm < first_id, f"hwm={hwm} first={first_id}")
+ok("failed chat's cursor does not advance past its failed batch", cur.get(7001, 0) < a_id, f"7001={cur.get(7001)} a_id={a_id}")
+ok("a healthy chat advances even while another chat keeps failing (no cross-chat starvation)",
+   cur.get(7002, -1) >= b_id, f"7002={cur.get(7002)} b_id={b_id}")
 
-# ── Brain sweep is serialized — a concurrent sweep is skipped (Medium #17) ──────────
-_held = brain._SWEEP_LOCK.acquire(blocking=False)
+# ── Brain sweep is serialized by a DB LEASE — a concurrent sweep is skipped (P1 review fix) ─
+_held = brain._acquire_lease()
 try:
     busy = brain.sweep_once(limit=10)
-    ok("a concurrent sweep is skipped while one holds the lock", busy.get("skipped_busy") is True)
+    ok("a concurrent sweep is skipped while the DB lease is held", busy.get("skipped_busy") is True)
 finally:
     if _held:
-        brain._SWEEP_LOCK.release()
+        brain._release_lease()
+brain.extract_from_messages = lambda messages: []  # keep this sweep offline (no live LLM call)
+try:
+    ok("once the lease is released a sweep can run again", "skipped_busy" not in brain.sweep_once(limit=10))
+finally:
+    brain.extract_from_messages = _orig_extract
+
+# ── P2 review fix: an ACTUAL summarize_repo call through conductor.answer() logs a receipt,
+#    and the action-capable turn's system prompt carries the butler persona ─────────────────
+from core import model_router as mr  # noqa: E402
+
+
+class _CapFake:
+    last_finish_reason = None
+
+    def __init__(self, lines):
+        self.lines = list(lines)
+        self.systems = []
+
+    def complete(self, messages, system=None, max_tokens=2000):
+        self.systems.append(system or "")
+        return self.lines.pop(0) if self.lines else "Summarized, sir."
+
+
+_orig_rg = C.tool_read_github
+C.tool_read_github = lambda **kw: {"available": True, "repo": kw.get("repo"), "description": "stub repo"}
+_fake = _CapFake(['{"tool":"summarize_repo","args":{"repo":"octocat/Hello-World"}}', "Here's the summary, sir."])
+_orig_get_llm = mr.get_llm
+mr.get_llm = lambda *a, **k: _fake
+try:
+    C.answer("summarize the github repo octocat/Hello-World for me", chat_id=-7788, surface="mc")
+finally:
+    C.tool_read_github = _orig_rg
+    mr.get_llm = _orig_get_llm
+conn = get_connection()
+rec = conn.execute("SELECT status FROM tobi_actions WHERE tool='summarize_repo' AND chat_id=-7788 ORDER BY id DESC LIMIT 1").fetchone()
+conn.close()
+ok("summarize_repo via conductor.answer() creates a real tobi_actions receipt (P2b end-to-end)",
+   rec is not None and rec[0] == "executed", str(rec))
+ok("the action-capable turn's system prompt anchors the butler persona (P2a)",
+   any(C._BUTLER[:120] in s for s in _fake.systems))
 
 print(f"\n🎉 ALL {PASS} CHECKS PASSED")

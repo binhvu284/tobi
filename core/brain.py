@@ -10,11 +10,12 @@ extraction/chat return a clear message instead of crashing.
 """
 from __future__ import annotations
 
+import os
 import json
 import re
 import logging
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from core.database import (
@@ -534,91 +535,160 @@ def _set_sweep_state(last_id: int) -> None:
     conn.close()
 
 
-_SWEEP_LOCK = threading.Lock()
+# ── per-chat cursors + a DB-backed lease ────────────────────────────────────────────
+# Replaces the single global cursor + in-process lock. A failure in ONE chat can no longer
+# starve every other chat, a poison batch is skipped after a few tries so it can't block its
+# own chat forever, and a crashed sweep's lease is reclaimable after it expires (works across
+# threads AND processes).
+_LEASE_TTL_S = 300       # a sweep that dies leaves a lease reclaimable after this long
+_MAX_CHAT_FAILS = 3      # consecutive head-batch failures before a chat's poison batch is skipped
+
+
+def _ensure_sweep_schema(conn) -> None:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS brain_sweep_cursors ("
+        " chat_id INTEGER PRIMARY KEY, last_id INTEGER NOT NULL DEFAULT 0,"
+        " fail_count INTEGER NOT NULL DEFAULT 0, updated_at TEXT)")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS brain_sweep_lease ("
+        " id INTEGER PRIMARY KEY CHECK (id = 1), holder TEXT, lease_until TEXT)")
+    conn.execute("INSERT OR IGNORE INTO brain_sweep_lease (id, holder, lease_until) VALUES (1, NULL, NULL)")
+    conn.commit()
+
+
+def _acquire_lease(ttl: int = _LEASE_TTL_S) -> bool:
+    """Claim the single sweep lease with an atomic conditional UPDATE. Returns False if a valid
+    lease is already held (caller skips). An expired/crashed lease is reclaimed."""
+    conn = get_connection()
+    try:
+        _ensure_sweep_schema(conn)
+        now = datetime.now(timezone.utc)
+        holder = f"{os.getpid()}:{threading.get_ident()}"
+        cur = conn.execute(
+            "UPDATE brain_sweep_lease SET holder=?, lease_until=? "
+            "WHERE id=1 AND (lease_until IS NULL OR lease_until < ?)",
+            (holder, (now + timedelta(seconds=ttl)).isoformat(), now.isoformat()))
+        conn.commit()
+        return cur.rowcount == 1
+    except Exception:
+        return False
+    finally:
+        conn.close()
+
+
+def _release_lease() -> None:
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE brain_sweep_lease SET holder=NULL, lease_until=NULL WHERE id=1")
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        conn.close()
 
 
 def sweep_once(limit: int = 60) -> dict:
     """Extract durable memories from new conversation messages.
 
-    Serialized by a process lock — chat, Brain, Conductor, the scheduler, and the manual
-    endpoint can all trigger a sweep, and concurrent sweeps would double-extract the same
-    messages and race the cursor. If another sweep is already running this returns a
-    ``skipped_busy`` tally instead of starting a second one.
+    Serialized by a **DB-backed lease** — chat, Brain, Conductor, the scheduler, and the manual
+    endpoint can all trigger a sweep; concurrent sweeps would double-extract and race the
+    cursors. Returns a ``skipped_busy`` tally if a valid lease is already held; a crashed
+    sweep's lease is reclaimed after it expires.
     """
-    if not _SWEEP_LOCK.acquire(blocking=False):
+    if not _acquire_lease():
         return {"processed": 0, "active": 0, "pending": 0, "conflict": 0,
                 "merged": 0, "skipped": 0, "skipped_busy": True}
     try:
         return _sweep_once_locked(limit)
     finally:
-        _SWEEP_LOCK.release()
+        _release_lease()
 
 
 def _sweep_once_locked(limit: int = 60) -> dict:
-    """Per-chat_id sweep (≤15 msgs/session batches). The high-water mark only advances to a
-    point where every message below it was processed — it NEVER crosses a failed batch, so a
-    transient LLM failure is retried next tick instead of being permanently skipped.
+    """Sweep new messages with a **per-chat** cursor: each chat advances only to the point
+    where every message below it was processed, and a chat's failure blocks only that chat —
+    never the others. A batch that keeps failing is skipped after ``_MAX_CHAT_FAILS`` tries so
+    one poison message can't starve its chat forever.
     """
-    last = _sweep_state()
     conn = get_connection()
-    # Fetch unswept messages, grouped by chat_id so each session is extracted separately
-    rows = conn.execute(
-        "SELECT id, chat_id, role, content FROM conversations WHERE id > ? ORDER BY id ASC LIMIT ?",
-        (last, limit),
-    ).fetchall()
-    conn.close()
+    try:
+        _ensure_sweep_schema(conn)
+        floor = _sweep_state()  # legacy global cursor = the starting floor for chats with no cursor yet
+        cursors = {r[0]: (r[1], r[2]) for r in
+                   conn.execute("SELECT chat_id, last_id, fail_count FROM brain_sweep_cursors").fetchall()}
+        rows = conn.execute(
+            "SELECT c.id, c.chat_id, c.role, c.content FROM conversations c "
+            "LEFT JOIN brain_sweep_cursors cur ON cur.chat_id = c.chat_id "
+            "WHERE c.id > COALESCE(cur.last_id, ?) ORDER BY c.chat_id, c.id LIMIT ?",
+            (floor, limit)).fetchall()
+    finally:
+        conn.close()
     if not rows:
-        return {"processed": 0, "active": 0, "pending": 0, "conflict": 0, "merged": 0}
+        return {"processed": 0, "active": 0, "pending": 0, "conflict": 0, "merged": 0, "skipped": 0}
 
-    # Group by chat_id — each group is a coherent conversation
     from collections import OrderedDict
     sessions: OrderedDict[int, list] = OrderedDict()
     for r in rows:
         sessions.setdefault(r["chat_id"], []).append(r)
 
     tally = {"processed": len(rows), "active": 0, "pending": 0, "conflict": 0, "merged": 0, "skipped": 0}
-    max_swept_id = last  # only advance HWM past messages we actually processed
-    first_failed_id: Optional[int] = None  # the earliest failed batch — HWM must not cross it
+    updates: dict[int, tuple[int, int]] = {}  # chat_id -> (new last_id, new fail_count)
 
     for cid, sess_rows in sessions.items():
-        # Process in chunks of 15 to stay within token limits and keep context coherent
+        chat_last, chat_fail = cursors.get(cid, (floor, 0))
+        chat_max = chat_last
+        failed_at: Optional[int] = None   # first id of the failed head batch, if any
+        failed_max: Optional[int] = None  # last id of that batch (for the poison-skip)
         for chunk_start in range(0, len(sess_rows), 15):
             chunk = sess_rows[chunk_start:chunk_start + 15]
             msgs = [{"role": r["role"], "content": r["content"]} for r in chunk]
             chunk_max_id = chunk[-1]["id"]
-
             try:
                 candidates = extract_from_messages(msgs)
             except Exception as e:
                 logger.warning("brain extract failed for chat_id=%s ids %d-%d: %s",
                                cid, chunk[0]["id"], chunk_max_id, e)
                 candidates = None
-
             if candidates is None:
-                # LLM failure — record the gap so the HWM can't advance past it. A single
-                # global cursor + max() would otherwise let a LATER session's success drag
-                # the mark past this failed batch, permanently skipping it.
-                first_failed_id = (chunk[0]["id"] if first_failed_id is None
-                                   else min(first_failed_id, chunk[0]["id"]))
+                # LLM failure — stop advancing THIS chat here; other chats are untouched.
+                failed_at, failed_max = chunk[0]["id"], chunk_max_id
                 logger.info("brain sweep: chat_id=%s ids %d-%d → LLM failure, will retry",
                             cid, chunk[0]["id"], chunk_max_id)
-                continue
-            elif candidates:
+                break
+            if candidates:
                 for c in candidates:
                     res = route_candidate(c["content"], c["category"], c["confidence"], "auto")
                     tally[res["action"]] = tally.get(res["action"], 0) + 1
-                max_swept_id = max(max_swept_id, chunk_max_id)
-            else:
-                # LLM said nothing durable — advance past this chunk
-                logger.debug("brain sweep: chat_id=%s ids %d-%d → 0 facts (nothing durable)",
-                             cid, chunk[0]["id"], chunk_max_id)
-                max_swept_id = max(max_swept_id, chunk_max_id)
+            chat_max = max(chat_max, chunk_max_id)
 
-    # Never advance the cursor across a failed gap: cap it just before the earliest failure so
-    # that batch (and everything after it) is retried next tick rather than skipped forever.
-    if first_failed_id is not None:
-        max_swept_id = min(max_swept_id, first_failed_id - 1)
-    _set_sweep_state(max_swept_id)
+        if failed_at is not None:
+            new_fail = chat_fail + 1
+            if new_fail >= _MAX_CHAT_FAILS:
+                # Poison batch — skip past the whole batch so this chat isn't starved forever.
+                logger.warning("brain sweep: chat_id=%s skipping poison batch ids %d-%d after %d fails",
+                               cid, failed_at, failed_max, new_fail)
+                chat_max = max(chat_max, failed_max or failed_at)
+                new_fail = 0
+                tally["skipped"] += 1
+            else:
+                chat_max = min(chat_max, failed_at - 1)  # never cross the failed batch
+        else:
+            new_fail = 0
+        updates[cid] = (chat_max, new_fail)
+
+    if updates:
+        conn = get_connection()
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            for cid, (last_id, fc) in updates.items():
+                conn.execute(
+                    "INSERT INTO brain_sweep_cursors (chat_id, last_id, fail_count, updated_at) "
+                    "VALUES (?,?,?,?) ON CONFLICT(chat_id) DO UPDATE SET "
+                    "last_id=excluded.last_id, fail_count=excluded.fail_count, updated_at=excluded.updated_at",
+                    (cid, last_id, fc, now))
+            conn.commit()
+        finally:
+            conn.close()
     return tally
 
 
