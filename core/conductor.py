@@ -2124,11 +2124,14 @@ _BUTLER = (
 
 def _read_doc(extra_tools: Optional[list[str]] = None, denied: Optional[set] = None,
               allowed: Optional[set] = None) -> str:
+    """Read tools are ALWAYS advertised — they're safe, non-mutating, and hiding them
+    causes the LLM to hallucinate tool names or fail silently. The route narrows ACT
+    tools, not READ tools."""
     denied = denied or set()
     lines = [f"- {name}: {desc}" for name, (_, desc) in READ_TOOLS.items()
-             if name not in denied and (allowed is None or name in allowed)]
+             if name not in denied]
     for t in (extra_tools or []):
-        if t in OPTIONAL_TOOLS and t not in denied and (allowed is None or t in allowed):
+        if t in OPTIONAL_TOOLS and t not in denied:
             lines.append(f"- {t}: {OPTIONAL_TOOLS[t][1]}")
     return "\n".join(lines)
 
@@ -2902,26 +2905,19 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
                     {"denied": True, "reason": f"{tool} is not available in this mode — shell/terminal "
                      "actions require Agent mode. Tell the owner to switch modes; do not retry."})})
                 continue
-            if allowed_tools is not None and tool not in allowed_tools:
-                # Per-turn route scope is a HINT for focus/speed, not a security boundary — those
-                # are the mode gate (denied_tools) and the risk-tier confirm. A safe, read-only tool
-                # the mode allows is ADMITTED on demand so a regex mis-route can't dead-end a
-                # legitimate read flow (the exact failure behind "can't enter project / read it").
-                if (tool in READ_TOOLS or tool in OPTIONAL_TOOLS) and RISK.get(tool, "read") == "read" \
-                        and tool not in denied_tools:
-                    allowed_tools.add(tool)  # widen for the remainder of this turn
-                else:
-                    # Unknown or act/high-risk out of scope: give the model a way to recover instead
-                    # of surrendering — name the read tools it CAN use. Never surface this to the
-                    # owner as a permission setting; it is internal routing, not something he changes.
-                    available = sorted(t for t in allowed_tools
-                                       if t in READ_TOOLS or t in OPTIONAL_TOOLS)
-                    msgs.append({"role": "user", "content": f"TOOL_RESULT {tool}: " + json.dumps(
-                        {"denied": True, "error_code": "tool.route_denied",
-                         "reason": f"'{tool}' isn't an available tool this turn. Use one of these "
-                                   f"instead: {', '.join(available) or '(none)'}. Do NOT tell the owner "
-                                   f"to change permissions or re-authorize — pick a real tool and continue."})})
-                    continue
+            # Read tools bypass the route-scope gate entirely — they're safe, non-mutating,
+            # and blocking them was the root cause of "list_projects is blocked" / tool.route_denied.
+            # Only ACT tools (mutations) are gated by the route's allowed_tools set.
+            is_read = tool in READ_TOOLS or tool in OPTIONAL_TOOLS
+            if not is_read and allowed_tools is not None and tool not in allowed_tools:
+                available = sorted(t for t in (allowed_tools or set())
+                                   if t in READ_TOOLS or t in OPTIONAL_TOOLS)
+                msgs.append({"role": "user", "content": f"TOOL_RESULT {tool}: " + json.dumps(
+                    {"denied": True, "error_code": "tool.route_denied",
+                     "reason": f"'{tool}' isn't an available tool this turn. Use one of these "
+                               f"instead: {', '.join(available) or '(none)'}. Do NOT tell the owner "
+                               f"to change permissions or re-authorize — pick a real tool and continue."})})
+                continue
             validation_error = _tool_registry.validate_call(
                 call, TOOL_SPECS.get(tool), mode, allowed_tools
             )

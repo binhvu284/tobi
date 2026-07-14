@@ -89,7 +89,9 @@ def validate_call(call: dict, spec: Optional[ToolSpec], mode: str,
         return TurnError("tool.unknown", "tool_validation", "Unknown tool", False)
     if mode not in spec.allowed_modes:
         return TurnError("tool.mode_denied", "permission", f"{spec.name} is not available in {mode} mode", False)
-    if allowed_tools is not None and spec.name not in allowed_tools:
+    # Read tools bypass route scope — they're safe, non-mutating, and blocking them
+    # was the root cause of "list_projects is blocked" and "tool.route_denied" errors.
+    if spec.risk != "read" and allowed_tools is not None and spec.name not in allowed_tools:
         return TurnError("tool.route_denied", "permission", f"{spec.name} is outside this turn's tool scope", False)
     args = call.get("args") or {}
     if not isinstance(args, dict):
