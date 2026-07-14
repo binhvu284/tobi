@@ -33,9 +33,9 @@ The long-term goal is a personal Jarvis: an assistant that understands its owner
 
 - Mission Control has 20 top-level workspace destinations plus dynamic project workspaces.
 - The global header keeps up to five route tabs mounted and restores them from browser storage.
-- Chat sessions use backend-enforced Chat/Agent modes. Runtime v2 routes intent, scopes tools, records typed traces, and persists Agent runs, checkpoints, recovery state, and artifacts around the Conductor.
-- Awakening Tier 1 uses nine evidence-gated abilities rather than a hardcoded completion percentage.
-- The Brain, Graph, Project v2, Office, Terminal, Vault, Integrations, MCP, Explore, Storage, and usage systems are implemented at different maturity levels.
+- Chat sessions use backend-enforced Chat/Agent modes. Runtime v2 routes intent, scopes tools, records typed traces, and persists Agent runs, checkpoints, recovery state, and artifacts around the Conductor. Safe known read tools can recover from an overly narrow route, while mode and action-risk boundaries remain authoritative.
+- Awakening Tier 1 uses nine evidence-gated abilities rather than a hardcoded completion percentage. External-read evidence expires unless a ready connector has a fresh successful test, and Brain sweeps preserve failed extraction batches for retry.
+- The Brain, Graph, Project v2, Office, Terminal, Vault, Integrations, MCP, Explore, Storage, and usage systems are implemented at different maturity levels. Project resources can be inventoried, searched, and read through grounded Conductor tools.
 - SQLite is the primary application store. Project resources are stored on disk beside the database.
 - Hermes receives persona, skills, memory, and model-routing data through one-way sync paths; it is not the sole runtime or source of truth today.
 

@@ -1,5 +1,49 @@
 # Documentation Audit
 
+## Refresh - 2026-07-14
+
+The maintained truth documents were rechecked from the previous broad docs baseline (`7802175`)
+through current `main` commit `5245a25`. Graphify was used as the first navigation map, then treated
+as stale because its stored commit `c39c34a` is 85 commits behind; every material claim below was
+verified against current source, tests, queue state, or Git history.
+
+Delivered changes represented in this refresh:
+
+- Awakening External Read now requires adapter readiness and fresh successful-test evidence, with a
+  24-hour default TTL; Google credentials remain partial until OAuth and a verified read test.
+- Vault credential changes/imports clear stale test proof, and integration endpoints distinguish setup
+  success from verified read access.
+- Brain sweeps now use fair per-chat cursors, owner-token DB leases, persisted deferred failures,
+  bounded exponential retry, malformed-output recovery, and raw-payload cleanup after resolution.
+- Conductor can list, read, and search Project v2 resources; safe known read tools may recover from an
+  overly narrow route without weakening mode or action-risk policy.
+- The Resources UI now uses one upload/link modal, link-card menus, rename/copy/open actions, and
+  explicit deletion confirmation.
+- Chat Runtime no longer materializes an explicit empty allowlist for a direct-route prediction.
+- Queue dependency truth now includes `#18 -> #20 -> #21`, with an explicit no-parallel warning.
+
+Updated current documents:
+
+- `README.md`, `CLAUDE.md`, and `docs/README.md` for the current capability map and snapshot date.
+- `02_CURRENT_STATE.md` for verified Awakening/resource/runtime behavior, current metrics, tests, and queue.
+- `ARCHITECTURE.md` for data flows, connector evidence, Brain sweep state, route scoping, schema count,
+  API size, Graphify staleness, and migration-ledger scope.
+- `MISSION_CONTROL.md` for resource UX/tools, Awakening evidence, Brain recovery, and route behavior.
+- `DEVELOPMENT.md` for the 15-script test inventory, interpreter constraints, and new invariants.
+- `03_ROADMAP.md` for completed #17 protection and the serialized #18/#20/#21 delivery sequence.
+
+Focused local verification during the refresh:
+
+- `tests/test_awakening.py`: `73/73` passed.
+- `tests/test_resource_access.py`: `14/14` passed.
+- `tests/test_chat_runtime.py`: `8/8` passed after running from the repository root expected by the test.
+- `tests/test_awakening_route.py`: not rerun because the available Python 3.12 bundle lacks FastAPI and
+  the repository venv points to a removed Python 3.11 Windows Store interpreter; the suite and route
+  implementation were inspected instead.
+
+Scope remained documentation-only. No Python/TypeScript behavior, database, runtime data, persona,
+skills, external integration, Supabase, Vercel, feature-plan body, archive file, or generated asset was changed.
+
 ## Refresh - 2026-07-13
 
 The maintained truth documents were rechecked through commit `2f4ad68` plus the current reviewed
@@ -101,7 +145,11 @@ Short redirect files remain at commonly referenced legacy paths where removing t
 - `.tobi/`, `.hermes/`, database files, project resources, logs, generated Graphify output, and built application assets remain unchanged.
 - The in-app `/architecture` page remains unchanged because it is TypeScript code and this task is docs-only.
 
-## Important Findings Not Implemented Here
+## Historical Findings From 2026-07-11
+
+The following list is preserved as the original point-in-time audit. Items 2 and 4 were subsequently
+superseded by the evidence-based Awakening and backend Chat/Agent mode work; line/route/test counts
+also changed. Use the refresh sections above and current-state docs for present truth.
 
 1. The in-app Architecture page contains stale Codespaces/MMO-focused descriptions and should later consume a maintained architecture data source.
 2. Evolution's ability definitions and detector are stale; its completion percentage is not reliable.

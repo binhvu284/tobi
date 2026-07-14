@@ -4,7 +4,7 @@ This roadmap uses evidence and dependency order rather than a single Jarvis perc
 
 ## Current Baseline
 
-The platform already has persistent memory, backend-enforced Chat/Agent modes, grounded tools, persisted Agent runs and recovery, Deep Research, real project/task operations, a full-machine terminal, configurable model routing, Premium readers, Awakening evidence, integrations, MCP/A2A, Performance Doctor, a broad Mission Control UI, scheduled jobs, and Telegram access.
+The platform already has persistent memory, backend-enforced Chat/Agent modes, grounded tools, persisted Agent runs and recovery, Deep Research, direct project-resource inventory/read/search, real project/task operations, a full-machine terminal, configurable model routing, Premium readers, fully re-verified Awakening evidence, integrations, MCP/A2A, Performance Doctor, a broad Mission Control UI, scheduled jobs, and Telegram access.
 
 The next phase should turn those systems into one coherent and defensible assistant rather than adding disconnected surfaces.
 
@@ -13,10 +13,11 @@ The next phase should turn those systems into one coherent and defensible assist
 ```mermaid
 flowchart LR
   A[Finish Theme v2 owner review] --> B[Office V3 owner visual acceptance]
-  C[Accept #17 review follow-up] --> D[Stabilize Chat Runtime v2]
-  D --> E[Controlled coding agent - queue 18]
-  D --> F[Security and API hardening]
-  C --> G[Design evidence contracts for later tiers]
+  C[Protect completed #17 evidence] --> D[Stabilize current Chat Runtime]
+  D --> E[#18 Controlled coding agent]
+  E --> F[#20 Brain Context and Architecture V2]
+  F --> G[#21 Mission Control Infrastructure V2]
+  G --> H[Later tiers, browser, and broader autonomy]
 ```
 
 ### 1. Close active UI work
@@ -29,13 +30,21 @@ Queue #16 is delivered: Chat/Agent is a backend capability contract, Terminal is
 
 Do not build a second execution system for queue #18; consume these runtime, tool, approval, trace, and recovery contracts.
 
-### 3. Accept and protect Awakening (#17)
+### 3. Protect completed Awakening (#17)
 
-Tier 1 is delivered with nine evidence-backed abilities. Preserve the hardened gates: usable connector state, successful workflow receipts, reviewed sensitive memory, serialized failure-safe Brain sweeps, and shared persona evidence. Accept the follow-up before queue #18 starts, then reuse the same evidence-contract pattern for later tiers.
+Tier 1 is fully re-verified with nine evidence-backed abilities. Preserve the hardened gates: adapter readiness plus fresh successful connector tests, Google OAuth before verified read access, successful workflow receipts, reviewed sensitive memory, fair per-chat sweep cursors, owner-token DB leases, durable deferred retries, and shared persona evidence. Reuse this evidence-contract pattern for later tiers.
 
 ### 4. Accept Office V3 (#15)
 
 Office V3 v1 is delivered as a flagged replacement that reuses mission APIs, SSE, Phaser, and Conductor confirmation. Complete owner visual acceptance across desktop/mobile/theme modes before removing the legacy fallback. Future Office work should link Project resources rather than adding an Office upload system.
+
+### 5. Execute the queued Agent -> Brain -> MC sequence
+
+1. **#18 TOBI Coding Agent:** deliver the controlled self-development workflow and establish the coding-worker contracts.
+2. **#20 Brain Context & Architecture V2:** build typed, quality-gated owner context and repository-backed Architecture after #18 is accepted.
+3. **#21 Mission Control Infrastructure V2:** reconcile #18/#20, then make MC the authoritative durable runtime, policy, tool, context, trace, and shared-state control plane.
+
+Do not implement these three items in parallel. #20 consumes and changes owner-context contracts used by #18, while #21 intentionally consolidates both into shared runtime ownership.
 
 ## Platform Hardening Track
 
@@ -61,7 +70,10 @@ These tasks are not represented well by a visual feature queue but are required 
 
 | Pair | Parallel safety |
 |---|---|
-| Chat Runtime v2 + #18 coding agent | Sequential unless #18 only consumes stable runtime contracts; both touch tools, approvals, runs, terminal, and traces |
+| Chat Runtime stabilization + #18 coding agent | Sequential unless #18 only consumes stable runtime contracts; both touch tools, approvals, runs, terminal, and traces |
+| #18 coding agent + #20 Brain/Architecture V2 | Sequential by queue contract; both touch Agent context, repository understanding, artifacts, and Architecture |
+| #20 Brain/Architecture V2 + #21 MC Infrastructure V2 | Strictly sequential; #21 must reconcile and consume #20's context contracts rather than inventing another memory layer |
+| Any of #18/#20/#21 in parallel | Unsafe; shared ownership includes Chat/Agent, Conductor, tools, Brain, Hermes, policy, migrations, traces, and MC frontend state |
 | #15 Office V3 + Chat runtime work | Possible with strict Office/frontend ownership and no shared mission/runtime API rewrite |
 | Theme v2 owner review + shared Chat/Office UI | High collision risk in tokens, shell, and shared components; assign file ownership |
 | Any feature + `api/dashboard.py` decomposition | Unsafe unless domain files and endpoint compatibility are locked first |

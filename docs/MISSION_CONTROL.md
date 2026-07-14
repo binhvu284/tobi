@@ -1,6 +1,6 @@
 # Mission Control
 
-> Current product and implementation reference for the web cockpit as of 2026-07-13. The old June master specification is preserved in `archive/specifications/` and is not current architecture.
+> Current product and implementation reference for the web cockpit as of 2026-07-14 through commit `5245a25`. The old June master specification is preserved in `archive/specifications/` and is not current architecture.
 
 ## Purpose
 
@@ -123,6 +123,8 @@ The primary selector exposes:
 
 Legacy `terminal`, `research`, and `project` values are normalized to Agent or Chat-compatible behavior. Mode, capabilities, context, steps, tools, run ID, artifact IDs, and runtime turn ID are stored in message metadata. The `chat.mode_v2` and `chat_runtime_v2` owner settings provide rollback controls.
 
+Runtime route scopes narrow the usual tool set for speed. They are not permission grants: a known read-only tool can be admitted if the classifier routed too narrowly, while unknown or acting tools remain route-denied and mode/risk/approval policy stays server-authoritative. A direct-route prediction no longer creates an explicit empty allowlist at the Chat gateway.
+
 ### Agent run history
 
 - `agent_runs` stores each Agent turn and its status.
@@ -141,6 +143,14 @@ The composer exposes review behavior for actions:
 
 This UI setting does not bypass terminal hard-deny rules or the terminal kill-switch. Terminal execution independently applies its approval mode and command risk.
 
+### Awakening evidence and Brain sweeps
+
+- External Read is `active` only when GitHub, Notion, or Google is adapter-ready and has fresh successful-test metadata. The default evidence lifetime is 24 hours (`AWAKENING_CONNECTOR_TTL_HOURS`).
+- Google client credentials are setup only; Google remains partial until OAuth succeeds and a read test verifies access.
+- Saving, rotating, or importing a credential resets stale test evidence unless that same flow verifies the connector.
+- Brain conversation sweeps use fair per-chat cursors and an owner-token database lease so Chat, Brain, Conductor, scheduler, and manual triggers cannot double-process one sweep.
+- Failed or malformed extraction batches are persisted for bounded exponential retry. Other chats continue, and resolved retries clear the duplicate raw payload.
+
 ## Project v2 Workspace
 
 One project route remains mounted while the owner moves among inner tabs:
@@ -150,10 +160,10 @@ One project route remains mounted while the owner moves among inner tabs:
 | Overview | Editable description, project metrics, active tasks, resources, goals, activity summary |
 | Tasks | Grouped/sortable task list, task drawer, scheduling, estimates, subtasks, dependencies, assignee state |
 | Goals | Goal metrics, filters, hierarchy/progress, linked-task rollups |
-| Resources | Folders, upload, URL ingestion, tags, previews, raw/download/open actions |
+| Resources | Folders, unified upload/link modal, tags, grid/list views, previews, raw/download/open actions, link-card menus, rename, copy-link, and confirmed deletion |
 | Activity | Project audit/history feed |
 
-Project resources can be files or links. The backend performs safe path handling, content extraction, chunking/RAG, Storage accounting, and Graph synchronization.
+Project resources can be files or links. The backend performs safe path handling, content extraction, chunking/RAG, Storage accounting, and Graph synchronization. Conductor can list the contents of one project's Resources drive, read extracted text by fuzzy name or resource ID, and search the chunks. Resource text is marked as untrusted data, and binary resources return metadata plus an honest no-text note.
 
 The older `docs/PROJECT_MODULE_SPEC.md` assumptions are not current; its preserved original is in the archive. The Project v2 queue entry and code are the relevant implementation record.
 
@@ -213,7 +223,7 @@ Sensitive vault/MCP management calls use `X-Vault-Session`. The broader MC API d
 2. Tier 1 uses real Awakening evidence, but later Evolution tiers still rely on legacy definitions.
 3. `/ability` combines curated DB abilities, repository Hermes skills, and an Awakening mirror without one unified runtime ownership model.
 4. Runtime v2 and legacy Conductor paths coexist behind rollback flags; changes must preserve both contracts until rollout completes.
-5. Several integration and health labels remain configuration-dependent and must not be treated as successful without usable/authorized evidence.
+5. Awakening now requires fresh verified connector evidence, but several other integration and health labels remain configuration-dependent and must not be treated as successful without usable/authorized evidence.
 
 These are documented rather than fixed here because this refactor is docs-only.
 

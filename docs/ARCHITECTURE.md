@@ -1,6 +1,6 @@
 # TOBI Architecture
 
-> Current architecture snapshot: 2026-07-13 through commit `2f4ad68` plus reviewed working-tree follow-ups. Code and tests remain authoritative. Configuration-dependent external services were not called during this audit.
+> Current architecture snapshot: 2026-07-14 through commit `5245a25`. Code and tests remain authoritative. Configuration-dependent external services were not called during this audit.
 
 ## System Context
 
@@ -73,19 +73,19 @@ The scheduler currently registers daily reports, six-hour execution, two-minute 
 | Subsystem | Primary files | Responsibility | Current notes |
 |---|---|---|---|
 | Process orchestration | `main.py` | Startup, services, Telegram, scheduled jobs, CLI commands | One process coordinates several threads and async loops |
-| Mission Control API | `api/dashboard.py` | UI APIs, SSE, static React host, MCP mount | About 6,400 lines and 253 route handlers; largest change-collision point |
+| Mission Control API | `api/dashboard.py` | UI APIs, SSE, static React host, MCP mount | 6,536 lines and 259 route handlers; largest change-collision point |
 | External/legacy API | `api/server.py` | Small API-key-protected project/task/revenue API | Separate contract and default-key risk |
-| Conductor | `core/conductor.py` | Conversation routing, grounded tool loop, permissions, confirmations, action log | Shared by MC Chat and significant Telegram paths |
-| Chat mode/runtime | `core/chat_modes.py`, `chat_runtime.py`, `chat_runtime_contracts.py`, `chat_tool_registry.py` | Normalization, capability boundaries, intent routing, typed tools, telemetry, recovery contracts | Runtime v2 is flag-controlled; Chat denies terminal tools server-side, Agent enables execution |
+| Conductor | `core/conductor.py` | Conversation routing, grounded tool loop, permissions, confirmations, action log | Shared by MC Chat and significant Telegram paths; now exposes direct project-resource inventory/read/search and safe-read route widening |
+| Chat mode/runtime | `core/chat_modes.py`, `chat_runtime.py`, `chat_runtime_contracts.py`, `tool_registry.py` | Normalization, capability boundaries, intent routing, typed tools, telemetry, recovery contracts | Runtime v2 is flag-controlled; route scopes focus tool choice, while mode denial and risk policy remain authoritative |
 | Agent runs/artifacts | `core/agent_runs.py`, `core/chat_store.py` | Persisted runs, checkpoints, recovery commands, action links, artifacts, message metadata | Exact action checkpoints and elapsed time survive reload; run commands resume the original run |
 | Deep Research/network guard | `core/deep_research.py`, `core/net_guard.py` | Research planning, source fetch/synthesis, source fencing, SSRF protection | Per-turn capability, not a main Chat mode |
 | Model router | `core/model_router.py` | Provider catalog, fallback, streaming, vision, usage logging | Nine provider types/config entries including local/custom |
 | Chat persistence | `core/chat_store.py` | Sessions, messages, forking, compaction, and cross-session message search | Premium Chat and bridged conversation history can be searched for episodic recall |
 | Attachments/readers | `core/attachments.py`, `premium_readers.py`, `youtube_reader.py`, `model_capabilities.py` | Text/PDF extraction, YouTube transcript context, image routing, capability checks | Context caps, up to four images, two YouTube URLs, optional transcript dependency, rollback flag |
-| Brain | `core/brain.py`, `core/embeddings.py` | Durable owner memory, retrieval, review, conflict/version handling | Fastembed optional; keyword fallback |
-| Awakening | `core/awakening.py` | Nine evidence-gated Tier-1 abilities and setup/evidence output | Uses active Brain memories, connector readiness, tool contracts, and successful workflow receipts |
+| Brain | `core/brain.py`, `core/embeddings.py` | Durable owner memory, retrieval, review, conflict/version handling | Fastembed optional; keyword fallback; sweeps use per-chat cursors, an owner-bound DB lease, and durable deferred retries |
+| Awakening | `core/awakening.py` | Nine evidence-gated Tier-1 abilities and setup/evidence output | Uses active Brain memories, fresh connector-test evidence, tool contracts, and successful workflow receipts |
 | Knowledge graph | `core/graph_engine.py` | Graph sync, edges, search, retrieval, communities, layout | Includes internal records and supported external mirrors |
-| Project management | `core/database.py`, `core/pm_resources.py`, `core/pm_reminders.py` | Project v2 data, files/links, extraction/RAG, reminders | Coexists with legacy business project tables |
+| Project management | `core/database.py`, `core/pm_resources.py`, `core/pm_reminders.py` | Project v2 data, files/links, extraction/RAG, reminders | Coexists with legacy business project tables; resource inventory/read/search is available to Conductor |
 | Terminal | `core/terminal_engine.py` | Risk classification, approval modes, command execution, jobs, package/tool registry | Full-machine shell with hard denylist and kill-switch |
 | Vault | `core/vault.py` | Encrypted secrets, profiles, sessions, auto-unlock, audit | Sensitive API operations use a vault-session header |
 | Integrations | `core/integrations.py`, `core/integrations_registry.py` | Notion, GitHub, Google, Vercel, Supabase capability checks and adapters | Connection state is configuration-dependent |
@@ -156,6 +156,8 @@ sequenceDiagram
 
 Current turn options include Chat/Agent mode, Deep Research, attachments, premium-reader context, web search, review policy, connectors, and automatic project context. Mode is a backend contract: Chat cannot invoke terminal tools, while Agent owns tool and terminal execution. Legacy mode values are normalized for saved-conversation compatibility. Agent runs persist steps and recovery state; completed process traces are expandable after reload.
 
+Runtime route scopes are optimization hints, not security permissions. A known read-only tool may be admitted during a turn when deterministic routing was too narrow; unknown or acting tools remain denied outside the route scope, and Chat mode/terminal denial plus action-risk approval are still enforced server-side. The Chat gateway no longer turns a direct-route empty prediction into an explicit empty allowlist.
+
 ### Conductor Action
 
 1. The model selects a registered tool and arguments.
@@ -174,18 +176,20 @@ Current turn options include Chat/Agent mode, Deep Research, attachments, premiu
 4. Embeddings use fastembed when available, with keyword fallback.
 5. Resource chunks support project search and Conductor grounding.
 6. Resource records are synchronized into the knowledge graph and Storage accounting.
+7. Conductor can list a project's resource inventory, read one extracted-text resource by fuzzy name or ID, or search resource chunks. Returned resource text is explicitly marked untrusted; binary resources return metadata rather than fabricated text.
 
 ### Integration Secret
 
 1. The owner unlocks the Genesis vault in Mission Control.
 2. Secrets are encrypted at rest by `core/vault.py` and selected values are injected into process environment memory.
-3. `integrations_registry` maps credentials to adapters and capability state.
-4. Connection tests call adapter methods when explicitly requested.
-5. List/status APIs return metadata, not secret values. Reveal requires the stronger vault flow.
+3. `integrations_registry` maps credentials to adapters and distinguishes setup success from verified read access.
+4. Explicit connection tests write `test_status` and `last_tested_at`; credential rotation or import resets stale proof to `untested`.
+5. Awakening counts External Read only when the adapter is ready and the successful-test evidence is fresh (24-hour default). Google also requires completed OAuth.
+6. List/status APIs return metadata, not secret values. Reveal requires the stronger vault flow.
 
 ## Persistence Model
 
-Static inspection finds 70 table names created across the central schema and feature-local initializers. They fall into these ownership families:
+Static inspection finds 86 plausible table names created across the central schema and feature-local initializers. They fall into these ownership families:
 
 | Family | Representative tables |
 |---|---|
@@ -193,14 +197,14 @@ Static inspection finds 70 table names created across the central schema and fea
 | Task workflow | `task_activity`, `task_owner_inputs` |
 | Ability/Office | `skills`, `skill_metrics`, `skill_versions`, `skill_proposals`, `agents`, `missions`, `mission_steps`, `workflows`, `office_artifacts`, `office_activity`, `office_pending_payloads` |
 | Project v2 | `pm_projects`, `pm_goals`, `pm_resources`, `pm_resource_chunks`, `pm_folders`, `pm_task_deps`, `pm_goal_tasks`, `pm_activity` |
-| Brain/Graph | `brain_*`, `graph_*` |
+| Brain/Graph | `brain_*`, including `brain_sweep_cursors`, `brain_sweep_lease`, and `brain_sweep_failures`; `graph_*` |
 | Chat/actions/terminal | `chat_sessions`, `chat_messages`, `chat_artifacts`, `chat_turns`, `chat_turn_events`, `agent_runs`, `agent_run_steps`, `agent_run_actions`, `tobi_actions`, `terminal_jobs`, `installed_tools` |
 | Vault/integrations | `vault_*`, `owner_settings` |
 | MCP/A2A | `mcp_*`, `a2a_agents` |
 | Explore/analytics | `explore_*`, `storage_snapshots`, `llm_usage`, `llm_prices`, `llm_plans`, `usage_budget` |
 | Evolution/performance | `evolution_snapshots`, `performance_snapshots` |
 
-Schema initialization is additive. `core/database.py` creates the main families; several feature modules create their own tables lazily. There is no explicit migration-version ledger.
+Schema initialization is additive. `core/database.py` creates the main families; several feature modules create their own tables lazily. Chat Runtime records its own versions in `schema_migrations`, but there is no repository-wide migration authority covering every subsystem.
 
 ## Provider and Integration Boundaries
 
@@ -255,7 +259,7 @@ Material limitations:
 5. Ability metadata, repository skills, and Hermes skills do not have one proven source of truth.
 6. Hermes integration is distributed across startup, Brain, and model routing.
 7. The dashboard and external API have different security models and overlapping concepts.
-8. Focused tests now cover critical Chat, security, Awakening, terminal, storage, readers, and performance paths, but broad browser/integration coverage remains limited.
-9. The generated Graphify indexes predate some recent code and must be refreshed before using exact graph claims.
+8. Fifteen focused scripts now cover critical Chat, security, Awakening, project-resource, Office, terminal, storage, readers, and performance paths, but broad browser/integration coverage remains limited.
+9. The generated Graphify index is 85 commits behind this snapshot and must be refreshed before using exact graph claims.
 
 These are current facts, not instructions to refactor them during unrelated feature work. Preserve endpoint and data compatibility unless a dedicated migration plan explicitly owns the change.
