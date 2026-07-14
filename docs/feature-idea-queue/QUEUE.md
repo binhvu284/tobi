@@ -3,6 +3,8 @@
 Delivery ledger and future feature queue. Each entry links to its original requirements or worker plan.
 Use the status column and delivery notes for implementation state; preserve old plans as design history.
 
+> Gate update (2026-07-14): #17 reached 9/9 owner-runtime acceptance through a verified GitHub read, Evolution advanced to Agent, and #18's start prerequisite is now satisfied. Connector health remains evidence-gated and subject to the 24-hour freshness rule.
+
 | # | Feature | Status | Spec | Notes |
 |---|---------|--------|------|-------|
 | 1 | **Brain** — long-term owner memory (auto-learn + import, psychology profile) | ✅ Done (v1+v2) | [BRAIN_SPEC.md](BRAIN_SPEC.md) | v1: Brain + Chat pages, vault, import/dedup/review, chat wired to memory. v2 shipped: Telegram auto-learn + `/brain` `/remember`, one-way Hermes mirror, confidence-decay automation, SSE streaming chat, task-level memory-first consultation (research/execute/CEO). Semantic search needs `pip install fastembed` (else keyword fallback). |

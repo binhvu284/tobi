@@ -32,7 +32,7 @@ Do not build a second execution system for queue #18; consume these runtime, too
 
 ### 3. Protect completed Awakening (#17)
 
-Tier 1 is fully re-verified with nine evidence-backed abilities. Preserve the hardened gates: adapter readiness plus fresh successful connector tests, Google OAuth before verified read access, successful workflow receipts, reviewed sensitive memory, fair per-chat sweep cursors, owner-token DB leases, durable deferred retries, and shared persona evidence. Reuse this evidence-contract pattern for later tiers.
+Tier 1 is fully re-verified with nine evidence-backed abilities. Owner-runtime acceptance reached 9/9 on 2026-07-14 through a successful GitHub read verification, Evolution advanced to Agent, and the #18 prerequisite is open. Preserve the hardened gates: adapter readiness plus fresh successful connector tests, Google OAuth before verified read access, successful workflow receipts, reviewed sensitive memory, fair per-chat sweep cursors, owner-token DB leases, durable deferred retries, and shared persona evidence. Reuse this evidence-contract pattern for later tiers.
 
 ### 4. Accept Office V3 (#15)
 

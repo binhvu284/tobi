@@ -66,7 +66,7 @@ The largest truth gaps are no longer "nothing is built." Chat/Agent mode policy,
 - #1 through #12 are recorded as delivered, although several have known follow-ups.
 - #13 Theme v2 is in owner-review/in-progress state.
 - #14 Premium Ability is delivered at v1, including the follow-up vision-model borrowing and Ability reorganization.
-- #16 Chat Mode Backend Upgrade is delivered and #17 Awakening Tier 1 Completion is fully re-verified; #19 Performance "System Doctor" is delivered (v1).
+- #16 Chat Mode Backend Upgrade is delivered. #17 Awakening Tier 1 Completion reached owner-runtime acceptance at 9/9 on 2026-07-14 through a successful GitHub read verification, advancing Evolution to the Agent tier; connector health still follows the 24-hour evidence-freshness rule. #19 Performance "System Doctor" is delivered (v1).
 - #15 Office V3 is delivered at v1 with owner visual acceptance still open.
 - #18 TOBI Coding Agent is queued. #20 Brain Context & Architecture V2 follows #18, and #21 Mission Control Infrastructure V2 follows #20. These three items must not be implemented in parallel because they share runtime, Brain/context, tools, Hermes, policy, data, and UI ownership.
 - Original plans remain under `feature-idea-queue/`; they are requirements history, not proof of current behavior.
