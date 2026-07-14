@@ -5,7 +5,7 @@ import {
   Search, ChevronRight, ChevronLeft, Home, Loader2, ExternalLink, Tag, Info,
   FileText, FileSpreadsheet, Presentation, FileImage, FileVideo, FileAudio,
   FileArchive, FileCode2, File as FileIcon, Youtube, Github, Globe2, HardDrive,
-  Download, Pencil,
+  Download, Pencil, MoreVertical, Copy, Plus,
 } from 'lucide-react'
 import {
   pmListResources, pmUploadResource, pmAddResourceLink, pmPatchResource,
@@ -56,6 +56,7 @@ export default function ResourcesTab({ projectId, onChanged }: { projectId: numb
   const [dragOver, setDragOver] = useState(false)
   const [uploading, setUploading] = useState(0)
   const [linkOpen, setLinkOpen] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
   const [folderOpen, setFolderOpen] = useState(false)
   const [folderToRename, setFolderToRename] = useState<PMFolder | null>(null)
   const [folderToDelete, setFolderToDelete] = useState<PMFolder | null>(null)
@@ -163,19 +164,15 @@ export default function ResourcesTab({ projectId, onChanged }: { projectId: numb
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search files, links, #tags…"
               className="w-full rounded-lg border border-border bg-panel py-1.5 pl-8 pr-3 text-sm text-text outline-none focus:border-accent" />
           </div>
-          <button onClick={() => fileRef.current?.click()}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-accent/90">
-            {uploading > 0 ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />} Upload
-          </button>
           <input ref={fileRef} type="file" multiple className="hidden"
             onChange={e => { if (e.target.files?.length) uploadFiles(e.target.files); e.target.value = '' }} />
-          <button onClick={() => setLinkOpen(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[12px] text-muted transition-colors hover:border-accent/40 hover:text-accent">
-            <Link2 size={13} /> Add link
-          </button>
           <button onClick={() => setFolderOpen(true)}
             className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[12px] text-muted transition-colors hover:border-accent/40 hover:text-accent">
             <FolderPlus size={13} /> Folder
+          </button>
+          <button onClick={() => setAddOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-accent/90">
+            {uploading > 0 ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />} Add Resource
           </button>
           <div className="flex overflow-hidden rounded-lg border border-border">
             <button onClick={() => setViewPref('grid')} className={`p-1.5 ${view === 'grid' ? 'bg-accent/15 text-accent' : 'text-muted hover:text-text'}`}><LayoutGrid size={14} /></button>
@@ -246,17 +243,21 @@ export default function ResourcesTab({ projectId, onChanged }: { projectId: numb
                     <div key={r.id} draggable onDragStart={e => e.dataTransfer.setData('resource-id', String(r.id))}
                       onClick={() => setPreviewId(r.id)}
                       className={`group relative cursor-pointer rounded-xl border bg-panel p-3 transition-colors ${previewId === r.id ? 'border-accent/50' : 'border-border hover:border-accent/40'}`}>
-                      {/* Hover actions */}
-                      <div className="absolute right-2 top-2 z-20 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                        <button onClick={e => { e.stopPropagation(); setResourceToRename(r) }} title="Rename"
-                          className="rounded-md bg-black/50 p-1 text-white/70 backdrop-blur-sm transition-colors hover:bg-black/70 hover:text-white">
-                          <Pencil size={11} />
-                        </button>
-                        <button onClick={e => { e.stopPropagation(); removeResource(r) }} title="Delete"
-                          className="rounded-md bg-black/50 p-1 text-white/70 backdrop-blur-sm transition-colors hover:bg-red-500/80 hover:text-white">
-                          <Trash2 size={11} />
-                        </button>
-                      </div>
+                      {/* Hover actions — 3-dot menu for links, inline for files */}
+                      {r.kind === 'link' ? (
+                        <CardMenu resource={r} onRename={() => setResourceToRename(r)} onDelete={() => removeResource(r)} />
+                      ) : (
+                        <div className="absolute right-2 top-2 z-20 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                          <button onClick={e => { e.stopPropagation(); setResourceToRename(r) }} title="Rename"
+                            className="rounded-md bg-black/50 p-1 text-white/70 backdrop-blur-sm transition-colors hover:bg-black/70 hover:text-white">
+                            <Pencil size={11} />
+                          </button>
+                          <button onClick={e => { e.stopPropagation(); removeResource(r) }} title="Delete"
+                            className="rounded-md bg-black/50 p-1 text-white/70 backdrop-blur-sm transition-colors hover:bg-red-500/80 hover:text-white">
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      )}
                       {ytThumb ? (
                         <div className="relative mb-2 overflow-hidden rounded-lg bg-black/40" style={{ aspectRatio: '16 / 9' }}>
                           <img src={`https://i.ytimg.com/vi/${ytThumb}/mqdefault.jpg`} alt="" loading="lazy"
@@ -301,10 +302,16 @@ export default function ResourcesTab({ projectId, onChanged }: { projectId: numb
                       ))}
                       <span className="w-16 shrink-0 text-right text-[11px] text-muted">{r.kind === 'file' ? fmtBytes(r.size_bytes) : r.source}</span>
                       <span className="w-16 shrink-0 text-right text-[11px] text-muted">{fmtAgo(r.created_at)}</span>
-                      <button onClick={e => { e.stopPropagation(); setResourceToRename(r) }} title="Rename"
-                        className="shrink-0 text-muted opacity-0 transition-opacity hover:text-text group-hover:opacity-100"><Pencil size={13} /></button>
-                      <button onClick={e => { e.stopPropagation(); removeResource(r) }}
-                        className="shrink-0 text-muted opacity-0 transition-opacity hover:text-danger group-hover:opacity-100"><Trash2 size={13} /></button>
+                      {r.kind === 'link' ? (
+                        <ListCardMenu resource={r} onRename={() => setResourceToRename(r)} onDelete={() => removeResource(r)} />
+                      ) : (
+                        <>
+                          <button onClick={e => { e.stopPropagation(); setResourceToRename(r) }} title="Rename"
+                            className="shrink-0 text-muted opacity-0 transition-opacity hover:text-text group-hover:opacity-100"><Pencil size={13} /></button>
+                          <button onClick={e => { e.stopPropagation(); removeResource(r) }}
+                            className="shrink-0 text-muted opacity-0 transition-opacity hover:text-danger group-hover:opacity-100"><Trash2 size={13} /></button>
+                        </>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -328,13 +335,14 @@ export default function ResourcesTab({ projectId, onChanged }: { projectId: numb
         )}
       </AnimatePresence>
 
-      {/* Add-link modal (D41/D42) */}
+      {/* Add Resource modal (upload + link combined) */}
       <AnimatePresence>
-        {linkOpen && (
-          <AddLinkModal onClose={() => { setLinkOpen(false); load(); onChanged() }}
-            onAdd={async (url) => {
-              await pmAddResourceLink(projectId, url, undefined, folderId)
-            }} />
+        {addOpen && (
+          <AddResourceModal
+            onClose={() => { setAddOpen(false); load(); onChanged() }}
+            onUpload={files => uploadFiles(files)}
+            onAddLink={async url => { await pmAddResourceLink(projectId, url, undefined, folderId) }}
+          />
         )}
       </AnimatePresence>
 
@@ -831,6 +839,222 @@ function AddLinkModal({ onClose, onAdd }: { onClose: () => void; onAdd: (url: st
             {count > 1 ? `Add ${count} links` : 'Add link'}
           </button>
         </div>
+      </motion.div>
+    </div>
+  )
+}
+
+// ── 3-dot card menu (for link-type resources) ────────────────────────────────
+function CardMenu({ resource, onRename, onDelete }: {
+  resource: PMResource; onRename: () => void; onDelete: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const { toast } = useToast()
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  const copyLink = () => {
+    navigator.clipboard?.writeText(resource.url || '').then(() => toast({ kind: 'success', title: 'Link copied' })).catch(() => {})
+    setOpen(false)
+  }
+
+  return (
+    <div className="absolute right-2 top-2 z-30" ref={ref}>
+      <button onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
+        className="rounded-md bg-black/50 p-1 text-white/70 backdrop-blur-sm transition-colors hover:bg-black/70 hover:text-white">
+        <MoreVertical size={14} />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div initial={{ opacity: 0, scale: 0.95, y: -4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.12 }}
+            className="absolute right-0 top-full mt-1 w-40 overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-2xl backdrop-blur-xl">
+            <button onClick={e => { e.stopPropagation(); copyLink() }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-text hover:bg-bg/60">
+              <Copy size={13} className="text-muted" /> Copy link
+            </button>
+            <button onClick={e => { e.stopPropagation(); setOpen(false); onRename() }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-text hover:bg-bg/60">
+              <Pencil size={13} className="text-muted" /> Rename
+            </button>
+            <button onClick={e => { e.stopPropagation(); setOpen(false); onDelete() }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-danger hover:bg-danger/10">
+              <Trash2 size={13} /> Delete
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+function ListCardMenu({ resource, onRename, onDelete }: {
+  resource: PMResource; onRename: () => void; onDelete: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const { toast } = useToast()
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  const copyLink = () => {
+    navigator.clipboard?.writeText(resource.url || '').then(() => toast({ kind: 'success', title: 'Link copied' })).catch(() => {})
+    setOpen(false)
+  }
+
+  return (
+    <div className="relative shrink-0" ref={ref}>
+      <button onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
+        className="text-muted opacity-0 transition-opacity hover:text-text group-hover:opacity-100">
+        <MoreVertical size={14} />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div initial={{ opacity: 0, scale: 0.95, y: -4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.12 }}
+            className="absolute right-0 top-full z-50 mt-1 w-40 overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-2xl backdrop-blur-xl">
+            <button onClick={e => { e.stopPropagation(); copyLink() }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-text hover:bg-bg/60">
+              <Copy size={13} className="text-muted" /> Copy link
+            </button>
+            <button onClick={e => { e.stopPropagation(); setOpen(false); onRename() }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-text hover:bg-bg/60">
+              <Pencil size={13} className="text-muted" /> Rename
+            </button>
+            <button onClick={e => { e.stopPropagation(); setOpen(false); onDelete() }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-danger hover:bg-danger/10">
+              <Trash2 size={13} /> Delete
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+// ── Add Resource modal (upload + link combined) ──────────────────────────────
+function AddResourceModal({ onClose, onUpload, onAddLink }: {
+  onClose: () => void
+  onUpload: (files: FileList | File[]) => Promise<void>
+  onAddLink: (url: string) => Promise<void>
+}) {
+  const [tab, setTab] = useState<'upload' | 'link'>('upload')
+  const [dragOver, setDragOver] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [raw, setRaw] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState<{ done: number; total: number; failed: number } | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const urls = raw.split('\n').map(s => s.trim()).filter(s => s.startsWith('http'))
+  const count = urls.length
+
+  async function doUpload(files: FileList | File[]) {
+    setUploading(true)
+    try { await onUpload(files) } finally { setUploading(false) }
+    onClose()
+  }
+
+  async function submitLinks() {
+    if (!count || busy) return
+    setBusy(true)
+    setProgress({ done: 0, total: count, failed: 0 })
+    let done = 0, failed = 0
+    for (const u of urls) {
+      try { await onAddLink(u) } catch { failed++ }
+      done++; setProgress({ done, total: count, failed })
+    }
+    setBusy(false)
+    if (failed === 0) onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={() => (uploading || busy) ? undefined : onClose}>
+      <motion.div initial={{ opacity: 0, scale: 0.95, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
+        onClick={e => e.stopPropagation()} className="w-full max-w-md rounded-2xl border border-border bg-surface p-5 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm font-semibold text-heading"><Plus size={15} className="text-accent" /> Add Resource</div>
+          <button onClick={onClose} disabled={uploading || busy} className="text-muted hover:text-text disabled:opacity-40"><X size={16} /></button>
+        </div>
+
+        {/* Tabs */}
+        <div className="mb-3 flex gap-1 rounded-lg border border-border bg-panel p-1">
+          <button onClick={() => setTab('upload')}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-[12px] font-medium transition-colors ${tab === 'upload' ? 'bg-accent text-white' : 'text-muted hover:text-text'}`}>
+            <Upload size={13} /> Upload
+          </button>
+          <button onClick={() => setTab('link')}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-[12px] font-medium transition-colors ${tab === 'link' ? 'bg-accent text-white' : 'text-muted hover:text-text'}`}>
+            <Link2 size={13} /> Link
+          </button>
+        </div>
+
+        {/* Upload tab */}
+        {tab === 'upload' && (
+          <>
+            <div
+              onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files?.length) doUpload(e.dataTransfer.files) }}
+              onClick={() => fileRef.current?.click()}
+              className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed py-8 transition-colors ${dragOver ? 'border-accent bg-accent/5' : 'border-border hover:border-accent/40 hover:bg-overlay/3'}`}>
+              {uploading ? (
+                <><Loader2 size={28} className="animate-spin text-accent" /><span className="mt-2 text-[12px] text-muted">Uploading…</span></>
+              ) : (
+                <><Upload size={28} className="text-muted/50" /><span className="mt-2 text-[12px] font-medium text-text">Drop files here or click to browse</span><span className="mt-0.5 text-[10px] text-muted">Any file type — images, PDFs, docs, code…</span></>
+              )}
+            </div>
+            <input ref={fileRef} type="file" multiple className="hidden"
+              onChange={e => { if (e.target.files?.length) doUpload(e.target.files); e.target.value = '' }} />
+          </>
+        )}
+
+        {/* Link tab */}
+        {tab === 'link' && (
+          <>
+            <textarea autoFocus value={raw} onChange={e => setRaw(e.target.value)} disabled={busy}
+              placeholder={'Paste one or more links — one per line:\n\nhttps://youtube.com/watch?v=…\nhttps://docs.google.com/…\nhttps://github.com/…'}
+              rows={5}
+              className="w-full resize-none rounded-lg border border-border bg-panel px-3 py-2 text-sm text-text outline-none focus:border-accent disabled:opacity-60" />
+            {count > 0 && !busy && (
+              <div className="mt-2 rounded-lg bg-accent/8 px-3 py-1.5 text-[11px] text-accent">{count} link{count > 1 ? 's' : ''} ready — titles fetched automatically</div>
+            )}
+            {progress && busy && (
+              <div className="mt-2 rounded-lg border border-border bg-panel px-3 py-2">
+                <div className="flex items-center justify-between text-[11px] text-muted">
+                  <span className="flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Adding links…</span>
+                  <span>{progress.done} / {progress.total}</span>
+                </div>
+                <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-overlay/8">
+                  <div className="h-full rounded-full bg-accent transition-all duration-300" style={{ width: `${(progress.done / progress.total) * 100}%` }} />
+                </div>
+              </div>
+            )}
+            {progress && !busy && progress.failed > 0 && (
+              <div className="mt-2 rounded-lg bg-danger/10 px-3 py-2 text-[11px] text-danger">{progress.failed} of {progress.total} link(s) failed — check the URLs and try again.</div>
+            )}
+            <div className="mt-3 flex justify-end gap-2">
+              <button onClick={onClose} disabled={busy} className="rounded-lg px-3 py-1.5 text-sm text-muted hover:bg-overlay/5 hover:text-text disabled:opacity-40">Cancel</button>
+              <button disabled={busy || count === 0} onClick={submitLinks}
+                className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50">
+                {busy ? <Loader2 size={13} className="animate-spin" /> : <Link2 size={13} />}
+                {count > 1 ? `Add ${count} links` : 'Add link'}
+              </button>
+            </div>
+          </>
+        )}
       </motion.div>
     </div>
   )
