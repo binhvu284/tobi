@@ -5332,8 +5332,9 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
     runtime_allowed = None
     if runtime_active and route_decision.allowed_tools:
         runtime_allowed = set(route_decision.allowed_tools) | set(extra_tools or [])
-    elif runtime_active and route_decision.route == "direct":
-        runtime_allowed = set()
+    # "direct" route no longer starves the tool catalog — leaving runtime_allowed=None
+    # means all tools are available, so the LLM can call a read tool even when the
+    # classifier didn't predict one.  This was the root cause of "list projects is blocked."
 
     async def gen():
         loop = asyncio.get_event_loop()
