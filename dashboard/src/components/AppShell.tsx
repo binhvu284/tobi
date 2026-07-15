@@ -201,10 +201,16 @@ function useRecentProjects(): RecentProject[] {
       // and sort the list to MATCH the All Projects page order (the API returns the
       // owner's drag-reordered sort_order) instead of recently-opened order.
       try {
-        const resp = await pmListProjects({ size: 'all' })
+        const resp = await pmListProjects()
         const byId = new Map<number, PMProject>()
         const orderOf = new Map<number, number>()
         resp.items.forEach((p, i) => { byId.set(p.id, p); orderOf.set(p.id, i) })
+        // Only filter out projects that are confirmed deleted (API returned other
+        // projects but not this one). If the API returned nothing at all, keep
+        // localStorage entries as-is (don't wipe the sidebar on a transient error).
+        if (resp.items.length > 0) {
+          recents = recents.filter(r => byId.has(r.id))
+        }
         recents = recents.map(r => {
           const live = byId.get(r.id)
           if (live) return {
@@ -212,8 +218,8 @@ function useRecentProjects(): RecentProject[] {
             icon_type: live.icon_type, icon_value: live.icon_value,
             emoji_icon: live.emoji_icon, accent_color: live.accent_color,
           }
-          return null  // project was deleted — filter out below
-        }).filter(Boolean) as RecentProject[]
+          return r
+        })
         recents.sort((a, b) => (orderOf.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (orderOf.get(b.id) ?? Number.MAX_SAFE_INTEGER))
       } catch { /* API unavailable — use localStorage as-is */ }
 
