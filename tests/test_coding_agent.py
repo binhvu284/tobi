@@ -195,6 +195,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from api import developer  # noqa: E402
 
 developer.agent = agent
+developer.start_loop = lambda: True
 app = FastAPI()
 app.include_router(developer.router)
 client = TestClient(app)
@@ -205,6 +206,23 @@ ok("authenticated overview works", response.status_code == 200, response.text[:2
 ok("overview returns policy fingerprint", response.json()["policy"]["hash"] == policy.hash)
 event_response = client.get(f"/api/developer/events?workflow_id={workflow['id']}&after=0")
 ok("event trace endpoint works", event_response.status_code == 200 and len(event_response.json()["events"]) >= 10)
+goal_response = client.post("/api/developer/goals", json={
+    "title": "API contract goal",
+    "objective": "Verify the authenticated durable goal API without starting a coding worker.",
+    "acceptance_criteria": ["goal is persisted and owner commands are idempotent"],
+    "autonomy": "sandbox",
+})
+ok("authenticated owner can create a durable goal", goal_response.status_code == 200, goal_response.text[:200])
+goal_id = int(goal_response.json()["id"])
+goals_response = client.get("/api/developer/goals")
+ok("goal list exposes the persisted goal", goals_response.status_code == 200 and any(
+    int(item["id"]) == goal_id for item in goals_response.json()["goals"]
+))
+command_body = {"command": "pause", "idempotency_key": "coding-agent-goal-pause-contract"}
+pause_response = client.post(f"/api/developer/goals/{goal_id}/commands", json=command_body)
+replay_response = client.post(f"/api/developer/goals/{goal_id}/commands", json=command_body)
+ok("goal pause command is accepted", pause_response.status_code == 200 and pause_response.json()["status"] == "paused")
+ok("goal command replay is idempotent", replay_response.status_code == 200 and replay_response.json() == pause_response.json())
 from api import dashboard  # noqa: E402
 ok("dashboard registers Developer router", any(getattr(route, "path", "") == "/api/developer/overview" for route in dashboard.app.routes))
 

@@ -1,17 +1,18 @@
 """Durable single-owner development goal loop for always-on VPS operation."""
 from __future__ import annotations
 
-import json
+import logging
 import os
 import socket
 import threading
-import time
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 from core.coding_agent import CodingAgent
 from core.development_store import utc_now
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 RETRYABLE_ERRORS = {
@@ -55,6 +56,9 @@ class CodingLoopService:
         self._stop.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=timeout)
+            if self._thread.is_alive():
+                LOGGER.warning("Development loop is still finishing goal %s; retaining its lease", self._current_goal)
+                return
         if self._current_goal is not None:
             self.store.release_goal_lease(self._current_goal, self.owner)
         self._current_goal = None
@@ -65,7 +69,7 @@ class CodingLoopService:
                 self.tick()
             except Exception:
                 # A durable goal records actionable errors in tick(); the daemon itself must survive.
-                pass
+                LOGGER.exception("Continuous development loop tick failed before durable goal handling completed")
             self._stop.wait(self.poll_seconds)
 
     def tick(self) -> dict[str, Any] | None:

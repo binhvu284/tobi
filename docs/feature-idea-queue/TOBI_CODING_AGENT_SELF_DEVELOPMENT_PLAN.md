@@ -1,6 +1,6 @@
 # TOBI Coding Agent / Controlled Self-Development System
 
-> Status: V1 implementation delivered on 2026-07-15. R0/R1 are available; GitHub, merge, and deploy remain policy-off until owner configuration and staged acceptance.
+> Status: Production backend implementation delivered on 2026-07-15. The continuous sandbox loop is code-complete; live VPS/Ollama burn-in and owner-gated GitHub/deploy rollout remain.
 > Target: Agent tier `3.0.0`.
 > Decision basis: 60 owner questions answered and locked.
 
@@ -9,15 +9,52 @@
 | Delivered surface | Current evidence |
 |---|---|
 | Authority | Versioned coding policy, protected/forbidden paths, command gates, immutable policy hash, vault-session API auth, one-use re-auth challenges |
-| Durability | Additive development, session, stage, event, approval, PR, release, deployment, snapshot, and artifact tables; ordered append-only events |
-| Execution | Fresh `origin/main` worktrees, Graphify plus lexical snapshot, managed Hermes process, silent-worker timeout, cancellation, checkpoint resume, two-cycle correction cap |
+| Durability | Additive development, session, stage, event, approval, PR, release, deployment, snapshot, artifact, goal, iteration, command, and lease tables; ordered append-only events; restart reconciliation |
+| Execution | Always-on database-leased goal loop; fresh `origin/main` worktrees; brokered LLM worker with Ollama/current-model fallback; typed file/check tools; cancellation, checkpoints, bounded retries, and independent review |
 | GitHub/release | Repository-scoped GitHub App adapter, no-force push, draft PR, CI/merge readiness, squash merge, annotated tag, immutable SemVer records |
-| Deployment | Protected declared stages, health verification, known-good rollback evidence, no reuse after failed/rolled-back release |
-| Surfaces | Authenticated `/api/developer`, ordered SSE, `tobi dev`, and responsive Developer Overview/Coding Loop/Queue/Versions/Storage tabs |
-| Security | Credential-free worker environment, repository confinement, recursive event/log redaction, secret scan before commit and across the committed range |
-| Verification | `tests/test_coding_agent.py` 36/36; Terminal 67/67; mode enforcement 18/18; chat runtime 8/8 plus route; Storage 32/32; TypeScript/Vite build clean |
+| Deployment | Exact-SHA fast-forward deployment, revision-aware health verification, exact known-good rollback, immutable failed releases, and remote/checkout validation |
+| Surfaces | Authenticated goal/workflow API, ordered SSE, goal commands in `tobi dev`, and responsive Developer Goals/Coding Loop/Queue/Versions/Storage tabs |
+| Security | LLM receives only typed broker tools; repository/symlink confinement; protected authority paths; credential-free optional CLI worker; recursive redaction; untracked and committed secret scans |
+| Verification | Coding agent 41/41; production invariants 14/14; mode 18/18; terminal 67/67; storage 32/32; network 25/25; resources 14/14; chat runtime unit/route; TypeScript/Vite build clean |
 
-Owner rollout remains: configure Hermes and the GitHub App in MC, review the protected policy, then accept R0 through R4 in order. No live GitHub mutation, merge, deployment, Supabase action, or Vercel action was performed during implementation.
+Owner rollout remains: configure at least one real coding model in MC (Ollama can be primary, current configured providers can be fallbacks), run the VPS burn-in below, then configure the GitHub App and deployment target only when R2-R4 are desired. No live GitHub mutation, merge, deployment, Supabase action, or Vercel action was performed during implementation.
+
+## Production Completion Addendum
+
+```mermaid
+graph LR
+  G[Owner goal and acceptance criteria] --> Q[Durable goal queue]
+  Q --> L[Single-owner leased loop]
+  L --> W[Isolated worktree]
+  W --> M[Ollama or configured model fallback]
+  M --> B[Typed tool broker]
+  B --> V[Mandatory validation]
+  V --> R[Independent model review]
+  R --> S[Qualified local checkpoint]
+  R -->|retryable gap| L
+  S -->|owner policy enables R2-R4| P[PR, merge, exact-SHA deploy]
+```
+
+### Runtime behavior
+
+| Goal autonomy | Continuous behavior | Stop boundary |
+|---|---|---|
+| `sandbox` | Implement, validate, independently review, and retry up to the goal limit | `qualified_local`; never pushes |
+| `pr` | Same local loop, then reconcile/push a draft PR when GitHub is enabled | PR/CI or actionable configuration gate |
+| `merge_deploy` | Same flow through PR, one owner re-auth approval, exact-SHA deployment, health verification | Healthy release or exact known-good rollback |
+
+The worker order is `llm` then optional `hermes`. The LLM worker calls the existing `get_llm("coding")` route, so an Ollama model selected in MC can run locally and the existing ordered provider fallback chain remains available. The model has no direct shell, Git, network, credential, approval, merge, or deployment access; all mutations pass through `CodingToolBroker` and the versioned policy.
+
+### VPS acceptance checklist
+
+1. Configure an Ollama or current provider model for `coding` and `coding_review`; submit one harmless sandbox goal from Developer > Goals.
+2. Confirm the goal reaches `qualified_local`, stores iteration/check/review evidence, and creates no remote branch or PR.
+3. Restart Mission Control during a second goal; confirm startup reconciliation and database leases resume or pause it without duplicate side effects.
+4. Run a 24-hour burn-in with at least five sandbox goals, including one failed check, one malformed model action, one pause/resume, and one cancellation.
+5. Keep `github`, `merge`, and `deploy` false until their target configuration and owner re-auth flow are separately accepted.
+6. For deployment rollout, expose `/health` revision, configure exact checkout/build/restart/rollback commands, then prove both healthy exact-SHA deployment and forced rollback on the VPS.
+
+Operator commands: `tobi dev goal-create`, `goal-list`, `goal-status <id>`, `goal-pause <id>`, `goal-resume <id>`, and `goal-cancel <id>`. The dashboard process starts and stops the durable loop with the application lifecycle.
 
 ## 1. Outcome And Boundaries
 

@@ -1074,25 +1074,7 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
               </div>
             )}
             <div className="px-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted/70">Recent</div>
-            {recentSessions.map(s => (
-              <div key={s.id} className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm transition-colors ${activeId === s.id ? 'bg-accent/10 text-text' : 'text-muted hover:bg-surface/60'}`}>
-                {renaming === s.id ? (
-                  <input autoFocus value={renameVal} onChange={e => setRenameVal(e.target.value)} onBlur={() => commitRename(s.id)}
-                    onKeyDown={e => { if (e.key === 'Enter') commitRename(s.id); if (e.key === 'Escape') setRenaming(null) }}
-                    className="w-full rounded border border-accent/40 bg-bg px-1.5 py-0.5 text-xs text-text outline-none" />
-                ) : (
-                  <>
-                    <button onClick={() => openSession(s.id)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
-                      {s.title?.startsWith('↳') ? <GitBranch size={13} className="shrink-0 opacity-60" /> : <MessageSquarePlus size={13} className="shrink-0 opacity-60" />}
-                      <span className="truncate">{s.title || 'New chat'}</span>
-                    </button>
-                    <button onClick={() => togglePin(s.id)} title="Pin chat" className="opacity-0 transition-opacity hover:text-accent group-hover:opacity-100"><Pin size={11} /></button>
-                    <button onClick={() => { setRenaming(s.id); setRenameVal(s.title || '') }} className="opacity-0 transition-opacity hover:text-accent group-hover:opacity-100"><Pencil size={11} /></button>
-                    <button onClick={() => removeSession(s.id)} className="opacity-0 transition-opacity hover:text-danger group-hover:opacity-100"><Trash2 size={11} /></button>
-                  </>
-                )}
-              </div>
-            ))}
+            {recentSessions.map(renderSessionRow)}
           </div>
         </aside>
       ) : (
