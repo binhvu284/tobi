@@ -20,6 +20,8 @@ class ReleaseManager:
             if existing:
                 if int(existing["queue_item"] or 0) != int(queue_item):
                     raise RuntimeError(f"Version {version} is already reserved for another queue item.")
+                if existing["status"] in {"failed", "rolled_back"}:
+                    raise RuntimeError(f"Version {version} is immutable after {existing['status']} status.")
                 return dict(existing)
             cur = conn.execute(
                 """INSERT INTO releases(version,tier,source,queue_item,risk,status,created_at)
@@ -38,6 +40,19 @@ class ReleaseManager:
             raise ValueError(f"Invalid release status: {status}")
         conn = self.store.connect()
         try:
+            current = conn.execute("SELECT * FROM releases WHERE version=?", (version,)).fetchone()
+            if not current:
+                raise KeyError(version)
+            transitions = {
+                "reserved": {"reserved", "merged", "failed"},
+                "merged": {"merged", "deploying", "failed", "rolled_back"},
+                "deploying": {"deploying", "released", "failed", "rolled_back"},
+                "released": {"released"},
+                "failed": {"failed"},
+                "rolled_back": {"rolled_back"},
+            }
+            if status not in transitions.get(str(current["status"]), set()):
+                raise RuntimeError(f"Release cannot transition from {current['status']} to {status}.")
             released_at = utc_now() if status == "released" else None
             conn.execute(
                 """UPDATE releases SET status=?,commit_sha=COALESCE(?,commit_sha),tag=COALESCE(?,tag),
@@ -46,8 +61,6 @@ class ReleaseManager:
             )
             conn.commit()
             row = conn.execute("SELECT * FROM releases WHERE version=?", (version,)).fetchone()
-            if not row:
-                raise KeyError(version)
             return dict(row)
         finally:
             conn.close()

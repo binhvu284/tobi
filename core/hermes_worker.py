@@ -35,10 +35,12 @@ class HermesWorker:
             )
         return argv
 
-    @staticmethod
-    def _environment(workflow_id: int, stage_id: str) -> dict[str, str]:
-        allow = {"PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "LANG", "LC_ALL"}
+    def _environment(self, workflow_id: int, stage_id: str) -> dict[str, str]:
+        allow = {"PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "LANG", "LC_ALL"}
         env = {key: value for key, value in os.environ.items() if key.upper() in allow}
+        home = self.policy.repo_path("artifact_root") / "worker-home" / str(workflow_id)
+        home.mkdir(parents=True, exist_ok=True)
+        env.update({"HOME": str(home), "USERPROFILE": str(home)})
         env.update({"TOBI_WORKFLOW_ID": str(workflow_id), "TOBI_STAGE_ID": stage_id,
                     "TOBI_MANAGED_WORKER": "1", "PYTHONUNBUFFERED": "1"})
         return env
@@ -54,6 +56,24 @@ class HermesWorker:
     ) -> dict[str, Any]:
         argv = self.command()
         cwd = Path(worktree).resolve()
+        sandbox_raw = os.getenv("TOBI_HERMES_SANDBOX_ARGV", "")
+        if not sandbox_raw:
+            raise HermesUnavailable("External Hermes requires TOBI_HERMES_SANDBOX_ARGV; unisolated CLI workers are denied.")
+        try:
+            template = json.loads(sandbox_raw)
+        except json.JSONDecodeError as exc:
+            raise HermesUnavailable("TOBI_HERMES_SANDBOX_ARGV must be a JSON argument array.") from exc
+        if not isinstance(template, list) or not template:
+            raise HermesUnavailable("TOBI_HERMES_SANDBOX_ARGV must contain a sandbox executable.")
+        wrapped: list[str] = []
+        for part in template:
+            if part == "{command}":
+                wrapped.extend(argv)
+            else:
+                wrapped.append(str(part).replace("{worktree}", str(cwd)))
+        if "{command}" not in template or not shutil.which(wrapped[0]):
+            raise HermesUnavailable("Hermes sandbox wrapper is invalid or unavailable.")
+        argv = wrapped
         timeout = self.policy.limit("worker_timeout_seconds", 1800)
         output_limit = self.policy.limit("worker_output_bytes", 2_097_152)
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
@@ -139,5 +159,9 @@ class HermesWorker:
         except Exception:
             pass
         if proc.poll() is None:
-            proc.kill()
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                               capture_output=True, timeout=10)
+            else:
+                os.killpg(proc.pid, signal.SIGKILL)
         return True

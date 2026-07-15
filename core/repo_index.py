@@ -19,28 +19,30 @@ class RepositoryIndex:
         self.root = policy.repo_root
         self.index_root = policy.repo_path("index_root")
 
-    def _git(self, *args: str) -> str:
+    def _git(self, *args: str, root: Path | None = None) -> str:
+        target = (root or self.root).resolve()
         result = subprocess.run(
-            ["git", "-C", str(self.root), *args], capture_output=True, text=True, timeout=30,
+            ["git", "-C", str(target), *args], capture_output=True, text=True, timeout=30,
         )
         if result.returncode != 0:
             raise RuntimeError(result.stderr.strip() or "Git index command failed.")
         return result.stdout.strip()
 
-    def current_sha(self) -> str:
-        return self._git("rev-parse", "HEAD")
+    def current_sha(self, root: Path | None = None) -> str:
+        return self._git("rev-parse", "HEAD", root=root)
 
-    def build(self) -> dict[str, Any]:
-        sha = self.current_sha()
+    def build(self, root: Path | str | None = None) -> dict[str, Any]:
+        source_root = Path(root).resolve() if root else self.root
+        sha = self.current_sha(source_root)
         files: list[dict[str, Any]] = []
-        for relative in self._git("ls-files").splitlines():
-            path = self.root / relative
-            if not path.is_file() or not self.policy.is_indexable(path):
+        for relative in self._git("ls-files", root=source_root).splitlines():
+            path = source_root / relative
+            if not path.is_file() or not self.policy.is_indexable(relative):
                 continue
             stat = path.stat()
             files.append({"path": relative.replace("\\", "/"), "size": stat.st_size})
 
-        graph_path = self.root / "graphify-out" / "graph.json"
+        graph_path = source_root / "graphify-out" / "graph.json"
         graph = {"available": False, "built_at_commit": None, "nodes": []}
         if graph_path.is_file() and self.policy.is_indexable(graph_path):
             try:
@@ -80,20 +82,35 @@ class RepositoryIndex:
         return {"main_sha": sha, "index_path": str(output), "file_count": len(files),
                 "graphify_available": graph.get("available", False), "graphify_stale": graph.get("stale", True)}
 
-    def search(self, query: str, *, limit: int = 30, max_bytes: int = 500_000) -> list[dict[str, Any]]:
+    def search(self, query: str, *, limit: int = 30, max_bytes: int = 500_000,
+               root: Path | str | None = None) -> list[dict[str, Any]]:
+        source_root = Path(root).resolve() if root else self.root
         terms = [term.lower() for term in query.split() if len(term) >= 3][:12]
         if not terms:
             return []
         results: list[dict[str, Any]] = []
         consumed = 0
-        for relative in self._git("ls-files").splitlines():
-            path = self.root / relative
-            if not path.is_file() or not self.policy.is_indexable(path):
+        graph_scores: dict[str, int] = {}
+        graph_path = source_root / "graphify-out" / "graph.json"
+        if graph_path.is_file():
+            try:
+                raw = json.loads(graph_path.read_text(encoding="utf-8"))
+                for node in raw.get("nodes", []):
+                    source = str(node.get("source_file") or "")
+                    haystack = f"{node.get('label', '')} {source}".lower()
+                    score = sum(6 for term in terms if term in haystack)
+                    if source and score:
+                        graph_scores[source] = graph_scores.get(source, 0) + score
+            except (OSError, json.JSONDecodeError):
+                pass
+        for relative in self._git("ls-files", root=source_root).splitlines():
+            path = source_root / relative
+            if not path.is_file() or not self.policy.is_indexable(relative):
                 continue
             if path.stat().st_size > 250_000:
                 continue
             lowered_path = relative.lower()
-            path_score = sum(4 for term in terms if term in lowered_path)
+            path_score = sum(4 for term in terms if term in lowered_path) + graph_scores.get(relative, 0)
             text = ""
             if path_score == 0 and consumed < max_bytes:
                 try:

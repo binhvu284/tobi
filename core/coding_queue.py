@@ -35,6 +35,8 @@ def parse_queue(path: Path | str = QUEUE_PATH) -> list[dict[str, Any]]:
         match = _LINK_RE.search(spec_cell)
         plan_name = match.group(1) if match else ""
         plan_path = (base / plan_name).resolve() if plan_name else queue_path.resolve()
+        if not plan_path.is_relative_to(REPO_ROOT) or plan_path.suffix.lower() != ".md":
+            raise ValueError(f"Queue item #{queue_id} references an unsafe plan path.")
         plan_bytes = plan_path.read_bytes() if plan_path.is_file() else raw.encode("utf-8")
         plan_text = plan_bytes.decode("utf-8", errors="replace")
         criteria = [

@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import os
+import socket
 import subprocess
 import threading
 import uuid
@@ -10,12 +13,13 @@ from pathlib import Path
 from typing import Any
 
 from core.coding_policy import CodingPolicy, PolicyDenied
+from core.coding_review import CodingReviewError, CodingReviewer
 from core.coding_queue import sync_queue
 from core.deployment_manager import DeploymentManager
 from core.development_store import DevelopmentStore, utc_now
 from core.git_workspace import GitCommandError, GitWorkspaceManager
 from core.github_coding import GitHubCodingError, GitHubCodingService
-from core.hermes_worker import HermesUnavailable, HermesWorker
+from core.coding_workers import CodingWorkerBlocked, CodingWorkerRouter, CodingWorkerUnavailable
 from core.release_manager import ReleaseManager
 from core.repo_index import RepositoryIndex
 
@@ -67,12 +71,14 @@ class CodingAgent:
         self.queue = sync_queue(self.store)
         self.index = RepositoryIndex(self.policy, self.store)
         self.git = GitWorkspaceManager(self.policy)
-        self.worker = HermesWorker(self.policy)
+        self.worker = CodingWorkerRouter(self.policy)
+        self.reviewer = CodingReviewer()
         self.github = GitHubCodingService(self.policy)
         self.releases = ReleaseManager(self.store)
         self.deployments = DeploymentManager(self.policy, self.store)
         self._threads: dict[int, threading.Thread] = {}
         self._thread_lock = threading.Lock()
+        self.runtime_owner = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
 
     def sync(self) -> list[dict[str, Any]]:
         self.queue = sync_queue(self.store)
@@ -98,6 +104,8 @@ class CodingAgent:
             conn.close()
         session = self.store.create_session(
             int(task["id"]), self.policy.hash, idempotency_key or str(uuid.uuid4()),
+            plan_hash_snapshot=task["plan_hash"],
+            criteria_snapshot=json.loads(task.get("acceptance_criteria_json") or "[]"),
         )
         self.store.add_stages(int(session["id"]), STAGES)
         self.releases.reserve(target_version, queue_id, risk=task.get("risk") or "medium")
@@ -105,6 +113,80 @@ class CodingAgent:
             "queue_id": queue_id, "plan_path": task["plan_path"], "plan_hash": task["plan_hash"],
             "policy_hash": self.policy.hash, "target_version": target_version,
         }, actor="owner")
+        return self.get_workflow(int(session["id"]))
+
+    def create_goal(
+        self,
+        *,
+        title: str,
+        objective: str,
+        acceptance_criteria: list[str],
+        validation_commands: list[list[str]] | None = None,
+        autonomy: str = "sandbox",
+        preferred_models: list[str] | None = None,
+        max_iterations: int | None = None,
+    ) -> dict[str, Any]:
+        commands = validation_commands or []
+        for command in commands:
+            self.policy.assert_command(command)
+        configured_max = int(self.policy.data.get("loop", {}).get("max_goal_iterations", 12))
+        goal = self.store.create_goal(
+            title=title,
+            objective=objective,
+            acceptance_criteria=acceptance_criteria,
+            validation_commands=commands,
+            autonomy=autonomy,
+            preferred_models=preferred_models or [],
+            max_iterations=max_iterations or configured_max,
+        )
+        goal_id = int(goal["id"])
+        payload = {
+            "title": goal["title"], "objective": goal["objective"],
+            "acceptance": json.loads(goal["acceptance_criteria_json"]),
+            "validation": json.loads(goal["validation_commands_json"]),
+        }
+        digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        self.store.upsert_task({
+            "queue_id": 900_000_000 + goal_id,
+            "title": goal["title"],
+            "plan_path": f"developer-goal:{goal_id}",
+            "plan_hash": digest,
+            "acceptance_criteria": payload["acceptance"],
+            "dependencies": [],
+            "status": "planned",
+            "risk": "high",
+            "target_version": f"3.0.{goal_id}",
+            "queue_status": "Goal loop",
+            "queue_effort": "continuous",
+        })
+        return self.store.get_goal(goal_id) or goal
+
+    def create_goal_workflow(self, goal_id: int) -> dict[str, Any]:
+        goal = self.store.get_goal(goal_id)
+        if not goal:
+            raise KeyError(goal_id)
+        task = self.store.get_task(queue_id=900_000_000 + goal_id)
+        if not task:
+            raise RuntimeError("Goal task mirror is missing.")
+        criteria = json.loads(goal["acceptance_criteria_json"] or "[]")
+        commands = json.loads(goal["validation_commands_json"] or "[]")
+        iteration = int(goal["iteration_count"] or 0) + 1
+        session = self.store.create_session(
+            int(task["id"]), self.policy.hash, f"goal-{goal_id}-iteration-{iteration}",
+            goal_id=goal_id,
+            plan_hash_snapshot=task["plan_hash"],
+            criteria_snapshot=criteria,
+            validation_commands=commands,
+        )
+        self.store.add_stages(int(session["id"]), STAGES)
+        if goal["autonomy"] != "sandbox":
+            self.releases.reserve(task["target_version"], int(task["queue_id"]), risk="high")
+        self.store.update_goal(goal_id, iteration_count=iteration, current_session_id=session["id"], status="running")
+        self.store.add_goal_iteration(goal_id, int(session["id"]), iteration)
+        self._event(int(session["id"]), "goal_iteration_started", {
+            "goal_id": goal_id, "iteration": iteration, "objective": goal["objective"],
+            "plan_hash": task["plan_hash"],
+        })
         return self.get_workflow(int(session["id"]))
 
     @staticmethod
@@ -184,10 +266,27 @@ class CodingAgent:
         return self.get_workflow(session_id)
 
     def run_to_gate(self, session_id: int) -> dict[str, Any]:
+        lease_seconds = max(
+            3600,
+            self.policy.limit("worker_timeout_seconds", 1800) +
+            self.policy.limit("command_timeout_seconds", 900) * max(1, len(self.policy.mandatory_checks())) + 600,
+        )
+        if not self.store.claim_session(session_id, self.runtime_owner, lease_seconds):
+            raise RuntimeError("Coding workflow is already owned by another live runtime.")
+        try:
+            return self._run_to_gate(session_id)
+        finally:
+            self.store.release_session(session_id, self.runtime_owner)
+
+    def _run_to_gate(self, session_id: int) -> dict[str, Any]:
         session = self.get_workflow(session_id)
         if session["policy_hash"] != self.policy.hash:
             return self._pause(session_id, session["stage"], "The active coding policy changed; review and restart from a new workflow.",
                                "policy_changed")
+        if session.get("plan_hash_snapshot") and session.get("plan_hash") != session.get("plan_hash_snapshot"):
+            return self._pause(session_id, session["stage"],
+                               "The approved plan changed after this workflow started. Review the new plan and start a new workflow.",
+                               "plan_changed")
         try:
             statuses = {item["node_id"]: item["status"] for item in session["stages"]}
             if statuses.get("merge_deploy") == "completed" and statuses.get("health") != "completed":
@@ -203,7 +302,7 @@ class CodingAgent:
             statuses = {item["node_id"]: item["status"] for item in session["stages"]}
             if statuses.get("index") != "completed":
                 self._stage_start(session_id, "index", "preparing", 12)
-                snapshot = self.index.build()
+                snapshot = self.index.build(Path(session["worktree"]))
                 self._stage_complete(session_id, "index", snapshot)
 
             session = self.get_workflow(session_id)
@@ -211,15 +310,23 @@ class CodingAgent:
             if statuses.get("code") != "completed":
                 self._stage_start(session_id, "code", "coding", 20)
                 task = self.store.get_task(task_id=int(session["task_id"])) or {}
-                criteria = json.loads(task.get("acceptance_criteria_json") or "[]")
-                context = self.index.search(f"{session['title']} {' '.join(criteria[:8])}", limit=30)
+                criteria = json.loads(session.get("criteria_snapshot_json") or task.get("acceptance_criteria_json") or "[]")
+                validation_commands = json.loads(session.get("validation_commands_json") or "[]")
+                goal = self.store.get_goal(int(session["goal_id"])) if session.get("goal_id") else None
+                context = self.index.search(
+                    f"{session['title']} {' '.join(criteria[:8])}", limit=30, root=Path(session["worktree"]),
+                )
                 validation_stage = next((item for item in session["stages"] if item["node_id"] == "validate"), {})
                 brief = {
                     "workflow_id": session_id, "stage_id": "code", "worktree": session["worktree"],
+                    "title": session["title"], "objective": goal["objective"] if goal else session["title"],
                     "plan_path": session["plan_path"], "plan_hash": session["plan_hash"],
                     "acceptance_criteria": criteria, "relevant_files": context,
                     "previous_checks": json.loads(validation_stage.get("checks_json") or "[]"),
                     "allowed_commands": self.policy.mandatory_checks(),
+                    "validation_commands": validation_commands,
+                    "preferred_models": json.loads(goal["preferred_models_json"] or "[]") if goal else [],
+                    "special_approval": self.store.has_approval(session_id, "special_paths", self.policy.hash),
                     "policy": {"version": self.policy.version, "hash": self.policy.hash,
                                "protected_paths": self.policy.data.get("protected_paths", []),
                                "forbidden_paths": self.policy.data.get("forbidden_paths", [])},
@@ -229,12 +336,22 @@ class CodingAgent:
                     self._event(session_id, f"worker_{kind}", payload, actor="hermes")
 
                 try:
-                    result = self.worker.run(session_id, "code", session["worktree"], brief, on_event=worker_event)
-                except HermesUnavailable as exc:
-                    return self._pause(session_id, "code", str(exc), "hermes_unavailable")
+                    result = self.worker.run(
+                        session_id, "code", session["worktree"], brief, on_event=worker_event,
+                        cancel_check=lambda: bool((self.store.get_session(session_id) or {}).get("cancel_requested")),
+                    )
+                except CodingWorkerUnavailable as exc:
+                    return self._pause(session_id, "code", str(exc), "worker_unavailable")
+                except CodingWorkerBlocked as exc:
+                    return self._pause(session_id, "code", str(exc), "worker_blocked")
                 except TimeoutError as exc:
                     return self._pause(session_id, "code", str(exc), "worker_timeout")
                 except RuntimeError as exc:
+                    current = self.store.get_session(session_id) or {}
+                    if current.get("state") == "canceled":
+                        return self.get_workflow(session_id)
+                    if current.get("cancel_requested"):
+                        return self._pause(session_id, "code", "Paused by owner. Resume when ready.", "owner_paused")
                     return self._pause(session_id, "code", str(exc), "worker_failed")
                 changed = self.git.changed_files(session["worktree"])
                 self._artifact(session_id, "worker", {"events": result["events"], "output": result["output"]})
@@ -265,8 +382,36 @@ class CodingAgent:
             if statuses.get("review") != "completed":
                 self._stage_start(session_id, "review", "reviewing", 66)
                 diff = self.git.diff_summary(session["worktree"])
-                self._artifact(session_id, "review", diff)
-                self._stage_complete(session_id, "review", {"qualified": True, **diff})
+                secret_findings = self.git.scan_secrets(session["worktree"])
+                if secret_findings:
+                    return self._pause(session_id, "review", "Remove probable secrets before acceptance review.",
+                                       "secret_found")
+                validate_stage = next((item for item in session["stages"] if item["node_id"] == "validate"), {})
+                checks = json.loads(validate_stage.get("checks_json") or "[]")
+                criteria = json.loads(session.get("criteria_snapshot_json") or "[]")
+                goal = self.store.get_goal(int(session["goal_id"])) if session.get("goal_id") else None
+                try:
+                    review = self.reviewer.review(
+                        objective=goal["objective"] if goal else session["title"],
+                        acceptance_criteria=criteria,
+                        checks=checks,
+                        patch=self.git.diff_patch(session["worktree"]),
+                        changed_files=diff["files"],
+                    )
+                except CodingReviewError as exc:
+                    return self._pause(session_id, "review", str(exc), "review_unavailable")
+                self._artifact(session_id, "review", {**diff, **review})
+                if not review["qualified"]:
+                    cycles = int(session.get("review_cycles") or 0) + 1
+                    self.store.update_session(session_id, review_cycles=cycles)
+                    self.store.update_stage(session_id, "review", status="failed", result_json=review,
+                                            completed_at=utc_now())
+                    if cycles >= self.policy.limit("max_review_cycles", 2):
+                        return self._block(session_id, "review", "Acceptance review failed after the correction limit.",
+                                           "review_cycles_exhausted")
+                    return self._pause(session_id, "review", "Acceptance review found unmet criteria. Retry for a correction pass.",
+                                       "review_failed")
+                self._stage_complete(session_id, "review", {**diff, **review})
             if statuses.get("commit") != "completed":
                 self._stage_start(session_id, "commit", "reviewing", 72)
                 special = self.store.has_approval(session_id, "special_paths", self.policy.hash)
@@ -287,6 +432,11 @@ class CodingAgent:
             session = self.get_workflow(session_id)
             statuses = {item["node_id"]: item["status"] for item in session["stages"]}
             if statuses.get("push") != "completed":
+                goal = self.store.get_goal(int(session["goal_id"])) if session.get("goal_id") else None
+                if goal and goal["autonomy"] == "sandbox":
+                    return self._pause(session_id, "push",
+                                       "Goal met the local acceptance standard. Sandbox autonomy stops before GitHub mutation.",
+                                       "autonomy_boundary")
                 if not self.policy.feature_enabled("github"):
                     return self._pause(session_id, "push",
                                        "Local branch is validated. Enable the GitHub capability in reviewed policy to push and create a draft PR.",
@@ -309,8 +459,8 @@ class CodingAgent:
                                       blocker="Owner re-authentication is required to merge and deploy.")
             self._event(session_id, "approval_required", {"purpose": "merge_deploy", "pull_request": pr})
             return self.get_workflow(session_id)
-        except HermesUnavailable as exc:
-            return self._pause(session_id, "code", str(exc), "hermes_unavailable")
+        except CodingWorkerUnavailable as exc:
+            return self._pause(session_id, "code", str(exc), "worker_unavailable")
         except PolicyDenied as exc:
             code = "special_approval_required" if "protected" in str(exc).lower() else "policy_denied"
             return self._pause(session_id, self.get_workflow(session_id)["stage"], str(exc), code)
@@ -324,7 +474,18 @@ class CodingAgent:
         self._stage_start(session_id, "validate", "validating", 50)
         results: list[dict[str, Any]] = []
         timeout = self.policy.limit("command_timeout_seconds", 900)
-        for argv in self.policy.mandatory_checks():
+        session = self.get_workflow(session_id)
+        commands = list(self.policy.mandatory_checks())
+        commands.extend(json.loads(session.get("validation_commands_json") or "[]"))
+        unique: list[list[str]] = []
+        seen: set[tuple[str, ...]] = set()
+        for command in commands:
+            argv = [str(part) for part in command]
+            key = tuple(argv)
+            if key not in seen:
+                seen.add(key)
+                unique.append(argv)
+        for argv in unique:
             self.policy.assert_command(argv)
             completed = subprocess.run(argv, cwd=str(worktree), capture_output=True, text=True, timeout=timeout)
             result = _safe({"argv": argv, "ok": completed.returncode == 0, "exit_code": completed.returncode,
@@ -340,12 +501,14 @@ class CodingAgent:
                     {"stage": "validate", "ok": all(r["ok"] for r in results)})
         return results
 
-    def command(self, session_id: int, command: str) -> dict[str, Any]:
+    def command(self, session_id: int, command: str, *, background: bool = True) -> dict[str, Any]:
         session = self.get_workflow(session_id)
         if command == "pause":
+            self.store.update_session(session_id, cancel_requested=1)
             self.worker.cancel(session_id)
             return self._pause(session_id, session["stage"], "Paused by owner. Resume when ready.", "owner_paused")
         if command == "cancel":
+            self.store.update_session(session_id, cancel_requested=1)
             self.worker.cancel(session_id)
             self.store.update_session(session_id, state="canceled", stage=session["stage"],
                                       blocker="Recoverable worktree retained for policy retention period.",
@@ -365,7 +528,7 @@ class CodingAgent:
                 ).fetchone()
                 if active:
                     raise RuntimeError(f"Coding workflow {active['id']} is already active.")
-                if session.get("error_code") == "validation_failed":
+                if session.get("error_code") in {"validation_failed", "review_failed", "review_unavailable"}:
                     conn.execute(
                         """UPDATE coding_stages SET status='pending',started_at=NULL,completed_at=NULL
                            WHERE session_id=? AND node_id IN ('code','validate','review','commit','scan','push','pull_request')""",
@@ -375,21 +538,76 @@ class CodingAgent:
             finally:
                 conn.close()
             self.store.update_session(session_id, state="approved" if not session.get("worktree") else "paused",
-                                      blocker=None, error_code=None)
+                                      blocker=None, error_code=None, cancel_requested=0)
             self._event(session_id, f"workflow_{command}d", {"stage": session["stage"]}, actor="owner")
-            return self.start_background(session_id)
+            return self.start_background(session_id) if background else self.run_to_gate(session_id)
         raise ValueError(f"Unknown workflow command: {command}")
+
+    def reconcile(self) -> list[dict[str, Any]]:
+        """Fail closed after backend restart and repair durable checkpoints where evidence is conclusive."""
+        reconciled: list[dict[str, Any]] = []
+        active_states = {"approved", "preparing", "coding", "validating", "reviewing", "pushed", "merging", "deploying"}
+        for item in self.store.list_sessions(200):
+            if item["state"] not in active_states:
+                continue
+            lease_owner = str(item.get("lease_owner") or "")
+            lease_expires = str(item.get("lease_expires_at") or "")
+            if lease_owner and lease_owner != self.runtime_owner:
+                parts = lease_owner.split(":")
+                if len(parts) >= 2 and parts[0] == socket.gethostname():
+                    try:
+                        os.kill(int(parts[1]), 0)
+                        continue
+                    except (OSError, ValueError):
+                        self.store.update_session(int(item["id"]), lease_owner=None, lease_expires_at=None)
+                elif lease_expires > utc_now():
+                    continue
+            session = self.get_workflow(int(item["id"]))
+            stages = {stage["node_id"]: stage for stage in session["stages"]}
+            worktree = session.get("worktree")
+            if worktree and Path(worktree).is_dir():
+                try:
+                    head = self.git.head(worktree)
+                    self.store.update_session(int(session["id"]), head_sha=head)
+                    commit_stage = stages.get("commit") or {}
+                    if commit_stage.get("status") == "running" and head != session.get("base_sha") and self.git.is_clean(worktree):
+                        self._stage_complete(int(session["id"]), "commit", {"head_sha": head, "reconciled": True})
+                except (GitCommandError, PolicyDenied):
+                    pass
+            pr_stage = stages.get("pull_request") or {}
+            if self.policy.feature_enabled("github") and session.get("branch") and pr_stage.get("status") == "running":
+                try:
+                    existing_pr = self.github.find_open_pr(str(session["branch"]))
+                    if existing_pr:
+                        self._save_pr(int(session["task_id"]), existing_pr)
+                        self._stage_complete(int(session["id"]), "pull_request", {**existing_pr, "reconciled": True})
+                except (GitHubCodingError, PolicyDenied):
+                    pass
+            current = self.get_workflow(int(session["id"]))
+            stage = str(current.get("stage") or "approved")
+            if stage in {"merge_deploy", "health"}:
+                updated = self._pause(int(session["id"]), stage,
+                                      "Backend restarted during an external mutation stage. Owner reconciliation is required.",
+                                      "external_reconciliation_required")
+            else:
+                updated = self._pause(int(session["id"]), stage,
+                                      "Backend restarted. Durable checkpoints were preserved and the workflow can resume safely.",
+                                      "backend_restarted")
+            reconciled.append(updated)
+        return reconciled
 
     def approve(self, session_id: int, purpose: str, challenge: str) -> dict[str, Any]:
         session = self.get_workflow(session_id)
+        if purpose not in {"special_paths", "merge_deploy"}:
+            raise ValueError("Unsupported approval purpose.")
+        if purpose == "merge_deploy" and session["state"] != "awaiting_merge_deploy_approval":
+            raise RuntimeError("Workflow is not waiting for merge and deployment approval.")
+        if purpose == "special_paths" and session.get("error_code") != "special_approval_required":
+            raise RuntimeError("Workflow is not waiting for protected-path approval.")
         self.store.consume_challenge(challenge, purpose, self.policy.hash, session_id=session_id)
         self._event(session_id, "approval_granted", {"purpose": purpose, "policy_hash": self.policy.hash}, actor="owner")
         if purpose == "special_paths":
             return self.command(session_id, "resume")
-        if purpose != "merge_deploy":
-            raise ValueError("Unsupported approval purpose.")
-        if session["state"] != "awaiting_merge_deploy_approval":
-            raise RuntimeError("Workflow is not waiting for merge and deployment approval.")
         return self._merge_and_deploy(session_id)
 
     def _merge_and_deploy(self, session_id: int) -> dict[str, Any]:
@@ -431,6 +649,9 @@ class CodingAgent:
                 "SELECT * FROM deployments WHERE release_id=? ORDER BY id DESC LIMIT 1",
                 (release["id"] if release else -1,),
             ).fetchone()
+            known_good = conn.execute(
+                "SELECT * FROM deployments WHERE status='healthy' ORDER BY id DESC LIMIT 1"
+            ).fetchone()
         finally:
             conn.close()
         if not release or not release["commit_sha"]:
@@ -443,10 +664,13 @@ class CodingAgent:
             return self._pause(session_id, "health", "Merge completed; deployment is disabled by reviewed policy.",
                                "deploy_disabled")
         self.store.update_session(session_id, state="deploying", stage="health", progress=96)
+        self.releases.set_status(session["target_version"], "deploying", commit_sha=release["commit_sha"])
         if latest and latest["status"] == "healthy" and latest["new_sha"] == release["commit_sha"]:
             deployment = {"id": latest["id"], "status": "healthy", "reconciled": True}
         else:
-            deployment = self.deployments.deploy(int(release["id"]), session["base_sha"], release["commit_sha"])
+            deployment = self.deployments.deploy(
+                int(release["id"]), str(known_good["new_sha"] if known_good else ""), release["commit_sha"],
+            )
         if deployment["status"] != "healthy":
             status = "rolled_back" if deployment["status"] == "rolled_back" else "failed"
             self.releases.set_status(session["target_version"], status, commit_sha=release["commit_sha"])
@@ -530,7 +754,7 @@ class CodingAgent:
                 (datetime.now(timezone.utc).isoformat(),),
             ).fetchone()[0])
             usage["cleanup_eligible_worktrees"] = int(conn.execute(
-                """SELECT COUNT(*) FROM coding_sessions WHERE state='completed' AND completed_at<=?
+                """SELECT COUNT(*) FROM coding_sessions WHERE state IN ('completed','canceled') AND completed_at<=?
                    AND worktree IS NOT NULL""", (cutoff,)
             ).fetchone()[0])
         finally:
@@ -550,7 +774,7 @@ class CodingAgent:
                 (now,),
             ).fetchall()
             sessions = conn.execute(
-                """SELECT * FROM coding_sessions WHERE state='completed' AND completed_at<=?
+                """SELECT * FROM coding_sessions WHERE state IN ('completed','canceled') AND completed_at<=?
                    AND worktree IS NOT NULL""", (cutoff,)
             ).fetchall()
         finally:

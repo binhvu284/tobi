@@ -100,7 +100,9 @@ def _run_dev_cli(args: list[str]) -> int:
         elif action in {"pause", "resume", "cancel", "retry"}:
             if len(args) < 2:
                 raise RuntimeError(f"Usage: tobi dev {action} <workflow-id>")
-            data = call("POST", f"/api/developer/workflows/{int(args[1])}/commands", {"command": action})
+            data = call("POST", f"/api/developer/workflows/{int(args[1])}/commands", {
+                "command": action, "idempotency_key": str(_uuid.uuid4()),
+            })
         elif action == "approve":
             if len(args) < 3:
                 raise RuntimeError("Usage: tobi dev approve <workflow-id> <special_paths|merge_deploy>")
@@ -115,8 +117,29 @@ def _run_dev_cli(args: list[str]) -> int:
             })
         elif action == "queue":
             data = call("GET", "/api/developer/queue")
+        elif action == "goal-create":
+            title = " ".join(args[1:]).strip() or input("Goal title: ").strip()
+            objective = input("Objective: ").strip()
+            criteria = [item.strip() for item in input("Acceptance criteria (separate with ;;): ").split(";;") if item.strip()]
+            models = [item.strip() for item in input("Preferred model IDs (optional, comma-separated): ").split(",") if item.strip()]
+            data = call("POST", "/api/developer/goals", {
+                "title": title, "objective": objective, "acceptance_criteria": criteria,
+                "preferred_models": models, "autonomy": "sandbox",
+            })
+        elif action == "goal-list":
+            data = call("GET", "/api/developer/goals")
+        elif action == "goal-status":
+            if len(args) < 2:
+                raise RuntimeError("Usage: tobi dev goal-status <goal-id>")
+            data = call("GET", f"/api/developer/goals/{int(args[1])}")
+        elif action in {"goal-pause", "goal-resume", "goal-cancel"}:
+            if len(args) < 2:
+                raise RuntimeError(f"Usage: tobi dev {action} <goal-id>")
+            data = call("POST", f"/api/developer/goals/{int(args[1])}/commands", {
+                "command": action.removeprefix("goal-"), "idempotency_key": str(_uuid.uuid4()),
+            })
         else:
-            raise RuntimeError("Usage: tobi dev [start|status|logs|pause|resume|cancel|retry|approve|queue]")
+            raise RuntimeError("Usage: tobi dev [start|status|logs|pause|resume|cancel|retry|approve|queue|goal-create|goal-list|goal-status|goal-pause|goal-resume|goal-cancel]")
         print(_json.dumps(data, indent=2, ensure_ascii=False, default=str))
         return 0
     except (ValueError, RuntimeError, _requests.RequestException) as exc:

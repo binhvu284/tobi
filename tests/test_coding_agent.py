@@ -20,6 +20,7 @@ TEST_ROOT.mkdir(parents=True, exist_ok=True)
 TMP = Path(tempfile.mkdtemp(prefix="coding_agent_", dir=TEST_ROOT))
 os.environ["DB_PATH"] = str(TMP / "agent.db")
 os.environ["TOBI_HERMES_CODING_COMMAND"] = "definitely-missing-hermes"
+os.environ["TOBI_CODING_WORKERS"] = "hermes"
 
 from core.coding_agent import CodingAgent  # noqa: E402
 from core.coding_policy import CodingPolicy, PolicyDenied, find_probable_secrets  # noqa: E402
@@ -65,6 +66,8 @@ def make_repo() -> tuple[Path, Path]:
 repo, origin = make_repo()
 policy_data = json.loads((ROOT / "config" / "coding_policy.v1.json").read_text(encoding="utf-8"))
 policy_data["repository"]["allowed_remote_suffix"] = "origin.git"
+policy_data["repository"]["allowed_repository"] = ""
+policy_data["workers"]["allow_external_cli"] = True
 policy_data["commands"]["mandatory_checks"] = [[sys.executable, "-c", "print('ok')"]]
 policy_data["commands"]["allowed_executables"].append(Path(sys.executable).stem.lower())
 policy = CodingPolicy(policy_data, repo_root=repo)
@@ -73,6 +76,10 @@ conn = store.connect()
 migration = conn.execute("SELECT version FROM developer_schema_migrations").fetchone()
 conn.close()
 ok("developer schema migration is recorded", migration[0] == 1)
+conn = store.connect()
+versions = [row[0] for row in conn.execute("SELECT version FROM developer_schema_migrations ORDER BY version")]
+conn.close()
+ok("production schema migration is recorded", versions == [1, 2], str(versions))
 
 # Policy boundaries.
 ok("policy hash is stable", policy.hash == CodingPolicy(policy_data, repo_root=repo).hash)
@@ -137,7 +144,7 @@ except RuntimeError:
 # Real local Git worktree plus Hermes-unavailable checkpoint recovery.
 result = agent.run_to_gate(workflow["id"])
 ok("workflow pauses when Hermes is unavailable", result["state"] == "paused", result["state"])
-ok("Hermes failure is typed", result["error_code"] == "hermes_unavailable", str(result["error_code"]))
+ok("worker failure is typed", result["error_code"] == "worker_unavailable", str(result["error_code"]))
 ok("isolated worktree is retained", bool(result["worktree"]) and Path(result["worktree"]).is_dir())
 ok("deployment checkout remains on main", git("branch", "--show-current", cwd=repo) == "main")
 ok("worktree branch uses target version", str(result["branch"]).startswith("v3.0.0/"), str(result["branch"]))
@@ -161,6 +168,7 @@ timeout_policy_data = json.loads(json.dumps(policy_data))
 timeout_policy_data["limits"]["worker_timeout_seconds"] = 1
 timeout_policy = CodingPolicy(timeout_policy_data, repo_root=repo)
 os.environ["TOBI_HERMES_CODING_COMMAND"] = "ping 127.0.0.1 -n 8"
+os.environ["TOBI_HERMES_SANDBOX_ARGV"] = '["{command}"]'
 try:
     HermesWorker(timeout_policy).run(999, "timeout", repo, {"test": True})
     raise AssertionError("silent worker escaped its deadline")
@@ -168,6 +176,7 @@ except TimeoutError:
     ok("silent worker is terminated at its deadline", True)
 finally:
     os.environ["TOBI_HERMES_CODING_COMMAND"] = "definitely-missing-hermes"
+    os.environ.pop("TOBI_HERMES_SANDBOX_ARGV", None)
 
 # Concurrent event writers preserve unique monotonic sequence numbers.
 threads = [threading.Thread(target=store.append_event, args=(workflow["id"], "concurrent", {"n": n})) for n in range(10)]

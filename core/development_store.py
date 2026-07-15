@@ -55,6 +55,13 @@ CREATE TABLE IF NOT EXISTS coding_sessions (
     policy_hash TEXT NOT NULL,
     review_cycles INTEGER NOT NULL DEFAULT 0,
     error_code TEXT,
+    goal_id INTEGER,
+    plan_hash_snapshot TEXT,
+    criteria_snapshot_json TEXT NOT NULL DEFAULT '[]',
+    validation_commands_json TEXT NOT NULL DEFAULT '[]',
+    lease_owner TEXT,
+    lease_expires_at TEXT,
+    cancel_requested INTEGER NOT NULL DEFAULT 0,
     idempotency_key TEXT UNIQUE,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -160,9 +167,52 @@ CREATE TABLE IF NOT EXISTS coding_artifacts (
     cleanup_eligible INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS development_goals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    objective TEXT NOT NULL,
+    acceptance_criteria_json TEXT NOT NULL,
+    validation_commands_json TEXT NOT NULL DEFAULT '[]',
+    autonomy TEXT NOT NULL DEFAULT 'sandbox',
+    preferred_models_json TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'queued',
+    max_iterations INTEGER NOT NULL DEFAULT 12,
+    iteration_count INTEGER NOT NULL DEFAULT 0,
+    current_session_id INTEGER,
+    last_error TEXT,
+    lease_owner TEXT,
+    lease_expires_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS goal_iterations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    goal_id INTEGER NOT NULL,
+    session_id INTEGER,
+    iteration INTEGER NOT NULL,
+    state TEXT NOT NULL,
+    result_json TEXT,
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    UNIQUE(goal_id,iteration),
+    FOREIGN KEY(goal_id) REFERENCES development_goals(id)
+);
+CREATE TABLE IF NOT EXISTS development_commands (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    target_type TEXT NOT NULL,
+    target_id INTEGER NOT NULL,
+    command TEXT NOT NULL,
+    status TEXT NOT NULL,
+    response_json TEXT,
+    created_at TEXT NOT NULL,
+    completed_at TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_development_events_session_seq ON development_events(session_id,sequence);
 CREATE INDEX IF NOT EXISTS idx_coding_sessions_state ON coding_sessions(state,updated_at);
 CREATE INDEX IF NOT EXISTS idx_coding_stages_session ON coding_stages(session_id,position);
+CREATE INDEX IF NOT EXISTS idx_development_goals_status ON development_goals(status,updated_at);
 """
 
 
@@ -188,6 +238,20 @@ class DevelopmentStore:
         try:
             conn.executescript(SCHEMA)
             conn.execute("INSERT OR IGNORE INTO developer_schema_migrations(version,applied_at) VALUES (1,?)", (utc_now(),))
+            existing = {str(row[1]) for row in conn.execute("PRAGMA table_info(coding_sessions)")}
+            additions = {
+                "goal_id": "INTEGER",
+                "plan_hash_snapshot": "TEXT",
+                "criteria_snapshot_json": "TEXT NOT NULL DEFAULT '[]'",
+                "validation_commands_json": "TEXT NOT NULL DEFAULT '[]'",
+                "lease_owner": "TEXT",
+                "lease_expires_at": "TEXT",
+                "cancel_requested": "INTEGER NOT NULL DEFAULT 0",
+            }
+            for name, declaration in additions.items():
+                if name not in existing:
+                    conn.execute(f"ALTER TABLE coding_sessions ADD COLUMN {name} {declaration}")
+            conn.execute("INSERT OR IGNORE INTO developer_schema_migrations(version,applied_at) VALUES (2,?)", (utc_now(),))
             conn.commit()
         finally:
             conn.close()
@@ -243,13 +307,25 @@ class DevelopmentStore:
         finally:
             conn.close()
 
-    def create_session(self, task_id: int, policy_hash: str, idempotency_key: str) -> dict[str, Any]:
+    def create_session(
+        self,
+        task_id: int,
+        policy_hash: str,
+        idempotency_key: str,
+        *,
+        goal_id: int | None = None,
+        plan_hash_snapshot: str | None = None,
+        criteria_snapshot: Iterable[str] = (),
+        validation_commands: Iterable[Iterable[str]] = (),
+    ) -> dict[str, Any]:
         now = utc_now()
         conn = self.connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
             existing = conn.execute("SELECT * FROM coding_sessions WHERE idempotency_key=?", (idempotency_key,)).fetchone()
             if existing:
+                if int(existing["task_id"]) != int(task_id):
+                    raise RuntimeError("Idempotency key was already used for another development task.")
                 conn.commit()
                 return dict(existing)
             active = conn.execute(
@@ -259,9 +335,12 @@ class DevelopmentStore:
                 raise RuntimeError(f"Coding workflow {active['id']} is already active.")
             cur = conn.execute(
                 """INSERT INTO coding_sessions
-                (task_id,state,stage,policy_hash,idempotency_key,created_at,updated_at)
-                VALUES (?,?,?,?,?,?,?)""",
-                (task_id, "approved", "approved", policy_hash, idempotency_key, now, now),
+                (task_id,state,stage,policy_hash,goal_id,plan_hash_snapshot,criteria_snapshot_json,
+                 validation_commands_json,idempotency_key,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (task_id, "approved", "approved", policy_hash, goal_id, plan_hash_snapshot,
+                 _json(list(criteria_snapshot)), _json([list(item) for item in validation_commands]),
+                 idempotency_key, now, now),
             )
             conn.commit()
             return dict(conn.execute("SELECT * FROM coding_sessions WHERE id=?", (cur.lastrowid,)).fetchone())
@@ -297,6 +376,8 @@ class DevelopmentStore:
         allowed = {
             "state", "stage", "branch", "worktree", "base_sha", "head_sha", "worker_pid",
             "progress", "blocker", "review_cycles", "error_code", "completed_at",
+            "lease_owner", "lease_expires_at",
+            "cancel_requested",
         }
         changes = {key: value for key, value in fields.items() if key in allowed}
         if not changes:
@@ -318,6 +399,38 @@ class DevelopmentStore:
         if not result:
             raise KeyError(session_id)
         return result
+
+    def claim_session(self, session_id: int, owner: str, lease_seconds: int = 120) -> bool:
+        now = datetime.now(timezone.utc)
+        expires = now + timedelta(seconds=max(30, lease_seconds))
+        conn = self.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT lease_owner,lease_expires_at FROM coding_sessions WHERE id=?", (session_id,)).fetchone()
+            if not row:
+                raise KeyError(session_id)
+            if row["lease_owner"] and row["lease_owner"] != owner and row["lease_expires_at"] and row["lease_expires_at"] > now.isoformat():
+                conn.commit()
+                return False
+            conn.execute(
+                "UPDATE coding_sessions SET lease_owner=?,lease_expires_at=?,updated_at=? WHERE id=?",
+                (owner, expires.isoformat(), now.isoformat(), session_id),
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+    def release_session(self, session_id: int, owner: str) -> None:
+        conn = self.connect()
+        try:
+            conn.execute(
+                "UPDATE coding_sessions SET lease_owner=NULL,lease_expires_at=NULL,updated_at=? WHERE id=? AND lease_owner=?",
+                (utc_now(), session_id, owner),
+            )
+            conn.commit()
+        finally:
+            conn.close()
 
     def add_stages(self, session_id: int, stages: Iterable[dict[str, Any]]) -> None:
         conn = self.connect()
@@ -498,5 +611,193 @@ class DevelopmentStore:
             return [dict(row) for row in conn.execute(
                 "SELECT * FROM coding_artifacts WHERE session_id=? ORDER BY id", (session_id,)
             )]
+        finally:
+            conn.close()
+
+    def create_goal(
+        self,
+        *,
+        title: str,
+        objective: str,
+        acceptance_criteria: Iterable[str],
+        validation_commands: Iterable[Iterable[str]] = (),
+        autonomy: str = "sandbox",
+        preferred_models: Iterable[str] = (),
+        max_iterations: int = 12,
+    ) -> dict[str, Any]:
+        criteria = [str(item).strip() for item in acceptance_criteria if str(item).strip()]
+        if not criteria:
+            raise ValueError("At least one measurable acceptance criterion is required.")
+        if autonomy not in {"sandbox", "pr", "merge_deploy"}:
+            raise ValueError("Goal autonomy must be sandbox, pr, or merge_deploy.")
+        now = utc_now()
+        conn = self.connect()
+        try:
+            cur = conn.execute(
+                """INSERT INTO development_goals
+                   (title,objective,acceptance_criteria_json,validation_commands_json,autonomy,
+                    preferred_models_json,status,max_iterations,created_at,updated_at)
+                   VALUES (?,?,?,?,?,?,'queued',?,?,?)""",
+                (title.strip()[:240], objective.strip(), _json(criteria),
+                 _json([list(item) for item in validation_commands]), autonomy,
+                 _json([str(item) for item in preferred_models if str(item).strip()]),
+                 max(1, min(int(max_iterations), 100)), now, now),
+            )
+            conn.commit()
+            return self.get_goal(int(cur.lastrowid)) or {}
+        finally:
+            conn.close()
+
+    def get_goal(self, goal_id: int) -> dict[str, Any] | None:
+        conn = self.connect()
+        try:
+            return self._row(conn.execute("SELECT * FROM development_goals WHERE id=?", (goal_id,)).fetchone())
+        finally:
+            conn.close()
+
+    def list_goals(self, limit: int = 100) -> list[dict[str, Any]]:
+        conn = self.connect()
+        try:
+            return [dict(row) for row in conn.execute(
+                "SELECT * FROM development_goals ORDER BY updated_at DESC LIMIT ?", (max(1, min(limit, 500)),)
+            )]
+        finally:
+            conn.close()
+
+    def update_goal(self, goal_id: int, **fields: Any) -> dict[str, Any]:
+        allowed = {"status", "iteration_count", "current_session_id", "last_error", "lease_owner",
+                   "lease_expires_at", "completed_at"}
+        changes = {key: value for key, value in fields.items() if key in allowed}
+        if not changes:
+            goal = self.get_goal(goal_id)
+            if not goal:
+                raise KeyError(goal_id)
+            return goal
+        changes["updated_at"] = utc_now()
+        conn = self.connect()
+        try:
+            sql = ",".join(f"{key}=?" for key in changes)
+            cur = conn.execute(f"UPDATE development_goals SET {sql} WHERE id=?", (*changes.values(), goal_id))
+            if cur.rowcount != 1:
+                raise KeyError(goal_id)
+            conn.commit()
+        finally:
+            conn.close()
+        return self.get_goal(goal_id) or {}
+
+    def claim_goal(self, owner: str, lease_seconds: int = 120) -> dict[str, Any] | None:
+        now = datetime.now(timezone.utc)
+        expires = now + timedelta(seconds=max(30, lease_seconds))
+        conn = self.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                """SELECT * FROM development_goals
+                   WHERE status IN ('queued','running','retrying')
+                     AND (lease_expires_at IS NULL OR lease_expires_at<=? OR lease_owner=?)
+                   ORDER BY created_at,id LIMIT 1""",
+                (now.isoformat(), owner),
+            ).fetchone()
+            if not row:
+                conn.commit()
+                return None
+            conn.execute(
+                """UPDATE development_goals SET status='running',lease_owner=?,lease_expires_at=?,updated_at=?
+                   WHERE id=?""",
+                (owner, expires.isoformat(), now.isoformat(), row["id"]),
+            )
+            conn.commit()
+            return self.get_goal(int(row["id"]))
+        finally:
+            conn.close()
+
+    def renew_goal_lease(self, goal_id: int, owner: str, lease_seconds: int = 120) -> bool:
+        expires = datetime.now(timezone.utc) + timedelta(seconds=max(30, lease_seconds))
+        conn = self.connect()
+        try:
+            cur = conn.execute(
+                "UPDATE development_goals SET lease_expires_at=?,updated_at=? WHERE id=? AND lease_owner=?",
+                (expires.isoformat(), utc_now(), goal_id, owner),
+            )
+            conn.commit()
+            return cur.rowcount == 1
+        finally:
+            conn.close()
+
+    def release_goal_lease(self, goal_id: int, owner: str) -> None:
+        conn = self.connect()
+        try:
+            conn.execute(
+                "UPDATE development_goals SET lease_owner=NULL,lease_expires_at=NULL,updated_at=? WHERE id=? AND lease_owner=?",
+                (utc_now(), goal_id, owner),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def add_goal_iteration(self, goal_id: int, session_id: int, iteration: int) -> dict[str, Any]:
+        conn = self.connect()
+        try:
+            conn.execute(
+                """INSERT OR IGNORE INTO goal_iterations(goal_id,session_id,iteration,state,created_at)
+                   VALUES (?,?,?,'running',?)""",
+                (goal_id, session_id, iteration, utc_now()),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT * FROM goal_iterations WHERE goal_id=? AND iteration=?", (goal_id, iteration)
+            ).fetchone()
+            return dict(row)
+        finally:
+            conn.close()
+
+    def finish_goal_iteration(self, goal_id: int, iteration: int, state: str, result: dict[str, Any]) -> None:
+        conn = self.connect()
+        try:
+            conn.execute(
+                """UPDATE goal_iterations SET state=?,result_json=?,completed_at=?
+                   WHERE goal_id=? AND iteration=?""",
+                (state, _json(result), utc_now(), goal_id, iteration),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def begin_command(self, key: str, target_type: str, target_id: int, command: str) -> dict[str, Any]:
+        conn = self.connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            existing = conn.execute(
+                "SELECT * FROM development_commands WHERE idempotency_key=?", (key,)
+            ).fetchone()
+            if existing:
+                item = dict(existing)
+                if item["target_type"] != target_type or int(item["target_id"]) != target_id or item["command"] != command:
+                    raise RuntimeError("Idempotency key was reused for a different command.")
+                conn.commit()
+                item["_claimed"] = False
+                return item
+            cur = conn.execute(
+                """INSERT INTO development_commands
+                   (idempotency_key,target_type,target_id,command,status,created_at)
+                   VALUES (?,?,?,?, 'running', ?)""",
+                (key, target_type, target_id, command, utc_now()),
+            )
+            conn.commit()
+            item = dict(conn.execute("SELECT * FROM development_commands WHERE id=?", (cur.lastrowid,)).fetchone())
+            item["_claimed"] = True
+            return item
+        finally:
+            conn.close()
+
+    def finish_command(self, key: str, response: dict[str, Any]) -> None:
+        conn = self.connect()
+        try:
+            conn.execute(
+                """UPDATE development_commands SET status='completed',response_json=?,completed_at=?
+                   WHERE idempotency_key=?""",
+                (_json(response), utc_now(), key),
+            )
+            conn.commit()
         finally:
             conn.close()

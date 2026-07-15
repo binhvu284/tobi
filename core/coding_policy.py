@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+from urllib.parse import urlparse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -132,6 +133,20 @@ class CodingPolicy:
         return [[str(part) for part in check] for check in checks if isinstance(check, list) and check]
 
     def assert_remote(self, remote_url: str) -> None:
+        repository = str(self.data.get("repository", {}).get("allowed_repository", "")).strip().lower()
+        if repository:
+            normalized = remote_url.strip()
+            actual = ""
+            if normalized.startswith("git@github.com:"):
+                actual = normalized.split(":", 1)[1]
+            else:
+                parsed = urlparse(normalized)
+                if parsed.hostname and parsed.hostname.lower() == "github.com":
+                    actual = parsed.path.lstrip("/")
+            actual = actual.rstrip("/").removesuffix(".git").lower()
+            if actual != repository:
+                raise PolicyDenied("Git remote does not match the exact repository allowed by coding policy.")
+            return
         suffix = str(self.data.get("repository", {}).get("allowed_remote_suffix", "")).strip().lower()
         normalized = remote_url.strip().rstrip("/").lower()
         if not suffix or not normalized.endswith(suffix.rstrip("/")):

@@ -2,20 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle, CheckCircle2, Circle, Clock3, Code2, ExternalLink, GitBranch,
-  HardDrive, KeyRound, Loader2, Pause, Play, RefreshCw, RotateCcw, ShieldCheck,
-  Square, TerminalSquare, XCircle,
+  HardDrive, KeyRound, Loader2, Pause, Play, Plus, RefreshCw, RotateCcw, ShieldCheck,
+  Square, Target, TerminalSquare, XCircle,
 } from 'lucide-react'
 import AmbientField from '../components/motion/AmbientField'
 import { useToast } from '../context/ToastProvider'
 import {
-  approveDeveloperWorkflow, commandDeveloperWorkflow, getDeveloperOverview,
-  cleanupDeveloperStorage, getDeveloperQueue, getDeveloperStorage, getDeveloperVersions, startDeveloperWorkflow,
+  approveDeveloperWorkflow, commandDeveloperGoal, commandDeveloperWorkflow, createDeveloperGoal, getDeveloperOverview,
+  cleanupDeveloperStorage, getDeveloperGoals, getDeveloperQueue, getDeveloperStorage, getDeveloperVersions, startDeveloperWorkflow,
   streamDeveloperEvents, type DeveloperEvent, type DeveloperOverview,
-  type DeveloperQueueItem, type DeveloperRelease, type DeveloperStorage,
+  type DeveloperGoal, type DeveloperQueueItem, type DeveloperRelease, type DeveloperStorage,
   type DeveloperWorkflow,
 } from '../api'
 
-type Tab = 'overview' | 'loop' | 'queue' | 'versions' | 'storage'
+type Tab = 'overview' | 'goals' | 'loop' | 'queue' | 'versions' | 'storage'
 
 const TERMINAL_STATES = new Set(['completed', 'canceled', 'failed', 'rolled_back'])
 const STATE_TONE: Record<string, string> = {
@@ -202,6 +202,42 @@ function CodingLoop({ workflow, events }: { workflow: DeveloperWorkflow | null; 
   )
 }
 
+function GoalsView({ goals, busy, onCreate, onCommand }: {
+  goals: DeveloperGoal[]; busy: boolean
+  onCreate: (input: { title: string; objective: string; acceptance_criteria: string[]; autonomy: 'sandbox' | 'pr' | 'merge_deploy'; preferred_models: string[] }) => void
+  onCommand: (id: number, command: 'pause' | 'resume' | 'cancel') => void
+}) {
+  const [title, setTitle] = useState('')
+  const [objective, setObjective] = useState('')
+  const [criteria, setCriteria] = useState('')
+  const [models, setModels] = useState('')
+  const [autonomy, setAutonomy] = useState<'sandbox' | 'pr' | 'merge_deploy'>('sandbox')
+  const submit = () => {
+    const acceptance = criteria.split('\n').map(item => item.trim()).filter(Boolean)
+    if (!title.trim() || objective.trim().length < 10 || !acceptance.length) return
+    onCreate({ title: title.trim(), objective: objective.trim(), acceptance_criteria: acceptance, autonomy,
+      preferred_models: models.split(',').map(item => item.trim()).filter(Boolean) })
+    setTitle(''); setObjective(''); setCriteria(''); setModels('')
+  }
+  return <div className="space-y-8">
+    <section className="border-y border-border py-5">
+      <div className="flex items-center gap-2"><Target size={17} className="text-accent" /><h2 className="text-sm font-semibold text-text">New continuous development goal</h2></div>
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        <label className="lg:col-span-2"><span className="mb-1 block text-xs text-muted">Goal title</span><input value={title} onChange={event => setTitle(event.target.value)} placeholder="Improve Agent runtime reliability" className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text outline-none focus:border-accent" /></label>
+        <label className="lg:col-span-2"><span className="mb-1 block text-xs text-muted">Objective</span><textarea value={objective} onChange={event => setObjective(event.target.value)} rows={3} placeholder="Describe the infrastructure outcome and boundaries." className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm text-text outline-none focus:border-accent" /></label>
+        <label><span className="mb-1 block text-xs text-muted">Acceptance criteria, one per line</span><textarea value={criteria} onChange={event => setCriteria(event.target.value)} rows={5} placeholder={'All focused tests pass\nNo regression in Chat mode\nRuntime recovers after restart'} className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm text-text outline-none focus:border-accent" /></label>
+        <div className="space-y-3"><label><span className="mb-1 block text-xs text-muted">Autonomy boundary</span><select value={autonomy} onChange={event => setAutonomy(event.target.value as typeof autonomy)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text outline-none focus:border-accent"><option value="sandbox">Local sandbox only</option><option value="pr">Create pull request</option><option value="merge_deploy">Merge and deploy after approval</option></select></label><label><span className="mb-1 block text-xs text-muted">Preferred model IDs</span><input value={models} onChange={event => setModels(event.target.value)} placeholder="ollama:qwen3-coder, anthropic:..." className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text outline-none focus:border-accent" /></label></div>
+      </div>
+      <button onClick={submit} disabled={busy || !title.trim() || objective.trim().length < 10 || !criteria.trim()} className="mt-4 inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background disabled:opacity-40"><Plus size={15} /> Start goal loop</button>
+    </section>
+    <section><h2 className="mb-3 text-sm font-semibold text-text">Development goals</h2>{!goals.length ? <Empty text="No continuous development goals have been created." /> : <div className="border-t border-border">{goals.map(goal => {
+      const resumable = ['paused', 'blocked', 'awaiting_config'].includes(goal.status)
+      const active = !['completed', 'qualified_local', 'canceled'].includes(goal.status)
+      return <div key={goal.id} className="grid gap-3 border-b border-border/70 py-4 lg:grid-cols-[minmax(0,1fr)_160px_220px] lg:items-center"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-medium text-text">{goal.title}</span><StateBadge state={goal.status} /></div><p className="mt-1 line-clamp-2 text-xs leading-5 text-muted">{goal.objective}</p>{goal.last_error && <div className="mt-1 text-xs text-warning">{label(goal.last_error)}</div>}</div><div className="text-xs text-muted">Iteration {goal.iteration_count}/{goal.max_iterations}<br />{label(goal.autonomy)}</div><div className="flex justify-start gap-2 lg:justify-end">{resumable && <button disabled={busy} onClick={() => onCommand(goal.id, 'resume')} className="inline-flex h-8 items-center gap-1 rounded-md bg-accent px-2 text-xs text-background"><Play size={13} /> Resume</button>}{active && !resumable && <button disabled={busy} onClick={() => onCommand(goal.id, 'pause')} className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2 text-xs text-text"><Pause size={13} /> Pause</button>}{active && <button disabled={busy} onClick={() => onCommand(goal.id, 'cancel')} className="inline-flex h-8 items-center gap-1 rounded-md border border-danger/40 px-2 text-xs text-danger"><Square size={12} /> Cancel</button>}</div></div>
+    })}</div>}</section>
+  </div>
+}
+
 function QueueView({ items, busy, onStart }: { items: DeveloperQueueItem[]; busy: boolean; onStart: (id: number) => void }) {
   return (
     <div className="overflow-x-auto border-y border-border">
@@ -272,6 +308,7 @@ export default function Developer() {
   const [queue, setQueue] = useState<DeveloperQueueItem[]>([])
   const [releases, setReleases] = useState<DeveloperRelease[]>([])
   const [storage, setStorage] = useState<DeveloperStorage | null>(null)
+  const [goals, setGoals] = useState<DeveloperGoal[]>([])
   const [events, setEvents] = useState<DeveloperEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -281,10 +318,10 @@ export default function Developer() {
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true)
     try {
-      const [o, q, v, s] = await Promise.all([
-        getDeveloperOverview(), getDeveloperQueue(), getDeveloperVersions(), getDeveloperStorage(),
+      const [o, q, v, s, g] = await Promise.all([
+        getDeveloperOverview(), getDeveloperQueue(), getDeveloperVersions(), getDeveloperStorage(), getDeveloperGoals(),
       ])
-      setOverview(o); setQueue(q.items); setReleases(v.releases); setStorage(s); setError(null)
+      setOverview(o); setQueue(q.items); setReleases(v.releases); setStorage(s); setGoals(g.goals); setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Developer data is unavailable.')
     } finally { if (!quiet) setLoading(false) }
@@ -314,10 +351,12 @@ export default function Developer() {
   }
   const command = (cmd: 'pause' | 'resume' | 'cancel' | 'retry') => active && act(() => commandDeveloperWorkflow(active.id, cmd), `Workflow ${cmd} accepted`)
   const approve = (purpose: 'special_paths' | 'merge_deploy', master: string) => active && act(() => approveDeveloperWorkflow(active.id, purpose, master), 'Approval accepted')
+  const createGoal = (input: Parameters<typeof createDeveloperGoal>[0]) => act(() => createDeveloperGoal(input), 'Development goal queued')
+  const goalCommand = (id: number, cmd: 'pause' | 'resume' | 'cancel') => act(() => commandDeveloperGoal(id, cmd), `Goal ${cmd} accepted`)
 
   const capabilities = useMemo(() => Object.entries(overview?.policy.capabilities ?? {}), [overview])
   const tabs: { id: Tab; label: string }[] = [
-    { id: 'overview', label: 'Overview' }, { id: 'loop', label: 'Coding Loop' }, { id: 'queue', label: 'Queue' },
+    { id: 'overview', label: 'Overview' }, { id: 'goals', label: 'Goals' }, { id: 'loop', label: 'Coding Loop' }, { id: 'queue', label: 'Queue' },
     { id: 'versions', label: 'Versions' }, { id: 'storage', label: 'Storage' },
   ]
 
@@ -343,6 +382,7 @@ export default function Developer() {
               <section><h2 className="mb-3 text-sm font-semibold text-text">Control-plane status</h2><div className="grid gap-4 sm:grid-cols-3"><div className="border-l-2 border-accent pl-3"><div className="text-xs text-muted">Policy</div><div className="mt-1 font-mono text-sm text-text">v{overview?.policy.version} · {overview?.policy.hash.slice(0, 10)}</div></div><div className="border-l-2 border-border pl-3"><div className="text-xs text-muted">GitHub App</div><div className="mt-1 text-sm text-text">{overview?.policy.github_configured ? 'Configured' : 'Not configured'}</div></div><div className="border-l-2 border-border pl-3"><div className="text-xs text-muted">Deployment</div><div className="mt-1 text-sm text-text">{overview?.policy.deployment_configured ? 'Configured' : 'Not configured'}</div></div></div></section>
             </div>}
             {tab === 'loop' && <CodingLoop workflow={active} events={events} />}
+            {tab === 'goals' && <GoalsView goals={goals} busy={busy} onCreate={createGoal} onCommand={goalCommand} />}
             {tab === 'queue' && <QueueView items={queue} busy={busy} onStart={id => act(() => startDeveloperWorkflow(id), `Queue #${id} started`)} />}
             {tab === 'versions' && <VersionsView releases={releases} />}
             {tab === 'storage' && <StorageView storage={storage} busy={busy} onCleanup={master => act(() => cleanupDeveloperStorage(master), 'Developer cleanup completed')} />}

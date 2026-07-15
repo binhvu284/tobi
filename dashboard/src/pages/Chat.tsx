@@ -6,7 +6,7 @@ import {
   Paperclip, Globe, Image as ImageIcon, FileText, ThumbsUp, ThumbsDown, Activity,
   GitBranch, Plug, Layers, PanelLeftClose, PanelLeftOpen, AlertTriangle, Zap, Quote,
   Terminal, Search, Briefcase, Wrench, ShieldCheck, CheckCircle2, XCircle, ListChecks, Radio, Gauge,
-  ChevronUp, MessagesSquare, ChevronRight, Pin, Youtube, Loader2,
+  ChevronUp, MessagesSquare, ChevronRight, Pin, Youtube, Loader2, MoreVertical,
 } from 'lucide-react'
 import { SiGithub, SiGoogle, SiNotion, SiVercel, SiSupabase, type IconType } from '@icons-pack/react-simple-icons'
 import {
@@ -972,14 +972,53 @@ export default function Chat() {
               {pinned ? <Pin size={13} className="shrink-0 text-accent" /> : s.title?.startsWith('\u21b3') ? <GitBranch size={13} className="shrink-0 opacity-60" /> : <MessageSquarePlus size={13} className="shrink-0 opacity-60" />}
               <span className="truncate">{s.title || 'New chat'}</span>
             </button>
-            <button onClick={() => togglePin(s.id)} title={pinned ? 'Unpin chat' : 'Pin chat'} className={`transition-opacity hover:text-accent ${pinned ? 'text-accent opacity-100' : 'opacity-0 group-hover:opacity-100'}`}><Pin size={11} /></button>
-            <button onClick={() => { setRenaming(s.id); setRenameVal(s.title || '') }} className="opacity-0 transition-opacity hover:text-accent group-hover:opacity-100"><Pencil size={11} /></button>
-            <button onClick={() => removeSession(s.id)} className="opacity-0 transition-opacity hover:text-danger group-hover:opacity-100"><Trash2 size={11} /></button>
+            <button onClick={() => togglePin(s.id)} title={pinned ? 'Unpin chat' : 'Pin chat'} className={`shrink-0 transition-opacity hover:text-accent ${pinned ? 'text-accent opacity-100' : 'opacity-0 group-hover:opacity-100'}`}><Pin size={11} /></button>
+            <SessionMenu onRename={() => { setRenaming(s.id); setRenameVal(s.title || '') }} onDelete={() => removeSession(s.id)} />
           </>
         )}
       </div>
-    )
-  }
+  )
+}
+
+// ── Session 3-dot menu (rename + delete) ─────────────────────────────────────
+function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: () => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey) }
+  }, [open])
+
+  return (
+    <div className="relative shrink-0" ref={ref}>
+      <button onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
+        className="opacity-0 transition-opacity hover:text-text group-hover:opacity-100">
+        <MoreVertical size={14} />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div initial={{ opacity: 0, scale: 0.95, y: -4 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.12 }}
+            onClick={e => e.stopPropagation()}
+            className="absolute right-0 top-full z-50 mt-1 w-32 overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-2xl backdrop-blur-xl">
+            <button onClick={() => { setOpen(false); onRename() }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-text hover:bg-bg/60">
+              <Pencil size={13} className="text-muted" /> Rename
+            </button>
+            <button onClick={() => { setOpen(false); onDelete() }}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-danger hover:bg-danger/10">
+              <Trash2 size={13} /> Delete
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
 
   return (
     <div className="relative flex h-full" onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>

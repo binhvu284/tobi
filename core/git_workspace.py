@@ -47,6 +47,12 @@ class GitWorkspaceManager:
     def git(self, *args: str, cwd: Path | None = None, timeout: int = 120, allow_network: bool = False) -> str:
         return self._run(["git", *args], cwd=cwd, timeout=timeout, allow_network=allow_network)
 
+    def _assert_worktree(self, worktree: Path | str) -> Path:
+        root = Path(worktree).resolve()
+        if not root.is_relative_to(self.worktree_root.resolve()):
+            raise PolicyDenied("Coding workspace escaped the approved worktree root.")
+        return root
+
     def verify_repository(self) -> dict[str, str]:
         top = Path(self.git("rev-parse", "--show-toplevel")).resolve()
         if top != self.repo_root:
@@ -78,37 +84,84 @@ class GitWorkspaceManager:
         return {"branch": branch, "worktree": str(worktree), "base_sha": base_sha, "head_sha": head_sha}
 
     def changed_files(self, worktree: Path | str) -> list[str]:
-        root = Path(worktree).resolve()
-        output = self.git("status", "--porcelain=v1", cwd=root)
-        files: list[str] = []
-        for line in output.splitlines():
-            name = line[3:].strip()
-            if " -> " in name:
-                name = name.split(" -> ", 1)[1]
+        root = self._assert_worktree(worktree)
+        output = self.git("status", "--porcelain=v1", "-z", "--untracked-files=all", cwd=root)
+        records = output.split("\0")
+        files: set[str] = set()
+        index = 0
+        while index < len(records):
+            record = records[index]
+            index += 1
+            if not record:
+                continue
+            status = record[:2]
+            name = record[3:] if len(record) >= 4 else ""
             if name:
-                files.append(name.replace("\\", "/"))
-        return files
+                files.add(name.replace("\\", "/"))
+            if ("R" in status or "C" in status) and index < len(records):
+                source = records[index]
+                index += 1
+                if source:
+                    files.add(source.replace("\\", "/"))
+        return sorted(files)
 
     def diff_summary(self, worktree: Path | str) -> dict[str, Any]:
-        root = Path(worktree).resolve()
+        root = self._assert_worktree(worktree)
         return {
             "files": self.changed_files(root),
             "stat": self.git("diff", "--stat", cwd=root),
             "head_sha": self.git("rev-parse", "HEAD", cwd=root),
         }
 
+    def diff_patch(self, worktree: Path | str, *, max_bytes: int = 100_000) -> str:
+        root = self._assert_worktree(worktree)
+        patch = self.git("diff", "--no-ext-diff", "--binary", cwd=root)
+        untracked = self.git("ls-files", "--others", "--exclude-standard", "-z", cwd=root)
+        additions: list[str] = []
+        remaining = max_bytes - len(patch.encode("utf-8", errors="replace"))
+        for relative in (item for item in untracked.split("\0") if item):
+            if remaining <= 0:
+                break
+            path = (root / relative).resolve()
+            if not path.is_relative_to(root) or not path.is_file():
+                continue
+            data = path.read_bytes()[:remaining]
+            block = f"\n--- /dev/null\n+++ b/{relative}\n" + data.decode("utf-8", errors="replace")
+            additions.append(block)
+            remaining -= len(block.encode("utf-8", errors="replace"))
+        patch += "".join(additions)
+        encoded = patch.encode("utf-8", errors="replace")
+        if len(encoded) > max_bytes:
+            return encoded[:max_bytes].decode("utf-8", errors="replace") + "\n[PATCH TRUNCATED]"
+        return patch
+
     def scan_secrets(self, worktree: Path | str, *, base_ref: str | None = None) -> list[str]:
-        root = Path(worktree).resolve()
+        root = self._assert_worktree(worktree)
         if base_ref:
             diff = self.git("diff", "--no-ext-diff", "--binary", f"{base_ref}..HEAD", cwd=root)
             staged = ""
         else:
             diff = self.git("diff", "--no-ext-diff", "--binary", cwd=root)
             staged = self.git("diff", "--cached", "--no-ext-diff", "--binary", cwd=root)
-        return sorted(set(find_probable_secrets(f"{diff}\n{staged}")))
+        findings = set(find_probable_secrets(f"{diff}\n{staged}"))
+        untracked = self.git("ls-files", "--others", "--exclude-standard", "-z", cwd=root)
+        max_file = int(self.policy.data.get("workers", {}).get("max_file_bytes", 250_000))
+        for relative in (item for item in untracked.split("\0") if item):
+            path = (root / relative).resolve()
+            if not path.is_relative_to(root) or not path.is_file():
+                continue
+            try:
+                data = path.read_bytes()
+            except OSError:
+                continue
+            if len(data) > max_file:
+                findings.add(f"untracked_file_too_large:{relative}")
+                continue
+            findings.update(find_probable_secrets(data.decode("utf-8", errors="ignore")))
+        return sorted(findings)
 
     def commit(self, worktree: Path | str, message: str, *, special_approval: bool = False) -> str:
-        root = Path(worktree).resolve()
+        root = self._assert_worktree(worktree)
         changed = self.changed_files(root)
         if not changed:
             raise GitCommandError("No changed files are available for a checkpoint commit.")
@@ -116,15 +169,22 @@ class GitWorkspaceManager:
         findings = self.scan_secrets(root)
         if findings:
             raise PolicyDenied(f"Probable secrets block commit: {len(findings)} finding(s).")
-        self.git("add", "--", *changed, cwd=root)
+        self.git("add", "-A", cwd=root)
         self.git("commit", "-m", message, cwd=root)
         return self.git("rev-parse", "HEAD", cwd=root)
 
     def push(self, worktree: Path | str, branch: str) -> str:
         if not self.policy.feature_enabled("github"):
             raise PolicyDenied("GitHub capability is disabled by policy.")
-        return self.git("push", "--set-upstream", "origin", branch, cwd=Path(worktree),
+        root = self._assert_worktree(worktree)
+        return self.git("push", "--set-upstream", "origin", branch, cwd=root,
                         allow_network=True, timeout=180)
+
+    def head(self, worktree: Path | str) -> str:
+        return self.git("rev-parse", "HEAD", cwd=self._assert_worktree(worktree))
+
+    def is_clean(self, worktree: Path | str) -> bool:
+        return not self.changed_files(worktree)
 
     def cancel_cleanup(self, worktree: Path | str, *, force: bool = False) -> None:
         root = Path(worktree).resolve()

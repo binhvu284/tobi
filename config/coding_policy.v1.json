@@ -2,6 +2,7 @@
   "version": 1,
   "repository": {
     "default_branch": "main",
+    "allowed_repository": "binhvu284/tobi",
     "allowed_remote_suffix": "binhvu284/tobi.git",
     "worktree_root": ".tobi/developer/worktrees",
     "artifact_root": ".tobi/developer/artifacts",
@@ -20,6 +21,18 @@
     "core/development_store.py",
     "core/vault.py",
     "api/developer.py",
+    "core/coding_agent.py",
+    "core/coding_loop.py",
+    "core/coding_tools.py",
+    "core/coding_workers.py",
+    "core/deployment_manager.py",
+    "core/git_workspace.py",
+    "core/github_coding.py",
+    "core/hermes_worker.py",
+    "core/release_manager.py",
+    "core/repo_index.py",
+    "docs/feature-idea-queue/QUEUE.md",
+    "docs/feature-idea-queue/**",
     "deploy.sh",
     ".github/**",
     ".env*"
@@ -74,8 +87,16 @@
     ],
     "mandatory_checks": [
       ["python", "-m", "compileall", "-q", "core", "api"],
+      ["python", "tests/test_coding_agent.py"],
       ["npm", "run", "build", "--prefix", "dashboard"]
     ]
+  },
+  "workers": {
+    "order": ["llm", "hermes"],
+    "allow_external_cli": false,
+    "llm_tool_steps": 40,
+    "max_file_bytes": 250000,
+    "max_tool_output_bytes": 100000
   },
   "limits": {
     "one_active_worker": true,
@@ -87,6 +108,13 @@
     "storage_warning_bytes": 10737418240,
     "reauth_ttl_seconds": 300
   },
+  "loop": {
+    "enabled": true,
+    "poll_seconds": 10,
+    "lease_seconds": 120,
+    "retry_backoff_seconds": 30,
+    "max_goal_iterations": 12
+  },
   "deployment": {
     "target_name": "",
     "checkout_path": "",
@@ -94,6 +122,7 @@
     "build": [],
     "restart": [],
     "health_url": "",
+    "require_health_revision": true,
     "rollback": []
   }
 }

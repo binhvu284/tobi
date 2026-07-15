@@ -52,7 +52,8 @@ async def startup():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "agent": "Tobi", "version": "1.0.0"}
+    from core.build_info import revision
+    return {"status": "ok", "agent": "Tobi", "version": "1.0.0", "revision": revision()}
 
 
 @app.get("/status", dependencies=[Depends(verify_api_key)])

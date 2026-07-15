@@ -2066,6 +2066,7 @@ async def api_health():
 
     return {
         "timestamp": datetime.now().isoformat(),
+        "revision": __import__("core.build_info", fromlist=["revision"]).revision(),
         "overall": overall,
         "score": score,
         "score_notes": notes,
@@ -2242,10 +2243,21 @@ async def startup():
         except Exception as e:
             import logging
             logging.getLogger("tobi.dashboard").warning("MCP session start skipped: %s", e)
+    try:
+        from api.developer import start_loop
+        start_loop()
+    except Exception as e:
+        import logging
+        logging.getLogger("tobi.dashboard").warning("Developer goal loop start skipped: %s", e)
 
 
 @app.on_event("shutdown")
 async def _mcp_shutdown():
+    try:
+        from api.developer import stop_loop
+        stop_loop()
+    except Exception:
+        pass
     if MCP_AVAILABLE:
         try:
             await mcp_server.stop_session()

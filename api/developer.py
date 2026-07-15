@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from core import vault
 from core.coding_agent import CodingAgent
+from core.coding_loop import CodingLoopService
 from core.coding_policy import PolicyDenied
 
 
@@ -31,6 +32,24 @@ class _LazyCodingAgent:
 
 
 agent: Any = _LazyCodingAgent()
+_loop: CodingLoopService | None = None
+
+
+def get_loop() -> CodingLoopService:
+    global _loop
+    if _loop is None:
+        concrete = agent._get() if isinstance(agent, _LazyCodingAgent) else agent
+        _loop = CodingLoopService(concrete)
+    return _loop
+
+
+def start_loop() -> bool:
+    return get_loop().start()
+
+
+def stop_loop() -> None:
+    if _loop is not None:
+        _loop.stop()
 
 
 def require_owner(x_vault_session: str | None = Header(None, alias="X-Vault-Session")) -> str:
@@ -52,6 +71,7 @@ class WorkflowCreate(BaseModel):
 
 class WorkflowCommand(BaseModel):
     command: Literal["pause", "resume", "cancel", "retry"]
+    idempotency_key: str = Field(min_length=8, max_length=200)
 
 
 class ReauthRequest(BaseModel):
@@ -67,6 +87,32 @@ class ApprovalRequest(BaseModel):
 
 class CleanupRequest(BaseModel):
     challenge: str = Field(min_length=20, max_length=500)
+
+
+class GoalCreate(BaseModel):
+    title: str = Field(min_length=3, max_length=240)
+    objective: str = Field(min_length=10, max_length=20_000)
+    acceptance_criteria: list[str] = Field(min_length=1, max_length=50)
+    validation_commands: list[list[str]] = Field(default_factory=list, max_length=20)
+    autonomy: Literal["sandbox", "pr", "merge_deploy"] = "sandbox"
+    preferred_models: list[str] = Field(default_factory=list, max_length=10)
+    max_iterations: int | None = Field(default=None, ge=1, le=100)
+
+
+class GoalCommand(BaseModel):
+    command: Literal["pause", "resume", "cancel"]
+    idempotency_key: str = Field(min_length=8, max_length=200)
+
+
+def _idempotent_command(key: str, target_type: str, target_id: int, command: str, execute) -> dict[str, Any]:
+    record = agent.store.begin_command(key, target_type, target_id, command)
+    if not record["_claimed"]:
+        if record["status"] == "completed" and record.get("response_json"):
+            return json.loads(record["response_json"])
+        raise RuntimeError("An identical command is already in progress.")
+    result = execute()
+    agent.store.finish_command(key, result)
+    return result
 
 
 def _error(exc: Exception) -> HTTPException:
@@ -132,6 +178,53 @@ def workflows(limit: int = Query(50, ge=1, le=200)) -> dict[str, Any]:
     return {"workflows": agent.list_workflows(limit)}
 
 
+@router.get("/goals", dependencies=[Owner])
+def goals(limit: int = Query(100, ge=1, le=500)) -> dict[str, Any]:
+    return {"goals": agent.store.list_goals(limit), "loop": {
+        "enabled": get_loop().enabled(), "owner": get_loop().owner,
+    }}
+
+
+@router.post("/goals", dependencies=[Owner])
+def create_goal(body: GoalCreate) -> dict[str, Any]:
+    try:
+        if agent.storage()["blocked_new_workflows"]:
+            raise PolicyDenied("Developer storage is above the warning threshold.")
+        goal = agent.create_goal(
+            title=body.title,
+            objective=body.objective,
+            acceptance_criteria=body.acceptance_criteria,
+            validation_commands=body.validation_commands,
+            autonomy=body.autonomy,
+            preferred_models=body.preferred_models,
+            max_iterations=body.max_iterations,
+        )
+        start_loop()
+        return goal
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/goals/{goal_id}", dependencies=[Owner])
+def get_goal(goal_id: int) -> dict[str, Any]:
+    goal = agent.store.get_goal(goal_id)
+    if not goal:
+        raise HTTPException(status_code=404, detail="Development goal was not found.")
+    workflow = agent.get_workflow(int(goal["current_session_id"])) if goal.get("current_session_id") else None
+    return {"goal": goal, "workflow": workflow}
+
+
+@router.post("/goals/{goal_id}/commands", dependencies=[Owner])
+def goal_command(goal_id: int, body: GoalCommand) -> dict[str, Any]:
+    try:
+        return _idempotent_command(
+            body.idempotency_key, "goal", goal_id, body.command,
+            lambda: get_loop().command(goal_id, body.command),
+        )
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
 @router.post("/workflows", dependencies=[Owner])
 def create_workflow(body: WorkflowCreate) -> dict[str, Any]:
     try:
@@ -172,7 +265,10 @@ def artifacts(workflow_id: int) -> dict[str, Any]:
 @router.post("/workflows/{workflow_id}/commands", dependencies=[Owner])
 def workflow_command(workflow_id: int, body: WorkflowCommand) -> dict[str, Any]:
     try:
-        return agent.command(workflow_id, body.command)
+        return _idempotent_command(
+            body.idempotency_key, "workflow", workflow_id, body.command,
+            lambda: agent.command(workflow_id, body.command),
+        )
     except Exception as exc:
         raise _error(exc) from exc
 

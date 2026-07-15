@@ -804,6 +804,12 @@ export type DeveloperEvent = {
   id: number; session_id: number; sequence: number; actor: string; event_type: string
   payload: Record<string, unknown>; created_at: string
 }
+export type DeveloperGoal = {
+  id: number; title: string; objective: string; acceptance_criteria_json: string
+  validation_commands_json: string; autonomy: 'sandbox' | 'pr' | 'merge_deploy'
+  preferred_models_json: string; status: string; max_iterations: number; iteration_count: number
+  current_session_id?: number | null; last_error?: string | null; created_at: string; updated_at: string
+}
 
 export async function getDeveloperOverview(): Promise<DeveloperOverview> {
   return vreq('/api/developer/overview')
@@ -817,6 +823,20 @@ export async function getDeveloperVersions(): Promise<{ releases: DeveloperRelea
 export async function getDeveloperStorage(): Promise<DeveloperStorage> {
   return vreq('/api/developer/storage')
 }
+export async function getDeveloperGoals(): Promise<{ goals: DeveloperGoal[]; loop: { enabled: boolean; owner: string } }> {
+  return vreq('/api/developer/goals')
+}
+export async function createDeveloperGoal(input: {
+  title: string; objective: string; acceptance_criteria: string[]
+  autonomy: 'sandbox' | 'pr' | 'merge_deploy'; preferred_models: string[]; max_iterations?: number
+}): Promise<DeveloperGoal> {
+  return vreq('/api/developer/goals', { method: 'POST', body: JSON.stringify(input) })
+}
+export async function commandDeveloperGoal(goalId: number, command: 'pause' | 'resume' | 'cancel'): Promise<DeveloperGoal> {
+  return vreq(`/api/developer/goals/${goalId}/commands`, {
+    method: 'POST', body: JSON.stringify({ command, idempotency_key: crypto.randomUUID() }),
+  })
+}
 export async function startDeveloperWorkflow(queueId: number): Promise<DeveloperWorkflow> {
   return vreq('/api/developer/workflows', {
     method: 'POST', body: JSON.stringify({ queue_id: queueId, idempotency_key: crypto.randomUUID(), start: true }),
@@ -826,7 +846,7 @@ export async function commandDeveloperWorkflow(
   workflowId: number, command: 'pause' | 'resume' | 'cancel' | 'retry',
 ): Promise<DeveloperWorkflow> {
   return vreq(`/api/developer/workflows/${workflowId}/commands`, {
-    method: 'POST', body: JSON.stringify({ command }),
+    method: 'POST', body: JSON.stringify({ command, idempotency_key: crypto.randomUUID() }),
   })
 }
 export async function approveDeveloperWorkflow(
