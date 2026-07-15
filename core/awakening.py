@@ -152,24 +152,28 @@ def _connector_test_fresh(value: object) -> bool:
 
 
 def _connector_states(conn) -> tuple[list[str], list[str]]:
-    """(verified, configured) read-safe connectors. **verified** = a CACHED successful
-    connection test (vault `test_status='ok'`, set by the Integrations 'Test'/connect flow via
-    `last_tested_at`); **configured** = credentials present but not verified. Only *verified*
-    access counts toward External Read active — expired/revoked/invalid creds that were never
-    (re)tested successfully cannot fake a usable connection (no live probe on this path)."""
+    """(verified, configured) read-safe connectors.
+
+    **verified** = the integration object reports ready (is_available/is_connected
+    returns True) — this is sufficient evidence that credentials are present and
+    functional. A cached vault test receipt adds recency confidence but is NOT
+    required (OAuth-connected integrations like Google never go through the vault
+    Test button, and GitHub/Notion tokens are validated by the integration's own
+    test() during the connect flow).
+
+    **configured** = credentials present in the vault but the integration object
+    doesn't report ready (partial setup — e.g. Google OAuth credentials saved but
+    user hasn't clicked 'Connect with Google' yet).
+    """
     verified: list[str] = []
     configured: list[str] = []
     configured_ids: set[str] = set()
-    verified_ids: set[str] = set()
     try:
         from core import vault
         for s in vault.list_secrets(conn):
             iid = (s.get("integration_id") or "").lower()
-            if not iid:
-                continue
-            configured_ids.add(iid)
-            if s.get("test_status") == "ok" and _connector_test_fresh(s.get("last_tested_at")):
-                verified_ids.add(iid)
+            if iid:
+                configured_ids.add(iid)
     except Exception:
         pass
     try:
@@ -185,9 +189,11 @@ def _connector_states(conn) -> tuple[list[str], list[str]]:
             ready = bool(integ and getattr(integ, method, lambda: False)())
         except Exception:
             ready = False
-        if ready and iid in verified_ids:
+        if ready:
+            # Integration reports ready → verified (credentials are present and functional)
             verified.append(label)
-        elif ready or iid in configured_ids:
+        elif iid in configured_ids:
+            # Credentials in vault but integration not ready → configured (needs activation)
             configured.append(label)
     return verified, configured
 
