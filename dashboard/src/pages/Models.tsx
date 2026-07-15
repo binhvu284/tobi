@@ -13,6 +13,7 @@ import { useToast } from '../context/ToastProvider'
 import { AmbientField } from '../components/motion'
 import LlmLogo from '../components/LlmLogo'
 import KeySlots from '../components/KeySlots'
+import { useVaultSession } from '../hooks/useVaultSession'
 
 const TASKS: { id: string; label: string }[] = [
   { id: 'simple', label: 'Simple / chat' },
@@ -25,6 +26,7 @@ const TASKS: { id: string; label: string }[] = [
 
 export default function Models() {
   const { toast } = useToast()
+  const hasSession = useVaultSession()
   const [cfg, setCfg] = useState<LlmConfig | null>(null)
   const [providers, setProviders] = useState<LlmProvider[]>([])
   const [models, setModels] = useState<AvailableModel[]>([])
@@ -125,7 +127,7 @@ export default function Models() {
     catch (e) { toast({ kind: 'error', title: 'Push failed', detail: (e as Error).message }) }
   }
 
-  const locked = !!vault && vault.setup && !vault.unlocked
+  const locked = !!vault && vault.setup && !hasSession
   const modelLabel = (id: string) => models.find(m => m.id === id)?.label || id
 
   return (

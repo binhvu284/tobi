@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  KeyRound, Lock, Unlock, ShieldCheck, Eye, EyeOff, Check, X, RefreshCw, Plus, Trash2,
+  KeyRound, Lock, ShieldCheck, Eye, EyeOff, Check, X, RefreshCw, Plus, Trash2,
   ExternalLink, AlertTriangle, ScrollText, Download, Upload, Loader2, Sparkles, Copy,
   Wand2, SkipForward, ChevronDown, Cpu,
 } from 'lucide-react'
 import {
-  getIntegrations, vaultSetup, vaultUnlock, vaultLock, vaultReload, getVaultAudit,
+  getIntegrations, vaultSetup, vaultLock, vaultReload, getVaultAudit,
   vaultExport, vaultImport, createVaultProfile, connectIntegration, testIntegration,
   revealSecret, addCustomSecret, removeIntegration, getLlmConfig,
   googleOAuthUrl, googleOAuthStatus, googleDisconnect,
@@ -18,6 +18,8 @@ import PageLoader from '../components/PageLoader'
 import BrandLogo from '../components/BrandLogo'
 import LlmLogo from '../components/LlmLogo'
 import KeySlots from '../components/KeySlots'
+import VaultUnlockPanel from '../components/VaultUnlockPanel'
+import { useVaultSession } from '../hooks/useVaultSession'
 
 const CAT_LABEL: Record<string, string> = {
   core: 'Core prerequisites', tools: 'Tools', coming_soon: 'Coming in Awakening',
@@ -29,7 +31,7 @@ export default function Integrations() {
   const [data, setData] = useState<IntegrationsResponse | null>(null)
   const [providers, setProviders] = useState<LlmProvider[]>([])   // LLM/model providers → vault keys
   const [loading, setLoading] = useState(true)
-  const [session, setSession] = useState(false)        // unlocked *this* browser session
+  const session = useVaultSession()
   const [showAudit, setShowAudit] = useState(false)
   const [audit, setAudit] = useState<AuditEntry[]>([])
   const [wizardOpen, setWizardOpen] = useState(false)
@@ -42,9 +44,9 @@ export default function Integrations() {
     try { setProviders((await getLlmConfig()).providers) } catch { /* models optional */ }
   }, [toast])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load() }, [load, session])
 
-  const onLocked = () => { setSession(false); toast({ kind: 'info', title: 'Vault locked', detail: 'Unlock to continue.' }) }
+  const onLocked = () => { toast({ kind: 'info', title: 'Vault locked', detail: 'Unlock to continue.' }) }
 
   // celebrate when Genesis flips to complete
   const celebrate = (g: GenesisStatus | undefined) => {
@@ -66,8 +68,8 @@ export default function Integrations() {
   // ── gates ──
   if (!session) {
     return vault.setup
-      ? <UnlockGate onDone={() => { setSession(true); load() }} />
-      : <SetupGate onDone={() => { setSession(true); load() }} />
+      ? <VaultUnlockPanel title="Unlock Integrations" detail="One unlock authorizes protected Mission Control tools in this browser tab." />
+      : <SetupGate onDone={load} />
   }
 
   const genesis = data!.genesis
@@ -88,7 +90,7 @@ export default function Integrations() {
             <p className="text-xs text-muted">Configure the keys that power Tobi — encrypted, in Mission Control.</p>
           </div>
           <Toolbar onReload={async () => { try { await vaultReload(); toast({ kind: 'success', title: 'Reloaded into the live process' }); load() } catch (e) { handleErr(e, onLocked, toast) } }}
-            onLock={async () => { await vaultLock(); setSession(false); toast({ kind: 'info', title: 'Vault locked' }) }}
+            onLock={async () => { await vaultLock(); toast({ kind: 'info', title: 'Vault locked' }) }}
             onAudit={() => { setShowAudit(s => !s); refreshAudit() }}
             onExport={() => exportFlow(toast)} onImport={() => importFlow(toast, () => load())}
             profiles={vault.profiles.map(p => p.name)} active={vault.active_profile}
@@ -217,28 +219,6 @@ function SetupGate({ onDone }: { onDone: () => void }) {
         className={`${inputCls} mt-2`} onKeyDown={e => e.key === 'Enter' && submit()} />
       <button onClick={submit} disabled={busy} className={btnPrimary}>
         {busy ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />} Create vault
-      </button>
-    </GateShell>
-  )
-}
-
-function UnlockGate({ onDone }: { onDone: () => void }) {
-  const { toast } = useToast()
-  const [pw, setPw] = useState(''); const [busy, setBusy] = useState(false)
-  const submit = async () => {
-    if (!pw) return
-    setBusy(true)
-    try { await vaultUnlock(pw); onDone() }
-    catch (e) { toast({ kind: 'error', title: 'Unlock failed', detail: (e as Error).message }) }
-    finally { setBusy(false) }
-  }
-  return (
-    <GateShell title="Unlock the vault" icon={<Lock size={20} />}>
-      <p className="mb-3 text-xs text-muted">Enter your master password to manage secrets.</p>
-      <input autoFocus type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder="Master password"
-        className={inputCls} onKeyDown={e => e.key === 'Enter' && submit()} />
-      <button onClick={submit} disabled={busy} className={btnPrimary}>
-        {busy ? <Loader2 size={14} className="animate-spin" /> : <Unlock size={14} />} Unlock
       </button>
     </GateShell>
   )

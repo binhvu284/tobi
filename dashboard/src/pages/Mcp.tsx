@@ -2,11 +2,11 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Workflow, Server, Plug, RefreshCw, Trash2, Plus, Play, Copy, Check, X,
-  ShieldCheck, Activity, KeyRound, Lock, ChevronDown, AlertTriangle, Loader2,
+  ShieldCheck, Activity, KeyRound, ChevronDown, AlertTriangle, Loader2,
   ArrowDownLeft, ArrowUpRight, Globe, Radio, Users, Send,
 } from 'lucide-react'
 import {
-  getVaultStatus, vaultUnlock,
+  getVaultStatus,
   getMcpServerConfig, setMcpServerConfig, getMcpClients, issueMcpClient, revokeMcpClient,
   getMcpConnections, addMcpConnection, testMcpConnection, refreshMcpConnection,
   setMcpConnectionEnabled, deleteMcpConnection, getMcpTools, setMcpTool, invokeMcpTool,
@@ -16,6 +16,8 @@ import {
   type McpCallLog, type McpApproval, type A2aCard, type A2aPeer,
 } from '../api'
 import { useToast } from '../context/ToastProvider'
+import { useVaultSession } from '../hooks/useVaultSession'
+import VaultUnlockPanel from '../components/VaultUnlockPanel'
 
 // ── shared styles ────────────────────────────────────────────────────────────
 const card = 'rounded-xl border border-border bg-surface'
@@ -58,33 +60,6 @@ const PERM_CLS: Record<string, string> = {
 }
 
 // ── unlock gate ──────────────────────────────────────────────────────────────
-function UnlockGate({ onUnlocked }: { onUnlocked: () => void }) {
-  const [pw, setPw] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-  const submit = async () => {
-    setBusy(true); setErr(null)
-    try { await vaultUnlock(pw); onUnlocked() }
-    catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
-  }
-  return (
-    <div className="flex h-full items-center justify-center p-6">
-      <div className={`${card} w-full max-w-sm p-6 text-center`}>
-        <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-accent/15 text-accent"><Lock size={20} /></div>
-        <h2 className="text-base font-bold text-heading">Unlock to manage MCP</h2>
-        <p className="mt-1 text-xs text-muted">MCP exposes TOBI to other agents — managing it needs your master password.</p>
-        <input type="password" value={pw} autoFocus placeholder="Master password"
-          onChange={e => setPw(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()}
-          className={`${input} mt-4`} />
-        {err && <p className="mt-2 text-xs text-danger">{err}</p>}
-        <button onClick={submit} disabled={busy || !pw} className={`${btnPrimary} mt-4 w-full py-2`}>
-          {busy ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />} Unlock
-        </button>
-      </div>
-    </div>
-  )
-}
-
 // ── modals ───────────────────────────────────────────────────────────────────
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   return (
@@ -440,7 +415,9 @@ function MessagePeerModal({ peer, onClose }: { peer: A2aPeer; onClose: () => voi
 
 // ── main page ────────────────────────────────────────────────────────────────
 export default function Mcp() {
-  const [gate, setGate] = useState<'loading' | 'setup' | 'locked' | 'ready'>('loading')
+  const hasSession = useVaultSession()
+  const [gate, setGate] = useState<'loading' | 'setup' | 'locked' | 'ready' | 'error'>('loading')
+  const [gateError, setGateError] = useState('')
   const [tab, setTab] = useState<'server' | 'clients' | 'a2a' | 'activity'>('server')
   const [server, setServer] = useState<McpServerInfo | null>(null)
   const [clients, setClients] = useState<McpClient[]>([])
@@ -468,12 +445,19 @@ export default function Mcp() {
   }
 
   const probe = () => {
-    getMcpServerConfig().then(s => { setServer(s); setGate('ready'); loadServer(); loadClients(); loadApprovals() })
-      .catch((e: { status?: number }) => setGate(e?.status === 401 ? 'locked' : 'ready'))
+    getMcpServerConfig().then(s => { setServer(s); setGateError(''); setGate('ready'); loadServer(); loadClients(); loadApprovals() })
+      .catch((e: { status?: number; message?: string }) => {
+        if (e?.status === 401) setGate('locked')
+        else { setGateError(e?.message || 'MCP data is unavailable.'); setGate('error') }
+      })
   }
   useEffect(() => {
-    getVaultStatus().then(s => { if (!s.setup) setGate('setup'); else probe() }).catch(() => setGate('locked'))
-  }, [])
+    getVaultStatus().then(s => {
+      if (!s.setup) setGate('setup')
+      else if (!hasSession) setGate('locked')
+      else probe()
+    }).catch((e: Error) => { setGateError(e.message); setGate('error') })
+  }, [hasSession])
   useEffect(() => { if (gate === 'ready' && tab === 'activity') loadActivity() }, [gate, tab, logDir])
   useEffect(() => { if (gate === 'ready' && tab === 'a2a') loadA2a() }, [gate, tab])
 
@@ -488,7 +472,8 @@ export default function Mcp() {
       </div>
     </div>
   )
-  if (gate === 'locked') return <UnlockGate onUnlocked={probe} />
+  if (gate === 'locked') return <VaultUnlockPanel title="Unlock MCP" detail="One unlock authorizes protected Mission Control tools in this browser tab." />
+  if (gate === 'error') return <div className="flex h-full items-center justify-center p-6"><div className="w-full max-w-md border-l-2 border-danger bg-danger/5 px-4 py-4"><div className="flex items-start gap-3"><AlertTriangle size={17} className="mt-0.5 shrink-0 text-danger" /><div><div className="text-sm font-semibold text-heading">MCP data unavailable</div><p className="mt-1 text-xs leading-5 text-muted">{gateError}</p><button onClick={probe} className={`${btn} mt-3`}><RefreshCw size={13} /> Retry</button></div></div></div></div>
 
   const mountUrl = server?.mount ? `${window.location.origin}${server.mount}` : null
   const cfg = server?.config

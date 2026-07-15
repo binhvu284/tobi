@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import {
   AlertTriangle, CheckCircle2, Circle, Clock3, Code2, ExternalLink, GitBranch,
   HardDrive, KeyRound, Loader2, Pause, Play, Plus, RefreshCw, RotateCcw, ShieldCheck,
   Square, Target, TerminalSquare, XCircle,
 } from 'lucide-react'
 import AmbientField from '../components/motion/AmbientField'
+import VaultUnlockPanel from '../components/VaultUnlockPanel'
 import { useToast } from '../context/ToastProvider'
+import { useVaultSession } from '../hooks/useVaultSession'
 import {
   approveDeveloperWorkflow, commandDeveloperGoal, commandDeveloperWorkflow, createDeveloperGoal, getDeveloperOverview,
   cleanupDeveloperStorage, getDeveloperGoals, getDeveloperQueue, getDeveloperStorage, getDeveloperVersions, startDeveloperWorkflow,
@@ -16,6 +17,7 @@ import {
 } from '../api'
 
 type Tab = 'overview' | 'goals' | 'loop' | 'queue' | 'versions' | 'storage'
+type DeveloperLoadError = { message: string; status?: number; code?: string }
 
 const TERMINAL_STATES = new Set(['completed', 'canceled', 'failed', 'rolled_back'])
 const STATE_TONE: Record<string, string> = {
@@ -303,6 +305,7 @@ function StorageView({ storage, busy, onCleanup }: { storage: DeveloperStorage |
 
 export default function Developer() {
   const { toast } = useToast()
+  const vaultSession = useVaultSession()
   const [tab, setTab] = useState<Tab>('overview')
   const [overview, setOverview] = useState<DeveloperOverview | null>(null)
   const [queue, setQueue] = useState<DeveloperQueueItem[]>([])
@@ -312,7 +315,7 @@ export default function Developer() {
   const [events, setEvents] = useState<DeveloperEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<DeveloperLoadError | null>(null)
   const lastSequence = useRef(0)
 
   const load = useCallback(async (quiet = false) => {
@@ -323,11 +326,17 @@ export default function Developer() {
       ])
       setOverview(o); setQueue(q.items); setReleases(v.releases); setStorage(s); setGoals(g.goals); setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Developer data is unavailable.')
+      const apiError = err as { message?: string; status?: number; code?: string }
+      setError({
+        message: apiError?.message || 'Developer data is unavailable.',
+        status: apiError?.status,
+        code: apiError?.code,
+      })
     } finally { if (!quiet) setLoading(false) }
   }, [])
 
   useEffect(() => { load(); const timer = window.setInterval(() => load(true), 5000); return () => window.clearInterval(timer) }, [load])
+  useEffect(() => { if (vaultSession) load(true) }, [vaultSession, load])
 
   const active = overview?.active_workflow ?? overview?.workflows[0] ?? null
   useEffect(() => {
@@ -372,7 +381,9 @@ export default function Developer() {
       <div className="border-b border-border px-4 sm:px-6"><div className="flex overflow-x-auto">{tabs.map(item => <button key={item.id} onClick={() => setTab(item.id)} className={`h-11 shrink-0 border-b-2 px-3 text-sm transition-colors ${tab === item.id ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text'}`}>{item.label}</button>)}</div></div>
 
       {loading && !overview ? <div className="flex min-h-72 items-center justify-center text-muted"><Loader2 className="animate-spin" size={22} /></div>
-        : error ? <div className="mx-4 mt-6 border-l-2 border-warning bg-warning/5 px-4 py-4 text-sm text-warning sm:mx-6"><div className="flex gap-2"><AlertTriangle size={17} className="shrink-0" /><div><div>{error}</div><Link to="/integrations" className="mt-2 inline-flex items-center gap-1 text-xs underline">Unlock vault in Integrations <ExternalLink size={12} /></Link></div></div></div>
+        : error?.status === 401 ? <div className="mx-4 mt-6 sm:mx-6"><VaultUnlockPanel mode="inline" title="Unlock Developer"
+          detail="Authorize protected coding workflows here. The same session immediately unlocks Integrations, Models, and MCP." /></div>
+        : error ? <div className="mx-4 mt-6 border-l-2 border-danger bg-danger/5 px-4 py-4 sm:mx-6"><div className="flex items-start gap-3"><AlertTriangle size={17} className="mt-0.5 shrink-0 text-danger" /><div className="min-w-0 flex-1"><div className="text-sm font-semibold text-heading">{error.code === 'backend_mismatch' ? 'Mission Control backend update required' : 'Developer data unavailable'}</div><p className="mt-1 text-xs leading-5 text-muted">{error.message}</p><button onClick={() => load()} className="mt-3 inline-flex h-8 items-center gap-2 rounded-md border border-border px-2.5 text-xs text-text hover:bg-overlay/5"><RefreshCw size={13} /> Retry</button></div></div></div>
         : <>
           {active && (tab === 'overview' || tab === 'loop') && <WorkflowHeader workflow={active} busy={busy} onCommand={command} onApprove={approve} />}
           <main className="px-4 py-6 sm:px-6">

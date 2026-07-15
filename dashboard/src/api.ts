@@ -406,14 +406,39 @@ export async function syncGraph(source: string): Promise<Record<string, unknown>
 }
 
 // ── Genesis Complete: vault + integrations ──────────────────────────
-// Session token from unlock/setup, kept in memory only (never persisted).
-let _vaultSession: string | null = null
-export function setVaultSession(t: string | null) { _vaultSession = t }
+// Session token is scoped to this browser tab. sessionStorage survives route changes
+// and reloads, but disappears when the tab closes and is never written to localStorage.
+const VAULT_SESSION_KEY = 'tobi.vault.session'
+const _vaultListeners = new Set<() => void>()
+function storedVaultSession(): string | null {
+  try { return typeof sessionStorage === 'undefined' ? null : sessionStorage.getItem(VAULT_SESSION_KEY) }
+  catch { return null }
+}
+let _vaultSession: string | null = storedVaultSession()
+export function getVaultSession() { return _vaultSession }
+export function hasVaultSession() { return !!_vaultSession }
+export function subscribeVaultSession(listener: () => void) {
+  _vaultListeners.add(listener)
+  return () => _vaultListeners.delete(listener)
+}
+export function setVaultSession(t: string | null) {
+  _vaultSession = t || null
+  try {
+    if (_vaultSession) sessionStorage.setItem(VAULT_SESSION_KEY, _vaultSession)
+    else sessionStorage.removeItem(VAULT_SESSION_KEY)
+  } catch { /* memory-only fallback */ }
+  _vaultListeners.forEach(listener => listener())
+}
 function vaultHeaders(): Record<string, string> {
   return _vaultSession ? { 'X-Vault-Session': _vaultSession } : {}
 }
-function vreq(path: string, init: RequestInit = {}) {
-  return request(path, { ...init, headers: { ...vaultHeaders(), ...(init.headers || {}) } })
+async function vreq(path: string, init: RequestInit = {}) {
+  try {
+    return await request(path, { ...init, headers: { ...vaultHeaders(), ...(init.headers || {}) } })
+  } catch (error) {
+    if ((error as { status?: number })?.status === 401) setVaultSession(null)
+    throw error
+  }
 }
 
 export type Profile = { name: string; label: string | null; created_at: string | null }
