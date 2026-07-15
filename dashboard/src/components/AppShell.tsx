@@ -212,8 +212,8 @@ function useRecentProjects(): RecentProject[] {
             icon_type: live.icon_type, icon_value: live.icon_value,
             emoji_icon: live.emoji_icon, accent_color: live.accent_color,
           }
-          return r
-        })
+          return null  // project was deleted — filter out below
+        }).filter(Boolean) as RecentProject[]
         recents.sort((a, b) => (orderOf.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (orderOf.get(b.id) ?? Number.MAX_SAFE_INTEGER))
       } catch { /* API unavailable — use localStorage as-is */ }
 
