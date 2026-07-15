@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "repository": {
+    "default_branch": "main",
+    "allowed_remote_suffix": "binhvu284/tobi.git",
+    "worktree_root": ".tobi/developer/worktrees",
+    "artifact_root": ".tobi/developer/artifacts",
+    "index_root": ".tobi/developer/index"
+  },
+  "capabilities": {
+    "observe": true,
+    "sandbox": true,
+    "github": false,
+    "merge": false,
+    "deploy": false
+  },
+  "protected_paths": [
+    "config/coding_policy*.json",
+    "core/coding_policy.py",
+    "core/development_store.py",
+    "core/vault.py",
+    "api/developer.py",
+    "deploy.sh",
+    ".github/**",
+    ".env*"
+  ],
+  "forbidden_paths": [
+    ".git/**",
+    ".tobi/developer/**",
+    "**/*.db",
+    "**/*.sqlite*",
+    "**/.env*",
+    "**/vault*"
+  ],
+  "index_exclusions": [
+    ".git/**",
+    ".tobi/**",
+    ".env*",
+    "node_modules/**",
+    "venv/**",
+    "dashboard/dist/**",
+    "graphify-out/cache/**",
+    "logs/**",
+    "**/__pycache__/**",
+    "**/*.db",
+    "**/*.sqlite*",
+    "**/*.pem",
+    "**/*.key"
+  ],
+  "commands": {
+    "allowed_executables": [
+      "git",
+      "python",
+      "python3",
+      "pytest",
+      "npm",
+      "npx",
+      "node",
+      "ruff",
+      "mypy",
+      "powershell",
+      "pwsh",
+      "bash"
+    ],
+    "forbidden_arguments": [
+      "--force",
+      "--force-with-lease",
+      "reset --hard",
+      "clean -f",
+      "checkout --",
+      "remote set-url",
+      "config credential",
+      "push --mirror"
+    ],
+    "mandatory_checks": [
+      ["python", "-m", "compileall", "-q", "core", "api"],
+      ["npm", "run", "build", "--prefix", "dashboard"]
+    ]
+  },
+  "limits": {
+    "one_active_worker": true,
+    "worker_timeout_seconds": 1800,
+    "worker_output_bytes": 2097152,
+    "command_timeout_seconds": 900,
+    "max_review_cycles": 2,
+    "retention_days": 7,
+    "storage_warning_bytes": 10737418240,
+    "reauth_ttl_seconds": 300
+  },
+  "deployment": {
+    "target_name": "",
+    "checkout_path": "",
+    "preflight": [],
+    "build": [],
+    "restart": [],
+    "health_url": "",
+    "rollback": []
+  }
+}

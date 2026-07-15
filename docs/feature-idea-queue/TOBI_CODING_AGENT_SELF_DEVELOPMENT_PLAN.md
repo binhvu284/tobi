@@ -1,8 +1,23 @@
 # TOBI Coding Agent / Controlled Self-Development System
 
-> Status: queued design only. Implement after item #17, Awakening Tier 1 Completion, is accepted.
+> Status: V1 implementation delivered on 2026-07-15. R0/R1 are available; GitHub, merge, and deploy remain policy-off until owner configuration and staged acceptance.
 > Target: Agent tier `3.0.0`.
 > Decision basis: 60 owner questions answered and locked.
+
+## Implementation Record
+
+| Delivered surface | Current evidence |
+|---|---|
+| Authority | Versioned coding policy, protected/forbidden paths, command gates, immutable policy hash, vault-session API auth, one-use re-auth challenges |
+| Durability | Additive development, session, stage, event, approval, PR, release, deployment, snapshot, and artifact tables; ordered append-only events |
+| Execution | Fresh `origin/main` worktrees, Graphify plus lexical snapshot, managed Hermes process, silent-worker timeout, cancellation, checkpoint resume, two-cycle correction cap |
+| GitHub/release | Repository-scoped GitHub App adapter, no-force push, draft PR, CI/merge readiness, squash merge, annotated tag, immutable SemVer records |
+| Deployment | Protected declared stages, health verification, known-good rollback evidence, no reuse after failed/rolled-back release |
+| Surfaces | Authenticated `/api/developer`, ordered SSE, `tobi dev`, and responsive Developer Overview/Coding Loop/Queue/Versions/Storage tabs |
+| Security | Credential-free worker environment, repository confinement, recursive event/log redaction, secret scan before commit and across the committed range |
+| Verification | `tests/test_coding_agent.py` 36/36; Terminal 67/67; mode enforcement 18/18; chat runtime 8/8 plus route; Storage 32/32; TypeScript/Vite build clean |
+
+Owner rollout remains: configure Hermes and the GitHub App in MC, review the protected policy, then accept R0 through R4 in order. No live GitHub mutation, merge, deployment, Supabase action, or Vercel action was performed during implementation.
 
 ## 1. Outcome And Boundaries
 

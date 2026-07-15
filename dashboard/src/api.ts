@@ -760,3 +760,109 @@ export async function streamExploreRefresh(
     }
   }
 }
+
+// ── Developer: controlled TOBI coding workflows (queue #18) ──────────────────
+export type DeveloperStage = {
+  id: number; session_id: number; node_id: string; position: number; title: string
+  status: string; attempts: number; checks_json?: string; result_json?: string
+  started_at?: string | null; completed_at?: string | null
+}
+export type DeveloperWorkflow = {
+  id: number; task_id: number; queue_id: number; title: string; plan_path: string
+  target_version?: string | null; risk: string; state: string; stage: string; progress: number
+  branch?: string | null; worktree?: string | null; base_sha?: string | null; head_sha?: string | null
+  blocker?: string | null; error_code?: string | null; created_at: string; updated_at: string
+  completed_at?: string | null; stages: DeveloperStage[]
+  pull_request?: { number?: number | null; url?: string | null; draft?: number; ci_state?: string | null } | null
+}
+export type DeveloperQueueItem = {
+  id: number; queue_id: number; title: string; plan_path: string; plan_hash: string
+  status: string; risk: string; target_version?: string | null; queue_status?: string | null
+  queue_effort?: string | null; dependencies_json: string
+}
+export type DeveloperRelease = {
+  id: number; version: string; tier?: string | null; source: string; queue_item?: number | null
+  commit_sha?: string | null; tag?: string | null; risk?: string | null; status: string
+  created_at: string; released_at?: string | null
+}
+export type DeveloperOverview = {
+  active_workflow: DeveloperWorkflow | null
+  workflows: DeveloperWorkflow[]
+  summary: { states: Record<string, number>; releases: DeveloperRelease[]; deployments: unknown[] }
+  policy: {
+    version: number; hash: string; capabilities: Record<string, boolean>
+    github_configured: boolean; deployment_configured: boolean
+  }
+}
+export type DeveloperStorage = {
+  worktree_root: string; worktree_bytes: number; worktree_count: number; git_available: boolean
+  artifact_bytes: number; artifact_count: number; index_bytes: number; total_developer_bytes: number
+  warning_bytes: number; blocked_new_workflows: boolean; retention_days: number
+  cleanup_eligible_artifacts: number; cleanup_eligible_worktrees: number
+}
+export type DeveloperEvent = {
+  id: number; session_id: number; sequence: number; actor: string; event_type: string
+  payload: Record<string, unknown>; created_at: string
+}
+
+export async function getDeveloperOverview(): Promise<DeveloperOverview> {
+  return vreq('/api/developer/overview')
+}
+export async function getDeveloperQueue(): Promise<{ items: DeveloperQueueItem[] }> {
+  return vreq('/api/developer/queue')
+}
+export async function getDeveloperVersions(): Promise<{ releases: DeveloperRelease[] }> {
+  return vreq('/api/developer/versions')
+}
+export async function getDeveloperStorage(): Promise<DeveloperStorage> {
+  return vreq('/api/developer/storage')
+}
+export async function startDeveloperWorkflow(queueId: number): Promise<DeveloperWorkflow> {
+  return vreq('/api/developer/workflows', {
+    method: 'POST', body: JSON.stringify({ queue_id: queueId, idempotency_key: crypto.randomUUID(), start: true }),
+  })
+}
+export async function commandDeveloperWorkflow(
+  workflowId: number, command: 'pause' | 'resume' | 'cancel' | 'retry',
+): Promise<DeveloperWorkflow> {
+  return vreq(`/api/developer/workflows/${workflowId}/commands`, {
+    method: 'POST', body: JSON.stringify({ command }),
+  })
+}
+export async function approveDeveloperWorkflow(
+  workflowId: number, purpose: 'special_paths' | 'merge_deploy', master: string,
+): Promise<DeveloperWorkflow> {
+  const reauth = await vreq('/api/developer/reauth', {
+    method: 'POST', body: JSON.stringify({ workflow_id: workflowId, purpose, master }),
+  })
+  return vreq(`/api/developer/workflows/${workflowId}/approve`, {
+    method: 'POST', body: JSON.stringify({ purpose, challenge: reauth.challenge }),
+  })
+}
+export async function cleanupDeveloperStorage(master: string): Promise<{ removed_artifacts: number; removed_worktrees: number }> {
+  const reauth = await vreq('/api/developer/reauth', {
+    method: 'POST', body: JSON.stringify({ purpose: 'developer_cleanup', master }),
+  })
+  return vreq('/api/developer/storage/cleanup', {
+    method: 'POST', body: JSON.stringify({ challenge: reauth.challenge }),
+  })
+}
+export async function streamDeveloperEvents(
+  workflowId: number, after: number, onEvent: (event: DeveloperEvent) => void, signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`/api/developer/workflows/${workflowId}/events?after=${after}`, {
+    cache: 'no-cache', headers: vaultHeaders(), signal,
+  })
+  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+  const reader = res.body.getReader(); const decoder = new TextDecoder(); let buffer = ''
+  for (;;) {
+    const { done, value } = await reader.read(); if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let idx = -1
+    while ((idx = buffer.indexOf('\n\n')) >= 0) {
+      const frame = buffer.slice(0, idx); buffer = buffer.slice(idx + 2)
+      const data = frame.split('\n').find(line => line.startsWith('data:'))?.slice(5).trim()
+      if (data) { try { onEvent(JSON.parse(data) as DeveloperEvent) } catch { /* ignore */ } }
+    }
+  }
+}

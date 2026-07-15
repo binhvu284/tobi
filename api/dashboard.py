@@ -183,6 +183,15 @@ class NoCacheAPIMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(NoCacheAPIMiddleware)
 
+# Queue #18: isolated coding workflows live in a dedicated router so this module
+# remains an HTTP composition root rather than owning self-development logic.
+try:
+    from api.developer import router as developer_router
+    app.include_router(developer_router)
+except Exception as _developer_err:
+    import logging as _logging
+    _logging.getLogger("tobi.dashboard").warning("Developer router unavailable: %s", _developer_err)
+
 # MCP Hub (#5) — mount TOBI's MCP server (Streamable HTTP) at /mcp. Inbound auth,
 # rate-limit, scope, and audit are enforced by McpAuthMiddleware inside the app.
 if MCP_AVAILABLE:

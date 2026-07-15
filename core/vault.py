@@ -261,6 +261,12 @@ def _key_from_master(conn: sqlite3.Connection, master: str) -> bytes:
     return key
 
 
+def verify_master(conn: sqlite3.Connection, master: str) -> bool:
+    """Verify a freshly entered master password without revealing a secret."""
+    _key_from_master(conn, master)
+    return True
+
+
 # ── secret CRUD ─────────────────────────────────────────────────────────
 def set_secret(conn: sqlite3.Connection, name: str, value: str, *, integration_id: str | None = None,
                secret_type: str = "api_key", profile: str | None = None, test_status: str | None = None) -> None:

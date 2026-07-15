@@ -21,6 +21,11 @@ TestFn = Callable[[], "tuple[bool, str]"]
 # ── live tests (read current os.environ) ────────────────────────────────
 def _test_github() -> tuple[bool, str]:
     try:
+        if all(os.getenv(name) for name in ("GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_PRIVATE_KEY")):
+            from core.coding_policy import CodingPolicy
+            from core.github_coding import GitHubCodingService
+            ok = GitHubCodingService(CodingPolicy.load()).test()
+            return (True, "GitHub App installation verified.") if ok else (False, "GitHub App verification failed.")
         ok = _intg.GitHubIntegration().test()
         return (True, "GitHub token valid.") if ok else (False, "GitHub rejected the token — check it hasn't expired and has repo scope.")
     except Exception:
@@ -207,10 +212,16 @@ REGISTRY: list[dict] = [
     {
         "id": "github", "label": "GitHub", "category": "tools", "required": False,
         "icon": "github", "available": True,
-        "blurb": "Read repos, manage issues and PRs via the GitHub REST API.",
+        "blurb": "Read repositories with a token, or configure the repository-scoped GitHub App used by Developer workflows.",
         "fields": [
             {"name": "GITHUB_TOKEN", "label": "Personal access token", "type": "api_key",
              "help_url": "https://github.com/settings/tokens"},
+            {"name": "GITHUB_APP_ID", "label": "Coding App ID", "type": "text",
+             "help_url": "https://github.com/settings/apps"},
+            {"name": "GITHUB_APP_INSTALLATION_ID", "label": "Coding App installation ID", "type": "text",
+             "help_url": "https://github.com/settings/installations"},
+            {"name": "GITHUB_APP_PRIVATE_KEY", "label": "Coding App private key", "type": "password",
+             "help_url": "https://github.com/settings/apps"},
         ],
         "abilities_unlocked": ["github_integration"],
         "test": _test_github,

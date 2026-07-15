@@ -13,6 +13,7 @@ python main.py ceo        → manual CEO review
 python main.py status     → print system status
 python main.py test       → test all connections
 python main.py terminal   → interactive terminal chat with Tobi
+python main.py dev ...    → controlled coding workflows through Mission Control
 
 Schedules (Vietnam GMT+7):
   Every 6h      → execute_all_projects()
@@ -56,6 +57,71 @@ from core.telegram_bot import build_app, send_daily_report, send_message, send_p
 
 PROJECT_DIR = Path(__file__).resolve().parent
 _PID_FILE = PROJECT_DIR / ".tobi" / "tobi.pid"
+
+
+def _run_dev_cli(args: list[str]) -> int:
+    """Operate Developer through its API so CLI and MC share policy and state."""
+    import getpass
+    import json as _json
+    import uuid as _uuid
+    import requests as _requests
+
+    base = os.getenv("TOBI_MC_URL", f"http://127.0.0.1:{os.getenv('DASHBOARD_PORT', '8080')}").rstrip("/")
+    session = os.getenv("TOBI_VAULT_SESSION", "")
+    if not session:
+        print("Set TOBI_VAULT_SESSION to the current in-memory vault session before using `tobi dev`.")
+        return 2
+    headers = {"X-Vault-Session": session, "Content-Type": "application/json"}
+
+    def call(method: str, path: str, payload=None):
+        response = _requests.request(method, f"{base}{path}", headers=headers, json=payload, timeout=30)
+        if response.status_code >= 400:
+            try:
+                detail = response.json().get("detail", response.text)
+            except Exception:
+                detail = response.text
+            raise RuntimeError(f"Developer API HTTP {response.status_code}: {detail}")
+        return response.json() if response.content else {}
+
+    action = args[0] if args else "status"
+    try:
+        if action == "start":
+            if len(args) < 2:
+                raise RuntimeError("Usage: tobi dev start <queue-id>")
+            data = call("POST", "/api/developer/workflows", {
+                "queue_id": int(args[1]), "idempotency_key": str(_uuid.uuid4()), "start": True,
+            })
+        elif action == "status":
+            data = call("GET", f"/api/developer/workflows/{int(args[1])}") if len(args) > 1 else call("GET", "/api/developer/overview")
+        elif action == "logs":
+            if len(args) < 2:
+                raise RuntimeError("Usage: tobi dev logs <workflow-id>")
+            data = call("GET", f"/api/developer/events?workflow_id={int(args[1])}&after=0")
+        elif action in {"pause", "resume", "cancel", "retry"}:
+            if len(args) < 2:
+                raise RuntimeError(f"Usage: tobi dev {action} <workflow-id>")
+            data = call("POST", f"/api/developer/workflows/{int(args[1])}/commands", {"command": action})
+        elif action == "approve":
+            if len(args) < 3:
+                raise RuntimeError("Usage: tobi dev approve <workflow-id> <special_paths|merge_deploy>")
+            workflow_id, purpose = int(args[1]), args[2]
+            challenge = call("POST", "/api/developer/reauth", {
+                "master": getpass.getpass("Vault master password: "),
+                "purpose": purpose,
+                "workflow_id": workflow_id,
+            })
+            data = call("POST", f"/api/developer/workflows/{workflow_id}/approve", {
+                "purpose": purpose, "challenge": challenge["challenge"],
+            })
+        elif action == "queue":
+            data = call("GET", "/api/developer/queue")
+        else:
+            raise RuntimeError("Usage: tobi dev [start|status|logs|pause|resume|cancel|retry|approve|queue]")
+        print(_json.dumps(data, indent=2, ensure_ascii=False, default=str))
+        return 0
+    except (ValueError, RuntimeError, _requests.RequestException) as exc:
+        print(str(exc))
+        return 1
 
 
 def _pid_alive(pid: int) -> bool:
@@ -775,9 +841,12 @@ async def main_async():
             import subprocess as _sp
             raise SystemExit(_sp.call([exe, *hargs]))
 
+    elif command == "dev":
+        raise SystemExit(_run_dev_cli(sys.argv[2:]))
+
     else:
         print(f"Unknown command: {command}")
-        print("Usage: python main.py [start|bot|api|research|execute|ceo|status|test|terminal|hermes]")
+        print("Usage: python main.py [start|bot|api|research|execute|ceo|status|test|terminal|hermes|dev]")
 
 
 if __name__ == "__main__":

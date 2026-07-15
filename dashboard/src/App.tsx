@@ -34,6 +34,7 @@ const Storage = lazy(() => import('./pages/Storage'))
 const News = lazy(() => import('./pages/News'))
 // Project v2 full-page workspace (#12) — lazy so the main bundle stays lean.
 const ProjectWorkspace = lazy(() => import('./pages/ProjectWorkspace'))
+const Developer = lazy(() => import('./pages/Developer'))
 
 function RouteSet({ location }: { location?: string }) {
   return (
@@ -71,6 +72,9 @@ function RouteSet({ location }: { location?: string }) {
       } />
       <Route path="/news" element={
         <Suspense fallback={<PageLoader />}><News /></Suspense>
+      } />
+      <Route path="/developer" element={
+        <Suspense fallback={<PageLoader />}><Developer /></Suspense>
       } />
     </Routes>
   )

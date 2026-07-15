@@ -48,7 +48,7 @@ const NAV = [
 ]
 const ALL_LINKS = NAV.flatMap(g => g.links)
 
-// Bottom badge menu — Setting + Integrations route; Document/Developer are coming soon.
+// Bottom badge menu — system and owner-control surfaces.
 const BOTTOM_MENU: { to?: string; icon: typeof Settings; label: string; soon?: boolean }[] = [
   { to: '/settings', icon: Settings, label: 'Setting' },
   { to: '/models', icon: Cpu, label: 'Models' },
@@ -56,7 +56,7 @@ const BOTTOM_MENU: { to?: string; icon: typeof Settings; label: string; soon?: b
   { icon: FileText, label: 'Document', soon: true },
   { to: '/integrations', icon: KeyRound, label: 'Integrations' },
   { to: '/mcp', icon: Workflow, label: 'MCP' },
-  { icon: Code2, label: 'Developer', soon: true },
+  { to: '/developer', icon: Code2, label: 'Developer' },
 ]
 
 // Mobile bottom tabs (by path so it survives nav reordering)

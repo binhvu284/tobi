@@ -1,0 +1,353 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
+import {
+  AlertTriangle, CheckCircle2, Circle, Clock3, Code2, ExternalLink, GitBranch,
+  HardDrive, KeyRound, Loader2, Pause, Play, RefreshCw, RotateCcw, ShieldCheck,
+  Square, TerminalSquare, XCircle,
+} from 'lucide-react'
+import AmbientField from '../components/motion/AmbientField'
+import { useToast } from '../context/ToastProvider'
+import {
+  approveDeveloperWorkflow, commandDeveloperWorkflow, getDeveloperOverview,
+  cleanupDeveloperStorage, getDeveloperQueue, getDeveloperStorage, getDeveloperVersions, startDeveloperWorkflow,
+  streamDeveloperEvents, type DeveloperEvent, type DeveloperOverview,
+  type DeveloperQueueItem, type DeveloperRelease, type DeveloperStorage,
+  type DeveloperWorkflow,
+} from '../api'
+
+type Tab = 'overview' | 'loop' | 'queue' | 'versions' | 'storage'
+
+const TERMINAL_STATES = new Set(['completed', 'canceled', 'failed', 'rolled_back'])
+const STATE_TONE: Record<string, string> = {
+  completed: 'text-success border-success/30 bg-success/10',
+  released: 'text-success border-success/30 bg-success/10',
+  coding: 'text-accent border-accent/30 bg-accent/10',
+  validating: 'text-accent border-accent/30 bg-accent/10',
+  reviewing: 'text-accent border-accent/30 bg-accent/10',
+  preparing: 'text-accent border-accent/30 bg-accent/10',
+  awaiting_merge_deploy_approval: 'text-warning border-warning/30 bg-warning/10',
+  paused: 'text-warning border-warning/30 bg-warning/10',
+  blocked: 'text-warning border-warning/30 bg-warning/10',
+  failed: 'text-danger border-danger/30 bg-danger/10',
+  canceled: 'text-muted border-border bg-overlay/5',
+}
+
+function tone(state: string) {
+  return STATE_TONE[state] ?? 'text-muted border-border bg-overlay/5'
+}
+
+function label(value: string) {
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (char: string) => char.toUpperCase())
+}
+
+function formatBytes(value: number) {
+  if (value < 1024) return `${value} B`
+  if (value < 1024 ** 2) return `${(value / 1024).toFixed(1)} KB`
+  if (value < 1024 ** 3) return `${(value / 1024 ** 2).toFixed(1)} MB`
+  return `${(value / 1024 ** 3).toFixed(1)} GB`
+}
+
+function StateBadge({ state }: { state: string }) {
+  return <span className={`inline-flex items-center rounded border px-2 py-0.5 text-[11px] font-medium ${tone(state)}`}>{label(state)}</span>
+}
+
+function Empty({ text }: { text: string }) {
+  return <div className="border-y border-border/60 py-12 text-center text-sm text-muted">{text}</div>
+}
+
+function WorkflowActions({ workflow, busy, onCommand }: {
+  workflow: DeveloperWorkflow; busy: boolean
+  onCommand: (command: 'pause' | 'resume' | 'cancel' | 'retry') => void
+}) {
+  const active = !TERMINAL_STATES.has(workflow.state)
+  const resumable = ['paused', 'blocked', 'failed', 'approved'].includes(workflow.state)
+  return (
+    <div className="flex flex-wrap gap-2">
+      {active && !resumable && (
+        <button onClick={() => onCommand('pause')} disabled={busy} title="Pause workflow"
+          className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm text-text hover:bg-overlay/5 disabled:opacity-50">
+          <Pause size={15} /> Pause
+        </button>
+      )}
+      {resumable && (
+        <button onClick={() => onCommand(workflow.error_code ? 'retry' : 'resume')} disabled={busy} title="Resume workflow"
+          className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background hover:brightness-110 disabled:opacity-50">
+          <Play size={15} /> {workflow.error_code ? 'Retry' : 'Resume'}
+        </button>
+      )}
+      {active && (
+        <button onClick={() => onCommand('cancel')} disabled={busy} title="Cancel and retain recovery data"
+          className="inline-flex h-9 items-center gap-2 rounded-md border border-danger/40 px-3 text-sm text-danger hover:bg-danger/10 disabled:opacity-50">
+          <Square size={14} /> Cancel
+        </button>
+      )}
+      {workflow.pull_request?.url && (
+        <a href={workflow.pull_request.url} target="_blank" rel="noreferrer"
+          className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm text-text hover:bg-overlay/5">
+          <ExternalLink size={15} /> Pull request
+        </a>
+      )}
+    </div>
+  )
+}
+
+function ApprovalGate({ workflow, busy, onApprove }: {
+  workflow: DeveloperWorkflow; busy: boolean
+  onApprove: (purpose: 'special_paths' | 'merge_deploy', master: string) => void
+}) {
+  const required = workflow.state === 'awaiting_merge_deploy_approval'
+    ? 'merge_deploy'
+    : workflow.error_code === 'special_approval_required' ? 'special_paths' : null
+  const [master, setMaster] = useState('')
+  if (!required) return null
+  return (
+    <section className="mt-5 border-l-2 border-warning bg-warning/5 px-4 py-4">
+      <div className="flex items-start gap-3">
+        <KeyRound size={18} className="mt-0.5 shrink-0 text-warning" />
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-semibold text-text">
+            {required === 'merge_deploy' ? 'Merge and deployment approval' : 'Protected-path approval'}
+          </h3>
+          <p className="mt-1 text-xs leading-5 text-muted">
+            {required === 'merge_deploy'
+              ? `Approve squash merge of ${workflow.branch ?? 'the feature branch'} and immediate deployment with rollback.`
+              : 'This workflow touches protected self-development files. Review the scope before allowing it to continue.'}
+          </p>
+          <div className="mt-3 flex max-w-xl flex-col gap-2 sm:flex-row">
+            <input type="password" value={master} onChange={event => setMaster(event.target.value)}
+              placeholder="Vault master password" autoComplete="current-password"
+              className="h-9 min-w-0 flex-1 rounded-md border border-border bg-background px-3 text-sm text-text outline-none focus:border-accent" />
+            <button disabled={busy || master.length < 6} onClick={() => { onApprove(required, master); setMaster('') }}
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-warning px-3 text-sm font-semibold text-background disabled:opacity-40">
+              <ShieldCheck size={15} /> Approve
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function WorkflowHeader({ workflow, busy, onCommand, onApprove }: {
+  workflow: DeveloperWorkflow; busy: boolean
+  onCommand: (command: 'pause' | 'resume' | 'cancel' | 'retry') => void
+  onApprove: (purpose: 'special_paths' | 'merge_deploy', master: string) => void
+}) {
+  return (
+    <section className="border-y border-border bg-surface/40 px-4 py-5 sm:px-6">
+      <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <StateBadge state={workflow.state} />
+            <span className="text-xs text-muted">Queue #{workflow.queue_id}</span>
+            {workflow.target_version && <span className="text-xs text-muted">v{workflow.target_version}</span>}
+          </div>
+          <h2 className="mt-3 text-lg font-semibold text-text sm:text-xl">{workflow.title}</h2>
+          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
+            <span className="inline-flex items-center gap-1.5"><GitBranch size={13} />{workflow.branch ?? 'Branch pending'}</span>
+            <span className="inline-flex items-center gap-1.5"><TerminalSquare size={13} />{label(workflow.stage)}</span>
+          </div>
+        </div>
+        <WorkflowActions workflow={workflow} busy={busy} onCommand={onCommand} />
+      </div>
+      <div className="mt-5 h-1.5 overflow-hidden rounded bg-overlay/10">
+        <div className="h-full rounded bg-accent transition-[width] duration-500" style={{ width: `${Math.max(2, workflow.progress)}%` }} />
+      </div>
+      <div className="mt-1.5 flex justify-between text-[11px] text-muted"><span>{workflow.progress}%</span><span>{label(workflow.stage)}</span></div>
+      {workflow.blocker && (
+        <div className="mt-4 flex items-start gap-2 border-l-2 border-warning pl-3 text-sm text-warning">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" /><span>{workflow.blocker}</span>
+        </div>
+      )}
+      <ApprovalGate workflow={workflow} busy={busy} onApprove={onApprove} />
+    </section>
+  )
+}
+
+function CodingLoop({ workflow, events }: { workflow: DeveloperWorkflow | null; events: DeveloperEvent[] }) {
+  if (!workflow) return <Empty text="No coding workflow has started." />
+  return (
+    <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.55fr)]">
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-text">Stage checklist</h2>
+        <div className="border-t border-border">
+          {workflow.stages.map(stage => {
+            const running = stage.status === 'running'
+            const complete = stage.status === 'completed'
+            const failed = ['failed', 'paused'].includes(stage.status)
+            const Icon = complete ? CheckCircle2 : failed ? XCircle : running ? Loader2 : Circle
+            return (
+              <div key={stage.node_id} className="flex min-h-14 items-center gap-3 border-b border-border/70 px-1 py-3">
+                <Icon size={17} className={`${complete ? 'text-success' : failed ? 'text-danger' : running ? 'animate-spin text-accent' : 'text-muted/60'}`} />
+                <div className="min-w-0 flex-1"><div className="text-sm text-text">{stage.title}</div><div className="mt-0.5 text-[11px] text-muted">{stage.attempts ? `${stage.attempts} attempt${stage.attempts === 1 ? '' : 's'}` : 'Not started'}</div></div>
+                <StateBadge state={stage.status} />
+              </div>
+            )
+          })}
+        </div>
+      </section>
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-text">Live evidence</h2>
+        <div className="max-h-[560px] overflow-y-auto border-y border-border bg-background/50">
+          {events.length === 0 && <div className="px-3 py-8 text-center text-xs text-muted">Waiting for workflow events.</div>}
+          {events.slice(-100).map(event => (
+            <div key={event.id} className="border-b border-border/60 px-3 py-2.5 last:border-0">
+              <div className="flex items-center justify-between gap-3"><span className="text-xs font-medium text-text">{label(event.event_type)}</span><span className="text-[10px] text-muted">#{event.sequence}</span></div>
+              <div className="mt-1 truncate font-mono text-[10px] text-muted">{JSON.stringify(event.payload)}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function QueueView({ items, busy, onStart }: { items: DeveloperQueueItem[]; busy: boolean; onStart: (id: number) => void }) {
+  return (
+    <div className="overflow-x-auto border-y border-border">
+      <table className="w-full min-w-[760px] text-left text-sm">
+        <thead className="bg-overlay/5 text-[11px] uppercase text-muted"><tr><th className="px-3 py-3">Item</th><th className="px-3 py-3">State</th><th className="px-3 py-3">Risk</th><th className="px-3 py-3">Time</th><th className="w-28 px-3 py-3 text-right">Action</th></tr></thead>
+        <tbody>
+          {items.map(item => {
+            let deps: number[] = []
+            try { deps = JSON.parse(item.dependencies_json) } catch { /* ignore */ }
+            const canStart = item.status === 'planned'
+            return (
+              <tr key={item.id} className="border-t border-border/70 align-top">
+                <td className="px-3 py-4"><div className="font-medium text-text">#{item.queue_id} {item.title}</div><div className="mt-1 text-xs text-muted">{deps.length ? `After ${deps.map(id => `#${id}`).join(', ')}` : item.plan_path}</div></td>
+                <td className="px-3 py-4"><StateBadge state={item.status} /></td>
+                <td className="px-3 py-4 text-xs text-muted">{label(item.risk)}</td>
+                <td className="px-3 py-4 text-xs text-muted">{item.queue_effort ?? '—'}</td>
+                <td className="px-3 py-4 text-right">
+                  {canStart ? <button disabled={busy} onClick={() => onStart(item.queue_id)} title={`Start queue item ${item.queue_id}`}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-2.5 text-xs font-medium text-background disabled:opacity-40"><Play size={13} /> Start</button>
+                    : <span className="text-xs text-muted">{label(item.status)}</span>}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function VersionsView({ releases }: { releases: DeveloperRelease[] }) {
+  if (!releases.length) return <Empty text="No version has been reserved." />
+  return <div className="border-t border-border">{releases.map(release => (
+    <div key={release.id} className="grid gap-2 border-b border-border/70 py-4 sm:grid-cols-[120px_1fr_150px] sm:items-center">
+      <div className="font-mono text-sm font-semibold text-text">v{release.version}</div>
+      <div><div className="text-sm text-text">Queue #{release.queue_item ?? '—'}</div><div className="mt-1 text-xs text-muted">{release.commit_sha?.slice(0, 12) ?? 'Commit pending'} · {release.source}</div></div>
+      <div className="sm:text-right"><StateBadge state={release.status} /></div>
+    </div>
+  ))}</div>
+}
+
+function StorageView({ storage, busy, onCleanup }: { storage: DeveloperStorage | null; busy: boolean; onCleanup: (master: string) => void }) {
+  const [master, setMaster] = useState('')
+  if (!storage) return <Empty text="Storage data is unavailable." />
+  const pct = Math.min(100, storage.warning_bytes ? storage.total_developer_bytes / storage.warning_bytes * 100 : 0)
+  const eligible = storage.cleanup_eligible_artifacts + storage.cleanup_eligible_worktrees
+  return (
+    <section className="border-y border-border py-5">
+      <div className="grid gap-6 sm:grid-cols-3">
+        <div><div className="text-xs text-muted">Worktrees</div><div className="mt-1 text-2xl font-semibold text-text">{storage.worktree_count}</div></div>
+        <div><div className="text-xs text-muted">Developer storage</div><div className="mt-1 text-2xl font-semibold text-text">{formatBytes(storage.total_developer_bytes)}</div><div className="mt-1 text-[11px] text-muted">{storage.artifact_count} evidence files</div></div>
+        <div><div className="text-xs text-muted">Retention</div><div className="mt-1 text-2xl font-semibold text-text">{storage.retention_days} days</div></div>
+      </div>
+      <div className="mt-6"><div className="mb-2 flex justify-between text-xs text-muted"><span>Worktree pressure</span><span>{pct.toFixed(1)}%</span></div><div className="h-2 rounded bg-overlay/10"><div className={`h-full rounded ${storage.blocked_new_workflows ? 'bg-danger' : 'bg-accent'}`} style={{ width: `${Math.max(pct, 1)}%` }} /></div></div>
+      <div className="mt-4 break-all font-mono text-[11px] text-muted">{storage.worktree_root}</div>
+      <div className="mt-6 flex flex-col gap-2 border-t border-border pt-4 sm:flex-row sm:items-end">
+        <label className="min-w-0 flex-1"><span className="mb-1 block text-xs text-muted">Cleanup approval · {eligible} eligible</span><input type="password" value={master} onChange={event => setMaster(event.target.value)} placeholder="Vault master password" className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-text outline-none focus:border-accent" /></label>
+        <button disabled={busy || eligible === 0 || master.length < 6} onClick={() => { onCleanup(master); setMaster('') }} className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border px-3 text-sm text-text hover:bg-overlay/5 disabled:opacity-40"><RotateCcw size={14} /> Clean eligible</button>
+      </div>
+    </section>
+  )
+}
+
+export default function Developer() {
+  const { toast } = useToast()
+  const [tab, setTab] = useState<Tab>('overview')
+  const [overview, setOverview] = useState<DeveloperOverview | null>(null)
+  const [queue, setQueue] = useState<DeveloperQueueItem[]>([])
+  const [releases, setReleases] = useState<DeveloperRelease[]>([])
+  const [storage, setStorage] = useState<DeveloperStorage | null>(null)
+  const [events, setEvents] = useState<DeveloperEvent[]>([])
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const lastSequence = useRef(0)
+
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true)
+    try {
+      const [o, q, v, s] = await Promise.all([
+        getDeveloperOverview(), getDeveloperQueue(), getDeveloperVersions(), getDeveloperStorage(),
+      ])
+      setOverview(o); setQueue(q.items); setReleases(v.releases); setStorage(s); setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Developer data is unavailable.')
+    } finally { if (!quiet) setLoading(false) }
+  }, [])
+
+  useEffect(() => { load(); const timer = window.setInterval(() => load(true), 5000); return () => window.clearInterval(timer) }, [load])
+
+  const active = overview?.active_workflow ?? overview?.workflows[0] ?? null
+  useEffect(() => {
+    if (!active?.id) return
+    lastSequence.current = 0
+    setEvents([])
+    const controller = new AbortController()
+    streamDeveloperEvents(active.id, lastSequence.current, event => {
+      lastSequence.current = Math.max(lastSequence.current, event.sequence)
+      setEvents(current => [...current.filter(item => item.id !== event.id), event].slice(-200))
+      load(true)
+    }, controller.signal).catch(err => { if (err?.name !== 'AbortError') load(true) })
+    return () => controller.abort()
+  }, [active?.id, load])
+
+  const act = async (fn: () => Promise<unknown>, success: string) => {
+    setBusy(true)
+    try { await fn(); toast({ kind: 'success', title: success }); await load(true) }
+    catch (err) { toast({ kind: 'error', title: 'Developer action stopped', detail: err instanceof Error ? err.message : String(err) }) }
+    finally { setBusy(false) }
+  }
+  const command = (cmd: 'pause' | 'resume' | 'cancel' | 'retry') => active && act(() => commandDeveloperWorkflow(active.id, cmd), `Workflow ${cmd} accepted`)
+  const approve = (purpose: 'special_paths' | 'merge_deploy', master: string) => active && act(() => approveDeveloperWorkflow(active.id, purpose, master), 'Approval accepted')
+
+  const capabilities = useMemo(() => Object.entries(overview?.policy.capabilities ?? {}), [overview])
+  const tabs: { id: Tab; label: string }[] = [
+    { id: 'overview', label: 'Overview' }, { id: 'loop', label: 'Coding Loop' }, { id: 'queue', label: 'Queue' },
+    { id: 'versions', label: 'Versions' }, { id: 'storage', label: 'Storage' },
+  ]
+
+  return (
+    <div className="relative min-h-full"><AmbientField tone="rgb(var(--accent))" variant="grid" />
+      <header className="border-b border-border px-4 py-5 sm:px-6">
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+          <div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-md border border-accent/30 bg-accent/10 text-accent"><Code2 size={19} /></div><div><h1 className="text-xl font-semibold text-text">Developer</h1><p className="mt-0.5 text-xs text-muted">Controlled self-development</p></div></div>
+          <button onClick={() => load()} disabled={loading} title="Refresh Developer state" className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border px-3 text-sm text-text hover:bg-overlay/5 disabled:opacity-50"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> Refresh</button>
+        </div>
+      </header>
+
+      <div className="border-b border-border px-4 sm:px-6"><div className="flex overflow-x-auto">{tabs.map(item => <button key={item.id} onClick={() => setTab(item.id)} className={`h-11 shrink-0 border-b-2 px-3 text-sm transition-colors ${tab === item.id ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text'}`}>{item.label}</button>)}</div></div>
+
+      {loading && !overview ? <div className="flex min-h-72 items-center justify-center text-muted"><Loader2 className="animate-spin" size={22} /></div>
+        : error ? <div className="mx-4 mt-6 border-l-2 border-warning bg-warning/5 px-4 py-4 text-sm text-warning sm:mx-6"><div className="flex gap-2"><AlertTriangle size={17} className="shrink-0" /><div><div>{error}</div><Link to="/integrations" className="mt-2 inline-flex items-center gap-1 text-xs underline">Unlock vault in Integrations <ExternalLink size={12} /></Link></div></div></div>
+        : <>
+          {active && (tab === 'overview' || tab === 'loop') && <WorkflowHeader workflow={active} busy={busy} onCommand={command} onApprove={approve} />}
+          <main className="px-4 py-6 sm:px-6">
+            {tab === 'overview' && <div className="space-y-8">
+              {!active && <Empty text="Select an eligible queue item to begin a controlled workflow." />}
+              <section><h2 className="mb-3 text-sm font-semibold text-text">Runtime gates</h2><div className="grid gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-2 lg:grid-cols-5">{capabilities.map(([name, enabled]) => <div key={name} className="flex items-center justify-between bg-surface px-3 py-3"><span className="text-xs text-muted">{label(name)}</span>{enabled ? <CheckCircle2 size={15} className="text-success" /> : <Circle size={15} className="text-muted/50" />}</div>)}</div></section>
+              <section><h2 className="mb-3 text-sm font-semibold text-text">Control-plane status</h2><div className="grid gap-4 sm:grid-cols-3"><div className="border-l-2 border-accent pl-3"><div className="text-xs text-muted">Policy</div><div className="mt-1 font-mono text-sm text-text">v{overview?.policy.version} · {overview?.policy.hash.slice(0, 10)}</div></div><div className="border-l-2 border-border pl-3"><div className="text-xs text-muted">GitHub App</div><div className="mt-1 text-sm text-text">{overview?.policy.github_configured ? 'Configured' : 'Not configured'}</div></div><div className="border-l-2 border-border pl-3"><div className="text-xs text-muted">Deployment</div><div className="mt-1 text-sm text-text">{overview?.policy.deployment_configured ? 'Configured' : 'Not configured'}</div></div></div></section>
+            </div>}
+            {tab === 'loop' && <CodingLoop workflow={active} events={events} />}
+            {tab === 'queue' && <QueueView items={queue} busy={busy} onStart={id => act(() => startDeveloperWorkflow(id), `Queue #${id} started`)} />}
+            {tab === 'versions' && <VersionsView releases={releases} />}
+            {tab === 'storage' && <StorageView storage={storage} busy={busy} onCleanup={master => act(() => cleanupDeveloperStorage(master), 'Developer cleanup completed')} />}
+          </main>
+        </>}
+    </div>
+  )
+}
