@@ -42,6 +42,8 @@ STAGES = [
     {"id": "health", "title": "Verify release health", "depends": ["merge_deploy"]},
 ]
 
+STALE_SNAPSHOT_ERRORS = {"policy_changed", "plan_changed"}
+
 
 def _safe(value: Any) -> Any:
     """Redact all persisted/evented text, including nested worker output."""
@@ -143,7 +145,11 @@ class CodingAgent:
         if not worker_profile or not bool(worker_profile["enabled"]):
             raise ValueError(f"Worker profile is unavailable: {worker_profile_slug}")
         reviewer_profile = self.store.get_worker_profile(reviewer_profile_slug)
-        if not reviewer_profile or reviewer_profile["adapter"] != "model_review":
+        if (
+            not reviewer_profile
+            or not bool(reviewer_profile["enabled"])
+            or reviewer_profile["adapter"] != "model_review"
+        ):
             raise ValueError(f"Reviewer profile is unavailable: {reviewer_profile_slug}")
         assessment = self.assessor.assess(
             title=title,
@@ -229,6 +235,118 @@ class CodingAgent:
             "plan_hash": task["plan_hash"], "sprint": int(sprint["sequence"]),
         })
         return self.get_workflow(int(session["id"]))
+
+    def restart_stale_workflow(self, session_id: int, *, background: bool = True) -> dict[str, Any]:
+        previous = self.get_workflow(session_id)
+        error_code = str(previous.get("error_code") or "")
+        if error_code not in STALE_SNAPSHOT_ERRORS:
+            raise RuntimeError("Only a workflow with a stale policy or plan snapshot can be restarted.")
+        if previous["state"] not in {"paused", "blocked", "failed", "canceled"}:
+            raise RuntimeError(f"Workflow cannot restart from state {previous['state']}.")
+
+        task = self.store.get_task(task_id=int(previous["task_id"]))
+        if not task:
+            raise RuntimeError("The development task for this workflow no longer exists.")
+
+        sprint = (
+            self.store.get_sprint(int(previous["current_sprint_id"]))
+            if previous.get("current_sprint_id") else None
+        )
+        criteria = (
+            json.loads(sprint["acceptance_criteria_json"] or "[]")
+            if sprint else json.loads(task.get("acceptance_criteria_json") or "[]")
+        )
+        validation_commands = json.loads(previous.get("validation_commands_json") or "[]")
+        replacement = self.store.create_session(
+            int(task["id"]),
+            self.policy.hash,
+            f"restart-{session_id}-{uuid.uuid4()}",
+            goal_id=int(previous["goal_id"]) if previous.get("goal_id") else None,
+            plan_hash_snapshot=task["plan_hash"],
+            criteria_snapshot=criteria,
+            validation_commands=validation_commands,
+            worker_profile_slug=str(previous.get("worker_profile_slug") or "mc-native"),
+            reviewer_profile_slug=str(previous.get("reviewer_profile_slug") or "reviewer-default"),
+            assessment_id=int(previous["assessment_id"]) if previous.get("assessment_id") else None,
+            current_sprint_id=int(previous["current_sprint_id"]) if previous.get("current_sprint_id") else None,
+            sprint_budget=json.loads(previous.get("sprint_budget_json") or "{}"),
+        )
+        replacement_id = int(replacement["id"])
+        self.store.add_stages(replacement_id, STAGES)
+
+        transferred_worktree = bool(previous.get("worktree"))
+        if transferred_worktree:
+            self.store.update_session(
+                replacement_id,
+                branch=previous.get("branch"),
+                worktree=previous.get("worktree"),
+                base_sha=previous.get("base_sha"),
+                head_sha=previous.get("head_sha"),
+                stage="prepare",
+                progress=5,
+            )
+            self.store.update_stage(
+                replacement_id,
+                "prepare",
+                status="completed",
+                attempts=1,
+                result_json={
+                    "restarted_from_workflow": session_id,
+                    "worktree_transferred": True,
+                    "reason": error_code,
+                },
+                started_at=utc_now(),
+                completed_at=utc_now(),
+            )
+
+        self.worker.cancel(session_id)
+        self.store.update_session(
+            session_id,
+            state="canceled",
+            worktree=None if transferred_worktree else previous.get("worktree"),
+            cancel_requested=1,
+            blocker=f"Replaced by workflow {replacement_id} after {error_code}.",
+            completed_at=utc_now(),
+        )
+        self._event(
+            session_id,
+            "workflow_replaced",
+            {"replacement_workflow_id": replacement_id, "reason": error_code},
+            actor="owner",
+        )
+        self._event(
+            replacement_id,
+            "workflow_restarted",
+            {
+                "previous_workflow_id": session_id,
+                "reason": error_code,
+                "policy_hash": self.policy.hash,
+                "plan_hash": task["plan_hash"],
+                "worktree_transferred": transferred_worktree,
+            },
+            actor="owner",
+        )
+
+        if previous.get("goal_id"):
+            goal_id = int(previous["goal_id"])
+            goal = self.store.get_goal(goal_id)
+            if not goal:
+                raise RuntimeError("The development goal for this workflow no longer exists.")
+            if sprint:
+                self.store.update_sprint(int(sprint["id"]), status="active", session_id=replacement_id)
+            iteration = int(goal.get("iteration_count") or 0)
+            if iteration:
+                self.store.rebind_goal_iteration(goal_id, iteration, replacement_id)
+            self.store.update_goal(
+                goal_id,
+                current_session_id=replacement_id,
+                status="running",
+                last_error=None,
+                lease_owner=None,
+                lease_expires_at=None,
+            )
+
+        return self.start_background(replacement_id) if background else self.run_to_gate(replacement_id)
 
     @staticmethod
     def _next_version(queue_id: int) -> str:
@@ -845,6 +963,8 @@ class CodingAgent:
             self._event(session_id, "workflow_canceled", {"worktree_retained": bool(session.get("worktree"))}, actor="owner")
             return self.get_workflow(session_id)
         if command in {"resume", "retry"}:
+            if session.get("error_code") in STALE_SNAPSHOT_ERRORS:
+                return self.restart_stale_workflow(session_id, background=background)
             if session["state"] not in {"paused", "blocked", "failed", "approved"}:
                 raise RuntimeError(f"Workflow cannot {command} from state {session['state']}.")
             conn = self.store.connect()
@@ -874,6 +994,7 @@ class CodingAgent:
 
     def reconcile(self) -> list[dict[str, Any]]:
         """Fail closed after backend restart and repair durable checkpoints where evidence is conclusive."""
+        self.store.fail_stale_commands()
         reconciled: list[dict[str, Any]] = []
         active_states = {"approved", "preparing", "coding", "validating", "reviewing", "pushed", "merging", "deploying"}
         for item in self.store.list_sessions(200):

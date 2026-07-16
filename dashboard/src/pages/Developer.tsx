@@ -673,7 +673,7 @@ function CodingLoop({ workflow, events, workers, busy, streamState, streamIssue,
 
 function GoalsView({ goals, workers, busy, onCreate, onCommand }: {
   goals: DeveloperGoal[]; workers: DeveloperWorkerProfile[]; busy: boolean
-  onCreate: (input: { title: string; objective: string; acceptance_criteria: string[]; autonomy: 'sandbox' | 'pr' | 'merge_deploy'; preferred_models: string[]; worker_profile_slug: string; reviewer_profile_slug: string }) => void
+  onCreate: (input: { title: string; objective: string; acceptance_criteria: string[]; autonomy: 'sandbox' | 'pr' | 'merge_deploy'; preferred_models: string[]; worker_profile_slug: string; reviewer_profile_slug: string }) => Promise<boolean>
   onCommand: (id: number, command: 'pause' | 'resume' | 'cancel' | 'approve_scope') => void
 }) {
   const [title, setTitle] = useState('')
@@ -681,26 +681,60 @@ function GoalsView({ goals, workers, busy, onCreate, onCommand }: {
   const [criteria, setCriteria] = useState('')
   const [assessment, setAssessment] = useState<DeveloperAssessment | null>(null)
   const [assessing, setAssessing] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
   const codingWorkers = workers.filter(item => item.enabled && item.adapter !== 'model_review')
   const reviewers = workers.filter(item => item.enabled && item.adapter === 'model_review')
   const [worker, setWorker] = useState('mc-native')
   const [reviewer, setReviewer] = useState('reviewer-default')
   const [autonomy, setAutonomy] = useState<'sandbox' | 'pr' | 'merge_deploy'>('sandbox')
+  useEffect(() => {
+    if (!codingWorkers.some(item => item.slug === worker)) setWorker(codingWorkers[0]?.slug ?? '')
+  }, [workers, worker])
+  useEffect(() => {
+    if (!reviewers.some(item => item.slug === reviewer)) setReviewer(reviewers[0]?.slug ?? '')
+  }, [workers, reviewer])
   const input = () => {
     const acceptance = criteria.split('\n').map(item => item.trim()).filter(Boolean)
     return { title: title.trim(), objective: objective.trim(), acceptance_criteria: acceptance }
   }
   const assess = async () => {
     const value = input()
-    if (!value.title || value.objective.length < 10 || !value.acceptance_criteria.length) return
+    if (value.title.length < 3 || value.objective.length < 10 || !value.acceptance_criteria.length) return
     setAssessing(true)
-    try { setAssessment(await assessDeveloperGoal(value)) } finally { setAssessing(false) }
+    setFormError(null)
+    try {
+      setAssessment(await assessDeveloperGoal(value))
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setAssessing(false)
+    }
   }
-  const submit = () => {
+  const submit = async () => {
     const value = input()
-    if (!assessment || !value.title || value.objective.length < 10 || !value.acceptance_criteria.length) return
-    onCreate({ ...value, autonomy, preferred_models: [], worker_profile_slug: worker, reviewer_profile_slug: reviewer })
-    setTitle(''); setObjective(''); setCriteria(''); setAssessment(null)
+    if (!assessment || value.title.length < 3 || value.objective.length < 10 || !value.acceptance_criteria.length || !worker || !reviewer) return
+    setSubmitting(true)
+    setFormError(null)
+    try {
+      const saved = await onCreate({
+        ...value,
+        autonomy,
+        preferred_models: [],
+        worker_profile_slug: worker,
+        reviewer_profile_slug: reviewer,
+      })
+      if (saved) {
+        setTitle('')
+        setObjective('')
+        setCriteria('')
+        setAssessment(null)
+      } else {
+        setFormError('The goal was not saved. Your input has been kept so you can retry.')
+      }
+    } finally {
+      setSubmitting(false)
+    }
   }
   return <div className="space-y-8">
     <section className="border-y border-border py-5">
@@ -712,7 +746,9 @@ function GoalsView({ goals, workers, busy, onCreate, onCommand }: {
         <div className="space-y-3"><label><span className="mb-1 block text-xs text-muted">Autonomy boundary</span><select value={autonomy} onChange={event => setAutonomy(event.target.value as typeof autonomy)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text outline-none focus:border-accent"><option value="sandbox">Local sandbox only</option><option value="pr">Create draft pull request</option><option value="merge_deploy">Draft PR, owner merge and deploy gate</option></select></label><label><span className="mb-1 block text-xs text-muted">Coding worker</span><select value={worker} onChange={event => setWorker(event.target.value)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text outline-none focus:border-accent">{codingWorkers.map(item => <option key={item.slug} value={item.slug}>{item.name} · {item.health_status}</option>)}</select></label><label><span className="mb-1 block text-xs text-muted">Independent reviewer</span><select value={reviewer} onChange={event => setReviewer(event.target.value)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text outline-none focus:border-accent">{reviewers.map(item => <option key={item.slug} value={item.slug}>{item.name}</option>)}</select></label></div>
       </div>
       {assessment && <div className="mt-4 border-y border-border py-4"><div className="flex flex-wrap items-center gap-2"><StateBadge state={assessment.route} /><StateBadge state={assessment.risk} /><span className="text-xs text-muted">Capability score {assessment.score}/100 · {assessment.sprints.length} bounded sprint{assessment.sprints.length === 1 ? '' : 's'}</span></div><div className="mt-3 grid gap-2 sm:grid-cols-2">{assessment.sprints.map(sprint => <div key={sprint.sequence} className="border-l-2 border-border pl-3"><div className="text-sm text-text">{sprint.title}</div><div className="mt-1 text-[11px] text-muted">{sprint.budget.max_files} files · {sprint.budget.max_changed_lines} lines · {sprint.budget.max_minutes} min</div></div>)}</div><ul className="mt-3 space-y-1 text-xs text-muted">{assessment.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul></div>}
-      <div className="mt-4 flex flex-wrap gap-2">{!assessment ? <button onClick={assess} disabled={busy || assessing || !title.trim() || objective.trim().length < 10 || !criteria.trim()} className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background disabled:opacity-40">{assessing ? <Loader2 size={15} className="animate-spin" /> : <TestTube2 size={15} />} Assess scope</button> : <><button onClick={submit} disabled={busy} className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background disabled:opacity-40"><Plus size={15} /> Queue bounded sprints</button><button onClick={() => setAssessment(null)} className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm text-text"><RotateCcw size={14} /> Reassess</button></>}</div>
+      {formError && <div className="mt-4 border-l-2 border-danger pl-3 text-xs text-danger">{formError}</div>}
+      {(!codingWorkers.length || !reviewers.length) && <div className="mt-4 border-l-2 border-warning pl-3 text-xs text-warning">Enable at least one coding worker and one independent reviewer before saving a goal.</div>}
+      <div className="mt-4 flex flex-wrap gap-2">{!assessment ? <button onClick={assess} disabled={busy || assessing || title.trim().length < 3 || objective.trim().length < 10 || !criteria.trim()} className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background disabled:opacity-40">{assessing ? <Loader2 size={15} className="animate-spin" /> : <TestTube2 size={15} />} Assess scope</button> : <><button onClick={submit} disabled={busy || submitting || !worker || !reviewer} className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background disabled:opacity-40">{submitting ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} Save goal and queue sprints</button><button onClick={() => setAssessment(null)} disabled={submitting} className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm text-text disabled:opacity-40"><RotateCcw size={14} /> Reassess</button></>}</div>
     </section>
     <section><h2 className="mb-3 text-sm font-semibold text-text">Development goals</h2>{!goals.length ? <Empty text="No continuous development goals have been created." /> : <div className="border-t border-border">{goals.map(goal => {
       const resumable = ['paused', 'blocked', 'awaiting_config'].includes(goal.status)
@@ -1265,10 +1301,17 @@ export default function Developer() {
     }
   }, [active?.id, activeIsTerminal, load])
 
-  const act = async (fn: () => Promise<unknown>, success: string) => {
+  const act = async (fn: () => Promise<unknown>, success: string): Promise<boolean> => {
     setBusy(true)
-    try { await fn(); toast({ kind: 'success', title: success }); await load(true) }
-    catch (err) { toast({ kind: 'error', title: 'Developer action stopped', detail: err instanceof Error ? err.message : String(err) }) }
+    try {
+      await fn()
+      toast({ kind: 'success', title: success })
+      await load(true)
+      return true
+    } catch (err) {
+      toast({ kind: 'error', title: 'Developer action stopped', detail: err instanceof Error ? err.message : String(err) })
+      return false
+    }
     finally { setBusy(false) }
   }
   const workerAction = async (fn: () => Promise<DeveloperWorkerProfile>, success: string) => {

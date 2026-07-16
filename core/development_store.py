@@ -978,6 +978,19 @@ class DevelopmentStore:
         finally:
             conn.close()
 
+    def rebind_goal_iteration(self, goal_id: int, iteration: int, session_id: int) -> None:
+        conn = self.connect()
+        try:
+            conn.execute(
+                """UPDATE goal_iterations
+                   SET session_id=?,state='running',result_json=NULL,completed_at=NULL
+                   WHERE goal_id=? AND iteration=?""",
+                (session_id, goal_id, iteration),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
     def list_worker_profiles(self, *, enabled_only: bool = False) -> list[dict[str, Any]]:
         conn = self.connect()
         try:
@@ -1659,5 +1672,40 @@ class DevelopmentStore:
                 (_json(response), utc_now(), key),
             )
             conn.commit()
+        finally:
+            conn.close()
+
+    def fail_command(self, key: str, error: dict[str, Any]) -> None:
+        conn = self.connect()
+        try:
+            conn.execute(
+                """UPDATE development_commands SET status='failed',response_json=?,completed_at=?
+                   WHERE idempotency_key=?""",
+                (_json(error), utc_now(), key),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def fail_stale_commands(self, max_age_seconds: int = 300) -> int:
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=max(30, max_age_seconds))
+        now = utc_now()
+        conn = self.connect()
+        try:
+            cur = conn.execute(
+                """UPDATE development_commands
+                   SET status='failed',response_json=?,completed_at=?
+                   WHERE status='running' AND created_at<=?""",
+                (
+                    _json({
+                        "type": "RuntimeRestarted",
+                        "message": "The command was interrupted before completion. Retry it safely.",
+                    }),
+                    now,
+                    cutoff.isoformat(),
+                ),
+            )
+            conn.commit()
+            return int(cur.rowcount)
         finally:
             conn.close()

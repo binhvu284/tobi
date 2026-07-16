@@ -8,7 +8,7 @@ import threading
 import uuid
 from typing import Any
 
-from core.coding_agent import CodingAgent
+from core.coding_agent import CodingAgent, STALE_SNAPSHOT_ERRORS
 from core.development_store import utc_now
 
 
@@ -194,6 +194,11 @@ class CodingLoopService:
         if command == "resume":
             if goal["status"] not in {"paused", "blocked", "awaiting_config"}:
                 raise RuntimeError(f"Goal cannot resume from {goal['status']}.")
+            if goal.get("current_session_id"):
+                workflow = self.agent.get_workflow(int(goal["current_session_id"]))
+                if workflow.get("error_code") in STALE_SNAPSHOT_ERRORS:
+                    self.agent.restart_stale_workflow(int(workflow["id"]), background=True)
+                    return self.store.get_goal(goal_id) or goal
             return self.store.update_goal(goal_id, status="retrying", last_error=None,
                                           lease_owner=None, lease_expires_at=None)
         if command == "approve_scope":

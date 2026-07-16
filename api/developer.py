@@ -139,10 +139,21 @@ def _idempotent_command(key: str, target_type: str, target_id: int, command: str
     if not record["_claimed"]:
         if record["status"] == "completed" and record.get("response_json"):
             return json.loads(record["response_json"])
+        if record["status"] == "failed" and record.get("response_json"):
+            failure = json.loads(record["response_json"])
+            raise RuntimeError(str(failure.get("message") or "The previous identical command failed."))
         raise RuntimeError("An identical command is already in progress.")
-    result = execute()
-    agent.store.finish_command(key, result)
-    return result
+    try:
+        result = execute()
+    except Exception as exc:
+        agent.store.fail_command(key, {
+            "type": type(exc).__name__,
+            "message": str(exc)[:1000],
+        })
+        raise
+    else:
+        agent.store.finish_command(key, result)
+        return result
 
 
 def _error(exc: Exception) -> HTTPException:
@@ -245,7 +256,14 @@ def create_goal(body: GoalCreate) -> dict[str, Any]:
             reviewer_profile_slug=body.reviewer_profile_slug,
         )
         if goal["status"] == "queued":
-            start_loop()
+            try:
+                start_loop()
+            except Exception as exc:
+                goal = agent.store.update_goal(
+                    int(goal["id"]),
+                    status="awaiting_config",
+                    last_error=f"loop_start_failed:{type(exc).__name__}",
+                )
         return goal
     except Exception as exc:
         raise _error(exc) from exc
