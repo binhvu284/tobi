@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import AmbientField from '../components/motion/AmbientField'
 import LlmLogo, { BRAND_META, brandForModel, brandForProvider } from '../components/LlmLogo'
+import ModelMenu from '../components/chat/ModelMenu'
 import VaultUnlockPanel from '../components/VaultUnlockPanel'
 import { useToast } from '../context/ToastProvider'
 import { useVaultSession } from '../hooks/useVaultSession'
@@ -250,10 +251,11 @@ function CodingLoop({ workflow, events, workers, busy, onSwitch }: {
             const complete = stage.status === 'completed'
             const failed = ['failed', 'paused'].includes(stage.status)
             const Icon = complete ? CheckCircle2 : failed ? XCircle : running ? Loader2 : Circle
+            const stageTitle = stage.node_id === 'code' ? 'Run selected coding worker' : stage.title
             return (
               <div key={stage.node_id} className="flex min-h-14 items-center gap-3 border-b border-border/70 px-1 py-3">
                 <Icon size={17} className={`${complete ? 'text-success' : failed ? 'text-danger' : running ? 'animate-spin text-accent' : 'text-muted/60'}`} />
-                <div className="min-w-0 flex-1"><div className="text-sm text-text">{stage.title}</div><div className="mt-0.5 text-[11px] text-muted">{stage.attempts ? `${stage.attempts} attempt${stage.attempts === 1 ? '' : 's'}` : 'Not started'}</div></div>
+                <div className="min-w-0 flex-1"><div className="text-sm text-text">{stageTitle}</div><div className="mt-0.5 text-[11px] text-muted">{stage.attempts ? `${stage.attempts} attempt${stage.attempts === 1 ? '' : 's'}` : 'Not started'}</div></div>
                 <StateBadge state={stage.status} />
               </div>
             )
@@ -370,12 +372,6 @@ function WorkersView({ workers, models, providers, routing, busy, onSave, onProb
   const modelsManaged = draft.adapter === 'native' || draft.adapter === 'model_review'
   const routeTask = draft.adapter === 'model_review' ? 'coding_review' : 'coding'
   const routeModel = routing[routeTask] || routing.default_model
-  const providerModels = providers
-    .map(provider => ({
-      provider,
-      models: models.filter(model => model.provider === provider.id),
-    }))
-    .filter(group => group.models.length > 0)
   const selectedModelUnavailable = Boolean(
     modelsManaged && draft.model && !models.some(model => model.id === draft.model),
   )
@@ -451,7 +447,7 @@ function WorkersView({ workers, models, providers, routing, busy, onSave, onProb
     model_review: 3,
     hermes: 4,
   }
-  const orderedWorkers = [...workers].sort((a, b) =>
+  const orderedWorkers = workers.filter(worker => worker.adapter !== 'hermes').sort((a, b) =>
     workerOrder[a.adapter] - workerOrder[b.adapter] || a.name.localeCompare(b.name),
   )
   const workerKind = (worker: DeveloperWorkerProfile) =>
@@ -461,7 +457,7 @@ function WorkersView({ workers, models, providers, routing, busy, onSave, onProb
     if (dirty && !window.confirm('Discard unsaved worker changes?')) return
     setSlug(nextSlug)
   }
-  const readyWorkers = workers.filter(worker => worker.health_status === 'ready').length
+  const readyWorkers = orderedWorkers.filter(worker => worker.health_status === 'ready').length
   const routeName = (id: string) => models.find(model => model.id === id)?.label || id || 'Legacy environment'
   const lastTested = draft.last_probed_at
     ? new Date(draft.last_probed_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
@@ -489,7 +485,7 @@ function WorkersView({ workers, models, providers, routing, busy, onSave, onProb
       </div>
       <div className="inline-flex w-fit items-center gap-2 rounded-full bg-surface/70 px-3 py-1.5 text-xs text-muted">
         <span className="h-2 w-2 rounded-full bg-success" />
-        {readyWorkers} of {workers.length} ready
+        {readyWorkers} of {orderedWorkers.length} ready
       </div>
     </header>
 
@@ -559,27 +555,34 @@ function WorkersView({ workers, models, providers, routing, busy, onSave, onProb
             <option value="native">Mission Control runtime</option>
             <option value="codex">Codex CLI</option>
             <option value="opencode">OpenCode CLI</option>
-            <option value="hermes">Hermes CLI</option>
             <option value="model_review">Independent model review</option>
           </select>
         </label>
 
-        {modelsManaged ? <label>
-          <span className="mb-2 flex items-center justify-between gap-3 text-xs font-medium text-text">
-            <span>Model</span>
+        {modelsManaged ? <div>
+          <div className="mb-2 flex items-center justify-between gap-3 text-xs font-medium text-text">
+            <span>AI model</span>
             <a href="/models" className="inline-flex items-center gap-1 text-[10px] font-normal text-accent hover:underline">Manage models <ExternalLink size={10} /></a>
-          </span>
-          <select value={draft.model} onChange={event => update('model', event.target.value)} className="h-11 w-full rounded-md border border-border/70 bg-background px-3 text-sm text-text outline-none transition-colors focus:border-accent">
-            <option value="">Shared {routeTask === 'coding_review' ? 'review' : 'coding'} route · {routeName(routeModel)}</option>
-            {selectedModelUnavailable && <option value={draft.model}>{draft.model} · unavailable</option>}
-            {providerModels.map(group => <optgroup key={group.provider.id} label={group.provider.label}>
-              {group.models.map(model => <option key={model.id} value={model.id}>{model.model}</option>)}
-            </optgroup>)}
-          </select>
-        </label> : <label>
-          <span className="mb-2 block text-xs font-medium text-text">Model ID <span className="font-normal text-muted">optional</span></span>
-          <input value={draft.model} onChange={event => update('model', event.target.value)} placeholder="Use CLI default" className="h-11 w-full rounded-md border border-border/70 bg-background px-3 font-mono text-sm text-text outline-none transition-colors focus:border-accent" />
-        </label>}
+          </div>
+          <ModelMenu
+            models={models}
+            value={draft.model || null}
+            onChange={model => update('model', model)}
+            autoLabel={`Shared ${routeTask === 'coding_review' ? 'review' : 'coding'} · ${routeName(routeModel)}`}
+            wide
+            align="left"
+          />
+          <p className="mt-2 text-[10px] leading-4 text-muted">Same providers and models as Chat. Enable or configure them on the Models page.</p>
+        </div> : <div>
+          <span className="mb-2 block text-xs font-medium text-text">AI model</span>
+          <div className="flex h-11 items-center gap-2 rounded-md bg-background/60 px-3">
+            {draftLogo(14)}
+            <span className="min-w-0 flex-1 truncate text-sm text-text">
+              {draft.adapter === 'codex' ? 'Managed by Codex CLI' : draft.adapter === 'opencode' ? 'Managed by OpenCode CLI' : 'Managed by external CLI'}
+            </span>
+          </div>
+          <p className="mt-2 text-[10px] leading-4 text-muted">External coding agents use their own model and login configuration.</p>
+        </div>}
       </div>
 
       {!modelsManaged && <div className="mt-5 grid gap-6 lg:grid-cols-2">
@@ -604,16 +607,26 @@ function WorkersView({ workers, models, providers, routing, busy, onSave, onProb
         <AlertTriangle size={14} className="mt-0.5 shrink-0" />
         <span>{effectiveProvider?.label} needs credentials before this worker can run.</span>
       </div>}
+      {selectedModelUnavailable && <div className="mt-5 flex items-start gap-2 rounded-md bg-warning/[0.08] px-3 py-2.5 text-[11px] text-warning">
+        <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+        <span>The saved model is no longer available on the Models page. Choose another model or use the shared route.</span>
+      </div>}
 
       <details className="group mt-6">
         <summary className="inline-flex cursor-pointer list-none items-center gap-2 text-xs text-muted hover:text-text">
           <Plus size={13} className="transition-transform group-open:rotate-45" />
           Advanced settings
         </summary>
-        <label className="mt-4 block max-w-md">
-          <span className="mb-2 block text-xs font-medium text-text">Worker name</span>
-          <input value={draft.name} onChange={event => update('name', event.target.value)} className="h-10 w-full rounded-md border border-border/70 bg-background px-3 text-sm text-text outline-none transition-colors focus:border-accent" />
-        </label>
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <label>
+            <span className="mb-2 block text-xs font-medium text-text">Worker name</span>
+            <input value={draft.name} onChange={event => update('name', event.target.value)} className="h-10 w-full rounded-md border border-border/70 bg-background px-3 text-sm text-text outline-none transition-colors focus:border-accent" />
+          </label>
+          {!modelsManaged && <label>
+            <span className="mb-2 block text-xs font-medium text-text">CLI model ID <span className="font-normal text-muted">optional</span></span>
+            <input value={draft.model} onChange={event => update('model', event.target.value)} placeholder="Use CLI default" className="h-10 w-full rounded-md border border-border/70 bg-background px-3 font-mono text-sm text-text outline-none transition-colors focus:border-accent" />
+          </label>}
+        </div>
       </details>
 
       <footer className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

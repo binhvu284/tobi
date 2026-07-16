@@ -48,9 +48,13 @@ function Badges({ id, context }: { id: string; context?: number }) {
   )
 }
 
-export default function ModelMenu({ models, value, onChange, open: openProp, onOpenChange, direction = 'down' }: {
+export default function ModelMenu({
+  models, value, onChange, open: openProp, onOpenChange, direction = 'down',
+  autoLabel = 'Auto · default', wide = false, align = 'right',
+}: {
   models: AvailableModel[]; value: string | null; onChange: (id: string) => void
   open?: boolean; onOpenChange?: (o: boolean) => void; direction?: 'down' | 'up'
+  autoLabel?: string; wide?: boolean; align?: 'left' | 'right'
 }) {
   const [openState, setOpenState] = useState(false)
   const open = openProp ?? openState
@@ -77,11 +81,13 @@ export default function ModelMenu({ models, value, onChange, open: openProp, onO
   const pick = (id: string) => { onChange(id); setOpen(false) }
 
   return (
-    <div className="relative" ref={ref}>
+    <div className={`relative ${wide ? 'w-full' : ''}`} ref={ref}>
       <button onClick={() => setOpen(!open)}
-        className={`flex max-w-[44vw] items-center gap-1.5 rounded-lg border bg-surface py-1.5 pl-1.5 pr-2 text-xs text-text outline-none transition-colors sm:max-w-[240px] ${open ? 'border-accent/50' : 'border-border hover:border-accent/40'}`}>
+        className={`flex items-center gap-1.5 rounded-lg border bg-surface text-xs text-text outline-none transition-colors ${
+          wide ? 'h-11 w-full justify-between px-2.5' : 'max-w-[44vw] py-1.5 pl-1.5 pr-2 sm:max-w-[240px]'
+        } ${open ? 'border-accent/50' : 'border-border hover:border-accent/40'}`}>
         {current ? <LlmLogo model={current.id} size={14} /> : <span className="flex h-[23px] w-[23px] items-center justify-center rounded-md bg-accent/15 text-accent"><Cpu size={13} /></span>}
-        <span className="truncate">{current ? current.model : 'Auto · default'}</span>
+        <span className="min-w-0 flex-1 truncate text-left">{current ? current.model : autoLabel}</span>
         <ChevronDown size={13} className={`shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
@@ -90,12 +96,14 @@ export default function ModelMenu({ models, value, onChange, open: openProp, onO
           <motion.div initial={{ opacity: 0, y: direction === 'up' ? 4 : -4, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: direction === 'up' ? 4 : -4, scale: 0.98 }}
             transition={{ duration: 0.13 }}
-            className={`absolute right-0 z-30 max-h-[60vh] w-80 max-w-[88vw] overflow-y-auto rounded-xl border border-border bg-surface p-1.5 shadow-2xl ${
+            className={`absolute z-30 max-h-[60vh] w-80 max-w-[88vw] overflow-y-auto rounded-xl border border-border bg-surface p-1.5 shadow-2xl ${
+              align === 'left' ? 'left-0' : 'right-0'
+            } ${
               direction === 'up' ? 'bottom-full mb-1.5' : 'mt-1.5'}`}>
             <button onClick={() => pick('')}
               className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-bg/60 ${!value ? 'text-accent' : 'text-text'}`}>
               <span className="flex h-[23px] w-[23px] items-center justify-center rounded-md bg-accent/15 text-accent"><Zap size={13} /></span>
-              <span className="flex-1">Auto · default</span>
+              <span className="flex-1">{autoLabel}</span>
               {!value && <Check size={14} className="text-accent" />}
             </button>
             {groups.length === 0 && (
