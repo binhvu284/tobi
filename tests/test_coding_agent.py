@@ -79,7 +79,7 @@ ok("developer schema migration is recorded", migration[0] == 1)
 conn = store.connect()
 versions = [row[0] for row in conn.execute("SELECT version FROM developer_schema_migrations ORDER BY version")]
 conn.close()
-ok("production schema migrations are recorded", versions == [1, 2, 3, 4], str(versions))
+ok("production schema migrations are recorded", versions == [1, 2, 3, 4, 5], str(versions))
 
 # Policy boundaries.
 ok("policy hash is stable", policy.hash == CodingPolicy(policy_data, repo_root=repo).hash)

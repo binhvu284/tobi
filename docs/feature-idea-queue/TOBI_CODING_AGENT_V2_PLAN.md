@@ -1,6 +1,6 @@
 # TOBI Coding Agent V2 - Checkpointed Multi-Worker Runtime
 
-> Status: Implemented locally on 2026-07-16. Production qualification requires live Codex/OpenCode authentication and VPS soak tests.
+> Status: Development gate closed on 2026-07-17. Live local Codex/OpenCode, supervised runner, restart/resume, worker switching, and runner-loss recovery are accepted. The 24h/72h VPS soak remains a deployment gate and does not block queue #20 development.
 > Extends: [TOBI_CODING_AGENT_SELF_DEVELOPMENT_PLAN.md](TOBI_CODING_AGENT_SELF_DEVELOPMENT_PLAN.md)
 > Queue: #22
 
@@ -168,27 +168,35 @@ bash scripts/install_coding_runner_service.sh /path/to/tobi
 | T09 | Deterministic quality gates | T02,T05 | Done | Budget, checks, path, and secret enforcement |
 | T10 | Learning/replay system | T09 | Done | Evidence threshold and safe promotion |
 | T11 | API and Developer UI | T02-T10 | Done | Owner-controlled profiles, trace, switch, learning |
-| T12 | VPS/provider acceptance | T01-T11 | Pending owner environment | Live auth plus soak matrix |
+| T12 | Local provider/service acceptance | T01-T11 | Done | Live Codex and OpenCode/GLM, restart/resume, checkpoint switch, forced runner loss, safe recovery |
+| T13 | VPS deployment soak | T12 | Deployment gate | 24h/72h target-host evidence; not a source-development dependency |
 
 ## 9. Verification
 
 Local automated evidence:
 
-- `tests/test_coding_agent_v2.py`: 39/39;
+- `tests/test_coding_agent_v2.py`: 46/46;
 - `tests/test_coding_agent.py`: 41/41;
 - `tests/test_coding_agent_production.py`: 14/14;
-- Python compileall: pass;
-- TypeScript and Vite production build: pass;
+- `tests/test_developer_recovery.py`: pass;
+- touched Python modules compile: pass;
 - `git diff --check`: pass;
-- installed Codex and OpenCode help contracts: verified.
+- installed Codex and OpenCode help contracts: verified;
+- supervised Codex sprint: pass;
+- Codex session resume after runner restart: pass;
+- checkpoint switch to OpenCode with `zai-coding-plan/glm-5.2`: pass;
+- bounded repository scope: pass;
+- forced runner loss and fail-closed reconciliation: pass;
+- safe recovery after runner loss: pass;
+- durable runner jobs and encrypted credential handoff: pass.
 
 Not claimed as completed:
 
-- live Codex ChatGPT-account coding sprint;
-- live OpenCode plus GLM coding sprint;
 - 24-hour and 72-hour VPS soak;
 - forced runner crash/restart on the target VPS;
 - live GitHub mutation, merge, deployment, Supabase, or Vercel action.
+
+Detailed evidence: [TOBI_CODING_AGENT_V2_ACCEPTANCE_2026-07-17.md](TOBI_CODING_AGENT_V2_ACCEPTANCE_2026-07-17.md).
 
 ## 10. VPS Acceptance Matrix
 
@@ -212,4 +220,4 @@ Not claimed as completed:
 
 ## 12. Parallel Work Warning
 
-Do not implement queue #20 or #21 in parallel with the #22 VPS acceptance pass. They touch shared context, policy, API, persistence, and Mission Control runtime surfaces. Complete the live worker burn-in first, then start #20; #21 remains after #20.
+Queue #20 may continue after integrating the #22 closure commit. The remaining VPS soak should run against a deployed acceptance environment and must not mutate the same checkout used by an active #20 coding session. Queue #21 remains sequenced after #20.

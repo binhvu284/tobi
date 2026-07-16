@@ -1,8 +1,10 @@
 """Coding Agent v2 control-plane invariants without external provider calls."""
 from __future__ import annotations
 
+import base64
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -29,6 +31,7 @@ from core.coding_runner import IsolatedProcessRunner, QueuedProcessRunner  # noq
 from core.coding_runner_service import CodingRunnerService  # noqa: E402
 from core.coding_workers import (  # noqa: E402
     CodexCLIWorker, CodingWorkerRouter, CodingWorkerUnavailable, OpenCodeCLIWorker,
+    _platform_cli_command,
 )
 from core.development_store import DevelopmentStore  # noqa: E402
 
@@ -79,7 +82,35 @@ with store.connect() as conn:
     versions = [row[0] for row in conn.execute(
         "SELECT version FROM developer_schema_migrations ORDER BY version"
     )]
-ok("v2 schema migration is additive", versions == [1, 2, 3, 4], str(versions))
+ok("v2 schema migration is additive", versions == [1, 2, 3, 4, 5], str(versions))
+
+legacy_store = DevelopmentStore(TMP / "legacy_profile.db")
+with legacy_store.connect() as conn:
+    conn.execute(
+        "UPDATE coding_worker_profiles SET model=? WHERE slug='opencode-glm'",
+        ("zai-coding-plan/glm-4.6",),
+    )
+    conn.execute("DELETE FROM developer_schema_migrations WHERE version=5")
+    conn.commit()
+legacy_store = DevelopmentStore(TMP / "legacy_profile.db")
+ok(
+    "legacy OpenCode default migrates to a live model",
+    legacy_store.get_worker_profile("opencode-glm")["model"] == "zai-coding-plan/glm-5.2",
+)
+
+custom_store = DevelopmentStore(TMP / "custom_profile.db")
+with custom_store.connect() as conn:
+    conn.execute(
+        "UPDATE coding_worker_profiles SET model=? WHERE slug='opencode-glm'",
+        ("zai-coding-plan/glm-5.1",),
+    )
+    conn.execute("DELETE FROM developer_schema_migrations WHERE version=5")
+    conn.commit()
+custom_store = DevelopmentStore(TMP / "custom_profile.db")
+ok(
+    "OpenCode migration preserves owner model choices",
+    custom_store.get_worker_profile("opencode-glm")["model"] == "zai-coding-plan/glm-5.1",
+)
 profiles = {item["slug"]: item for item in store.list_worker_profiles()}
 ok("default coding worker profiles are seeded", {
     "mc-native", "codex-chatgpt", "opencode-glm", "reviewer-default"
@@ -156,11 +187,78 @@ codex_command = CodexCLIWorker(policy, IsolatedProcessRunner()).command(
 opencode_command = OpenCodeCLIWorker(policy, IsolatedProcessRunner()).command(
     opencode_profile, "continue", Path(prepared["worktree"]), "session-456"
 )
-ok("Codex adapter uses native session resume", codex_command[:4] == [
-    "codex", "exec", "resume", "thread-123"
-])
-ok("OpenCode adapter carries model and session", "--model" in opencode_command and
-   "zai-coding-plan/glm-4.6" in opencode_command and "--session" in opencode_command)
+ok(
+    "Windows external adapters use the service-safe command bridge",
+    os.name != "nt"
+    or (
+        codex_command[:4]
+        == ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand"]
+        and opencode_command[:4]
+        == ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand"]
+        and len(codex_command) == 5
+        and len(opencode_command) == 5
+    ),
+)
+if os.name == "nt":
+    bridge = _platform_cli_command([
+        sys.executable,
+        "-c",
+        "import os,sys; print(os.getcwd()); print('|'.join(sys.argv[1:]))",
+        r"D:\[PERSONAL PROJECT FILES]\TOBI\quoted path",
+        "objective=hello world",
+    ], cwd=Path(prepared["worktree"]))
+    bridge_result = subprocess.run(
+        bridge, capture_output=True, text=True, timeout=30
+    )
+    bridge_lines = bridge_result.stdout.strip().splitlines()
+    ok(
+        "Windows service bridge preserves working directory and bracketed arguments",
+        bridge_result.returncode == 0
+        and Path(bridge_lines[0]).resolve() == Path(prepared["worktree"]).resolve()
+        and bridge_lines[1]
+        == r"D:\[PERSONAL PROJECT FILES]\TOBI\quoted path|objective=hello world",
+        bridge_result.stderr,
+    )
+else:
+    ok("Windows service bridge preserves working directory and bracketed arguments", True)
+
+
+def worker_argv(command: list[str]) -> list[str]:
+    if os.name != "nt":
+        return command
+    script = base64.b64decode(command[-1]).decode("utf-16le")
+    match = re.search(r"\$encoded=@\(([^)]*)\);", script)
+    if not match:
+        raise AssertionError("Windows worker bridge payload is missing.")
+    return [
+        base64.b64decode(item).decode("utf-8")
+        for item in re.findall(r"'([^']+)'", match.group(1))
+    ]
+
+
+codex_argv = worker_argv(codex_command)
+opencode_argv = worker_argv(opencode_command)
+stable_prompt = CodexCLIWorker._prompt({
+    "objective": 'Create "one" file',
+    "acceptance_criteria": ["file exists"],
+    "sprint_budget": {"max_files": 1},
+})
+ok(
+    "external worker prompt is shell-stable and sectioned",
+    "<bounded_sprint>" in stable_prompt
+    and "objective:" in stable_prompt
+    and '"one"' not in stable_prompt
+    and "'one'" in stable_prompt,
+)
+ok(
+    "Codex adapter uses trusted native session resume",
+    codex_argv[:3] == ["codex", "exec", "resume"]
+    and "--json" in codex_argv
+    and "--skip-git-repo-check" in codex_argv
+    and "thread-123" in codex_argv,
+)
+ok("OpenCode adapter carries model and session", "--model" in opencode_argv and
+   "zai-coding-plan/glm-5.2" in opencode_argv and "--session" in opencode_argv)
 
 
 class FakeCodex:

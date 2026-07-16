@@ -431,8 +431,8 @@ class DevelopmentStore:
                  _json({"description": "Typed Mission Control tool worker"})),
                 ("codex-chatgpt", "Codex (ChatGPT)", "codex", "", "native_login", "", "reviewer-default", 1,
                  _json({"sandbox": "workspace-write"})),
-                ("opencode-glm", "OpenCode + GLM", "opencode", "zai-coding-plan/glm-4.6",
-                 "vault_env", "ZAI_API_KEY", "reviewer-default", 1, _json({})),
+                ("opencode-glm", "OpenCode + GLM", "opencode", "zai-coding-plan/glm-5.2",
+                  "vault_env", "ZAI_API_KEY", "reviewer-default", 1, _json({})),
                 ("hermes-legacy", "Hermes (Legacy)", "hermes", "", "inherited", "",
                  "reviewer-default", 0, _json({"description": "Optional legacy CLI worker"})),
                 ("reviewer-default", "Independent Reviewer", "model_review", "", "inherited", "",
@@ -447,6 +447,21 @@ class DevelopmentStore:
             )
             conn.execute("INSERT OR IGNORE INTO developer_schema_migrations(version,applied_at) VALUES (3,?)", (now,))
             conn.execute("INSERT OR IGNORE INTO developer_schema_migrations(version,applied_at) VALUES (4,?)", (now,))
+            migration_5 = conn.execute(
+                "SELECT 1 FROM developer_schema_migrations WHERE version=5"
+            ).fetchone()
+            if not migration_5:
+                conn.execute(
+                    """UPDATE coding_worker_profiles
+                       SET model='zai-coding-plan/glm-5.2',updated_at=?
+                       WHERE slug='opencode-glm'
+                         AND model='zai-coding-plan/glm-4.6'""",
+                    (now,),
+                )
+                conn.execute(
+                    "INSERT INTO developer_schema_migrations(version,applied_at) VALUES (5,?)",
+                    (now,),
+                )
             conn.commit()
         finally:
             conn.close()

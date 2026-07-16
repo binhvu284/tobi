@@ -1,6 +1,6 @@
 # Current State
 
-> Verified from the D-drive repository on 2026-07-16. This refresh used Graphify-guided navigation plus focused source inspection and local runs of Coding Agent v2 (`39/39`), Coding Agent regression (`41/41`), production invariants (`14/14`), Python compilation, and the TypeScript/Vite production build. Installed Codex/OpenCode CLI contracts were checked, but no live external coding sprint, integration, GitHub mutation, deployment, Supabase action, or Vercel action was performed.
+> Verified from the D-drive repository on 2026-07-17. This refresh used Graphify-guided navigation plus focused source inspection, Coding Agent v2 (`46/46`), Coding Agent regression (`41/41`), production invariants (`14/14`), Developer recovery checks, Python compilation, and a live isolated supervised acceptance run. Real Codex and OpenCode/GLM 5.2 workers completed bounded sprints, resumed after runner restart, switched at a checkpoint, and recovered safely after forced runner loss. No GitHub mutation, deployment, Supabase action, or Vercel action was performed.
 
 ## Executive Summary
 
@@ -51,7 +51,7 @@ The largest truth gaps are no longer "nothing is built." Chat/Agent mode policy,
 | Integration status | Code paths or credentials alone are not proof of access. Awakening requires adapter readiness plus fresh successful-test metadata; other surfaces must still use current MC status and an explicit test before claiming availability |
 | Personal computer control | Terminal execution is real. Browser automation, screen understanding, GUI control, and a hardened personal-PC service are not implemented |
 | Proactivity | Scheduler and Telegram push are real. General event-driven observation and context-aware interruption are not |
-| Tests | Focused tracked script suites cover terminal safety, storage/usage, Premium readers, Chat modes/runtime/routes, mode enforcement, network guards, Conductor final guards, Performance Doctor, Office V3, Awakening, project resources, and Coding Agent v1/v2 production invariants. Browser visual regression, live providers/integrations, and broad end-to-end behavior remain incomplete |
+| Tests | Focused tracked script suites cover terminal safety, storage/usage, Premium readers, Chat modes/runtime/routes, mode enforcement, network guards, Conductor final guards, Performance Doctor, Office V3, Awakening, project resources, and Coding Agent v1/v2 production invariants. Coding Agent v2 now also has live local Codex/OpenCode supervised acceptance. Browser visual regression, broad live integrations, target-VPS soak, and broad end-to-end behavior remain incomplete |
 
 ## Runtime and Persistence
 
@@ -69,7 +69,7 @@ The largest truth gaps are no longer "nothing is built." Chat/Agent mode policy,
 - #14 Premium Ability is delivered at v1, including the follow-up vision-model borrowing and Ability reorganization.
 - #16 Chat Mode Backend Upgrade is delivered. #17 Awakening Tier 1 Completion reached owner-runtime acceptance at 9/9 on 2026-07-14 through a successful GitHub read verification, advancing Evolution to the Agent tier; connector health still follows the 24-hour evidence-freshness rule. #19 Performance "System Doctor" is delivered (v1).
 - #15 Office V3 is delivered at v1 with owner visual acceptance still open.
-- #18 TOBI Coding Agent v1 remains the base continuous goal/lease/worktree/review/deployment system. #22 Coding Agent V2 is now delivered locally: deterministic risk assessment, bounded sprints, explicit MC Native/Codex/OpenCode profiles, portable checkpoints, checkpoint-safe model switching, deterministic quality gates, evidence-backed learning, encrypted Vault credential handoff, and a separately supervised runner service. Live Codex/OpenCode authentication and 24h/72h VPS soak remain before production acceptance. #20 starts only after #22 acceptance, and #21 follows #20; these items must not run in parallel because they share runtime, Brain/context, tools, policy, data, and UI ownership.
+- #18 TOBI Coding Agent v1 remains the base continuous goal/lease/worktree/review/deployment system. #22 Coding Agent V2 closed its development gate on 2026-07-17 after live local Codex/OpenCode/GLM 5.2, supervised runner, restart/resume, checkpoint switch, forced runner-loss, safe recovery, durable-job, and encrypted-credential acceptance. The 24h/72h target-VPS soak remains a deployment gate. #20 may continue after integrating the #22 closure commit; #21 remains after #20.
 - Original plans remain under `feature-idea-queue/`; they are requirements history, not proof of current behavior.
 
 ## Highest-Risk Gaps
