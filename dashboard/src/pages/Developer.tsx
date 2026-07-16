@@ -21,6 +21,7 @@ import {
 type Tab = 'overview' | 'goals' | 'loop' | 'workers' | 'learning' | 'queue' | 'versions' | 'storage'
 type DeveloperLoadError = { message: string; status?: number; code?: string }
 
+const LOAD_TIMEOUT_MS = 15_000
 const TERMINAL_STATES = new Set(['completed', 'canceled', 'failed', 'rolled_back'])
 const STATE_TONE: Record<string, string> = {
   completed: 'text-success border-success/30 bg-success/10',
@@ -295,19 +296,19 @@ function WorkersView({ workers, busy, onSave, onProbe, onLogin }: {
   const [slug, setSlug] = useState(workers[0]?.slug ?? 'mc-native')
   const selected = workers.find(item => item.slug === slug) ?? workers[0]
   const [draft, setDraft] = useState<DeveloperWorkerProfile | null>(selected ?? null)
-  useEffect(() => { if (selected) setDraft(selected) }, [selected?.slug])
+  useEffect(() => { if (selected) setDraft(selected) }, [selected])
   if (!draft) return <Empty text="No coding worker profiles are configured." />
   const update = <K extends keyof DeveloperWorkerProfile>(key: K, value: DeveloperWorkerProfile[K]) =>
     setDraft(current => current ? { ...current, [key]: value } : current)
   return <div className="space-y-7">
     <section className="grid gap-4 border-y border-border py-5 lg:grid-cols-[240px_minmax(0,1fr)]">
-      <div><label><span className="mb-1 block text-xs text-muted">Worker profile</span><select value={draft.slug} onChange={event => setSlug(event.target.value)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text">{workers.map(worker => <option key={worker.slug} value={worker.slug}>{worker.name}</option>)}</select></label><div className="mt-3 flex items-center gap-2"><StateBadge state={draft.health_status} /><span className="text-xs text-muted">{draft.health_detail ?? 'Not probed yet.'}</span></div>{draft.runner_mode && <div className="mt-2 text-[11px] text-muted">Execution boundary: {draft.runner_mode === 'service' ? 'supervised runner service' : 'local isolated process'}</div>}</div>
+      <div><label><span className="mb-1 block text-xs text-muted">Worker profile</span><select value={slug} onChange={event => setSlug(event.target.value)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text">{workers.map(worker => <option key={worker.slug} value={worker.slug}>{worker.name}</option>)}</select></label><div className="mt-3 flex items-center gap-2"><StateBadge state={draft.health_status} /><span className="text-xs text-muted">{draft.health_detail ?? 'Not probed yet.'}</span></div>{draft.runner_mode && <div className="mt-2 text-[11px] text-muted">Execution boundary: {draft.runner_mode === 'service' ? 'supervised runner service' : 'local isolated process'}</div>}</div>
       <div className="grid gap-3 sm:grid-cols-2">
         <label><span className="mb-1 block text-xs text-muted">Name</span><input value={draft.name} onChange={event => update('name', event.target.value)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text" /></label>
         <label><span className="mb-1 block text-xs text-muted">Adapter</span><select value={draft.adapter} onChange={event => update('adapter', event.target.value as DeveloperWorkerProfile['adapter'])} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text"><option value="native">MC Native</option><option value="codex">Codex CLI</option><option value="opencode">OpenCode CLI</option><option value="hermes">Hermes CLI</option><option value="model_review">Model reviewer</option></select></label>
         <label><span className="mb-1 block text-xs text-muted">Model ID</span><input value={draft.model} onChange={event => update('model', event.target.value)} placeholder="Blank uses Models routing" className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text" /></label>
-        <label><span className="mb-1 block text-xs text-muted">Authentication</span><select value={draft.auth_mode} onChange={event => update('auth_mode', event.target.value as DeveloperWorkerProfile['auth_mode'])} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text"><option value="inherited">Models / inherited</option><option value="native_login">Native agent login</option><option value="vault_env">Vault environment secret</option></select></label>
-        <label><span className="mb-1 block text-xs text-muted">Vault environment name</span><input value={draft.credential_env} onChange={event => update('credential_env', event.target.value.toUpperCase())} placeholder="ZAI_API_KEY" className="h-10 w-full rounded-md border border-border bg-background px-3 font-mono text-sm text-text" /></label>
+        <label><span className="mb-1 block text-xs text-muted">Authentication</span><select value={draft.auth_mode} onChange={event => { const auth = event.target.value as DeveloperWorkerProfile['auth_mode']; setDraft(current => current ? { ...current, auth_mode: auth, credential_env: auth === 'vault_env' ? current.credential_env : '' } : current) }} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text"><option value="inherited">Models / inherited</option><option value="native_login">Native agent login</option><option value="vault_env">Vault environment secret</option></select></label>
+        <label><span className="mb-1 block text-xs text-muted">Vault environment name</span><input disabled={draft.auth_mode !== 'vault_env'} value={draft.auth_mode === 'vault_env' ? draft.credential_env : ''} onChange={event => update('credential_env', event.target.value.toUpperCase())} placeholder={draft.auth_mode === 'vault_env' ? 'ZAI_API_KEY' : 'Only used for Vault authentication'} className="h-10 w-full rounded-md border border-border bg-background px-3 font-mono text-sm text-text disabled:cursor-not-allowed disabled:opacity-50" /></label>
         <label className="flex h-10 items-center gap-2 self-end border-y border-border px-2"><input type="checkbox" checked={draft.enabled} onChange={event => update('enabled', event.target.checked)} /><span className="text-sm text-text">Enabled for new sprints</span></label>
       </div>
     </section>
@@ -406,27 +407,56 @@ export default function Developer() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<DeveloperLoadError | null>(null)
   const lastSequence = useRef(0)
+  const loadController = useRef<AbortController | null>(null)
 
   const load = useCallback(async (quiet = false) => {
+    if (quiet && loadController.current) return
+    if (!quiet) loadController.current?.abort()
+    const controller = new AbortController()
+    loadController.current = controller
     if (!quiet) setLoading(true)
+    let timedOut = false
+    const timeout = window.setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, LOAD_TIMEOUT_MS)
     try {
       const [o, q, v, s, g, w, learn] = await Promise.all([
-        getDeveloperOverview(), getDeveloperQueue(), getDeveloperVersions(), getDeveloperStorage(), getDeveloperGoals(),
-        getDeveloperWorkers(), getDeveloperLearning(),
+        getDeveloperOverview(controller.signal), getDeveloperQueue(controller.signal),
+        getDeveloperVersions(controller.signal), getDeveloperStorage(controller.signal),
+        getDeveloperGoals(controller.signal), getDeveloperWorkers(false, controller.signal),
+        getDeveloperLearning(controller.signal),
       ])
+      if (controller.signal.aborted) return
       setOverview(o); setQueue(q.items); setReleases(v.releases); setStorage(s); setGoals(g.goals)
       setWorkers(w.workers); setLearning(learn); setError(null)
     } catch (err) {
+      if (controller.signal.aborted && !timedOut) return
       const apiError = err as { message?: string; status?: number; code?: string }
       setError({
-        message: apiError?.message || 'Developer data is unavailable.',
+        message: timedOut
+          ? 'Developer refresh timed out after 15 seconds. The request was canceled; retry without reloading the browser tab.'
+          : apiError?.message || 'Developer data is unavailable.',
         status: apiError?.status,
         code: apiError?.code,
       })
-    } finally { if (!quiet) setLoading(false) }
+    } finally {
+      window.clearTimeout(timeout)
+      if (loadController.current === controller) {
+        loadController.current = null
+        if (!quiet) setLoading(false)
+      }
+    }
   }, [])
 
-  useEffect(() => { load(); const timer = window.setInterval(() => load(true), 5000); return () => window.clearInterval(timer) }, [load])
+  useEffect(() => {
+    load()
+    const timer = window.setInterval(() => load(true), 5000)
+    return () => {
+      window.clearInterval(timer)
+      loadController.current?.abort()
+    }
+  }, [load])
   useEffect(() => { if (vaultSession) load(true) }, [vaultSession, load])
 
   const active = overview?.active_workflow ?? overview?.workflows[0] ?? null
@@ -449,17 +479,28 @@ export default function Developer() {
     catch (err) { toast({ kind: 'error', title: 'Developer action stopped', detail: err instanceof Error ? err.message : String(err) }) }
     finally { setBusy(false) }
   }
+  const workerAction = async (fn: () => Promise<DeveloperWorkerProfile>, success: string) => {
+    setBusy(true)
+    try {
+      const updated = await fn()
+      setWorkers(current => current.map(item => item.slug === updated.slug ? { ...item, ...updated } : item))
+      toast({ kind: 'success', title: success })
+    } catch (err) {
+      toast({ kind: 'error', title: 'Worker action stopped', detail: err instanceof Error ? err.message : String(err) })
+    } finally { setBusy(false) }
+  }
   const command = (cmd: 'pause' | 'resume' | 'cancel' | 'retry') => active && act(() => commandDeveloperWorkflow(active.id, cmd), `Workflow ${cmd} accepted`)
   const approve = (purpose: 'special_paths' | 'merge_deploy', master: string) => active && act(() => approveDeveloperWorkflow(active.id, purpose, master), 'Approval accepted')
   const createGoal = (input: Parameters<typeof createDeveloperGoal>[0]) => act(() => createDeveloperGoal(input), 'Development goal queued')
   const goalCommand = (id: number, cmd: 'pause' | 'resume' | 'cancel' | 'approve_scope') => act(() => commandDeveloperGoal(id, cmd), `Goal ${label(cmd)} accepted`)
   const switchWorker = (slug: string) => active && act(() => switchDeveloperWorker(active.id, slug), `Worker switched to ${slug}`)
-  const saveWorker = (slug: string, profile: DeveloperWorkerProfile) => act(() => saveDeveloperWorker(slug, {
+  const saveWorker = (slug: string, profile: DeveloperWorkerProfile) => workerAction(() => saveDeveloperWorker(slug, {
     name: profile.name, adapter: profile.adapter, model: profile.model, auth_mode: profile.auth_mode,
-    credential_env: profile.credential_env, reviewer_profile: profile.reviewer_profile,
+    credential_env: profile.auth_mode === 'vault_env' ? profile.credential_env : '',
+    reviewer_profile: profile.reviewer_profile,
     enabled: profile.enabled, config: profile.config,
   }), 'Worker profile saved')
-  const probeWorker = (slug: string) => act(() => probeDeveloperWorker(slug), `Worker ${slug} tested`)
+  const probeWorker = (slug: string) => workerAction(() => probeDeveloperWorker(slug), `Worker ${slug} tested`)
   const loginWorker = async (slug: string) => {
     setBusy(true)
     try {

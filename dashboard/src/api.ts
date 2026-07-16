@@ -873,20 +873,20 @@ export type DeveloperGoal = {
   current_session_id?: number | null; last_error?: string | null; created_at: string; updated_at: string
 }
 
-export async function getDeveloperOverview(): Promise<DeveloperOverview> {
-  return vreq('/api/developer/overview')
+export async function getDeveloperOverview(signal?: AbortSignal): Promise<DeveloperOverview> {
+  return vreq('/api/developer/overview', { signal })
 }
-export async function getDeveloperQueue(): Promise<{ items: DeveloperQueueItem[] }> {
-  return vreq('/api/developer/queue')
+export async function getDeveloperQueue(signal?: AbortSignal): Promise<{ items: DeveloperQueueItem[] }> {
+  return vreq('/api/developer/queue', { signal })
 }
-export async function getDeveloperVersions(): Promise<{ releases: DeveloperRelease[] }> {
-  return vreq('/api/developer/versions')
+export async function getDeveloperVersions(signal?: AbortSignal): Promise<{ releases: DeveloperRelease[] }> {
+  return vreq('/api/developer/versions', { signal })
 }
-export async function getDeveloperStorage(): Promise<DeveloperStorage> {
-  return vreq('/api/developer/storage')
+export async function getDeveloperStorage(signal?: AbortSignal): Promise<DeveloperStorage> {
+  return vreq('/api/developer/storage', { signal })
 }
-export async function getDeveloperGoals(): Promise<{ goals: DeveloperGoal[]; loop: { enabled: boolean; owner: string } }> {
-  return vreq('/api/developer/goals')
+export async function getDeveloperGoals(signal?: AbortSignal): Promise<{ goals: DeveloperGoal[]; loop: { enabled: boolean; owner: string } }> {
+  return vreq('/api/developer/goals', { signal })
 }
 export async function assessDeveloperGoal(input: {
   title: string; objective: string; acceptance_criteria: string[]; validation_commands?: string[][]
@@ -924,8 +924,10 @@ export async function switchDeveloperWorker(workflowId: number, profileSlug: str
     method: 'POST', body: JSON.stringify({ profile_slug: profileSlug }),
   })
 }
-export async function getDeveloperWorkers(probe = false): Promise<{ workers: DeveloperWorkerProfile[] }> {
-  return vreq(`/api/developer/workers?probe=${probe ? 'true' : 'false'}`)
+export async function getDeveloperWorkers(
+  probe = false, signal?: AbortSignal,
+): Promise<{ workers: DeveloperWorkerProfile[] }> {
+  return vreq(`/api/developer/workers?probe=${probe ? 'true' : 'false'}`, { signal })
 }
 export async function saveDeveloperWorker(
   slug: string,
@@ -943,10 +945,10 @@ export async function getDeveloperWorkerLogin(slug: string): Promise<{
 }> {
   return vreq(`/api/developer/workers/${encodeURIComponent(slug)}/login`)
 }
-export async function getDeveloperLearning(): Promise<{
+export async function getDeveloperLearning(signal?: AbortSignal): Promise<{
   records: Array<Record<string, unknown>>; playbooks: Array<Record<string, unknown>>
 }> {
-  return vreq('/api/developer/learning')
+  return vreq('/api/developer/learning', { signal })
 }
 export async function replayDeveloperLearning(playbookSlug?: string): Promise<{
   results: Array<{ slug: string; qualified: boolean; cases: number; passed: number; pass_rate: number }>
