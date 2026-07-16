@@ -668,6 +668,58 @@ def _ensure_brain_schema(conn: sqlite3.Connection) -> None:
         created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- ── Brain Memory V2 (#20 / T01) — additive; legacy brain_memories untouched ──
+    CREATE TABLE IF NOT EXISTS brain_memory_v2 (
+        id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+        compat_ref           INTEGER REFERENCES brain_memories(id) ON DELETE SET NULL,
+        distilled_text       TEXT NOT NULL,
+        memory_type          TEXT NOT NULL,            -- brain_contracts.MemoryType
+        behavior_implication TEXT DEFAULT '',
+        scope_type           TEXT DEFAULT 'global',    -- ScopeType
+        scope_key            TEXT,
+        authority            TEXT DEFAULT 'soft',      -- Authority: soft | hard
+        explicitness         TEXT DEFAULT 'inferred',  -- Explicitness: explicit | inferred
+        confidence           REAL DEFAULT 0.6,
+        durability           REAL DEFAULT 0,
+        actionability        REAL DEFAULT 0,
+        specificity          REAL DEFAULT 0,
+        source_strength      REAL DEFAULT 0,
+        novelty              REAL DEFAULT 0,
+        future_usefulness    REAL DEFAULT 0,
+        quality_score        REAL DEFAULT 0,           -- weighted 0–100
+        suggested_usage      TEXT DEFAULT '',
+        trust                TEXT DEFAULT 'trusted',   -- Trust: trusted | untrusted
+        sensitive            INTEGER DEFAULT 0,        -- bool
+        status               TEXT DEFAULT 'pending',   -- MemoryStatus
+        created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at           DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_memory_evidence (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        memory_id   INTEGER NOT NULL REFERENCES brain_memory_v2(id) ON DELETE CASCADE,
+        excerpt     TEXT DEFAULT '',                   -- <= 320 chars
+        source_ref  TEXT,
+        trust       TEXT DEFAULT 'trusted',
+        provenance  TEXT,                              -- how/where captured
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_memory_links (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_id     INTEGER NOT NULL REFERENCES brain_memory_v2(id) ON DELETE CASCADE,
+        to_id       INTEGER NOT NULL REFERENCES brain_memory_v2(id) ON DELETE CASCADE,
+        link_type   TEXT NOT NULL,                     -- supersedes | supports | conflicts_with | derived_from
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_memory_tags (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        memory_id   INTEGER NOT NULL REFERENCES brain_memory_v2(id) ON DELETE CASCADE,
+        tag         TEXT NOT NULL,
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS brain_conflicts (
         id                  INTEGER PRIMARY KEY AUTOINCREMENT,
         memory_id           INTEGER REFERENCES brain_memories(id) ON DELETE CASCADE,
