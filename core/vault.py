@@ -408,7 +408,8 @@ def _slot_setting_key(name: str) -> str:
 
 
 def _ensure_owner_settings(conn: sqlite3.Connection) -> None:
-    conn.execute("CREATE TABLE IF NOT EXISTS owner_settings (key TEXT PRIMARY KEY, value TEXT)")
+    from core import owner_flags
+    owner_flags.ensure_schema(conn)  # canonical wide shape; caller owns commit/close
 
 
 def _get_active_label(conn: sqlite3.Connection, name: str) -> Optional[str]:

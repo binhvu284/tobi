@@ -1072,26 +1072,45 @@ def retrieve(query: str, k: int = 6) -> list[dict]:
     return semantic_search(query, k=k)
 
 
-def profile_summary(max_per_cat: int = 4) -> str:
+def profile_rows(max_per_cat: int = 4) -> list[tuple[str, str]]:
+    """The structured source of profile_summary(): (category, content) for active memories,
+    ≤max_per_cat per category, confidence-ranked within each, emitted in CATEGORY_IDS order.
+    Returned as whole rows so callers (e.g. the stable-profile builder) can trim by WHOLE
+    memory rather than slicing a joined string (splitting on '; ' would corrupt any memory
+    that itself contains '; ')."""
     conn = get_connection()
-    rows = conn.execute(
-        """SELECT category, content FROM brain_memories
-           WHERE status='active' AND deleted_at IS NULL
-           ORDER BY confidence DESC, updated_at DESC LIMIT 80"""
-    ).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute(
+            """SELECT category, content FROM brain_memories
+               WHERE status='active' AND deleted_at IS NULL
+               ORDER BY confidence DESC, updated_at DESC LIMIT 80"""
+        ).fetchall()
+    finally:
+        conn.close()  # close even if the table is missing, so callers can't leak the handle
     by: dict[str, list[str]] = {}
     for r in rows:
         by.setdefault(r["category"], [])
         if len(by[r["category"]]) < max_per_cat:
             by[r["category"]].append(r["content"])
-    if not by:
-        return ""
-    parts = []
+    out: list[tuple[str, str]] = []
     for cat in CATEGORY_IDS:
-        if by.get(cat):
-            parts.append(f"{cat.upper()}: " + "; ".join(by[cat]))
-    return "\n".join(parts)
+        for content in by.get(cat, []):
+            out.append((cat, content))
+    return out
+
+
+def profile_summary(max_per_cat: int = 4) -> str:
+    rows = profile_rows(max_per_cat)
+    if not rows:
+        return ""
+    by: dict[str, list[str]] = {}
+    order: list[str] = []
+    for cat, content in rows:
+        if cat not in by:
+            by[cat] = []
+            order.append(cat)
+        by[cat].append(content)
+    return "\n".join(f"{cat.upper()}: " + "; ".join(by[cat]) for cat in order)
 
 
 def get_narrative() -> Optional[dict]:
