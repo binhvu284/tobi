@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  AlertTriangle, BookOpen, CheckCircle2, Circle, Code2, ExternalLink, GitBranch,
-  KeyRound, Loader2, Pause, Play, Plus, RefreshCw, RotateCcw, Save, ShieldCheck,
-  Square, Target, TerminalSquare, TestTube2, XCircle,
+  Activity, AlertTriangle, BookOpen, CheckCircle2, Circle, Clock3, Code2, ExternalLink,
+  GitBranch, KeyRound, ListTree, Loader2, Pause, Play, Plus, Radio, RefreshCw,
+  RotateCcw, Save, ScrollText, ShieldCheck, Square, Target,
+  TerminalSquare, TestTube2, WifiOff, Wrench, XCircle,
 } from 'lucide-react'
 import AmbientField from '../components/motion/AmbientField'
 import LlmLogo, { BRAND_META, brandForModel, brandForProvider } from '../components/LlmLogo'
@@ -22,9 +23,16 @@ import {
 
 type Tab = 'overview' | 'goals' | 'loop' | 'workers' | 'learning' | 'queue' | 'versions' | 'storage'
 type DeveloperLoadError = { message: string; status?: number; code?: string }
+type DeveloperStreamState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'closed'
+type LiveEventKind = 'stage' | 'tool' | 'worker' | 'checkpoint' | 'success' | 'problem' | 'system'
+type LiveEventPresentation = { title: string; detail?: string; kind: LiveEventKind }
 
 const LOAD_TIMEOUT_MS = 15_000
 const TERMINAL_STATES = new Set(['completed', 'canceled', 'failed', 'rolled_back'])
+const STREAM_REFRESH_EVENTS = new Set([
+  'checkpoint_created', 'quality_gate_completed', 'worker_switched',
+  'workflow_blocked', 'workflow_completed', 'workflow_paused',
+])
 const STATE_TONE: Record<string, string> = {
   completed: 'text-success border-success/30 bg-success/10',
   released: 'text-success border-success/30 bg-success/10',
@@ -45,6 +53,186 @@ function tone(state: string) {
 
 function label(value: string) {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (char: string) => char.toUpperCase())
+}
+
+function stageLabel(value: unknown) {
+  const stage = typeof value === 'string' ? value : ''
+  return stage === 'code' ? 'Run selected coding worker' : label(stage || 'workflow')
+}
+
+function textValue(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return null
+}
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function compactText(value: unknown, max = 180): string | null {
+  const text = textValue(value)?.replace(/\s+/g, ' ')
+  if (!text) return null
+  return text.length > max ? `${text.slice(0, max - 1)}...` : text
+}
+
+function readablePayloadText(payload: Record<string, unknown>): string | null {
+  for (const key of ['message', 'summary', 'text', 'detail', 'action_needed', 'action']) {
+    const text = compactText(payload[key])
+    if (text) return text
+  }
+  for (const key of ['item', 'content', 'result', 'error']) {
+    const nested = objectValue(payload[key])
+    if (!nested) continue
+    for (const nestedKey of ['message', 'summary', 'text', 'detail', 'command', 'output']) {
+      const value = nested[nestedKey]
+      const text = Array.isArray(value) ? compactText(value.join(' ')) : compactText(value)
+      if (text) return text
+    }
+  }
+  return null
+}
+
+function eventPresentation(event: DeveloperEvent): LiveEventPresentation {
+  const payload = event.payload ?? {}
+  const stage = stageLabel(payload.stage)
+  const path = compactText(payload.path, 120)
+  const count = textValue(payload.count)
+  const eventType = textValue(payload.type)
+  const item = objectValue(payload.item)
+  const itemType = textValue(item?.type)
+  const itemText = item ? readablePayloadText(item) : null
+
+  switch (event.event_type) {
+    case 'stage_started':
+      return { title: `Started ${stage}`, detail: `Attempt ${textValue(payload.attempt) ?? '1'}`, kind: 'stage' }
+    case 'stage_completed':
+      return { title: `Completed ${stage}`, detail: readablePayloadText(payload) ?? undefined, kind: 'success' }
+    case 'stage_failed':
+      return { title: `${stage} failed`, detail: readablePayloadText(payload) ?? 'Review the failed check evidence.', kind: 'problem' }
+    case 'worker_model_action': {
+      const action = textValue(payload.action) ?? 'next action'
+      const actions: Record<string, string> = {
+        complete: 'Worker is finishing the sprint',
+        blocker: 'Worker reported a blocker',
+        list_files: 'Inspecting repository files',
+        read_file: 'Reading a source file',
+        replace_text: 'Applying a targeted edit',
+        run_check: 'Preparing a validation check',
+        search: 'Searching the codebase',
+        write_file: 'Writing a source file',
+      }
+      return {
+        title: actions[action] ?? `Worker selected ${label(action)}`,
+        detail: `Model step ${textValue(payload.step) ?? '?'}`,
+        kind: action === 'blocker' ? 'problem' : 'worker',
+      }
+    }
+    case 'worker_tool_read':
+      return { title: path ? `Read ${path}` : 'Read a source file', detail: payload.bytes ? `${payload.bytes} bytes` : undefined, kind: 'tool' }
+    case 'worker_tool_list':
+      return { title: 'Inspected repository files', detail: `${count ?? '0'} files${payload.prefix ? ` under ${payload.prefix}` : ''}`, kind: 'tool' }
+    case 'worker_tool_search':
+      return { title: `Searched for "${compactText(payload.query, 80) ?? 'code'}"`, detail: `${count ?? '0'} matches`, kind: 'tool' }
+    case 'worker_tool_write':
+      return { title: path ? `Updated ${path}` : 'Updated a source file', detail: payload.bytes ? `${payload.bytes} bytes written` : undefined, kind: 'tool' }
+    case 'worker_tool_check': {
+      const argv = Array.isArray(payload.argv) ? payload.argv.join(' ') : compactText(payload.argv)
+      const passed = payload.ok === true
+      return {
+        title: passed ? 'Validation check passed' : 'Validation check failed',
+        detail: compactText(argv, 160) ?? `Exit code ${textValue(payload.exit_code) ?? '?'}`,
+        kind: passed ? 'success' : 'problem',
+      }
+    }
+    case 'worker_adapter_started':
+      return {
+        title: `${label(textValue(payload.adapter) ?? 'coding')} worker started`,
+        detail: payload.resuming ? 'Continuing the saved worker session.' : 'A new worker session was created.',
+        kind: 'worker',
+      }
+    case 'worker_adapter_event': {
+      const command = compactText(item?.command, 160)
+      const adapterProblem = [eventType, itemType, textValue(item?.status)]
+        .some(value => Boolean(value && /error|fail|blocked|denied/i.test(value)))
+      if (itemType === 'command_execution') {
+        return {
+          title: adapterProblem ? 'Worker command failed' : command ? `Running ${command}` : 'Running a command',
+          detail: itemText ?? command ?? undefined,
+          kind: adapterProblem ? 'problem' : 'tool',
+        }
+      }
+      if (itemType === 'file_change') {
+        return { title: itemText ?? 'Applying file changes', detail: eventType ? label(eventType) : undefined, kind: 'tool' }
+      }
+      if (itemType === 'agent_message') {
+        return { title: itemText ?? 'Worker reported progress', detail: eventType ? label(eventType) : undefined, kind: 'worker' }
+      }
+      return {
+        title: adapterProblem ? 'Worker reported an error' : eventType ? label(eventType) : 'Worker reported progress',
+        detail: itemText ?? readablePayloadText(payload) ?? undefined,
+        kind: adapterProblem ? 'problem' : 'worker',
+      }
+    }
+    case 'worker_complete':
+      return { title: 'Coding worker completed the sprint', detail: readablePayloadText(payload) ?? undefined, kind: 'success' }
+    case 'checkpoint_created':
+      return {
+        title: `Checkpoint ${textValue(payload.sequence) ?? ''} saved`.replace('  ', ' '),
+        detail: compactText(payload.next_action) ?? 'The workflow can resume safely from this point.',
+        kind: 'checkpoint',
+      }
+    case 'quality_gate_completed':
+      return {
+        title: payload.qualified === true ? 'Quality gates passed' : 'Quality gates need attention',
+        detail: Array.isArray(payload.failures) ? compactText(payload.failures.join(' ')) ?? undefined : undefined,
+        kind: payload.qualified === true ? 'success' : 'problem',
+      }
+    case 'workflow_paused':
+      return { title: 'Workflow paused', detail: readablePayloadText(payload) ?? 'Resume when the required action is complete.', kind: 'problem' }
+    case 'workflow_blocked':
+      return { title: 'Workflow is blocked', detail: readablePayloadText(payload) ?? 'Owner action is required.', kind: 'problem' }
+    case 'workflow_completed':
+      return { title: 'Workflow completed', detail: payload.version ? `Version ${payload.version}` : undefined, kind: 'success' }
+    case 'worker_switched':
+      return { title: `Worker switched to ${textValue(payload.to) ?? 'the selected profile'}`, detail: 'The latest durable checkpoint will be used.', kind: 'system' }
+    default:
+      return {
+        title: label(event.event_type),
+        detail: readablePayloadText(payload) ?? undefined,
+        kind: event.event_type.includes('fail') || event.event_type.includes('error') ? 'problem' : 'system',
+      }
+  }
+}
+
+function eventKindClasses(kind: LiveEventKind) {
+  if (kind === 'problem') return 'border-danger/30 bg-danger/10 text-danger'
+  if (kind === 'success') return 'border-success/30 bg-success/10 text-success'
+  if (kind === 'tool') return 'border-accent/30 bg-accent/10 text-accent'
+  if (kind === 'checkpoint') return 'border-warning/30 bg-warning/10 text-warning'
+  return 'border-border bg-overlay/5 text-muted'
+}
+
+function LiveEventIcon({ kind, size = 15 }: { kind: LiveEventKind; size?: number }) {
+  if (kind === 'problem') return <AlertTriangle size={size} />
+  if (kind === 'success') return <CheckCircle2 size={size} />
+  if (kind === 'tool') return <Wrench size={size} />
+  if (kind === 'checkpoint') return <ScrollText size={size} />
+  if (kind === 'stage') return <ListTree size={size} />
+  if (kind === 'worker') return <TerminalSquare size={size} />
+  return <Activity size={size} />
+}
+
+function relativeAge(timestamp: number | null, now: number) {
+  if (!timestamp) return 'No update yet'
+  const seconds = Math.max(0, Math.floor((now - timestamp) / 1000))
+  if (seconds < 2) return 'Just now'
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  return `${Math.floor(minutes / 60)}h ago`
 }
 
 function formatBytes(value: number) {
@@ -220,67 +408,263 @@ function WorkflowHeader({ workflow, busy, onCommand, onApprove }: {
   )
 }
 
-function CodingLoop({ workflow, events, workers, busy, onSwitch }: {
+function CodingLoop({ workflow, events, workers, busy, streamState, streamIssue, lastSignalAt, onSwitch, onCommand }: {
   workflow: DeveloperWorkflow | null; events: DeveloperEvent[]; workers: DeveloperWorkerProfile[]
-  busy: boolean; onSwitch: (slug: string) => void
+  busy: boolean; streamState: DeveloperStreamState; streamIssue: string | null; lastSignalAt: number | null
+  onSwitch: (slug: string) => void
+  onCommand: (command: 'pause' | 'resume' | 'cancel' | 'retry') => void
 }) {
   const [selectedWorker, setSelectedWorker] = useState('')
+  const [followLive, setFollowLive] = useState(true)
+  const [now, setNow] = useState(() => Date.now())
+  const timelineRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!workflow) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [workflow?.id])
+
+  useEffect(() => {
+    if (!followLive || !timelineRef.current) return
+    timelineRef.current.scrollTo({ top: timelineRef.current.scrollHeight, behavior: 'smooth' })
+  }, [events.length, followLive])
+
   if (!workflow) return <Empty text="No coding workflow has started." />
   const canSwitch = ['paused', 'blocked', 'failed', 'approved'].includes(workflow.state)
   const codingWorkers = workers.filter(item => item.enabled && item.adapter !== 'model_review')
   const currentWorker = workflow.worker_session
+  const active = !TERMINAL_STATES.has(workflow.state)
+  const latestEvent = events[events.length - 1] ?? null
+  const latestPresentation = latestEvent ? eventPresentation(latestEvent) : null
+  const parsedEventAt = Date.parse(latestEvent?.created_at ?? workflow.updated_at ?? workflow.created_at)
+  const latestEventAt = Number.isFinite(parsedEventAt) ? parsedEventAt : null
+  const eventAgeSeconds = latestEventAt
+    ? Math.max(0, Math.floor((now - latestEventAt) / 1000))
+    : null
+  const needsAttention = ['paused', 'blocked', 'failed'].includes(workflow.state)
+  const stale = active && !needsAttention && eventAgeSeconds !== null && eventAgeSeconds >= 120
+  const quiet = active && !needsAttention && eventAgeSeconds !== null && eventAgeSeconds >= 30
+  const statusTitle = needsAttention
+    ? 'Owner action needed'
+    : workflow.state === 'completed'
+      ? 'Run completed'
+      : streamState === 'reconnecting'
+        ? 'Restoring live updates'
+        : streamState === 'connecting'
+          ? 'Connecting to the worker'
+          : stale
+            ? 'Worker may be waiting'
+            : 'Worker is active'
+  const statusDetail = latestPresentation?.title
+    ?? (active ? 'Preparing the workflow and waiting for the first event.' : `Workflow ${label(workflow.state)}.`)
+  const streamConnected = streamState === 'live'
+  const visibleEvents = events.slice(-120)
+  const retryCommand = workflow.error_code ? 'retry' : 'resume'
+
   return (
-    <div className="space-y-7">
-      <section className="grid gap-4 border-y border-border py-4 md:grid-cols-3">
-        <div><div className="text-[11px] uppercase text-muted">Worker</div><div className="mt-1 text-sm font-medium text-text">{currentWorker?.profile_slug ?? workflow.worker_profile_slug ?? 'mc-native'}</div><div className="mt-1 text-xs text-muted">{currentWorker?.adapter ?? 'Awaiting worker'}{currentWorker?.model ? ` · ${currentWorker.model}` : ''}</div></div>
-        <div><div className="text-[11px] uppercase text-muted">Bounded sprint</div><div className="mt-1 text-sm font-medium text-text">{workflow.sprint?.title ?? 'Queue workflow'}</div><div className="mt-1 text-xs text-muted">{workflow.sprint ? `Sprint ${workflow.sprint.sequence} · ${label(workflow.sprint.status)}` : 'Single approved plan'}</div></div>
-        <div><div className="text-[11px] uppercase text-muted">Worker session</div><div className="mt-1 font-mono text-xs text-text">{currentWorker?.external_session_id ?? `MC-${currentWorker?.id ?? workflow.id}`}</div><div className="mt-1 text-xs text-muted">{currentWorker ? label(currentWorker.status) : 'Not started'}</div></div>
+    <div className="space-y-6">
+      <section className={`rounded-lg border p-4 sm:p-5 ${
+        needsAttention ? 'border-warning/40 bg-warning/5' : stale ? 'border-danger/30 bg-danger/5' : 'border-border bg-surface/50'
+      }`}>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${
+              needsAttention || stale
+                ? 'border-warning/40 bg-warning/10 text-warning'
+                : 'border-accent/35 bg-accent/10 text-accent'
+            }`}>
+              {needsAttention ? <AlertTriangle size={18} /> : stale ? <WifiOff size={18} /> : <Activity size={18} />}
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-sm font-semibold text-text">{statusTitle}</h2>
+                {active && !needsAttention && (
+                  <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${
+                    streamConnected ? 'text-success' : streamState === 'reconnecting' ? 'text-warning' : 'text-muted'
+                  }`}>
+                    {streamConnected
+                      ? <><span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-50" /><span className="relative inline-flex h-2 w-2 rounded-full bg-success" /></span>Live</>
+                      : <><Loader2 size={12} className={streamState === 'connecting' || streamState === 'reconnecting' ? 'animate-spin' : ''} />{label(streamState)}</>}
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-sm leading-6 text-text">{statusDetail}</p>
+              {latestPresentation?.detail && <p className="mt-0.5 text-xs leading-5 text-muted">{latestPresentation.detail}</p>}
+            </div>
+          </div>
+          {needsAttention && (
+            <button
+              onClick={() => onCommand(retryCommand)}
+              disabled={busy}
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background disabled:opacity-50"
+            >
+              <Play size={15} /> {workflow.error_code ? 'Retry failed stage' : 'Resume run'}
+            </button>
+          )}
+        </div>
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          <div className="rounded-md bg-overlay/5 px-3 py-2.5">
+            <div className="text-[10px] uppercase text-muted">Current stage</div>
+            <div className="mt-1 truncate text-xs font-medium text-text">{stageLabel(workflow.stage)}</div>
+          </div>
+          <div className="rounded-md bg-overlay/5 px-3 py-2.5">
+            <div className="text-[10px] uppercase text-muted">Selected worker</div>
+            <div className="mt-1 truncate text-xs font-medium text-text">{currentWorker?.profile_slug ?? workflow.worker_profile_slug ?? 'mc-native'}</div>
+          </div>
+          <div className="rounded-md bg-overlay/5 px-3 py-2.5">
+            <div className="text-[10px] uppercase text-muted">Last activity</div>
+            <div className={`mt-1 flex items-center gap-1.5 text-xs font-medium ${stale ? 'text-danger' : quiet ? 'text-warning' : 'text-text'}`}>
+              <Clock3 size={12} /> {relativeAge(latestEventAt, now)}
+            </div>
+          </div>
+        </div>
+
+        {(streamIssue || stale || quiet) && active && !needsAttention && (
+          <div className={`mt-3 flex items-start gap-2 text-xs leading-5 ${stale ? 'text-danger' : 'text-warning'}`}>
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <span>
+              {streamIssue
+                ?? (stale
+                  ? 'No worker event has arrived for two minutes. Check the latest technical event, worker availability, and server logs before retrying.'
+                  : 'No new worker event for 30 seconds. A model call or command may still be running.')}
+            </span>
+          </div>
+        )}
+
+        {needsAttention && (
+          <div className="mt-3 border-l-2 border-warning pl-3">
+            <div className="text-xs font-medium text-warning">{workflow.error_code ? label(workflow.error_code) : label(workflow.state)}</div>
+            <p className="mt-1 text-xs leading-5 text-muted">{workflow.blocker ?? 'Review the latest event and resume from the saved checkpoint.'}</p>
+          </div>
+        )}
       </section>
+
+      <section className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-md bg-surface/50 px-3 py-3">
+          <div className="text-[10px] uppercase text-muted">Worker runtime</div>
+          <div className="mt-1 text-sm font-medium text-text">{currentWorker?.adapter ? label(currentWorker.adapter) : 'Awaiting worker'}</div>
+          <div className="mt-1 truncate text-xs text-muted">{currentWorker?.model || 'Model selected by the worker profile'}</div>
+        </div>
+        <div className="rounded-md bg-surface/50 px-3 py-3">
+          <div className="text-[10px] uppercase text-muted">Bounded sprint</div>
+          <div className="mt-1 truncate text-sm font-medium text-text">{workflow.sprint?.title ?? 'Queue workflow'}</div>
+          <div className="mt-1 text-xs text-muted">{workflow.sprint ? `Sprint ${workflow.sprint.sequence} / ${label(workflow.sprint.status)}` : 'Single approved plan'}</div>
+        </div>
+        <div className="rounded-md bg-surface/50 px-3 py-3">
+          <div className="text-[10px] uppercase text-muted">Worker session</div>
+          <div className="mt-1 truncate font-mono text-xs text-text">{currentWorker?.external_session_id ?? `MC-${currentWorker?.id ?? workflow.id}`}</div>
+          <div className="mt-1 text-xs text-muted">{currentWorker ? label(currentWorker.status) : 'Not started'}</div>
+        </div>
+      </section>
+
       {canSwitch && (
         <section className="flex flex-col gap-2 border-l-2 border-accent pl-3 sm:flex-row sm:items-end">
-          <label className="min-w-0 flex-1"><span className="mb-1 block text-xs text-muted">Continue from the latest checkpoint with</span><select value={selectedWorker || workflow.worker_profile_slug || 'mc-native'} onChange={event => setSelectedWorker(event.target.value)} className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-text outline-none focus:border-accent">{codingWorkers.map(worker => <option key={worker.slug} value={worker.slug}>{worker.name} · {worker.health_status}</option>)}</select></label>
+          <label className="min-w-0 flex-1"><span className="mb-1 block text-xs text-muted">Continue from the latest checkpoint with</span><select value={selectedWorker || workflow.worker_profile_slug || 'mc-native'} onChange={event => setSelectedWorker(event.target.value)} className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-text outline-none focus:border-accent">{codingWorkers.map(worker => <option key={worker.slug} value={worker.slug}>{worker.name} / {worker.health_status}</option>)}</select></label>
           <button disabled={busy || !codingWorkers.length} onClick={() => onSwitch(selectedWorker || workflow.worker_profile_slug || 'mc-native')} className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-accent/40 px-3 text-sm text-accent disabled:opacity-40"><RotateCcw size={14} /> Switch at checkpoint</button>
         </section>
       )}
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.55fr)]">
-      <section>
-        <h2 className="mb-3 text-sm font-semibold text-text">Stage checklist</h2>
-        <div className="border-t border-border">
-          {workflow.stages.map(stage => {
-            const running = stage.status === 'running'
-            const complete = stage.status === 'completed'
-            const failed = ['failed', 'paused'].includes(stage.status)
-            const Icon = complete ? CheckCircle2 : failed ? XCircle : running ? Loader2 : Circle
-            const stageTitle = stage.node_id === 'code' ? 'Run selected coding worker' : stage.title
-            return (
-              <div key={stage.node_id} className="flex min-h-14 items-center gap-3 border-b border-border/70 px-1 py-3">
-                <Icon size={17} className={`${complete ? 'text-success' : failed ? 'text-danger' : running ? 'animate-spin text-accent' : 'text-muted/60'}`} />
-                <div className="min-w-0 flex-1"><div className="text-sm text-text">{stageTitle}</div><div className="mt-0.5 text-[11px] text-muted">{stage.attempts ? `${stage.attempts} attempt${stage.attempts === 1 ? '' : 's'}` : 'Not started'}</div></div>
-                <StateBadge state={stage.status} />
-              </div>
-            )
-          })}
-        </div>
-      </section>
-      <section>
-        <h2 className="mb-3 text-sm font-semibold text-text">Live evidence</h2>
-        <div className="max-h-[560px] overflow-y-auto border-y border-border bg-background/50">
-          {events.length === 0 && <div className="px-3 py-8 text-center text-xs text-muted">Waiting for workflow events.</div>}
-          {events.slice(-100).map(event => (
-            <div key={event.id} className="border-b border-border/60 px-3 py-2.5 last:border-0">
-              <div className="flex items-center justify-between gap-3"><span className="text-xs font-medium text-text">{label(event.event_type)}</span><span className="text-[10px] text-muted">#{event.sequence}</span></div>
-              <div className="mt-1 truncate font-mono text-[10px] text-muted">{JSON.stringify(event.payload)}</div>
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(260px,0.72fr)_minmax(0,1.28fr)]">
+        <section>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-text">Run progress</h2>
+            <span className="text-[11px] text-muted">{workflow.progress}% complete</span>
+          </div>
+          <div className="space-y-1">
+            {workflow.stages.map(stage => {
+              const running = stage.status === 'running'
+              const complete = stage.status === 'completed'
+              const failed = ['failed', 'paused'].includes(stage.status)
+              const Icon = complete ? CheckCircle2 : failed ? XCircle : running ? Loader2 : Circle
+              const stageTitle = stage.node_id === 'code' ? 'Run selected coding worker' : stage.title
+              return (
+                <div key={stage.node_id} className={`flex min-h-14 items-center gap-3 rounded-md px-3 py-2.5 ${
+                  running ? 'bg-accent/10' : failed ? 'bg-danger/5' : 'hover:bg-overlay/5'
+                }`}>
+                  <Icon size={17} className={`${complete ? 'text-success' : failed ? 'text-danger' : running ? 'animate-spin text-accent' : 'text-muted/60'}`} />
+                  <div className="min-w-0 flex-1"><div className="text-sm text-text">{stageTitle}</div><div className="mt-0.5 text-[11px] text-muted">{stage.attempts ? `${stage.attempts} attempt${stage.attempts === 1 ? '' : 's'}` : 'Not started'}</div></div>
+                  <StateBadge state={stage.status} />
+                </div>
+              )
+            })}
+          </div>
+        </section>
+
+        <section className="min-w-0">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-text">Live worker activity</h2>
+              <p className="mt-0.5 text-[11px] text-muted">
+                {streamConnected
+                  ? `Connected / last signal ${relativeAge(lastSignalAt, now)}`
+                  : streamState === 'reconnecting' ? 'The event stream is reconnecting automatically.' : 'Waiting for the event stream.'}
+              </p>
             </div>
-          ))}
-        </div>
-      </section>
+            <button
+              onClick={() => setFollowLive(value => !value)}
+              title={followLive ? 'Pause automatic scrolling' : 'Follow the newest worker event'}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs ${
+                followLive ? 'border-accent/35 bg-accent/10 text-accent' : 'border-border text-muted hover:text-text'
+              }`}
+            >
+              <Radio size={13} className={followLive && active ? 'animate-pulse' : ''} />
+              {followLive ? 'Following live' : 'Follow live'}
+            </button>
+          </div>
+          <div ref={timelineRef} className="max-h-[620px] overflow-y-auto rounded-lg border border-border bg-background/50 p-2">
+            {visibleEvents.length === 0 && (
+              <div className="flex min-h-48 flex-col items-center justify-center px-5 text-center">
+                {active ? <Loader2 size={20} className="animate-spin text-accent" /> : <ScrollText size={20} className="text-muted" />}
+                <div className="mt-3 text-sm font-medium text-text">
+                  {active ? 'Waiting for the first worker event' : 'No live events were recorded'}
+                </div>
+                <p className="mt-1 max-w-sm text-xs leading-5 text-muted">
+                  {active
+                    ? 'Stage changes, model actions, file operations, checks, and blockers will appear here as they happen.'
+                    : 'Start or resume a workflow to see its activity timeline.'}
+                </p>
+              </div>
+            )}
+            {visibleEvents.map(event => {
+              const presentation = eventPresentation(event)
+              const createdAt = Date.parse(event.created_at)
+              return (
+                <details key={event.id} className="group rounded-md hover:bg-overlay/5">
+                  <summary className="flex cursor-pointer list-none items-start gap-3 px-2.5 py-2.5">
+                    <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border ${eventKindClasses(presentation.kind)}`}>
+                      <LiveEventIcon kind={presentation.kind} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        <span className="text-xs font-medium text-text">{presentation.title}</span>
+                        <span className="text-[10px] text-muted">{event.actor}</span>
+                      </span>
+                      {presentation.detail && <span className="mt-0.5 block break-words text-[11px] leading-5 text-muted">{presentation.detail}</span>}
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="block text-[10px] text-muted">{Number.isFinite(createdAt) ? new Date(createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : `#${event.sequence}`}</span>
+                      <span className="mt-1 block text-[9px] text-muted/70">#{event.sequence}</span>
+                    </span>
+                  </summary>
+                  <div className="mx-2.5 mb-2.5 ml-12 rounded-md bg-overlay/5 px-3 py-2.5">
+                    <div className="mb-1.5 text-[10px] font-medium uppercase text-muted">Technical evidence</div>
+                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] leading-5 text-muted">{JSON.stringify(event.payload, null, 2)}</pre>
+                  </div>
+                </details>
+              )
+            })}
+          </div>
+        </section>
       </div>
+
       <section>
         <h2 className="mb-3 text-sm font-semibold text-text">Durable checkpoints</h2>
-        {!workflow.checkpoints?.length ? <Empty text="No checkpoint has been recorded yet." /> : <div className="border-t border-border">{workflow.checkpoints.map(checkpoint => {
+        {!workflow.checkpoints?.length ? <Empty text="No checkpoint has been recorded yet." /> : <div className="space-y-1">{workflow.checkpoints.map(checkpoint => {
           let handoff: Record<string, unknown> = {}
           try { handoff = JSON.parse(checkpoint.handoff_json) } catch { /* malformed legacy payload */ }
-          return <details key={checkpoint.id} className="border-b border-border/70 py-3"><summary className="flex cursor-pointer list-none items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2"><CheckCircle2 size={15} className="shrink-0 text-accent" /><span className="truncate text-sm text-text">Checkpoint {checkpoint.sequence} · {label(checkpoint.status)}</span></div><span className="font-mono text-[10px] text-muted">{checkpoint.head_sha?.slice(0, 10) ?? 'dirty tree'}</span></summary><div className="mt-3 grid gap-3 pl-6 text-xs text-muted sm:grid-cols-2"><div><span className="text-text">Next action:</span> {String(handoff.next_action ?? 'Resume the recorded stage.')}</div><div><span className="text-text">Changed files:</span> {Array.isArray(handoff.changed_files) ? handoff.changed_files.length : 0}</div></div></details>
+          return <details key={checkpoint.id} className="rounded-md px-3 py-3 hover:bg-overlay/5"><summary className="flex cursor-pointer list-none items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2"><CheckCircle2 size={15} className="shrink-0 text-accent" /><span className="truncate text-sm text-text">Checkpoint {checkpoint.sequence} / {label(checkpoint.status)}</span></div><span className="font-mono text-[10px] text-muted">{checkpoint.head_sha?.slice(0, 10) ?? 'dirty tree'}</span></summary><div className="mt-3 grid gap-3 pl-6 text-xs text-muted sm:grid-cols-2"><div><span className="text-text">Next action:</span> {String(handoff.next_action ?? 'Resume the recorded stage.')}</div><div><span className="text-text">Changed files:</span> {Array.isArray(handoff.changed_files) ? handoff.changed_files.length : 0}</div></div></details>
         })}</div>}
       </section>
     </div>
@@ -735,6 +1119,9 @@ export default function Developer() {
   const [modelRouting, setModelRouting] = useState({ default_model: '', coding: '', coding_review: '' })
   const [learning, setLearning] = useState<{ records: Array<Record<string, unknown>>; playbooks: Array<Record<string, unknown>> }>({ records: [], playbooks: [] })
   const [events, setEvents] = useState<DeveloperEvent[]>([])
+  const [streamState, setStreamState] = useState<DeveloperStreamState>('idle')
+  const [streamIssue, setStreamIssue] = useState<string | null>(null)
+  const [lastSignalAt, setLastSignalAt] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<DeveloperLoadError | null>(null)
@@ -794,18 +1181,89 @@ export default function Developer() {
   useEffect(() => { if (vaultSession) load(true) }, [vaultSession, load])
 
   const active = overview?.active_workflow ?? overview?.workflows[0] ?? null
+  const activeIsTerminal = active ? TERMINAL_STATES.has(active.state) : false
   useEffect(() => {
-    if (!active?.id) return
+    if (!active?.id) {
+      setEvents([])
+      setStreamState('idle')
+      setStreamIssue(null)
+      setLastSignalAt(null)
+      return
+    }
+    let stopped = false
+    let reconnectTimer: number | null = null
+    let controller: AbortController | null = null
+    let attempt = 0
+    let lastOverviewRefresh = 0
     lastSequence.current = 0
     setEvents([])
-    const controller = new AbortController()
-    streamDeveloperEvents(active.id, lastSequence.current, event => {
-      lastSequence.current = Math.max(lastSequence.current, event.sequence)
-      setEvents(current => [...current.filter(item => item.id !== event.id), event].slice(-200))
-      load(true)
-    }, controller.signal).catch(err => { if (err?.name !== 'AbortError') load(true) })
-    return () => controller.abort()
-  }, [active?.id, load])
+    setStreamState('connecting')
+    setStreamIssue(null)
+    setLastSignalAt(null)
+
+    const waitForReconnect = (delay: number) => new Promise<void>(resolve => {
+      reconnectTimer = window.setTimeout(resolve, delay)
+    })
+    const refreshOverview = () => {
+      const current = Date.now()
+      if (current - lastOverviewRefresh < 750) return
+      lastOverviewRefresh = current
+      void load(true)
+    }
+    const connect = async () => {
+      while (!stopped) {
+        controller = new AbortController()
+        setStreamState(attempt === 0 ? 'connecting' : 'reconnecting')
+        try {
+          await streamDeveloperEvents(
+            active.id,
+            lastSequence.current,
+            event => {
+              if (stopped) return
+              lastSequence.current = Math.max(lastSequence.current, event.sequence)
+              setEvents(current => [...current.filter(item => item.id !== event.id), event].slice(-200))
+              setStreamState('live')
+              setStreamIssue(null)
+              setLastSignalAt(Date.now())
+              if (event.event_type.startsWith('stage_') || STREAM_REFRESH_EVENTS.has(event.event_type)) {
+                refreshOverview()
+              }
+            },
+            controller.signal,
+            status => {
+              if (stopped) return
+              setStreamState('live')
+              setStreamIssue(null)
+              setLastSignalAt(Date.now())
+              if (status === 'connected') attempt = 0
+            },
+          )
+          if (stopped) return
+          refreshOverview()
+          if (activeIsTerminal) {
+            setStreamState('closed')
+            return
+          }
+          setStreamIssue('Live updates disconnected. Mission Control is reconnecting automatically.')
+        } catch (err) {
+          if (stopped || (err instanceof DOMException && err.name === 'AbortError')) return
+          setStreamIssue(err instanceof Error
+            ? `Live updates stopped: ${err.message}. Reconnecting automatically.`
+            : 'Live updates stopped. Reconnecting automatically.')
+        }
+        attempt += 1
+        setStreamState('reconnecting')
+        await waitForReconnect(Math.min(5000, 750 * (2 ** Math.min(attempt, 3))))
+      }
+    }
+
+    void connect()
+    return () => {
+      stopped = true
+      controller?.abort()
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer)
+    }
+  }, [active?.id, activeIsTerminal, load])
 
   const act = async (fn: () => Promise<unknown>, success: string) => {
     setBusy(true)
@@ -879,7 +1337,9 @@ export default function Developer() {
               <section><h2 className="mb-3 text-sm font-semibold text-text">Runtime gates</h2><div className="grid gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-2 lg:grid-cols-5">{capabilities.map(([name, enabled]) => <div key={name} className="flex items-center justify-between bg-surface px-3 py-3"><span className="text-xs text-muted">{label(name)}</span>{enabled ? <CheckCircle2 size={15} className="text-success" /> : <Circle size={15} className="text-muted/50" />}</div>)}</div></section>
               <section><h2 className="mb-3 text-sm font-semibold text-text">Control-plane status</h2><div className="grid gap-4 sm:grid-cols-3"><div className="border-l-2 border-accent pl-3"><div className="text-xs text-muted">Policy</div><div className="mt-1 font-mono text-sm text-text">v{overview?.policy.version} · {overview?.policy.hash.slice(0, 10)}</div></div><div className="border-l-2 border-border pl-3"><div className="text-xs text-muted">GitHub App</div><div className="mt-1 text-sm text-text">{overview?.policy.github_configured ? 'Configured' : 'Not configured'}</div></div><div className="border-l-2 border-border pl-3"><div className="text-xs text-muted">Deployment</div><div className="mt-1 text-sm text-text">{overview?.policy.deployment_configured ? 'Configured' : 'Not configured'}</div></div></div></section>
             </div>}
-            {tab === 'loop' && <CodingLoop workflow={active} events={events} workers={workers} busy={busy} onSwitch={switchWorker} />}
+            {tab === 'loop' && <CodingLoop workflow={active} events={events} workers={workers} busy={busy}
+              streamState={streamState} streamIssue={streamIssue} lastSignalAt={lastSignalAt}
+              onSwitch={switchWorker} onCommand={command} />}
             {tab === 'goals' && <GoalsView goals={goals} workers={workers} busy={busy} onCreate={createGoal} onCommand={goalCommand} />}
             {tab === 'workers' && <WorkersView workers={workers} models={workerModels} providers={workerProviders} routing={modelRouting} busy={busy} onSave={saveWorker} onProbe={probeWorker} onLogin={loginWorker} />}
             {tab === 'learning' && <LearningView state={learning} busy={busy} onReplay={replayLearning} />}

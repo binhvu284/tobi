@@ -982,12 +982,17 @@ export async function cleanupDeveloperStorage(master: string): Promise<{ removed
   })
 }
 export async function streamDeveloperEvents(
-  workflowId: number, after: number, onEvent: (event: DeveloperEvent) => void, signal?: AbortSignal,
+  workflowId: number,
+  after: number,
+  onEvent: (event: DeveloperEvent) => void,
+  signal?: AbortSignal,
+  onStatus?: (status: 'connected' | 'heartbeat') => void,
 ): Promise<void> {
   const res = await fetch(`/api/developer/workflows/${workflowId}/events?after=${after}`, {
     cache: 'no-cache', headers: vaultHeaders(), signal,
   })
   if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+  onStatus?.('connected')
   const reader = res.body.getReader(); const decoder = new TextDecoder(); let buffer = ''
   for (;;) {
     const { done, value } = await reader.read(); if (done) break
@@ -995,6 +1000,10 @@ export async function streamDeveloperEvents(
     let idx = -1
     while ((idx = buffer.indexOf('\n\n')) >= 0) {
       const frame = buffer.slice(0, idx); buffer = buffer.slice(idx + 2)
+      if (frame.trimStart().startsWith(':')) {
+        onStatus?.('heartbeat')
+        continue
+      }
       const data = frame.split('\n').find(line => line.startsWith('data:'))?.slice(5).trim()
       if (data) { try { onEvent(JSON.parse(data) as DeveloperEvent) } catch { /* ignore */ } }
     }
