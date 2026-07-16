@@ -61,6 +61,58 @@ function Empty({ text }: { text: string }) {
   return <div className="border-y border-border/60 py-12 text-center text-sm text-muted">{text}</div>
 }
 
+function DeveloperSkeleton() {
+  return (
+    <main aria-hidden className="space-y-4 px-4 py-6 sm:px-6">
+      <div className="grid gap-px overflow-hidden border-y border-border bg-border sm:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div key={index} className="space-y-2 bg-surface px-4 py-4">
+            <div className="tobi-skel h-2.5 w-20" />
+            <div className="tobi-skel h-5 w-32 max-w-full" />
+          </div>
+        ))}
+      </div>
+      <div className="grid overflow-hidden border-y border-border xl:min-h-[590px] xl:grid-cols-[250px_minmax(0,1fr)_290px]">
+        <div className="border-b border-border bg-background/35 xl:border-b-0 xl:border-r">
+          <div className="border-b border-border px-4 py-4"><div className="tobi-skel h-4 w-28" /></div>
+          <div className="grid gap-px bg-border sm:grid-cols-2 xl:grid-cols-1">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div key={index} className="flex gap-3 bg-surface px-4 py-3">
+                <div className="tobi-skel h-8 w-8 shrink-0" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="tobi-skel h-3 w-2/3" />
+                  <div className="tobi-skel h-2.5 w-1/2" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="divide-y divide-border xl:border-r">
+          <div className="space-y-2 px-5 py-4">
+            <div className="tobi-skel h-4 w-40" />
+            <div className="tobi-skel h-2.5 w-28" />
+          </div>
+          {Array.from({ length: 2 }).map((_, index) => (
+            <div key={index} className="grid gap-4 px-5 py-6 md:grid-cols-[145px_minmax(0,1fr)]">
+              <div className="space-y-2"><div className="tobi-skel h-3 w-24" /><div className="tobi-skel h-2.5 w-20" /></div>
+              <div className="space-y-3"><div className="tobi-skel h-10 w-full" /><div className="tobi-skel h-16 w-full" /></div>
+            </div>
+          ))}
+        </div>
+        <div className="space-y-5 border-t border-border bg-background/35 px-5 py-5 xl:border-t-0">
+          <div className="mx-auto tobi-skel h-14 w-14" />
+          <div className="mx-auto tobi-skel h-4 w-32" />
+          <div className="space-y-2 border-y border-border py-4">
+            {Array.from({ length: 3 }).map((_, index) => <div key={index} className="tobi-skel h-8 w-full" />)}
+          </div>
+          <div className="tobi-skel h-10 w-full" />
+          <div className="tobi-skel h-10 w-full" />
+        </div>
+      </div>
+    </main>
+  )
+}
+
 function WorkflowActions({ workflow, busy, onCommand }: {
   workflow: DeveloperWorkflow; busy: boolean
   onCommand: (command: 'pause' | 'resume' | 'cancel' | 'retry') => void
@@ -321,7 +373,6 @@ function WorkersView({ workers, models, providers, routing, busy, onSave, onProb
   const modelsManaged = draft.adapter === 'native' || draft.adapter === 'model_review'
   const routeTask = draft.adapter === 'model_review' ? 'coding_review' : 'coding'
   const routeModel = routing[routeTask] || routing.default_model
-  const routeLabel = models.find(model => model.id === routeModel)?.label || routeModel || 'Legacy default'
   const providerModels = providers
     .map(provider => ({
       provider,
@@ -378,12 +429,6 @@ function WorkersView({ workers, models, providers, routing, busy, onSave, onProb
   const iconDescription = modelsManaged || draft.model
     ? `${providerName} model provider`
     : `${adapterName(draft.adapter)} default`
-  const providerBadge = (
-    <span className="inline-flex items-center gap-1.5 text-[11px] text-muted">
-      {draftLogo(12)}
-      <span>{providerName}</span>
-    </span>
-  )
   const modelLabelWithProvider = (
     <div className="flex min-w-0 items-center gap-2">
       {draftLogo(14)}
@@ -415,6 +460,22 @@ function WorkersView({ workers, models, providers, routing, busy, onSave, onProb
     if (dirty && !window.confirm('Discard unsaved worker changes?')) return
     setSlug(nextSlug)
   }
+  const readyWorkers = workers.filter(worker => worker.health_status === 'ready').length
+  const codingRoute = routing.coding || routing.default_model
+  const reviewRoute = routing.coding_review || routing.default_model
+  const routeName = (id: string) => models.find(model => model.id === id)?.label || id || 'Legacy environment'
+  const modelMode = draft.model ? 'pinned' : 'route'
+  const pinModel = () => update('model', routeModel || models[0]?.id || '')
+  const authSummary = modelsManaged
+    ? 'Models vault'
+    : draft.auth_mode === 'native_login'
+      ? 'Native login'
+      : draft.auth_mode === 'vault_env'
+        ? draft.credential_env || 'Vault secret required'
+        : 'CLI inherited'
+  const lastTested = draft.last_probed_at
+    ? new Date(draft.last_probed_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+    : 'Not tested'
   const changeAdapter = (adapter: DeveloperWorkerProfile['adapter']) => {
     setDraft(current => {
       if (!current) return current
@@ -427,137 +488,114 @@ function WorkersView({ workers, models, providers, routing, busy, onSave, onProb
       }
     })
   }
-  return <div className="overflow-hidden border-y border-border lg:grid lg:min-h-[610px] lg:grid-cols-[280px_minmax(0,1fr)]">
-    <aside className="border-b border-border bg-background/35 lg:border-b-0 lg:border-r">
-      <div className="flex h-14 items-center justify-between border-b border-border px-4">
-        <div>
-          <h2 className="text-sm font-semibold text-text">Worker profiles</h2>
-          <div className="mt-0.5 text-[11px] text-muted">{workers.length} configured</div>
-        </div>
-        <Bot size={16} className="text-muted" />
+  return <div className="space-y-4">
+    <section className="grid gap-px overflow-hidden border-y border-border bg-border sm:grid-cols-3">
+      <div className="flex items-center gap-3 bg-surface px-4 py-3">
+        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-success/10 text-success"><CheckCircle2 size={16} /></div>
+        <div><div className="text-[10px] uppercase text-muted">Worker readiness</div><div className="mt-0.5 text-sm font-semibold text-text">{readyWorkers}/{workers.length} ready</div></div>
       </div>
-      <div className="grid gap-px bg-border sm:grid-cols-2 lg:grid-cols-1">
-        {orderedWorkers.map(worker => {
-          const active = worker.slug === draft.slug
-          return <button
-            key={worker.slug}
-            type="button"
-            aria-current={active ? 'true' : undefined}
-            onClick={() => selectWorker(worker.slug)}
-            className={`group min-w-0 bg-surface px-4 py-3 text-left transition-colors ${active ? 'border-l-2 border-accent bg-accent/10 pl-[14px]' : 'border-l-2 border-transparent hover:bg-overlay/5'}`}
-          >
-            <div className="flex items-start gap-3">
-              <span className="mt-0.5" title={providerLogoTitle(worker)}>{workerLogo(worker, 15)}</span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className={`truncate text-sm font-medium ${active ? 'text-text' : 'text-muted group-hover:text-text'}`}>{worker.name}</span>
-                  <span title={label(worker.health_status)} className={`ml-auto h-2 w-2 shrink-0 rounded-full ${healthDot(worker.health_status)}`} />
-                </div>
-                <div className="mt-0.5 text-[11px] text-muted">{adapterName(worker.adapter)}</div>
-                <div className="mt-1 truncate text-[10px] text-muted/80">{workerModel(worker)}</div>
-              </div>
-            </div>
-          </button>
-        })}
+      <div className="flex min-w-0 items-center gap-3 bg-surface px-4 py-3">
+        <LlmLogo model={codingRoute} size={15} />
+        <div className="min-w-0"><div className="text-[10px] uppercase text-muted">Shared coding route</div><div className="mt-0.5 truncate text-sm text-text">{routeName(codingRoute)}</div></div>
       </div>
-    </aside>
+      <div className="flex min-w-0 items-center gap-3 bg-surface px-4 py-3">
+        <LlmLogo model={reviewRoute} size={15} />
+        <div className="min-w-0"><div className="text-[10px] uppercase text-muted">Review route</div><div className="mt-0.5 truncate text-sm text-text">{routeName(reviewRoute)}</div></div>
+      </div>
+    </section>
 
-    <section className="min-w-0 bg-surface">
-      <header className="flex min-h-14 flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-        <div className="flex min-w-0 items-center gap-3">
+    <section className="grid overflow-hidden border-y border-border xl:min-h-[590px] xl:grid-cols-[250px_minmax(0,1fr)_290px]">
+      <aside className="border-b border-border bg-background/35 xl:border-b-0 xl:border-r">
+        <div className="flex h-14 items-center justify-between border-b border-border px-4">
+          <div><h2 className="text-sm font-semibold text-text">Choose worker</h2><div className="mt-0.5 text-[11px] text-muted">Runtime profiles</div></div>
+          <Bot size={16} className="text-muted" />
+        </div>
+        <div className="grid gap-px bg-border sm:grid-cols-2 xl:grid-cols-1">
+          {orderedWorkers.map(worker => {
+            const active = worker.slug === draft.slug
+            return <button key={worker.slug} type="button" aria-current={active ? 'true' : undefined} onClick={() => selectWorker(worker.slug)}
+              className={`group min-w-0 bg-surface px-4 py-3 text-left transition-colors ${active ? 'border-l-2 border-accent bg-accent/10 pl-[14px]' : 'border-l-2 border-transparent hover:bg-overlay/5'}`}>
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5" title={providerLogoTitle(worker)}>{workerLogo(worker, 15)}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2"><span className={`truncate text-sm font-medium ${active ? 'text-text' : 'text-muted group-hover:text-text'}`}>{worker.name}</span><span title={label(worker.health_status)} className={`ml-auto h-2 w-2 shrink-0 rounded-full ${healthDot(worker.health_status)}`} /></div>
+                  <div className="mt-0.5 text-[11px] text-muted">{adapterName(worker.adapter)}</div>
+                  <div className="mt-1 truncate text-[10px] text-muted/80">{workerModel(worker)}</div>
+                </div>
+              </div>
+            </button>
+          })}
+        </div>
+      </aside>
+
+      <div className="min-w-0 bg-surface xl:border-r">
+        <header className="flex min-h-14 items-center gap-3 border-b border-border px-4 py-3 sm:px-5">
           <span title={iconDescription}>{draftLogo(18)}</span>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="truncate text-sm font-semibold text-text">{draft.name}</h2>
-              <StateBadge state={draft.health_status} />
-              {dirty && <span className="text-[10px] font-medium uppercase text-warning">Unsaved</span>}
+          <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="truncate text-sm font-semibold text-text">Configure {draft.name}</h2>{dirty && <span className="text-[10px] font-medium uppercase text-warning">Unsaved</span>}</div><div className="mt-0.5 truncate text-[11px] text-muted">{draft.slug}</div></div>
+          {dirty && <button type="button" disabled={busy} onClick={() => setDraft(selected)} title="Discard unsaved changes" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border text-muted hover:text-text disabled:opacity-40"><RotateCcw size={14} /></button>}
+        </header>
+
+        <div className="divide-y divide-border">
+          <section className="grid gap-4 px-4 py-5 sm:px-5 md:grid-cols-[145px_minmax(0,1fr)]">
+            <div><div className="text-xs font-semibold text-text">Runtime</div><div className="mt-1 text-[11px] leading-4 text-muted">Where this worker executes</div></div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label><span className="mb-1 block text-xs text-muted">Execution method</span><select value={draft.adapter} onChange={event => changeAdapter(event.target.value as DeveloperWorkerProfile['adapter'])} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text"><option value="native">Mission Control runtime</option><option value="codex">Codex CLI</option><option value="opencode">OpenCode CLI</option><option value="hermes">Hermes CLI</option><option value="model_review">Independent model review</option></select></label>
+              <label className="flex h-10 items-center justify-between self-end rounded-md border border-border bg-background px-3"><span className="text-sm text-text">Use for new sprints</span><input type="checkbox" checked={draft.enabled} onChange={event => update('enabled', event.target.checked)} /></label>
             </div>
-            <div className="mt-0.5 truncate text-[11px] text-muted">{draft.slug} / {adapterName(draft.adapter)}</div>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {dirty && <button type="button" disabled={busy} onClick={() => setDraft(selected)} title="Discard unsaved changes" className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted hover:text-text disabled:opacity-40"><RotateCcw size={14} /></button>}
-          <button type="button" disabled={busy || dirty} onClick={() => onProbe(draft.slug)} title={dirty ? 'Save changes before testing' : 'Test worker'} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-text hover:bg-overlay/5 disabled:cursor-not-allowed disabled:opacity-40"><TestTube2 size={13} /> Test</button>
-        </div>
-      </header>
+          </section>
 
-      <div className="flex items-start gap-3 border-b border-border bg-overlay/[0.025] px-4 py-3 sm:px-5">
-        {draft.health_status === 'ready' ? <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-success" /> : <Circle size={16} className="mt-0.5 shrink-0 text-muted" />}
-        <div className="min-w-0">
-          <div className="text-xs font-medium text-text">{draft.health_detail || 'Worker has not been tested.'}</div>
-          {draft.runner_mode && <div className="mt-1 text-[11px] text-muted">{draft.runner_mode === 'service' ? 'Supervised runner service' : 'Local isolated process'}</div>}
+          <section className="grid gap-4 px-4 py-5 sm:px-5 md:grid-cols-[145px_minmax(0,1fr)]">
+            <div><div className="text-xs font-semibold text-text">Intelligence</div><div className="mt-1 text-[11px] leading-4 text-muted">{modelsManaged ? 'Shared route or pinned model' : 'CLI model and access'}</div></div>
+            <div className="space-y-4">
+              {modelsManaged ? <>
+                <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border">
+                  <button type="button" onClick={() => update('model', '')} className={`min-h-14 bg-background px-3 py-2 text-left transition-colors ${modelMode === 'route' ? 'bg-accent/10 text-text' : 'text-muted hover:bg-overlay/5'}`}><div className="text-xs font-medium">Follow shared route</div><div className="mt-1 truncate text-[10px]">{routeName(routeModel)}</div></button>
+                  <button type="button" disabled={!models.length} onClick={pinModel} className={`min-h-14 bg-background px-3 py-2 text-left transition-colors disabled:opacity-40 ${modelMode === 'pinned' ? 'bg-accent/10 text-text' : 'text-muted hover:bg-overlay/5'}`}><div className="text-xs font-medium">Pin a model</div><div className="mt-1 text-[10px]">Override only this worker</div></button>
+                </div>
+                {modelMode === 'pinned' && <label><span className="mb-1 block text-xs text-muted">Pinned model</span><select value={draft.model} onChange={event => update('model', event.target.value)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text">{selectedModelUnavailable && <option value={draft.model}>{draft.model} - Unavailable</option>}{providerModels.map(group => <optgroup key={group.provider.id} label={group.provider.label}>{group.models.map(model => <option key={model.id} value={model.id}>{model.model}</option>)}</optgroup>)}</select></label>}
+                <div className="flex flex-col gap-3 border-l-2 border-accent bg-accent/[0.035] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div><div className="text-[10px] uppercase text-muted">Effective model</div><div className="mt-1 text-xs font-medium text-text">{modelLabelWithProvider}</div></div>
+                  <a href="/models" className="inline-flex shrink-0 items-center gap-1 text-[11px] text-accent hover:underline">Manage Models routing <ExternalLink size={11} /></a>
+                </div>
+                {unavailableProviders.length > 0 && <div className="flex items-start gap-2 border-l-2 border-warning bg-warning/5 px-3 py-2 text-[11px] text-warning"><AlertTriangle size={13} className="mt-0.5 shrink-0" /><span>Credentials required: {unavailableProviders.map(provider => provider.label).join(', ')}</span></div>}
+              </> : <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label><span className="mb-1 block text-xs text-muted">CLI model ID</span><input value={draft.model} onChange={event => update('model', event.target.value)} placeholder="Use CLI default" className="h-10 w-full rounded-md border border-border bg-background px-3 font-mono text-sm text-text" /></label>
+                  <label><span className="mb-1 block text-xs text-muted">Authentication</span><select value={draft.auth_mode} onChange={event => { const auth = event.target.value as DeveloperWorkerProfile['auth_mode']; setDraft(current => current ? { ...current, auth_mode: auth, credential_env: auth === 'vault_env' ? current.credential_env : '' } : current) }} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text"><option value="inherited">CLI inherited</option><option value="native_login">Native agent login</option><option value="vault_env">Vault environment secret</option></select></label>
+                </div>
+                {draft.auth_mode === 'vault_env' && <label><span className="mb-1 block text-xs text-muted">Vault environment name</span><input value={draft.credential_env} onChange={event => update('credential_env', event.target.value.toUpperCase())} placeholder="ZAI_API_KEY" className="h-10 w-full rounded-md border border-border bg-background px-3 font-mono text-sm text-text" /></label>}
+              </>}
+            </div>
+          </section>
+
+          <details className="group px-4 py-4 sm:px-5">
+            <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-medium text-muted hover:text-text"><span>Profile details</span><Plus size={13} className="transition-transform group-open:rotate-45" /></summary>
+            <label className="mt-4 block"><span className="mb-1 block text-xs text-muted">Worker name</span><input value={draft.name} onChange={event => update('name', event.target.value)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text" /></label>
+          </details>
         </div>
       </div>
 
-      <div className="divide-y divide-border">
-        <section className="grid gap-4 px-4 py-5 sm:px-5 md:grid-cols-[160px_minmax(0,1fr)]">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-semibold text-text"><span className="flex h-5 w-5 items-center justify-center rounded bg-accent/10 text-[10px] text-accent">1</span> Execution</div>
-            <div className="mt-1 text-[11px] text-muted">Runtime and availability</div>
+      <aside className="border-t border-border bg-background/35 xl:border-t-0">
+        <div className="xl:sticky xl:top-4">
+          <div className="border-b border-border px-5 py-4"><div className="text-[10px] uppercase text-muted">Run preview</div><div className="mt-1 text-sm font-semibold text-text">What will execute</div></div>
+          <div className="flex flex-col items-center border-b border-border px-5 py-5 text-center"><span title={iconDescription}>{draftLogo(26)}</span><div className="mt-3 max-w-full truncate text-sm font-semibold text-text">{draft.name}</div><div className="mt-1 text-[11px] text-muted">{providerName}</div></div>
+          <div className="divide-y divide-border px-5">
+            <div className="grid grid-cols-[78px_minmax(0,1fr)] gap-2 py-3 text-xs"><span className="text-muted">Runtime</span><span className="text-right text-text">{adapterName(draft.adapter)}</span></div>
+            <div className="grid grid-cols-[78px_minmax(0,1fr)] gap-2 py-3 text-xs"><span className="text-muted">Model</span><span className="break-words text-right text-text">{effectiveModelLabel}</span></div>
+            <div className="grid grid-cols-[78px_minmax(0,1fr)] gap-2 py-3 text-xs"><span className="text-muted">Access</span><span className="break-words text-right text-text">{authSummary}</span></div>
+            <div className="grid grid-cols-[78px_minmax(0,1fr)] gap-2 py-3 text-xs"><span className="text-muted">Last test</span><span className="text-right text-text">{lastTested}</span></div>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label><span className="mb-1 block text-xs text-muted">Execution method</span><select value={draft.adapter} onChange={event => changeAdapter(event.target.value as DeveloperWorkerProfile['adapter'])} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text"><option value="native">Mission Control runtime</option><option value="codex">Codex CLI</option><option value="opencode">OpenCode CLI</option><option value="hermes">Hermes CLI</option><option value="model_review">Independent model review</option></select></label>
-            <label className="flex h-10 items-center justify-between self-end rounded-md border border-border bg-background px-3"><span className="text-sm text-text">Available for new sprints</span><input type="checkbox" checked={draft.enabled} onChange={event => update('enabled', event.target.checked)} /></label>
+          <div className="border-y border-border px-5 py-4">
+            <div className="flex items-start gap-2">{draft.health_status === 'ready' ? <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-success" /> : <Circle size={15} className="mt-0.5 shrink-0 text-muted" />}<div><div className="text-xs font-medium text-text">{label(draft.health_status || 'unknown')}</div><div className="mt-1 text-[10px] leading-4 text-muted">{draft.health_detail || 'Test this worker before assigning a sprint.'}</div></div></div>
           </div>
-        </section>
-
-        <section className="grid gap-4 px-4 py-5 sm:px-5 md:grid-cols-[160px_minmax(0,1fr)]">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-semibold text-text"><span className="flex h-5 w-5 items-center justify-center rounded bg-accent/10 text-[10px] text-accent">2</span> Intelligence</div>
-            <div className="mt-1 text-[11px] text-muted">{modelsManaged ? 'Models routing' : 'External CLI model'}</div>
+          <div className="space-y-2 px-5 py-4">
+            <button disabled={busy || !dirty} onClick={() => onSave(draft.slug, draft)} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background disabled:cursor-not-allowed disabled:opacity-40">{busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save configuration</button>
+            <button disabled={busy || dirty} onClick={() => onProbe(draft.slug)} title={dirty ? 'Save changes before testing' : 'Test worker'} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-border bg-surface px-3 text-sm text-text hover:bg-overlay/5 disabled:cursor-not-allowed disabled:opacity-40"><TestTube2 size={14} /> Test worker</button>
+            {draft.auth_mode === 'native_login' && <button disabled={busy || dirty} onClick={() => onLogin(draft.slug)} className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-border px-3 text-xs text-text hover:bg-overlay/5 disabled:opacity-40"><KeyRound size={13} /> Login instructions</button>}
+            <div className="pt-1 text-center text-[10px] leading-4 text-muted">{dirty ? 'Save before testing.' : 'Configuration is saved and ready to test.'}</div>
           </div>
-          <div className="space-y-3">
-            {modelsManaged ? <>
-              <label>
-                <span className="mb-1 block text-xs text-muted">Model</span>
-                <select value={draft.model} onChange={event => update('model', event.target.value)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text">
-                  <option value="">Follow {routeTask === 'coding_review' ? 'Coding review' : 'Coding'} route - {routeLabel}</option>
-                  {selectedModelUnavailable && <option value={draft.model}>{draft.model} - Unavailable</option>}
-                  {providerModels.map(group => <optgroup key={group.provider.id} label={group.provider.label}>
-                    {group.models.map(model => <option key={model.id} value={model.id}>{model.model}</option>)}
-                  </optgroup>)}
-                </select>
-              </label>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="border-l-2 border-accent pl-3">
-                  <div className="text-[10px] uppercase text-muted">Effective model</div>
-                  <div className="mt-1 text-xs font-medium text-text">{modelLabelWithProvider}</div>
-                  <div className="mt-1 text-[10px] text-muted">{draft.model ? 'Pinned to this worker' : `Inherited from ${routeTask === 'coding_review' ? 'Coding review' : 'Coding'} route`}</div>
-                </div>
-                <div className="border-l-2 border-border pl-3">
-                  <div className="text-[10px] uppercase text-muted">Model catalog</div>
-                  <div className="mt-1">{providerBadge}</div>
-                  <div className="mt-1 text-[10px] text-muted">{providerModels.length} providers / {models.length} models</div>
-                  <a href="/models" className="mt-1 inline-flex items-center gap-1 text-[10px] text-accent hover:underline">Manage models <ExternalLink size={10} /></a>
-                </div>
-              </div>
-              {unavailableProviders.length > 0 && <div className="flex items-start gap-2 border-l-2 border-warning bg-warning/5 px-3 py-2 text-[11px] text-warning"><AlertTriangle size={13} className="mt-0.5 shrink-0" /><span>Credentials required: {unavailableProviders.map(provider => provider.label).join(', ')}</span></div>}
-            </> : <>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label><span className="mb-1 block text-xs text-muted">CLI model ID</span><input value={draft.model} onChange={event => update('model', event.target.value)} placeholder="Use CLI default" className="h-10 w-full rounded-md border border-border bg-background px-3 font-mono text-sm text-text" /></label>
-                <label><span className="mb-1 block text-xs text-muted">Authentication</span><select value={draft.auth_mode} onChange={event => { const auth = event.target.value as DeveloperWorkerProfile['auth_mode']; setDraft(current => current ? { ...current, auth_mode: auth, credential_env: auth === 'vault_env' ? current.credential_env : '' } : current) }} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text"><option value="inherited">CLI inherited</option><option value="native_login">Native agent login</option><option value="vault_env">Vault environment secret</option></select></label>
-              </div>
-              {draft.auth_mode === 'vault_env' && <label><span className="mb-1 block text-xs text-muted">Vault environment name</span><input value={draft.credential_env} onChange={event => update('credential_env', event.target.value.toUpperCase())} placeholder="ZAI_API_KEY" className="h-10 w-full rounded-md border border-border bg-background px-3 font-mono text-sm text-text" /></label>}
-            </>}
-          </div>
-        </section>
-
-        <section className="grid gap-4 px-4 py-5 sm:px-5 md:grid-cols-[160px_minmax(0,1fr)]">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-semibold text-text"><span className="flex h-5 w-5 items-center justify-center rounded bg-accent/10 text-[10px] text-accent">3</span> Identity</div>
-            <div className="mt-1 text-[11px] text-muted">Profile label</div>
-          </div>
-          <label><span className="mb-1 block text-xs text-muted">Worker name</span><input value={draft.name} onChange={event => update('name', event.target.value)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text" /></label>
-        </section>
-      </div>
-
-      <footer className="flex flex-col gap-3 border-t border-border bg-background/35 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-        <div className="text-[11px] text-muted">{dirty ? 'Save changes before testing this worker.' : 'Configuration is saved.'}</div>
-        <div className="flex flex-wrap gap-2">
-          {draft.auth_mode === 'native_login' && <button disabled={busy || dirty} onClick={() => onLogin(draft.slug)} className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm text-text hover:bg-overlay/5 disabled:opacity-40"><KeyRound size={14} /> Login</button>}
-          <button disabled={busy || !dirty} onClick={() => onSave(draft.slug, draft)} className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background disabled:cursor-not-allowed disabled:opacity-40">{busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save worker</button>
         </div>
-      </footer>
+      </aside>
     </section>
   </div>
 }
@@ -783,7 +821,7 @@ export default function Developer() {
 
       <div className="border-b border-border px-4 sm:px-6"><div className="flex overflow-x-auto">{tabs.map(item => <button key={item.id} onClick={() => setTab(item.id)} className={`h-11 shrink-0 border-b-2 px-3 text-sm transition-colors ${tab === item.id ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text'}`}>{item.label}</button>)}</div></div>
 
-      {loading && !overview ? <div className="flex min-h-72 items-center justify-center text-muted"><Loader2 className="animate-spin" size={22} /></div>
+      {loading && !overview ? <DeveloperSkeleton />
         : error?.status === 401 ? <div className="mx-4 mt-6 sm:mx-6"><VaultUnlockPanel mode="inline" title="Unlock Developer"
           detail="Authorize protected coding workflows here. The same session immediately unlocks Integrations, Models, and MCP." /></div>
         : error ? <div className="mx-4 mt-6 border-l-2 border-danger bg-danger/5 px-4 py-4 sm:mx-6"><div className="flex items-start gap-3"><AlertTriangle size={17} className="mt-0.5 shrink-0 text-danger" /><div className="min-w-0 flex-1"><div className="text-sm font-semibold text-heading">{error.code === 'backend_mismatch' ? 'Mission Control backend update required' : 'Developer data unavailable'}</div><p className="mt-1 text-xs leading-5 text-muted">{error.message}</p><button onClick={() => load()} className="mt-3 inline-flex h-8 items-center gap-2 rounded-md border border-border px-2.5 text-xs text-text hover:bg-overlay/5"><RefreshCw size={13} /> Retry</button></div></div></div>
