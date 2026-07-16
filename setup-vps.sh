@@ -103,6 +103,18 @@ else
     fi
 fi
 
+# Install the external coding runner as a separately supervised service when
+# systemd and non-interactive sudo are available. The API remains in local
+# runner mode until TOBI_CODING_RUNNER_MODE=service is set in .env.
+if command -v systemctl >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+    echo "── Installing supervised coding runner ──"
+    bash "$INSTALL_DIR/scripts/install_coding_runner_service.sh" "$INSTALL_DIR" || \
+        echo "  ⚠ Coding runner service install failed; rerun the installer manually."
+else
+    echo "  ⚠ systemd or passwordless sudo unavailable; install the coding runner manually:"
+    echo "    bash $INSTALL_DIR/scripts/install_coding_runner_service.sh $INSTALL_DIR"
+fi
+
 echo ""
 echo "═══════════════════════════════════════════════════════════"
 echo "  ✓ Setup complete!"

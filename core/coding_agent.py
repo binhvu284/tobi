@@ -12,7 +12,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from core.coding_assessment import CodingTaskAssessor
+from core.coding_contracts import SprintBudget, WorkerProfile, build_handoff
+from core.coding_learning import CodingLearningService
 from core.coding_policy import CodingPolicy, PolicyDenied
+from core.coding_quality import CodingQualityGate
 from core.coding_review import CodingReviewError, CodingReviewer
 from core.coding_queue import sync_queue
 from core.deployment_manager import DeploymentManager
@@ -27,7 +31,7 @@ from core.repo_index import RepositoryIndex
 STAGES = [
     {"id": "prepare", "title": "Create isolated worktree", "depends": []},
     {"id": "index", "title": "Build scoped repository context", "depends": ["prepare"]},
-    {"id": "code", "title": "Run managed Hermes worker", "depends": ["index"]},
+    {"id": "code", "title": "Run selected coding worker", "depends": ["index"]},
     {"id": "validate", "title": "Run mandatory checks", "depends": ["code"]},
     {"id": "review", "title": "Review scope, policy, and evidence", "depends": ["validate"]},
     {"id": "commit", "title": "Create logical checkpoint", "depends": ["review"]},
@@ -71,8 +75,11 @@ class CodingAgent:
         self.queue = sync_queue(self.store)
         self.index = RepositoryIndex(self.policy, self.store)
         self.git = GitWorkspaceManager(self.policy)
-        self.worker = CodingWorkerRouter(self.policy)
+        self.worker = CodingWorkerRouter(self.policy, self.store)
         self.reviewer = CodingReviewer()
+        self.assessor = CodingTaskAssessor(self.policy, self.index)
+        self.quality = CodingQualityGate(self.policy, self.git)
+        self.learning = CodingLearningService(self.store)
         self.github = GitHubCodingService(self.policy)
         self.releases = ReleaseManager(self.store)
         self.deployments = DeploymentManager(self.policy, self.store)
@@ -106,6 +113,7 @@ class CodingAgent:
             int(task["id"]), self.policy.hash, idempotency_key or str(uuid.uuid4()),
             plan_hash_snapshot=task["plan_hash"],
             criteria_snapshot=json.loads(task.get("acceptance_criteria_json") or "[]"),
+            sprint_budget=self.assessor._budget(str(task.get("risk") or "medium")).to_dict(),
         )
         self.store.add_stages(int(session["id"]), STAGES)
         self.releases.reserve(target_version, queue_id, risk=task.get("risk") or "medium")
@@ -125,10 +133,26 @@ class CodingAgent:
         autonomy: str = "sandbox",
         preferred_models: list[str] | None = None,
         max_iterations: int | None = None,
+        worker_profile_slug: str = "mc-native",
+        reviewer_profile_slug: str = "reviewer-default",
     ) -> dict[str, Any]:
         commands = validation_commands or []
         for command in commands:
             self.policy.assert_command(command)
+        worker_profile = self.store.get_worker_profile(worker_profile_slug)
+        if not worker_profile or not bool(worker_profile["enabled"]):
+            raise ValueError(f"Worker profile is unavailable: {worker_profile_slug}")
+        reviewer_profile = self.store.get_worker_profile(reviewer_profile_slug)
+        if not reviewer_profile or reviewer_profile["adapter"] != "model_review":
+            raise ValueError(f"Reviewer profile is unavailable: {reviewer_profile_slug}")
+        assessment = self.assessor.assess(
+            title=title,
+            objective=objective,
+            acceptance_criteria=acceptance_criteria,
+            validation_commands=commands,
+        )
+        assessment_row = self.store.create_assessment(assessment.to_dict())
+        initial_status = "awaiting_scope_approval" if assessment.owner_review_required else "queued"
         configured_max = int(self.policy.data.get("loop", {}).get("max_goal_iterations", 12))
         goal = self.store.create_goal(
             title=title,
@@ -138,8 +162,16 @@ class CodingAgent:
             autonomy=autonomy,
             preferred_models=preferred_models or [],
             max_iterations=max_iterations or configured_max,
+            worker_profile_slug=worker_profile_slug,
+            reviewer_profile_slug=reviewer_profile_slug,
+            assessment_id=int(assessment_row["id"]),
+            assessment=assessment.to_dict(),
+            budget=assessment.sprints[0].budget.to_dict(),
+            status=initial_status,
         )
         goal_id = int(goal["id"])
+        self.store.attach_assessment(int(assessment_row["id"]), goal_id)
+        self.store.create_sprints(goal_id, [sprint.to_dict() for sprint in assessment.sprints])
         payload = {
             "title": goal["title"], "objective": goal["objective"],
             "acceptance": json.loads(goal["acceptance_criteria_json"]),
@@ -168,7 +200,10 @@ class CodingAgent:
         task = self.store.get_task(queue_id=900_000_000 + goal_id)
         if not task:
             raise RuntimeError("Goal task mirror is missing.")
-        criteria = json.loads(goal["acceptance_criteria_json"] or "[]")
+        sprint = self.store.next_sprint(goal_id)
+        if not sprint:
+            raise RuntimeError("Development goal has no pending sprint.")
+        criteria = json.loads(sprint["acceptance_criteria_json"] or "[]")
         commands = json.loads(goal["validation_commands_json"] or "[]")
         iteration = int(goal["iteration_count"] or 0) + 1
         session = self.store.create_session(
@@ -177,15 +212,21 @@ class CodingAgent:
             plan_hash_snapshot=task["plan_hash"],
             criteria_snapshot=criteria,
             validation_commands=commands,
+            worker_profile_slug=str(goal.get("worker_profile_slug") or "mc-native"),
+            reviewer_profile_slug=str(goal.get("reviewer_profile_slug") or "reviewer-default"),
+            assessment_id=int(goal["assessment_id"]) if goal.get("assessment_id") else None,
+            current_sprint_id=int(sprint["id"]),
+            sprint_budget=json.loads(sprint["budget_json"] or "{}"),
         )
         self.store.add_stages(int(session["id"]), STAGES)
+        self.store.update_sprint(int(sprint["id"]), status="active", session_id=int(session["id"]))
         if goal["autonomy"] != "sandbox":
             self.releases.reserve(task["target_version"], int(task["queue_id"]), risk="high")
         self.store.update_goal(goal_id, iteration_count=iteration, current_session_id=session["id"], status="running")
         self.store.add_goal_iteration(goal_id, int(session["id"]), iteration)
         self._event(int(session["id"]), "goal_iteration_started", {
             "goal_id": goal_id, "iteration": iteration, "objective": goal["objective"],
-            "plan_hash": task["plan_hash"],
+            "plan_hash": task["plan_hash"], "sprint": int(sprint["sequence"]),
         })
         return self.get_workflow(int(session["id"]))
 
@@ -198,6 +239,10 @@ class CodingAgent:
         if not session:
             raise KeyError(session_id)
         session["stages"] = self.store.list_stages(session_id)
+        session["checkpoints"] = self.store.list_checkpoints(session_id, 20)
+        session["worker_session"] = self.store.latest_worker_session(session_id)
+        session["sprint"] = self.store.get_sprint(int(session["current_sprint_id"])) if session.get("current_sprint_id") else None
+        session["assessment"] = self.store.get_assessment(int(session["assessment_id"])) if session.get("assessment_id") else None
         conn = self.store.connect()
         try:
             pr = conn.execute("SELECT * FROM coding_pull_requests WHERE task_id=?", (session["task_id"],)).fetchone()
@@ -208,6 +253,81 @@ class CodingAgent:
 
     def list_workflows(self, limit: int = 50) -> list[dict[str, Any]]:
         return [self.get_workflow(int(workflow["id"])) for workflow in self.store.list_sessions(limit)]
+
+    def assess_goal(
+        self,
+        *,
+        title: str,
+        objective: str,
+        acceptance_criteria: list[str],
+        validation_commands: list[list[str]] | None = None,
+    ) -> dict[str, Any]:
+        for command in validation_commands or []:
+            self.policy.assert_command(command)
+        return self.assessor.assess(
+            title=title,
+            objective=objective,
+            acceptance_criteria=acceptance_criteria,
+            validation_commands=validation_commands or [],
+        ).to_dict()
+
+    def worker_profiles(self, *, probe: bool = False) -> list[dict[str, Any]]:
+        profiles: list[dict[str, Any]] = []
+        for row in self.store.list_worker_profiles():
+            profile = WorkerProfile.from_row(row)
+            item = {**profile.public_dict(), **{
+                "health_status": row.get("health_status") or "unknown",
+                "health_detail": row.get("health_detail"),
+                "last_probed_at": row.get("last_probed_at"),
+            }}
+            if probe:
+                item = self.worker.probe(profile.slug)
+            profiles.append(item)
+        return profiles
+
+    def switch_worker(self, session_id: int, profile_slug: str) -> dict[str, Any]:
+        session = self.get_workflow(session_id)
+        if session["state"] not in {"paused", "blocked", "failed", "approved"}:
+            raise RuntimeError("A worker can only be switched at a paused checkpoint.")
+        row = self.store.get_worker_profile(profile_slug)
+        if not row or not bool(row["enabled"]) or row["adapter"] == "model_review":
+            raise ValueError("Selected coding worker profile is unavailable.")
+        self._checkpoint(
+            session_id,
+            status="worker_switch",
+            next_action=f"Resume the bounded sprint with worker profile {profile_slug}.",
+        )
+        self.store.close_worker_sessions(session_id)
+        self.store.update_session(
+            session_id,
+            worker_profile_slug=profile_slug,
+            active_worker_session_id=None,
+            blocker=None,
+            error_code=None,
+            cancel_requested=0,
+        )
+        if session.get("goal_id"):
+            self.store.update_goal(int(session["goal_id"]), worker_profile_slug=profile_slug)
+        conn = self.store.connect()
+        try:
+            conn.execute(
+                """UPDATE coding_stages SET status='pending',started_at=NULL,completed_at=NULL
+                   WHERE session_id=? AND node_id IN ('code','validate','review','commit','scan','push','pull_request')""",
+                (session_id,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        self._event(session_id, "worker_switched", {
+            "from": session.get("worker_profile_slug"), "to": profile_slug,
+        }, actor="owner")
+        return self.get_workflow(session_id)
+
+    def learning_state(self) -> dict[str, Any]:
+        return {
+            "records": self.store.list_learning_records(limit=200),
+            "playbooks": self.store.list_playbooks(),
+        }
 
     def start_background(self, session_id: int) -> dict[str, Any]:
         with self._thread_lock:
@@ -236,6 +356,76 @@ class CodingAgent:
                                                        "size_bytes": artifact["size_bytes"]})
         return artifact
 
+    def _checkpoint(
+        self,
+        session_id: int,
+        *,
+        status: str,
+        next_action: str,
+    ) -> dict[str, Any] | None:
+        session = self.store.get_session(session_id)
+        if not session or not session.get("worktree") or not Path(session["worktree"]).is_dir():
+            return None
+        try:
+            changed = self.git.changed_files(session["worktree"])
+            head_sha = self.git.head(session["worktree"])
+        except (GitCommandError, PolicyDenied, OSError):
+            changed = []
+            head_sha = session.get("head_sha")
+        validate = next(
+            (stage for stage in self.store.list_stages(session_id) if stage["node_id"] == "validate"), {}
+        )
+        try:
+            checks = json.loads(validate.get("checks_json") or "[]")
+        except json.JSONDecodeError:
+            checks = []
+        worker_session = self.store.latest_worker_session(session_id)
+        sprint = self.store.get_sprint(int(session["current_sprint_id"])) if session.get("current_sprint_id") else None
+        handoff = build_handoff(
+            workflow_id=session_id,
+            stage=str(session.get("stage") or "approved"),
+            worker_profile=str(session.get("worker_profile_slug") or "mc-native"),
+            worktree=str(session["worktree"]),
+            head_sha=head_sha,
+            changed_files=changed,
+            recent_events=self.store.list_events(session_id, limit=50),
+            checks=checks,
+            sprint=sprint,
+            status=status,
+            next_action=next_action,
+        )
+        checkpoint = self.store.save_checkpoint(
+            session_id=session_id,
+            worker_session_id=int(worker_session["id"]) if worker_session else None,
+            head_sha=head_sha,
+            status=status,
+            handoff=handoff,
+        )
+        self._event(session_id, "checkpoint_created", {
+            "checkpoint_id": checkpoint["id"], "sequence": checkpoint["sequence"],
+            "status": status, "head_sha": head_sha, "next_action": next_action,
+        })
+        return checkpoint
+
+    def _record_learning(
+        self,
+        session_id: int,
+        *,
+        outcome: str,
+        stage: str,
+        error_code: str = "",
+        evidence: dict[str, Any] | None = None,
+    ) -> None:
+        session = self.store.get_session(session_id) or {}
+        self.learning.record(
+            session_id=session_id,
+            outcome=outcome,
+            stage=stage,
+            error_code=error_code,
+            worker_profile=str(session.get("worker_profile_slug") or ""),
+            evidence=_safe(evidence or {}),
+        )
+
     def _stage_start(self, session_id: int, node_id: str, state: str, progress: int) -> None:
         stage = next((s for s in self.store.list_stages(session_id) if s["node_id"] == node_id), None)
         attempts = int(stage["attempts"] if stage else 0) + 1
@@ -256,6 +446,11 @@ class CodingAgent:
             self.store.update_stage(session_id, stage, status="paused", result_json={"error_code": code})
         self.store.update_session(session_id, state="paused", stage=stage, blocker=blocker, error_code=code)
         self._event(session_id, "workflow_paused", {"stage": stage, "error_code": code, "action": blocker})
+        self._checkpoint(session_id, status="paused", next_action=blocker)
+        self._record_learning(
+            session_id, outcome="paused", stage=stage, error_code=code,
+            evidence={"blocker": blocker},
+        )
         return self.get_workflow(session_id)
 
     def _block(self, session_id: int, stage: str, blocker: str, code: str) -> dict[str, Any]:
@@ -263,6 +458,11 @@ class CodingAgent:
         self.store.update_stage(session_id, stage, status="failed", result_json={"error_code": code})
         self.store.update_session(session_id, state="blocked", stage=stage, blocker=blocker, error_code=code)
         self._event(session_id, "workflow_blocked", {"stage": stage, "error_code": code, "action": blocker})
+        self._checkpoint(session_id, status="blocked", next_action=blocker)
+        self._record_learning(
+            session_id, outcome="blocked", stage=stage, error_code=code,
+            evidence={"blocker": blocker},
+        )
         return self.get_workflow(session_id)
 
     def run_to_gate(self, session_id: int) -> dict[str, Any]:
@@ -317,15 +517,23 @@ class CodingAgent:
                     f"{session['title']} {' '.join(criteria[:8])}", limit=30, root=Path(session["worktree"]),
                 )
                 validation_stage = next((item for item in session["stages"] if item["node_id"] == "validate"), {})
+                sprint = self.store.get_sprint(int(session["current_sprint_id"])) if session.get("current_sprint_id") else None
+                sprint_budget = SprintBudget.from_value(
+                    sprint.get("budget_json") if sprint else session.get("sprint_budget_json")
+                )
                 brief = {
                     "workflow_id": session_id, "stage_id": "code", "worktree": session["worktree"],
-                    "title": session["title"], "objective": goal["objective"] if goal else session["title"],
+                    "title": sprint["title"] if sprint else session["title"],
+                    "objective": sprint["objective"] if sprint else goal["objective"] if goal else session["title"],
                     "plan_path": session["plan_path"], "plan_hash": session["plan_hash"],
                     "acceptance_criteria": criteria, "relevant_files": context,
                     "previous_checks": json.loads(validation_stage.get("checks_json") or "[]"),
                     "allowed_commands": self.policy.mandatory_checks(),
                     "validation_commands": validation_commands,
                     "preferred_models": json.loads(goal["preferred_models_json"] or "[]") if goal else [],
+                    "worker_profile_slug": str(session.get("worker_profile_slug") or "mc-native"),
+                    "reviewer_profile_slug": str(session.get("reviewer_profile_slug") or "reviewer-default"),
+                    "sprint_budget": sprint_budget.to_dict(),
                     "special_approval": self.store.has_approval(session_id, "special_paths", self.policy.hash),
                     "policy": {"version": self.policy.version, "hash": self.policy.hash,
                                "protected_paths": self.policy.data.get("protected_paths", []),
@@ -333,7 +541,10 @@ class CodingAgent:
                 }
 
                 def worker_event(kind: str, payload: dict[str, Any]) -> None:
-                    self._event(session_id, f"worker_{kind}", payload, actor="hermes")
+                    self._event(
+                        session_id, f"worker_{kind}", payload,
+                        actor=str(session.get("worker_profile_slug") or "worker"),
+                    )
 
                 try:
                     result = self.worker.run(
@@ -341,10 +552,37 @@ class CodingAgent:
                         cancel_check=lambda: bool((self.store.get_session(session_id) or {}).get("cancel_requested")),
                     )
                 except CodingWorkerUnavailable as exc:
+                    current = self.store.get_session(session_id) or {}
+                    if current.get("state") == "canceled":
+                        return self.get_workflow(session_id)
+                    if current.get("cancel_requested"):
+                        if current.get("state") == "paused":
+                            return self.get_workflow(session_id)
+                        return self._pause(
+                            session_id, "code", "Paused by owner. Resume when ready.", "owner_paused"
+                        )
                     return self._pause(session_id, "code", str(exc), "worker_unavailable")
                 except CodingWorkerBlocked as exc:
+                    current = self.store.get_session(session_id) or {}
+                    if current.get("state") == "canceled":
+                        return self.get_workflow(session_id)
+                    if current.get("cancel_requested"):
+                        if current.get("state") == "paused":
+                            return self.get_workflow(session_id)
+                        return self._pause(
+                            session_id, "code", "Paused by owner. Resume when ready.", "owner_paused"
+                        )
                     return self._pause(session_id, "code", str(exc), "worker_blocked")
                 except TimeoutError as exc:
+                    current = self.store.get_session(session_id) or {}
+                    if current.get("state") == "canceled":
+                        return self.get_workflow(session_id)
+                    if current.get("cancel_requested"):
+                        if current.get("state") == "paused":
+                            return self.get_workflow(session_id)
+                        return self._pause(
+                            session_id, "code", "Paused by owner. Resume when ready.", "owner_paused"
+                        )
                     return self._pause(session_id, "code", str(exc), "worker_timeout")
                 except RuntimeError as exc:
                     current = self.store.get_session(session_id) or {}
@@ -356,8 +594,12 @@ class CodingAgent:
                 changed = self.git.changed_files(session["worktree"])
                 self._artifact(session_id, "worker", {"events": result["events"], "output": result["output"]})
                 self._stage_complete(session_id, "code", {"changed_files": changed, "event_count": len(result["events"])})
+                self._checkpoint(
+                    session_id, status="worker_completed",
+                    next_action="Run deterministic validation and quality gates.",
+                )
                 if not changed:
-                    return self._pause(session_id, "code", "Hermes completed without changing files; revise the stage brief or retry.",
+                    return self._pause(session_id, "code", "Coding worker completed without changing files; revise the sprint or retry.",
                                        "no_changes")
                 special = self.store.has_approval(session_id, "special_paths", self.policy.hash)
                 self.policy.assert_write_paths(changed, special_approval=special)
@@ -388,8 +630,27 @@ class CodingAgent:
                                        "secret_found")
                 validate_stage = next((item for item in session["stages"] if item["node_id"] == "validate"), {})
                 checks = json.loads(validate_stage.get("checks_json") or "[]")
+                budget = SprintBudget.from_value(session.get("sprint_budget_json"))
+                special = self.store.has_approval(session_id, "special_paths", self.policy.hash)
+                quality = self.quality.evaluate(
+                    worktree=session["worktree"],
+                    budget=budget,
+                    checks=checks,
+                    special_approval=special,
+                )
+                self._artifact(session_id, "quality", quality)
+                self._event(session_id, "quality_gate_completed", quality)
+                if not quality["qualified"]:
+                    return self._pause(
+                        session_id, "review",
+                        "Deterministic quality gates failed: " + " ".join(quality["failures"]),
+                        "quality_gate_failed",
+                    )
                 criteria = json.loads(session.get("criteria_snapshot_json") or "[]")
                 goal = self.store.get_goal(int(session["goal_id"])) if session.get("goal_id") else None
+                reviewer_profile = self.store.get_worker_profile(
+                    str(session.get("reviewer_profile_slug") or "reviewer-default")
+                ) or {}
                 try:
                     review = self.reviewer.review(
                         objective=goal["objective"] if goal else session["title"],
@@ -397,6 +658,8 @@ class CodingAgent:
                         checks=checks,
                         patch=self.git.diff_patch(session["worktree"]),
                         changed_files=diff["files"],
+                        model=str(reviewer_profile.get("model") or "") or None,
+                        quality_report=quality,
                     )
                 except CodingReviewError as exc:
                     return self._pause(session_id, "review", str(exc), "review_unavailable")
@@ -419,6 +682,12 @@ class CodingAgent:
                                        special_approval=special)
                 self.store.update_session(session_id, head_sha=head)
                 self._stage_complete(session_id, "commit", {"head_sha": head})
+                self._checkpoint(
+                    session_id, status="logical_checkpoint",
+                    next_action="Continue to the next bounded sprint or final acceptance.",
+                )
+                if self._advance_sprint(session_id, head):
+                    return self._run_to_gate(session_id)
 
             session = self.get_workflow(session_id)
             statuses = {item["node_id"]: item["status"] for item in session["stages"]}
@@ -458,6 +727,10 @@ class CodingAgent:
                                       stage="merge_deploy", progress=90,
                                       blocker="Owner re-authentication is required to merge and deploy.")
             self._event(session_id, "approval_required", {"purpose": "merge_deploy", "pull_request": pr})
+            self._record_learning(
+                session_id, outcome="draft_pr", stage="pull_request",
+                evidence={"pull_request": pr, "head_sha": session.get("head_sha")},
+            )
             return self.get_workflow(session_id)
         except CodingWorkerUnavailable as exc:
             return self._pause(session_id, "code", str(exc), "worker_unavailable")
@@ -469,6 +742,62 @@ class CodingAgent:
         except Exception as exc:
             return self._pause(session_id, self.get_workflow(session_id)["stage"],
                                f"Workflow stopped safely: {type(exc).__name__}", "internal_error")
+
+    def _advance_sprint(self, session_id: int, checkpoint_sha: str) -> bool:
+        session = self.store.get_session(session_id) or {}
+        goal_id = session.get("goal_id")
+        sprint_id = session.get("current_sprint_id")
+        if not goal_id or not sprint_id:
+            return False
+        sprint = self.store.get_sprint(int(sprint_id))
+        if sprint and sprint["status"] != "completed":
+            self.store.update_sprint(
+                int(sprint_id),
+                status="completed",
+                checkpoint_sha=checkpoint_sha,
+                completed_at=utc_now(),
+            )
+            self._event(session_id, "sprint_completed", {
+                "sprint_id": sprint_id,
+                "sequence": sprint["sequence"],
+                "checkpoint_sha": checkpoint_sha,
+            })
+        next_sprint = self.store.next_sprint(int(goal_id))
+        if not next_sprint:
+            return False
+        criteria = json.loads(next_sprint["acceptance_criteria_json"] or "[]")
+        budget = json.loads(next_sprint["budget_json"] or "{}")
+        self.store.update_sprint(int(next_sprint["id"]), status="active", session_id=session_id)
+        conn = self.store.connect()
+        try:
+            conn.execute(
+                """UPDATE coding_stages
+                   SET status='pending',checks_json='[]',result_json=NULL,started_at=NULL,completed_at=NULL
+                   WHERE session_id=? AND node_id IN ('code','validate','review','commit')""",
+                (session_id,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        self.store.update_session(
+            session_id,
+            current_sprint_id=int(next_sprint["id"]),
+            criteria_snapshot_json=json.dumps(criteria, ensure_ascii=True, separators=(",", ":")),
+            sprint_budget_json=json.dumps(budget, ensure_ascii=True, separators=(",", ":")),
+            review_cycles=0,
+            state="approved",
+            stage="code",
+            progress=20,
+            blocker=None,
+            error_code=None,
+        )
+        self._event(session_id, "sprint_started", {
+            "sprint_id": next_sprint["id"],
+            "sequence": next_sprint["sequence"],
+            "title": next_sprint["title"],
+            "budget": budget,
+        })
+        return True
 
     def _run_checks(self, session_id: int, worktree: Path) -> list[dict[str, Any]]:
         self._stage_start(session_id, "validate", "validating", 50)
@@ -690,6 +1019,10 @@ class CodingAgent:
         self._mark_task_completed(int(session["task_id"]))
         self._event(session_id, "workflow_completed", {"version": session["target_version"],
                                                         "sha": release["commit_sha"], "tag": tag["tag"]})
+        self._record_learning(
+            session_id, outcome="completed", stage="health",
+            evidence={"version": session["target_version"], "sha": release["commit_sha"]},
+        )
         return self.get_workflow(session_id)
 
     def _mark_task_completed(self, task_id: int) -> None:

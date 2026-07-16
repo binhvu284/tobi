@@ -155,6 +155,8 @@ second = agent.create_goal(
     title="Lease test goal", objective="Remain queued while database lease ownership is verified.",
     acceptance_criteria=["only one owner claims the goal"], autonomy="sandbox",
 )
+if second["status"] == "awaiting_scope_approval":
+    second = loop.command(int(second["id"]), "approve_scope")
 claimed = store.claim_goal("owner-a", 120)
 ok("first loop owner claims queued goal", bool(claimed and claimed["id"] == second["id"]))
 ok("second loop owner cannot steal live lease", store.claim_goal("owner-b", 120) is None)

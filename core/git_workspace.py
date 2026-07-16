@@ -113,6 +113,38 @@ class GitWorkspaceManager:
             "head_sha": self.git("rev-parse", "HEAD", cwd=root),
         }
 
+    def diff_metrics(self, worktree: Path | str) -> dict[str, Any]:
+        root = self._assert_worktree(worktree)
+        files = self.changed_files(root)
+        output = self.git("diff", "--numstat", cwd=root)
+        added = 0
+        deleted = 0
+        for line in output.splitlines():
+            parts = line.split("\t", 2)
+            if len(parts) < 2:
+                continue
+            try:
+                added += int(parts[0]) if parts[0] != "-" else 0
+                deleted += int(parts[1]) if parts[1] != "-" else 0
+            except ValueError:
+                continue
+        tracked = {line.split("\t", 2)[-1] for line in output.splitlines() if "\t" in line}
+        for relative in (path for path in files if path not in tracked):
+            target = (root / relative).resolve()
+            if target.is_relative_to(root) and target.is_file():
+                try:
+                    added += len(target.read_text(encoding="utf-8", errors="replace").splitlines())
+                except OSError:
+                    pass
+        return {
+            "files": files,
+            "file_count": len(files),
+            "added_lines": added,
+            "deleted_lines": deleted,
+            "changed_lines": added + deleted,
+            "head_sha": self.git("rev-parse", "HEAD", cwd=root),
+        }
+
     def diff_patch(self, worktree: Path | str, *, max_bytes: int = 100_000) -> str:
         root = self._assert_worktree(worktree)
         patch = self.git("diff", "--no-ext-diff", "--binary", cwd=root)

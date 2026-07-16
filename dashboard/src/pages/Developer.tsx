@@ -1,22 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  AlertTriangle, CheckCircle2, Circle, Clock3, Code2, ExternalLink, GitBranch,
-  HardDrive, KeyRound, Loader2, Pause, Play, Plus, RefreshCw, RotateCcw, ShieldCheck,
-  Square, Target, TerminalSquare, XCircle,
+  AlertTriangle, BookOpen, Bot, CheckCircle2, Circle, Code2, ExternalLink, GitBranch,
+  KeyRound, Loader2, Pause, Play, Plus, RefreshCw, RotateCcw, Save, ShieldCheck,
+  Square, Target, TerminalSquare, TestTube2, XCircle,
 } from 'lucide-react'
 import AmbientField from '../components/motion/AmbientField'
 import VaultUnlockPanel from '../components/VaultUnlockPanel'
 import { useToast } from '../context/ToastProvider'
 import { useVaultSession } from '../hooks/useVaultSession'
 import {
-  approveDeveloperWorkflow, commandDeveloperGoal, commandDeveloperWorkflow, createDeveloperGoal, getDeveloperOverview,
-  cleanupDeveloperStorage, getDeveloperGoals, getDeveloperQueue, getDeveloperStorage, getDeveloperVersions, startDeveloperWorkflow,
-  streamDeveloperEvents, type DeveloperEvent, type DeveloperOverview,
-  type DeveloperGoal, type DeveloperQueueItem, type DeveloperRelease, type DeveloperStorage,
+  approveDeveloperWorkflow, assessDeveloperGoal, commandDeveloperGoal, commandDeveloperWorkflow, createDeveloperGoal,
+  getDeveloperLearning, getDeveloperOverview, getDeveloperQueue, getDeveloperStorage, getDeveloperVersions,
+  getDeveloperGoals, getDeveloperWorkerLogin, getDeveloperWorkers, probeDeveloperWorker, replayDeveloperLearning,
+  saveDeveloperWorker, startDeveloperWorkflow, streamDeveloperEvents, switchDeveloperWorker, cleanupDeveloperStorage,
+  type DeveloperAssessment, type DeveloperEvent, type DeveloperOverview, type DeveloperGoal,
+  type DeveloperQueueItem, type DeveloperRelease, type DeveloperStorage, type DeveloperWorkerProfile,
   type DeveloperWorkflow,
 } from '../api'
 
-type Tab = 'overview' | 'goals' | 'loop' | 'queue' | 'versions' | 'storage'
+type Tab = 'overview' | 'goals' | 'loop' | 'workers' | 'learning' | 'queue' | 'versions' | 'storage'
 type DeveloperLoadError = { message: string; status?: number; code?: string }
 
 const TERMINAL_STATES = new Set(['completed', 'canceled', 'failed', 'rolled_back'])
@@ -166,10 +168,29 @@ function WorkflowHeader({ workflow, busy, onCommand, onApprove }: {
   )
 }
 
-function CodingLoop({ workflow, events }: { workflow: DeveloperWorkflow | null; events: DeveloperEvent[] }) {
+function CodingLoop({ workflow, events, workers, busy, onSwitch }: {
+  workflow: DeveloperWorkflow | null; events: DeveloperEvent[]; workers: DeveloperWorkerProfile[]
+  busy: boolean; onSwitch: (slug: string) => void
+}) {
+  const [selectedWorker, setSelectedWorker] = useState('')
   if (!workflow) return <Empty text="No coding workflow has started." />
+  const canSwitch = ['paused', 'blocked', 'failed', 'approved'].includes(workflow.state)
+  const codingWorkers = workers.filter(item => item.enabled && item.adapter !== 'model_review')
+  const currentWorker = workflow.worker_session
   return (
-    <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.55fr)]">
+    <div className="space-y-7">
+      <section className="grid gap-4 border-y border-border py-4 md:grid-cols-3">
+        <div><div className="text-[11px] uppercase text-muted">Worker</div><div className="mt-1 text-sm font-medium text-text">{currentWorker?.profile_slug ?? workflow.worker_profile_slug ?? 'mc-native'}</div><div className="mt-1 text-xs text-muted">{currentWorker?.adapter ?? 'Awaiting worker'}{currentWorker?.model ? ` · ${currentWorker.model}` : ''}</div></div>
+        <div><div className="text-[11px] uppercase text-muted">Bounded sprint</div><div className="mt-1 text-sm font-medium text-text">{workflow.sprint?.title ?? 'Queue workflow'}</div><div className="mt-1 text-xs text-muted">{workflow.sprint ? `Sprint ${workflow.sprint.sequence} · ${label(workflow.sprint.status)}` : 'Single approved plan'}</div></div>
+        <div><div className="text-[11px] uppercase text-muted">Worker session</div><div className="mt-1 font-mono text-xs text-text">{currentWorker?.external_session_id ?? `MC-${currentWorker?.id ?? workflow.id}`}</div><div className="mt-1 text-xs text-muted">{currentWorker ? label(currentWorker.status) : 'Not started'}</div></div>
+      </section>
+      {canSwitch && (
+        <section className="flex flex-col gap-2 border-l-2 border-accent pl-3 sm:flex-row sm:items-end">
+          <label className="min-w-0 flex-1"><span className="mb-1 block text-xs text-muted">Continue from the latest checkpoint with</span><select value={selectedWorker || workflow.worker_profile_slug || 'mc-native'} onChange={event => setSelectedWorker(event.target.value)} className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-text outline-none focus:border-accent">{codingWorkers.map(worker => <option key={worker.slug} value={worker.slug}>{worker.name} · {worker.health_status}</option>)}</select></label>
+          <button disabled={busy || !codingWorkers.length} onClick={() => onSwitch(selectedWorker || workflow.worker_profile_slug || 'mc-native')} className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-accent/40 px-3 text-sm text-accent disabled:opacity-40"><RotateCcw size={14} /> Switch at checkpoint</button>
+        </section>
+      )}
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.55fr)]">
       <section>
         <h2 className="mb-3 text-sm font-semibold text-text">Stage checklist</h2>
         <div className="border-t border-border">
@@ -200,26 +221,49 @@ function CodingLoop({ workflow, events }: { workflow: DeveloperWorkflow | null; 
           ))}
         </div>
       </section>
+      </div>
+      <section>
+        <h2 className="mb-3 text-sm font-semibold text-text">Durable checkpoints</h2>
+        {!workflow.checkpoints?.length ? <Empty text="No checkpoint has been recorded yet." /> : <div className="border-t border-border">{workflow.checkpoints.map(checkpoint => {
+          let handoff: Record<string, unknown> = {}
+          try { handoff = JSON.parse(checkpoint.handoff_json) } catch { /* malformed legacy payload */ }
+          return <details key={checkpoint.id} className="border-b border-border/70 py-3"><summary className="flex cursor-pointer list-none items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2"><CheckCircle2 size={15} className="shrink-0 text-accent" /><span className="truncate text-sm text-text">Checkpoint {checkpoint.sequence} · {label(checkpoint.status)}</span></div><span className="font-mono text-[10px] text-muted">{checkpoint.head_sha?.slice(0, 10) ?? 'dirty tree'}</span></summary><div className="mt-3 grid gap-3 pl-6 text-xs text-muted sm:grid-cols-2"><div><span className="text-text">Next action:</span> {String(handoff.next_action ?? 'Resume the recorded stage.')}</div><div><span className="text-text">Changed files:</span> {Array.isArray(handoff.changed_files) ? handoff.changed_files.length : 0}</div></div></details>
+        })}</div>}
+      </section>
     </div>
   )
 }
 
-function GoalsView({ goals, busy, onCreate, onCommand }: {
-  goals: DeveloperGoal[]; busy: boolean
-  onCreate: (input: { title: string; objective: string; acceptance_criteria: string[]; autonomy: 'sandbox' | 'pr' | 'merge_deploy'; preferred_models: string[] }) => void
-  onCommand: (id: number, command: 'pause' | 'resume' | 'cancel') => void
+function GoalsView({ goals, workers, busy, onCreate, onCommand }: {
+  goals: DeveloperGoal[]; workers: DeveloperWorkerProfile[]; busy: boolean
+  onCreate: (input: { title: string; objective: string; acceptance_criteria: string[]; autonomy: 'sandbox' | 'pr' | 'merge_deploy'; preferred_models: string[]; worker_profile_slug: string; reviewer_profile_slug: string }) => void
+  onCommand: (id: number, command: 'pause' | 'resume' | 'cancel' | 'approve_scope') => void
 }) {
   const [title, setTitle] = useState('')
   const [objective, setObjective] = useState('')
   const [criteria, setCriteria] = useState('')
-  const [models, setModels] = useState('')
+  const [assessment, setAssessment] = useState<DeveloperAssessment | null>(null)
+  const [assessing, setAssessing] = useState(false)
+  const codingWorkers = workers.filter(item => item.enabled && item.adapter !== 'model_review')
+  const reviewers = workers.filter(item => item.enabled && item.adapter === 'model_review')
+  const [worker, setWorker] = useState('mc-native')
+  const [reviewer, setReviewer] = useState('reviewer-default')
   const [autonomy, setAutonomy] = useState<'sandbox' | 'pr' | 'merge_deploy'>('sandbox')
-  const submit = () => {
+  const input = () => {
     const acceptance = criteria.split('\n').map(item => item.trim()).filter(Boolean)
-    if (!title.trim() || objective.trim().length < 10 || !acceptance.length) return
-    onCreate({ title: title.trim(), objective: objective.trim(), acceptance_criteria: acceptance, autonomy,
-      preferred_models: models.split(',').map(item => item.trim()).filter(Boolean) })
-    setTitle(''); setObjective(''); setCriteria(''); setModels('')
+    return { title: title.trim(), objective: objective.trim(), acceptance_criteria: acceptance }
+  }
+  const assess = async () => {
+    const value = input()
+    if (!value.title || value.objective.length < 10 || !value.acceptance_criteria.length) return
+    setAssessing(true)
+    try { setAssessment(await assessDeveloperGoal(value)) } finally { setAssessing(false) }
+  }
+  const submit = () => {
+    const value = input()
+    if (!assessment || !value.title || value.objective.length < 10 || !value.acceptance_criteria.length) return
+    onCreate({ ...value, autonomy, preferred_models: [], worker_profile_slug: worker, reviewer_profile_slug: reviewer })
+    setTitle(''); setObjective(''); setCriteria(''); setAssessment(null)
   }
   return <div className="space-y-8">
     <section className="border-y border-border py-5">
@@ -228,15 +272,58 @@ function GoalsView({ goals, busy, onCreate, onCommand }: {
         <label className="lg:col-span-2"><span className="mb-1 block text-xs text-muted">Goal title</span><input value={title} onChange={event => setTitle(event.target.value)} placeholder="Improve Agent runtime reliability" className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text outline-none focus:border-accent" /></label>
         <label className="lg:col-span-2"><span className="mb-1 block text-xs text-muted">Objective</span><textarea value={objective} onChange={event => setObjective(event.target.value)} rows={3} placeholder="Describe the infrastructure outcome and boundaries." className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm text-text outline-none focus:border-accent" /></label>
         <label><span className="mb-1 block text-xs text-muted">Acceptance criteria, one per line</span><textarea value={criteria} onChange={event => setCriteria(event.target.value)} rows={5} placeholder={'All focused tests pass\nNo regression in Chat mode\nRuntime recovers after restart'} className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm text-text outline-none focus:border-accent" /></label>
-        <div className="space-y-3"><label><span className="mb-1 block text-xs text-muted">Autonomy boundary</span><select value={autonomy} onChange={event => setAutonomy(event.target.value as typeof autonomy)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text outline-none focus:border-accent"><option value="sandbox">Local sandbox only</option><option value="pr">Create pull request</option><option value="merge_deploy">Merge and deploy after approval</option></select></label><label><span className="mb-1 block text-xs text-muted">Preferred model IDs</span><input value={models} onChange={event => setModels(event.target.value)} placeholder="ollama:qwen3-coder, anthropic:..." className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text outline-none focus:border-accent" /></label></div>
+        <div className="space-y-3"><label><span className="mb-1 block text-xs text-muted">Autonomy boundary</span><select value={autonomy} onChange={event => setAutonomy(event.target.value as typeof autonomy)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text outline-none focus:border-accent"><option value="sandbox">Local sandbox only</option><option value="pr">Create draft pull request</option><option value="merge_deploy">Draft PR, owner merge and deploy gate</option></select></label><label><span className="mb-1 block text-xs text-muted">Coding worker</span><select value={worker} onChange={event => setWorker(event.target.value)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text outline-none focus:border-accent">{codingWorkers.map(item => <option key={item.slug} value={item.slug}>{item.name} · {item.health_status}</option>)}</select></label><label><span className="mb-1 block text-xs text-muted">Independent reviewer</span><select value={reviewer} onChange={event => setReviewer(event.target.value)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text outline-none focus:border-accent">{reviewers.map(item => <option key={item.slug} value={item.slug}>{item.name}</option>)}</select></label></div>
       </div>
-      <button onClick={submit} disabled={busy || !title.trim() || objective.trim().length < 10 || !criteria.trim()} className="mt-4 inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background disabled:opacity-40"><Plus size={15} /> Start goal loop</button>
+      {assessment && <div className="mt-4 border-y border-border py-4"><div className="flex flex-wrap items-center gap-2"><StateBadge state={assessment.route} /><StateBadge state={assessment.risk} /><span className="text-xs text-muted">Capability score {assessment.score}/100 · {assessment.sprints.length} bounded sprint{assessment.sprints.length === 1 ? '' : 's'}</span></div><div className="mt-3 grid gap-2 sm:grid-cols-2">{assessment.sprints.map(sprint => <div key={sprint.sequence} className="border-l-2 border-border pl-3"><div className="text-sm text-text">{sprint.title}</div><div className="mt-1 text-[11px] text-muted">{sprint.budget.max_files} files · {sprint.budget.max_changed_lines} lines · {sprint.budget.max_minutes} min</div></div>)}</div><ul className="mt-3 space-y-1 text-xs text-muted">{assessment.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul></div>}
+      <div className="mt-4 flex flex-wrap gap-2">{!assessment ? <button onClick={assess} disabled={busy || assessing || !title.trim() || objective.trim().length < 10 || !criteria.trim()} className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background disabled:opacity-40">{assessing ? <Loader2 size={15} className="animate-spin" /> : <TestTube2 size={15} />} Assess scope</button> : <><button onClick={submit} disabled={busy} className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background disabled:opacity-40"><Plus size={15} /> Queue bounded sprints</button><button onClick={() => setAssessment(null)} className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm text-text"><RotateCcw size={14} /> Reassess</button></>}</div>
     </section>
     <section><h2 className="mb-3 text-sm font-semibold text-text">Development goals</h2>{!goals.length ? <Empty text="No continuous development goals have been created." /> : <div className="border-t border-border">{goals.map(goal => {
       const resumable = ['paused', 'blocked', 'awaiting_config'].includes(goal.status)
+      const awaitingScope = goal.status === 'awaiting_scope_approval'
       const active = !['completed', 'qualified_local', 'canceled'].includes(goal.status)
-      return <div key={goal.id} className="grid gap-3 border-b border-border/70 py-4 lg:grid-cols-[minmax(0,1fr)_160px_220px] lg:items-center"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-medium text-text">{goal.title}</span><StateBadge state={goal.status} /></div><p className="mt-1 line-clamp-2 text-xs leading-5 text-muted">{goal.objective}</p>{goal.last_error && <div className="mt-1 text-xs text-warning">{label(goal.last_error)}</div>}</div><div className="text-xs text-muted">Iteration {goal.iteration_count}/{goal.max_iterations}<br />{label(goal.autonomy)}</div><div className="flex justify-start gap-2 lg:justify-end">{resumable && <button disabled={busy} onClick={() => onCommand(goal.id, 'resume')} className="inline-flex h-8 items-center gap-1 rounded-md bg-accent px-2 text-xs text-background"><Play size={13} /> Resume</button>}{active && !resumable && <button disabled={busy} onClick={() => onCommand(goal.id, 'pause')} className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2 text-xs text-text"><Pause size={13} /> Pause</button>}{active && <button disabled={busy} onClick={() => onCommand(goal.id, 'cancel')} className="inline-flex h-8 items-center gap-1 rounded-md border border-danger/40 px-2 text-xs text-danger"><Square size={12} /> Cancel</button>}</div></div>
+      return <div key={goal.id} className="grid gap-3 border-b border-border/70 py-4 lg:grid-cols-[minmax(0,1fr)_180px_240px] lg:items-center"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-medium text-text">{goal.title}</span><StateBadge state={goal.status} /></div><p className="mt-1 line-clamp-2 text-xs leading-5 text-muted">{goal.objective}</p>{goal.last_error && <div className="mt-1 text-xs text-warning">{label(goal.last_error)}</div>}</div><div className="text-xs text-muted">Iteration {goal.iteration_count}/{goal.max_iterations}<br />{goal.worker_profile_slug ?? 'mc-native'} · {label(goal.autonomy)}</div><div className="flex flex-wrap justify-start gap-2 lg:justify-end">{awaitingScope && <button disabled={busy} onClick={() => onCommand(goal.id, 'approve_scope')} className="inline-flex h-8 items-center gap-1 rounded-md bg-warning px-2 text-xs font-medium text-background"><ShieldCheck size={13} /> Approve scope</button>}{resumable && <button disabled={busy} onClick={() => onCommand(goal.id, 'resume')} className="inline-flex h-8 items-center gap-1 rounded-md bg-accent px-2 text-xs text-background"><Play size={13} /> Resume</button>}{active && !resumable && !awaitingScope && <button disabled={busy} onClick={() => onCommand(goal.id, 'pause')} className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2 text-xs text-text"><Pause size={13} /> Pause</button>}{active && <button disabled={busy} onClick={() => onCommand(goal.id, 'cancel')} className="inline-flex h-8 items-center gap-1 rounded-md border border-danger/40 px-2 text-xs text-danger"><Square size={12} /> Cancel</button>}</div></div>
     })}</div>}</section>
+  </div>
+}
+
+function WorkersView({ workers, busy, onSave, onProbe, onLogin }: {
+  workers: DeveloperWorkerProfile[]; busy: boolean
+  onSave: (slug: string, profile: DeveloperWorkerProfile) => void
+  onProbe: (slug: string) => void
+  onLogin: (slug: string) => void
+}) {
+  const [slug, setSlug] = useState(workers[0]?.slug ?? 'mc-native')
+  const selected = workers.find(item => item.slug === slug) ?? workers[0]
+  const [draft, setDraft] = useState<DeveloperWorkerProfile | null>(selected ?? null)
+  useEffect(() => { if (selected) setDraft(selected) }, [selected?.slug])
+  if (!draft) return <Empty text="No coding worker profiles are configured." />
+  const update = <K extends keyof DeveloperWorkerProfile>(key: K, value: DeveloperWorkerProfile[K]) =>
+    setDraft(current => current ? { ...current, [key]: value } : current)
+  return <div className="space-y-7">
+    <section className="grid gap-4 border-y border-border py-5 lg:grid-cols-[240px_minmax(0,1fr)]">
+      <div><label><span className="mb-1 block text-xs text-muted">Worker profile</span><select value={draft.slug} onChange={event => setSlug(event.target.value)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text">{workers.map(worker => <option key={worker.slug} value={worker.slug}>{worker.name}</option>)}</select></label><div className="mt-3 flex items-center gap-2"><StateBadge state={draft.health_status} /><span className="text-xs text-muted">{draft.health_detail ?? 'Not probed yet.'}</span></div>{draft.runner_mode && <div className="mt-2 text-[11px] text-muted">Execution boundary: {draft.runner_mode === 'service' ? 'supervised runner service' : 'local isolated process'}</div>}</div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label><span className="mb-1 block text-xs text-muted">Name</span><input value={draft.name} onChange={event => update('name', event.target.value)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text" /></label>
+        <label><span className="mb-1 block text-xs text-muted">Adapter</span><select value={draft.adapter} onChange={event => update('adapter', event.target.value as DeveloperWorkerProfile['adapter'])} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text"><option value="native">MC Native</option><option value="codex">Codex CLI</option><option value="opencode">OpenCode CLI</option><option value="hermes">Hermes CLI</option><option value="model_review">Model reviewer</option></select></label>
+        <label><span className="mb-1 block text-xs text-muted">Model ID</span><input value={draft.model} onChange={event => update('model', event.target.value)} placeholder="Blank uses Models routing" className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text" /></label>
+        <label><span className="mb-1 block text-xs text-muted">Authentication</span><select value={draft.auth_mode} onChange={event => update('auth_mode', event.target.value as DeveloperWorkerProfile['auth_mode'])} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text"><option value="inherited">Models / inherited</option><option value="native_login">Native agent login</option><option value="vault_env">Vault environment secret</option></select></label>
+        <label><span className="mb-1 block text-xs text-muted">Vault environment name</span><input value={draft.credential_env} onChange={event => update('credential_env', event.target.value.toUpperCase())} placeholder="ZAI_API_KEY" className="h-10 w-full rounded-md border border-border bg-background px-3 font-mono text-sm text-text" /></label>
+        <label className="flex h-10 items-center gap-2 self-end border-y border-border px-2"><input type="checkbox" checked={draft.enabled} onChange={event => update('enabled', event.target.checked)} /><span className="text-sm text-text">Enabled for new sprints</span></label>
+      </div>
+    </section>
+    <div className="flex flex-wrap gap-2"><button disabled={busy} onClick={() => onSave(draft.slug, draft)} className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background disabled:opacity-40"><Save size={14} /> Save profile</button><button disabled={busy} onClick={() => onProbe(draft.slug)} className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm text-text disabled:opacity-40"><TestTube2 size={14} /> Test worker</button>{draft.auth_mode === 'native_login' && <button disabled={busy} onClick={() => onLogin(draft.slug)} className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm text-text disabled:opacity-40"><KeyRound size={14} /> Login instructions</button>}</div>
+    <section><h2 className="mb-3 text-sm font-semibold text-text">Worker availability</h2><div className="border-t border-border">{workers.map(worker => <div key={worker.slug} className="grid gap-2 border-b border-border/70 py-3 sm:grid-cols-[minmax(0,1fr)_190px_140px] sm:items-center"><div><div className="flex items-center gap-2"><Bot size={14} className="text-accent" /><span className="text-sm text-text">{worker.name}</span></div><div className="mt-1 text-xs text-muted">{worker.slug} · {worker.model || 'Models route'}</div></div><div className="text-xs text-muted">{label(worker.adapter)} · {label(worker.auth_mode)}{worker.runner_mode ? ` · ${label(worker.runner_mode)}` : ''}</div><div className="sm:text-right"><StateBadge state={worker.health_status} /></div></div>)}</div></section>
+  </div>
+}
+
+function LearningView({ state, busy, onReplay }: {
+  state: { records: Array<Record<string, unknown>>; playbooks: Array<Record<string, unknown>> }
+  busy: boolean; onReplay: () => void
+}) {
+  return <div className="space-y-8">
+    <section className="flex flex-col justify-between gap-3 border-y border-border py-5 sm:flex-row sm:items-center"><div><div className="flex items-center gap-2"><BookOpen size={16} className="text-accent" /><h2 className="text-sm font-semibold text-text">Evidence-backed improvement</h2></div><p className="mt-1 text-xs text-muted">{state.records.length} outcomes · {state.playbooks.length} reusable playbooks</p></div><button disabled={busy || !state.playbooks.length} onClick={onReplay} className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-accent/40 px-3 text-sm text-accent disabled:opacity-40"><TestTube2 size={14} /> Replay evaluations</button></section>
+    <section><h2 className="mb-3 text-sm font-semibold text-text">Playbooks</h2>{!state.playbooks.length ? <Empty text="Playbooks appear after repeated evidence-backed outcomes." /> : <div className="border-t border-border">{state.playbooks.map((item, index) => <div key={String(item.slug ?? index)} className="grid gap-2 border-b border-border/70 py-3 sm:grid-cols-[minmax(0,1fr)_120px_120px] sm:items-center"><div><div className="text-sm text-text">{String(item.title ?? item.slug)}</div><div className="mt-1 text-xs text-muted">v{String(item.version ?? 1)} · {String(item.evidence_count ?? 0)} evidence records</div></div><StateBadge state={String(item.kind ?? 'repair')} /><div className="sm:text-right"><StateBadge state={String(item.status ?? 'candidate')} /></div></div>)}</div>}</section>
+    <section><h2 className="mb-3 text-sm font-semibold text-text">Recent outcomes</h2>{!state.records.length ? <Empty text="No coding outcomes have been recorded." /> : <div className="border-t border-border">{state.records.slice(0, 50).map((item, index) => <div key={String(item.id ?? index)} className="grid gap-2 border-b border-border/70 py-3 sm:grid-cols-[minmax(0,1fr)_160px_140px] sm:items-center"><div><div className="text-sm text-text">{label(String(item.outcome ?? 'unknown'))}</div><div className="mt-1 font-mono text-[10px] text-muted">{String(item.signature ?? '')}</div></div><div className="text-xs text-muted">{String(item.worker_profile ?? 'unassigned')} · {label(String(item.stage ?? 'unknown'))}</div><div className="text-xs text-muted sm:text-right">{String(item.error_code ?? '') || 'Qualified evidence'}</div></div>)}</div>}</section>
   </div>
 }
 
@@ -312,6 +399,8 @@ export default function Developer() {
   const [releases, setReleases] = useState<DeveloperRelease[]>([])
   const [storage, setStorage] = useState<DeveloperStorage | null>(null)
   const [goals, setGoals] = useState<DeveloperGoal[]>([])
+  const [workers, setWorkers] = useState<DeveloperWorkerProfile[]>([])
+  const [learning, setLearning] = useState<{ records: Array<Record<string, unknown>>; playbooks: Array<Record<string, unknown>> }>({ records: [], playbooks: [] })
   const [events, setEvents] = useState<DeveloperEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -321,10 +410,12 @@ export default function Developer() {
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true)
     try {
-      const [o, q, v, s, g] = await Promise.all([
+      const [o, q, v, s, g, w, learn] = await Promise.all([
         getDeveloperOverview(), getDeveloperQueue(), getDeveloperVersions(), getDeveloperStorage(), getDeveloperGoals(),
+        getDeveloperWorkers(), getDeveloperLearning(),
       ])
-      setOverview(o); setQueue(q.items); setReleases(v.releases); setStorage(s); setGoals(g.goals); setError(null)
+      setOverview(o); setQueue(q.items); setReleases(v.releases); setStorage(s); setGoals(g.goals)
+      setWorkers(w.workers); setLearning(learn); setError(null)
     } catch (err) {
       const apiError = err as { message?: string; status?: number; code?: string }
       setError({
@@ -361,11 +452,28 @@ export default function Developer() {
   const command = (cmd: 'pause' | 'resume' | 'cancel' | 'retry') => active && act(() => commandDeveloperWorkflow(active.id, cmd), `Workflow ${cmd} accepted`)
   const approve = (purpose: 'special_paths' | 'merge_deploy', master: string) => active && act(() => approveDeveloperWorkflow(active.id, purpose, master), 'Approval accepted')
   const createGoal = (input: Parameters<typeof createDeveloperGoal>[0]) => act(() => createDeveloperGoal(input), 'Development goal queued')
-  const goalCommand = (id: number, cmd: 'pause' | 'resume' | 'cancel') => act(() => commandDeveloperGoal(id, cmd), `Goal ${cmd} accepted`)
+  const goalCommand = (id: number, cmd: 'pause' | 'resume' | 'cancel' | 'approve_scope') => act(() => commandDeveloperGoal(id, cmd), `Goal ${label(cmd)} accepted`)
+  const switchWorker = (slug: string) => active && act(() => switchDeveloperWorker(active.id, slug), `Worker switched to ${slug}`)
+  const saveWorker = (slug: string, profile: DeveloperWorkerProfile) => act(() => saveDeveloperWorker(slug, {
+    name: profile.name, adapter: profile.adapter, model: profile.model, auth_mode: profile.auth_mode,
+    credential_env: profile.credential_env, reviewer_profile: profile.reviewer_profile,
+    enabled: profile.enabled, config: profile.config,
+  }), 'Worker profile saved')
+  const probeWorker = (slug: string) => act(() => probeDeveloperWorker(slug), `Worker ${slug} tested`)
+  const loginWorker = async (slug: string) => {
+    setBusy(true)
+    try {
+      const result = await getDeveloperWorkerLogin(slug)
+      toast({ kind: 'info', title: result.interactive_required ? 'Runner login required' : 'Worker authentication', detail: result.command ? `${result.command.join(' ')} · ${result.detail}` : result.detail })
+    } catch (err) { toast({ kind: 'error', title: 'Login instructions unavailable', detail: err instanceof Error ? err.message : String(err) }) }
+    finally { setBusy(false) }
+  }
+  const replayLearning = () => act(() => replayDeveloperLearning(), 'Learning replay completed')
 
   const capabilities = useMemo(() => Object.entries(overview?.policy.capabilities ?? {}), [overview])
   const tabs: { id: Tab; label: string }[] = [
-    { id: 'overview', label: 'Overview' }, { id: 'goals', label: 'Goals' }, { id: 'loop', label: 'Coding Loop' }, { id: 'queue', label: 'Queue' },
+    { id: 'overview', label: 'Overview' }, { id: 'goals', label: 'Goals' }, { id: 'loop', label: 'Coding Loop' },
+    { id: 'workers', label: 'Workers' }, { id: 'learning', label: 'Learning' }, { id: 'queue', label: 'Queue' },
     { id: 'versions', label: 'Versions' }, { id: 'storage', label: 'Storage' },
   ]
 
@@ -392,8 +500,10 @@ export default function Developer() {
               <section><h2 className="mb-3 text-sm font-semibold text-text">Runtime gates</h2><div className="grid gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-2 lg:grid-cols-5">{capabilities.map(([name, enabled]) => <div key={name} className="flex items-center justify-between bg-surface px-3 py-3"><span className="text-xs text-muted">{label(name)}</span>{enabled ? <CheckCircle2 size={15} className="text-success" /> : <Circle size={15} className="text-muted/50" />}</div>)}</div></section>
               <section><h2 className="mb-3 text-sm font-semibold text-text">Control-plane status</h2><div className="grid gap-4 sm:grid-cols-3"><div className="border-l-2 border-accent pl-3"><div className="text-xs text-muted">Policy</div><div className="mt-1 font-mono text-sm text-text">v{overview?.policy.version} · {overview?.policy.hash.slice(0, 10)}</div></div><div className="border-l-2 border-border pl-3"><div className="text-xs text-muted">GitHub App</div><div className="mt-1 text-sm text-text">{overview?.policy.github_configured ? 'Configured' : 'Not configured'}</div></div><div className="border-l-2 border-border pl-3"><div className="text-xs text-muted">Deployment</div><div className="mt-1 text-sm text-text">{overview?.policy.deployment_configured ? 'Configured' : 'Not configured'}</div></div></div></section>
             </div>}
-            {tab === 'loop' && <CodingLoop workflow={active} events={events} />}
-            {tab === 'goals' && <GoalsView goals={goals} busy={busy} onCreate={createGoal} onCommand={goalCommand} />}
+            {tab === 'loop' && <CodingLoop workflow={active} events={events} workers={workers} busy={busy} onSwitch={switchWorker} />}
+            {tab === 'goals' && <GoalsView goals={goals} workers={workers} busy={busy} onCreate={createGoal} onCommand={goalCommand} />}
+            {tab === 'workers' && <WorkersView workers={workers} busy={busy} onSave={saveWorker} onProbe={probeWorker} onLogin={loginWorker} />}
+            {tab === 'learning' && <LearningView state={learning} busy={busy} onReplay={replayLearning} />}
             {tab === 'queue' && <QueueView items={queue} busy={busy} onStart={id => act(() => startDeveloperWorkflow(id), `Queue #${id} started`)} />}
             {tab === 'versions' && <VersionsView releases={releases} />}
             {tab === 'storage' && <StorageView storage={storage} busy={busy} onCleanup={master => act(() => cleanupDeveloperStorage(master), 'Developer cleanup completed')} />}

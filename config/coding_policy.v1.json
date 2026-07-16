@@ -11,6 +11,7 @@
   "capabilities": {
     "observe": true,
     "sandbox": true,
+    "external_workers": true,
     "github": false,
     "merge": false,
     "deploy": false
@@ -25,6 +26,12 @@
     "core/coding_loop.py",
     "core/coding_tools.py",
     "core/coding_workers.py",
+    "core/coding_contracts.py",
+    "core/coding_assessment.py",
+    "core/coding_runner.py",
+    "core/coding_runner_service.py",
+    "core/coding_quality.py",
+    "core/coding_learning.py",
     "core/deployment_manager.py",
     "core/git_workspace.py",
     "core/github_coding.py",
@@ -34,6 +41,9 @@
     "docs/feature-idea-queue/QUEUE.md",
     "docs/feature-idea-queue/**",
     "deploy.sh",
+    "setup-vps.sh",
+    "scripts/install_coding_runner_service.sh",
+    "scripts/systemd/tobi-coding-runner.service.template",
     ".github/**",
     ".env*"
   ],
@@ -94,6 +104,7 @@
   "workers": {
     "order": ["llm", "hermes"],
     "allow_external_cli": false,
+    "allowed_adapters": ["native", "codex", "opencode"],
     "llm_tool_steps": 40,
     "max_file_bytes": 250000,
     "max_tool_output_bytes": 100000

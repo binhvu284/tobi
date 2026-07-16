@@ -26,6 +26,8 @@ Never approve missing evidence, disabled tests, policy changes, secret exposure,
         checks: Sequence[dict[str, Any]],
         patch: str,
         changed_files: Sequence[str],
+        model: str | None = None,
+        quality_report: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not changed_files:
             return {"qualified": False, "score": 0.0, "unmet": ["No repository change was produced."],
@@ -35,7 +37,7 @@ Never approve missing evidence, disabled tests, policy changes, secret exposure,
                     "risks": [], "summary": "Validation evidence is incomplete."}
         try:
             from core.model_router import get_llm
-            client = get_llm("coding_review")
+            client = get_llm("coding_review", model=model)
             payload = {
                 "objective": objective,
                 "acceptance_criteria": list(acceptance_criteria),
@@ -43,6 +45,7 @@ Never approve missing evidence, disabled tests, policy changes, secret exposure,
                             "exit_code": item.get("exit_code")} for item in checks],
                 "changed_files": list(changed_files),
                 "patch": patch[:100_000],
+                "deterministic_quality": quality_report or {},
             }
             raw = client.complete(
                 [{"role": "user", "content": json.dumps(payload, ensure_ascii=True)}],

@@ -3,6 +3,7 @@
 > Status: Production backend implementation delivered on 2026-07-15. The continuous sandbox loop is code-complete; live VPS/Ollama burn-in and owner-gated GitHub/deploy rollout remain.
 > Target: Agent tier `3.0.0`.
 > Decision basis: 60 owner questions answered and locked.
+> V2 extension: [TOBI_CODING_AGENT_V2_PLAN.md](TOBI_CODING_AGENT_V2_PLAN.md) adds explicit worker profiles, Codex/OpenCode adapters, portable checkpoints, bounded sprints, deterministic quality gates, supervised execution, and evidence-backed learning.
 
 ## Implementation Record
 

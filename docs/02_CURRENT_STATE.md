@@ -1,6 +1,6 @@
 # Current State
 
-> Verified from the D-drive repository on 2026-07-14 through commit `5245a25`. This refresh combined Graphify-guided source inspection with focused local runs of Awakening (`73/73`), project-resource access (`14/14`), and Chat Runtime unit tests (`8/8`). The FastAPI Awakening route suite was source-inspected but could not be rerun with the available Python 3.12 bundle because it does not include FastAPI; no live external integration or credential test was performed.
+> Verified from the D-drive repository on 2026-07-16. This refresh used Graphify-guided navigation plus focused source inspection and local runs of Coding Agent v2 (`39/39`), Coding Agent regression (`41/41`), production invariants (`14/14`), Python compilation, and the TypeScript/Vite production build. Installed Codex/OpenCode CLI contracts were checked, but no live external coding sprint, integration, GitHub mutation, deployment, Supabase action, or Vercel action was performed.
 
 ## Executive Summary
 
@@ -12,7 +12,7 @@ The largest truth gaps are no longer "nothing is built." Chat/Agent mode policy,
 
 | Area | Current evidence |
 |---|---|
-| Mission Control shell | React 18 app with 20 top-level destinations, responsive navigation, persistent header tabs, themes, motion, command palette, notifications, and lazy-loaded heavy pages |
+| Mission Control shell | React 18 app with 21 top-level destinations, responsive navigation, persistent header tabs, themes, motion, command palette, notifications, and lazy-loaded heavy pages |
 | Workspace tabs | Up to five mounted route panes, drag reorder, close/focus, localStorage restore, and one dynamic tab per Project v2 workspace |
 | Chat and Agent | Persistent sessions/messages, backend-enforced Chat/Agent modes, hybrid intent routing, typed runtime events/traces, attachments, premium readers, web search, Deep Research, automatic project context, edit/fork, compaction, process checkpoints, persisted Agent runs, run recovery commands, artifacts, action confirmations, terminal output, and cross-session recall. Runtime tool scopes narrow normal turns for speed but can admit a known safe read tool when the route was too narrow |
 | Conductor | Live-data read tools, project/task/goal/resource actions, direct project-resource inventory/read/search, memory writes, integration reads, terminal tools, multi-step tool loop, risk tiers, confirmation cards, and `tobi_actions` audit |
@@ -24,6 +24,7 @@ The largest truth gaps are no longer "nothing is built." Chat/Agent mode policy,
 | Premium readers | YouTube URL detection/transcripts with graceful fallback and capped context, explicit model capability checks, and transparent borrowing of an available vision model when the selected model cannot read images |
 | Awakening Tier 1 | Central nine-ability evidence registry, `/api/awakening`, guided Evolution/Ability UI, grounded self-report tool, workflow receipts, and reviewed Brain-memory evidence. External Read is active only when the connector is ready and has fresh successful-test evidence (24-hour default); Google client credentials remain partial until OAuth and a verified read test complete |
 | Runtime diagnostics | Health Performance tab and `performance_doctor` provide Graphify-assisted subsystem scoring, findings, trends, and maintenance-task creation; Chat Runtime v2 records per-stage traces and recovery state |
+| Coding Agent v2 | Developer goal assessment, bounded sprint contracts, explicit MC Native/Codex/OpenCode profiles, portable checkpoints, checkpoint-only worker switching, deterministic quality gates, independent review, encrypted Vault-to-runner credential handoff, supervised service execution, and evidence-backed learning/replay |
 | Hermes skill view | Read-only parsing of repository `hermes_skills/*.md` through `/api/hermes/skills`, displayed separately on Ability with execution disabled |
 | Model routing | Anthropic, GLM/Z.ai, OpenAI, OpenRouter, Gemini, Grok, Codex, Ollama, and custom OpenAI-compatible providers; per-task routing, fallback, streaming, vision, and usage logging |
 | Vault and integrations | Encrypted vault, profiles, auto-unlock option, key slots, audit, export/import, live environment injection, and integration management in MC |
@@ -50,7 +51,7 @@ The largest truth gaps are no longer "nothing is built." Chat/Agent mode policy,
 | Integration status | Code paths or credentials alone are not proof of access. Awakening requires adapter readiness plus fresh successful-test metadata; other surfaces must still use current MC status and an explicit test before claiming availability |
 | Personal computer control | Terminal execution is real. Browser automation, screen understanding, GUI control, and a hardened personal-PC service are not implemented |
 | Proactivity | Scheduler and Telegram push are real. General event-driven observation and context-aware interruption are not |
-| Tests | Fifteen tracked script suites cover terminal safety, storage/usage, Premium readers, Chat modes/runtime/routes, mode enforcement, network guards, Conductor final guards, Performance Doctor, Office V3, Awakening plus its integration routes, and project-resource access. Browser visual regression, real integrations, migrations, and broad end-to-end behavior remain incomplete |
+| Tests | Focused tracked script suites cover terminal safety, storage/usage, Premium readers, Chat modes/runtime/routes, mode enforcement, network guards, Conductor final guards, Performance Doctor, Office V3, Awakening, project resources, and Coding Agent v1/v2 production invariants. Browser visual regression, live providers/integrations, and broad end-to-end behavior remain incomplete |
 
 ## Runtime and Persistence
 
@@ -59,7 +60,7 @@ The largest truth gaps are no longer "nothing is built." Chat/Agent mode policy,
 - Hermes state: `~/.hermes/`, with one-way writes from TOBI.
 - Built web application: `dashboard/dist/`, served by `api/dashboard.py`.
 - Browser-only preferences: workspace tabs, theme, motion, chat mode, and selected UI options in localStorage.
-- The schema is additive and distributed across `core/database.py` plus feature-local lazy initializers. Static inspection finds 86 plausible table names. Chat Runtime has a scoped `schema_migrations` ledger, but the repository still lacks one migration authority for every subsystem.
+- The schema is additive and distributed across `core/database.py` plus feature-local lazy initializers. Chat Runtime and Developer/Coding Agent have scoped migration ledgers, but the repository still lacks one migration authority for every subsystem.
 
 ## Current Queue Reality
 
@@ -68,7 +69,7 @@ The largest truth gaps are no longer "nothing is built." Chat/Agent mode policy,
 - #14 Premium Ability is delivered at v1, including the follow-up vision-model borrowing and Ability reorganization.
 - #16 Chat Mode Backend Upgrade is delivered. #17 Awakening Tier 1 Completion reached owner-runtime acceptance at 9/9 on 2026-07-14 through a successful GitHub read verification, advancing Evolution to the Agent tier; connector health still follows the 24-hour evidence-freshness rule. #19 Performance "System Doctor" is delivered (v1).
 - #15 Office V3 is delivered at v1 with owner visual acceptance still open.
-- #18 TOBI Coding Agent production backend is delivered behind staged capability gates. A database-leased always-on goal loop can use an MC-configured Ollama model or the existing provider fallback chain, mutate only through typed repository tools, validate and independently review each iteration, survive process restarts, and stop sandbox goals at `qualified_local`. Exact-SHA deployment/rollback is implemented, while GitHub, merge, and deployment remain policy-off until owner configuration and VPS burn-in. #20 Brain Context & Architecture V2 starts only after that live acceptance, and #21 Mission Control Infrastructure V2 follows #20. These items must not run in parallel because they share runtime, Brain/context, tools, policy, data, and UI ownership.
+- #18 TOBI Coding Agent v1 remains the base continuous goal/lease/worktree/review/deployment system. #22 Coding Agent V2 is now delivered locally: deterministic risk assessment, bounded sprints, explicit MC Native/Codex/OpenCode profiles, portable checkpoints, checkpoint-safe model switching, deterministic quality gates, evidence-backed learning, encrypted Vault credential handoff, and a separately supervised runner service. Live Codex/OpenCode authentication and 24h/72h VPS soak remain before production acceptance. #20 starts only after #22 acceptance, and #21 follows #20; these items must not run in parallel because they share runtime, Brain/context, tools, policy, data, and UI ownership.
 - Original plans remain under `feature-idea-queue/`; they are requirements history, not proof of current behavior.
 
 ## Highest-Risk Gaps

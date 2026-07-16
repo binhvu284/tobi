@@ -1,6 +1,6 @@
 # Mission Control
 
-> Current product and implementation reference for the web cockpit as of 2026-07-14 through commit `5245a25`. The old June master specification is preserved in `archive/specifications/` and is not current architecture.
+> Current product and implementation reference for the web cockpit as of 2026-07-16. The old June master specification is preserved in `archive/specifications/` and is not current architecture.
 
 ## Purpose
 
@@ -45,7 +45,7 @@ Primary browser keys:
 
 ## Route and Page Map
 
-MC exposes 20 top-level workspace destinations plus dynamic project workspaces.
+MC exposes 21 top-level workspace destinations plus dynamic project workspaces.
 
 | Group | Route | Page responsibility | Primary backend/domain |
 |---|---|---|---|
@@ -70,8 +70,9 @@ MC exposes 20 top-level workspace destinations plus dynamic project workspaces.
 | System | `/integrations` | Vault, integrations, Google OAuth, Genesis status | Vault/integration APIs |
 | System | `/mcp` | MCP server/client, approvals, tools, A2A, tunnel | MCP/A2A APIs |
 | System | `/control` | Manual engine readiness and triggers | `/api/run/*` |
+| System | `/developer` | Goal assessment, bounded coding sprints, checkpointed worker execution, worker profiles, learning, queue, releases, and evidence | Developer/Coding Agent APIs |
 
-The system menu also displays Document and Developer as unavailable/soon entries; they do not have routes.
+The system menu still displays Document as an unavailable/soon entry; it does not have a route.
 
 ## Chat Architecture
 
@@ -189,6 +190,7 @@ Theme #13 remains in owner-review state. Do not call it complete until the queue
 | Project data | SQLite and resource filesystem through PM APIs |
 | Vault session | Browser memory/header plus backend vault state |
 | Terminal mode/kill-switch/jobs | SQLite/terminal process state through Terminal APIs |
+| Developer goals/workflows/workers | SQLite development ledger, Git worktrees, Coding Agent runtime, and optional supervised runner service |
 
 ## Backend API Domains
 
@@ -202,6 +204,7 @@ The browser client should use functions exported by `dashboard/src/api.ts` or it
 | `/api/chat` | Sessions, messages, streams, runtime config/traces, runs/recovery, artifacts, feedback, activity, compaction |
 | `/api/conductor` | Tool/action status, audit, confirmation |
 | `/api/terminal` | Engine status, approval mode, kill-switch, jobs, tools |
+| `/api/developer` | Goal assessment, workflows, checkpoints, worker profiles, runner health, learning, queue, releases, and owner commands |
 | `/api/brain` | Memories, categories, import, review, conflicts, narrative, chat |
 | `/api/graph` | Graph data, search, paths, timeline, editing, sync |
 | `/api/abilities`, `/api/proposals` | Ability metrics, details, coaching, version governance |

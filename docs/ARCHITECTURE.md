@@ -1,6 +1,6 @@
 # TOBI Architecture
 
-> Current architecture snapshot: 2026-07-14 through commit `5245a25`. Code and tests remain authoritative. Configuration-dependent external services were not called during this audit.
+> Current architecture snapshot: 2026-07-16. Code and tests remain authoritative. Configuration-dependent external services were not called during this update.
 
 ## System Context
 
@@ -15,6 +15,7 @@ flowchart TD
   CLI --> Main[main.py]
 
   DashAPI --> Conductor[Conductor]
+  DashAPI --> DevControl[Coding Agent control plane]
   TelegramAdapter --> Conductor
   Main --> Scheduler[Scheduler jobs]
   Main --> PublicAPI[External API :8000]
@@ -35,6 +36,11 @@ flowchart TD
   Tools --> SQLite
   Models --> Providers[LLM providers]
   Integrations --> External[External APIs]
+  DevControl --> DevDB[(Development ledger)]
+  DevControl --> Worktrees[(Isolated Git worktrees)]
+  DevControl --> RunnerQueue[Durable runner queue]
+  RunnerQueue --> RunnerService[Supervised coding runner]
+  RunnerService --> CodingCLIs[Codex and OpenCode CLIs]
 
   Main --> Hermes[Hermes state and skills]
   Brain --> Hermes
@@ -66,6 +72,8 @@ In `start` mode, the process launches:
 - the `schedule` loop;
 - a Codespaces-only helper that attempts to publish the dashboard port.
 
+The Coding Agent goal loop runs with the application lifecycle. External Codex/OpenCode work can run locally for development or through `core.coding_runner_service` as a separate systemd-supervised process. Service mode communicates through durable SQLite jobs/events and encrypted profile-specific credential envelopes; it does not execute external CLIs inside FastAPI.
+
 The scheduler currently registers daily reports, six-hour execution, two-minute task reminders, weekly research/reflection, Brain sweep/decay, Graph sync, Storage scans, Explore refresh jobs, and a first-of-month CEO review.
 
 ## Backend Subsystems
@@ -78,6 +86,8 @@ The scheduler currently registers daily reports, six-hour execution, two-minute 
 | Conductor | `core/conductor.py` | Conversation routing, grounded tool loop, permissions, confirmations, action log | Shared by MC Chat and significant Telegram paths; now exposes direct project-resource inventory/read/search and safe-read route widening |
 | Chat mode/runtime | `core/chat_modes.py`, `chat_runtime.py`, `chat_runtime_contracts.py`, `tool_registry.py` | Normalization, capability boundaries, intent routing, typed tools, telemetry, recovery contracts | Runtime v2 is flag-controlled; route scopes focus tool choice, while mode denial and risk policy remain authoritative |
 | Agent runs/artifacts | `core/agent_runs.py`, `core/chat_store.py` | Persisted runs, checkpoints, recovery commands, action links, artifacts, message metadata | Exact action checkpoints and elapsed time survive reload; run commands resume the original run |
+| Coding Agent control plane | `core/coding_agent.py`, `coding_loop.py`, `coding_contracts.py`, `coding_assessment.py`, `coding_quality.py`, `coding_learning.py` | Goal assessment, bounded sprints, worktree workflow, checkpoints, quality gates, independent review, and evidence-backed learning | Explicit worker/reviewer profiles; high-risk scopes require owner approval; worker changes occur only at checkpoints |
+| Coding workers and runner | `core/coding_workers.py`, `coding_runner.py`, `coding_runner_service.py` | MC Native/Codex/OpenCode adapters, native-session resume, process isolation, durable service queue, output events, cancellation, and runner health | Production service uses a separate systemd process and encrypted one-secret job envelopes |
 | Deep Research/network guard | `core/deep_research.py`, `core/net_guard.py` | Research planning, source fetch/synthesis, source fencing, SSRF protection | Per-turn capability, not a main Chat mode |
 | Model router | `core/model_router.py` | Provider catalog, fallback, streaming, vision, usage logging | Nine provider types/config entries including local/custom |
 | Chat persistence | `core/chat_store.py` | Sessions, messages, forking, compaction, and cross-session message search | Premium Chat and bridged conversation history can be searched for episodic recall |
@@ -189,7 +199,7 @@ Runtime route scopes are optimization hints, not security permissions. A known r
 
 ## Persistence Model
 
-Static inspection finds 86 plausible table names created across the central schema and feature-local initializers. They fall into these ownership families:
+Tables are created across the central schema and feature-local additive initializers. They fall into these ownership families:
 
 | Family | Representative tables |
 |---|---|
@@ -203,6 +213,7 @@ Static inspection finds 86 plausible table names created across the central sche
 | MCP/A2A | `mcp_*`, `a2a_agents` |
 | Explore/analytics | `explore_*`, `storage_snapshots`, `llm_usage`, `llm_prices`, `llm_plans`, `usage_budget` |
 | Evolution/performance | `evolution_snapshots`, `performance_snapshots` |
+| Developer/Coding Agent | `development_*`, `coding_sessions`, `coding_stages`, `coding_worker_*`, `coding_checkpoints`, `coding_assessments`, `development_sprints`, `coding_runner_*`, `coding_learning_records`, `coding_playbooks`, releases and deployments |
 
 Schema initialization is additive. `core/database.py` creates the main families; several feature modules create their own tables lazily. Chat Runtime records its own versions in `schema_migrations`, but there is no repository-wide migration authority covering every subsystem.
 

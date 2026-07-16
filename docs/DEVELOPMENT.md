@@ -37,6 +37,7 @@ The Genesis vault can manage supported secrets from Mission Control after the ap
 | `venv\Scripts\python.exe main.py status` | Prints database-backed status without starting the daemon |
 | `venv\Scripts\python.exe main.py terminal` | Starts the interactive TOBI terminal/Conductor REPL |
 | `venv\Scripts\python.exe main.py test` | Tests configured connections and may contact external services; run only when that is intended |
+| `venv\Scripts\python.exe -m core.coding_runner_service` | Runs the durable external coding-worker service; use with `TOBI_CODING_RUNNER_MODE=service` |
 
 `main.py start`, `research`, `execute`, `ceo`, `test`, and configured Telegram flows can cause external calls or messages. Choose the narrowest command for the task.
 
@@ -64,6 +65,7 @@ The exact names are documented in `.env.example`.
 | External API | `API_KEY` |
 | Integrations | Notion, GitHub, Google OAuth, Vercel, Supabase names |
 | Hermes | `HERMES_DIR` |
+| Coding runner | `TOBI_CODING_RUNNER_MODE`, runner startup timeout, optional runner key path, profile-specific API key names |
 
 Do not infer connection success from a populated environment name. Use the relevant MC status and an explicit test when external interaction is authorized.
 
@@ -75,6 +77,7 @@ Do not infer connection success from a populated environment name. Use the relev
 | `<DB dir>/projects/{id}/resources/` | Project resource files | External to repo by default |
 | `~/.hermes/` | Hermes config, persona, skills, and mirrored state | External runtime state |
 | `.tobi/`, `.hermes/`, `logs/` | Repo-local runtime/user data when present | Ignored; never treat as docs source |
+| `<DB dir>/developer/runner-envelope.key` | AES-GCM key for profile-specific API-key transfer to the supervised runner | Ignored runtime secret; back up and permission like the database |
 | `dashboard/dist/` | Built Mission Control assets | Tracked in the current repository |
 | `graphify-out/` | Generated code/document graph | Ignored and may be stale |
 | `node_modules/`, `venv/` | Dependencies | Ignored |
@@ -103,6 +106,9 @@ venv\Scripts\python.exe tests\test_awakening_route.py
 venv\Scripts\python.exe tests\test_resource_access.py
 venv\Scripts\python.exe tests\test_performance_doctor.py
 venv\Scripts\python.exe tests\test_office_v3.py
+venv\Scripts\python.exe tests\test_coding_agent.py
+venv\Scripts\python.exe tests\test_coding_agent_v2.py
+venv\Scripts\python.exe tests\test_coding_agent_production.py
 ```
 
 The route suites use FastAPI/TestClient and must run with the same Python ABI as the installed `pydantic_core`. If the checked-in virtual-environment launcher points to a removed Windows Store interpreter, recreate the venv rather than mixing an incompatible Python runtime with its site-packages. A dependency-light bundled interpreter can run some unit scripts, but it is not a substitute for the project environment when FastAPI or compiled packages are required.
@@ -148,6 +154,7 @@ Read the complete target file before editing. Generated graph output is navigati
 - Chat route scopes may widen only to known safe read tools. Do not convert route narrowing into a permission system or bypass mode/risk policy.
 - Connector credentials are not durable proof of access. Preserve `test_status`/`last_tested_at` invalidation on credential changes, and do not mark Google verified before OAuth plus a successful read test.
 - Brain sweep changes must preserve per-chat fairness, owner-token lease checks, deferred failed payloads, and cleanup after recovery.
+- External coding workers must stay inside isolated worktrees. Preserve explicit worker profiles, checkpoint-only switching, bounded output/deadlines, encrypted one-secret envelopes, and owner gates for protected paths, GitHub, merge, and deployment.
 - Never use live production integrations as a routine test target.
 
 ## Documentation Delivery Rule

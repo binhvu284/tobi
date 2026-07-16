@@ -68,6 +68,23 @@ else
     exit 1
 fi
 
+# Restart the separately supervised coding runner when it is installed.
+if command -v systemctl >/dev/null 2>&1 && \
+   systemctl list-unit-files tobi-coding-runner.service >/dev/null 2>&1; then
+    echo "── Restarting supervised coding runner ──"
+    if sudo -n systemctl restart tobi-coding-runner.service; then
+        sudo -n systemctl is-active --quiet tobi-coding-runner.service || {
+            echo "  ✗ Coding runner failed to start"
+            exit 1
+        }
+        echo "✓ Coding runner restarted"
+    else
+        echo "  ⚠ Could not restart tobi-coding-runner.service without sudo."
+    fi
+elif grep -q '^TOBI_CODING_RUNNER_MODE=service' .env 2>/dev/null; then
+    echo "  ⚠ Service runner mode is enabled but tobi-coding-runner.service is not installed."
+fi
+
 echo ""
 echo "════════════════════════════════════════════════"
 echo "  ✓ Deploy complete"

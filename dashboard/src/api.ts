@@ -798,7 +798,43 @@ export type DeveloperWorkflow = {
   branch?: string | null; worktree?: string | null; base_sha?: string | null; head_sha?: string | null
   blocker?: string | null; error_code?: string | null; created_at: string; updated_at: string
   completed_at?: string | null; stages: DeveloperStage[]
+  worker_profile_slug?: string; reviewer_profile_slug?: string
+  active_worker_session_id?: number | null; current_sprint_id?: number | null
+  sprint_budget_json?: string; v2_enabled?: number
+  checkpoints?: DeveloperCheckpoint[]; worker_session?: DeveloperWorkerSession | null
+  sprint?: DeveloperSprint | null; assessment?: { id: number; payload: DeveloperAssessment } | null
   pull_request?: { number?: number | null; url?: string | null; draft?: number; ci_state?: string | null } | null
+}
+export type DeveloperCheckpoint = {
+  id: number; session_id: number; worker_session_id?: number | null; sequence: number
+  head_sha?: string | null; status: string; handoff_json: string; created_at: string
+}
+export type DeveloperWorkerSession = {
+  id: number; session_id: number; profile_slug: string; adapter: string; model?: string
+  external_session_id?: string | null; status: string; error_code?: string | null
+}
+export type DeveloperSprint = {
+  id: number; goal_id: number; sequence: number; title: string; objective: string
+  acceptance_criteria_json: string; budget_json: string; risk: string; status: string
+  checkpoint_sha?: string | null
+}
+export type DeveloperSprintPlan = {
+  sequence: number; title: string; objective: string; acceptance_criteria: string[]
+  budget: { max_files: number; max_changed_lines: number; max_subsystems: number; max_minutes: number; max_worker_steps: number }
+  risk: string
+}
+export type DeveloperAssessment = {
+  route: 'direct' | 'decompose' | 'owner_review'; risk: string; score: number
+  reasons: string[]; relevant_files: string[]; sprints: DeveloperSprintPlan[]
+  owner_review_required: boolean
+}
+export type DeveloperWorkerProfile = {
+  slug: string; name: string; adapter: 'native' | 'codex' | 'opencode' | 'hermes' | 'model_review'
+  model: string; auth_mode: 'inherited' | 'native_login' | 'vault_env'; credential_env: string
+  reviewer_profile: string; enabled: boolean; config: Record<string, unknown>
+  health_status: string; health_detail?: string | null; last_probed_at?: string | null
+  runner_mode?: 'local' | 'service'
+  runner?: { status: string; detail: string; nodes?: Array<Record<string, unknown>> } | null
 }
 export type DeveloperQueueItem = {
   id: number; queue_id: number; title: string; plan_path: string; plan_hash: string
@@ -833,6 +869,7 @@ export type DeveloperGoal = {
   id: number; title: string; objective: string; acceptance_criteria_json: string
   validation_commands_json: string; autonomy: 'sandbox' | 'pr' | 'merge_deploy'
   preferred_models_json: string; status: string; max_iterations: number; iteration_count: number
+  worker_profile_slug?: string; reviewer_profile_slug?: string; assessment_json?: string; budget_json?: string
   current_session_id?: number | null; last_error?: string | null; created_at: string; updated_at: string
 }
 
@@ -851,13 +888,21 @@ export async function getDeveloperStorage(): Promise<DeveloperStorage> {
 export async function getDeveloperGoals(): Promise<{ goals: DeveloperGoal[]; loop: { enabled: boolean; owner: string } }> {
   return vreq('/api/developer/goals')
 }
+export async function assessDeveloperGoal(input: {
+  title: string; objective: string; acceptance_criteria: string[]; validation_commands?: string[][]
+}): Promise<DeveloperAssessment> {
+  return vreq('/api/developer/goals/assess', { method: 'POST', body: JSON.stringify(input) })
+}
 export async function createDeveloperGoal(input: {
   title: string; objective: string; acceptance_criteria: string[]
   autonomy: 'sandbox' | 'pr' | 'merge_deploy'; preferred_models: string[]; max_iterations?: number
+  worker_profile_slug?: string; reviewer_profile_slug?: string
 }): Promise<DeveloperGoal> {
   return vreq('/api/developer/goals', { method: 'POST', body: JSON.stringify(input) })
 }
-export async function commandDeveloperGoal(goalId: number, command: 'pause' | 'resume' | 'cancel'): Promise<DeveloperGoal> {
+export async function commandDeveloperGoal(
+  goalId: number, command: 'pause' | 'resume' | 'cancel' | 'approve_scope',
+): Promise<DeveloperGoal> {
   return vreq(`/api/developer/goals/${goalId}/commands`, {
     method: 'POST', body: JSON.stringify({ command, idempotency_key: crypto.randomUUID() }),
   })
@@ -872,6 +917,42 @@ export async function commandDeveloperWorkflow(
 ): Promise<DeveloperWorkflow> {
   return vreq(`/api/developer/workflows/${workflowId}/commands`, {
     method: 'POST', body: JSON.stringify({ command, idempotency_key: crypto.randomUUID() }),
+  })
+}
+export async function switchDeveloperWorker(workflowId: number, profileSlug: string): Promise<DeveloperWorkflow> {
+  return vreq(`/api/developer/workflows/${workflowId}/switch-worker`, {
+    method: 'POST', body: JSON.stringify({ profile_slug: profileSlug }),
+  })
+}
+export async function getDeveloperWorkers(probe = false): Promise<{ workers: DeveloperWorkerProfile[] }> {
+  return vreq(`/api/developer/workers?probe=${probe ? 'true' : 'false'}`)
+}
+export async function saveDeveloperWorker(
+  slug: string,
+  input: Omit<DeveloperWorkerProfile, 'slug' | 'health_status' | 'health_detail' | 'last_probed_at'>,
+): Promise<DeveloperWorkerProfile> {
+  return vreq(`/api/developer/workers/${encodeURIComponent(slug)}`, {
+    method: 'PUT', body: JSON.stringify(input),
+  })
+}
+export async function probeDeveloperWorker(slug: string): Promise<DeveloperWorkerProfile> {
+  return vreq(`/api/developer/workers/${encodeURIComponent(slug)}/probe`, { method: 'POST' })
+}
+export async function getDeveloperWorkerLogin(slug: string): Promise<{
+  interactive_required: boolean; command?: string[]; detail: string
+}> {
+  return vreq(`/api/developer/workers/${encodeURIComponent(slug)}/login`)
+}
+export async function getDeveloperLearning(): Promise<{
+  records: Array<Record<string, unknown>>; playbooks: Array<Record<string, unknown>>
+}> {
+  return vreq('/api/developer/learning')
+}
+export async function replayDeveloperLearning(playbookSlug?: string): Promise<{
+  results: Array<{ slug: string; qualified: boolean; cases: number; passed: number; pass_rate: number }>
+}> {
+  return vreq('/api/developer/learning/replay', {
+    method: 'POST', body: JSON.stringify({ playbook_slug: playbookSlug || null }),
   })
 }
 export async function approveDeveloperWorkflow(

@@ -11,6 +11,8 @@ from pydantic import BaseModel, Field
 
 from core import vault
 from core.coding_agent import CodingAgent
+from core.coding_contracts import WorkerProfile
+from core.coding_learning import CodingLearningService
 from core.coding_loop import CodingLoopService
 from core.coding_policy import PolicyDenied
 
@@ -97,11 +99,39 @@ class GoalCreate(BaseModel):
     autonomy: Literal["sandbox", "pr", "merge_deploy"] = "sandbox"
     preferred_models: list[str] = Field(default_factory=list, max_length=10)
     max_iterations: int | None = Field(default=None, ge=1, le=100)
+    worker_profile_slug: str = Field(default="mc-native", min_length=2, max_length=80)
+    reviewer_profile_slug: str = Field(default="reviewer-default", min_length=2, max_length=80)
 
 
 class GoalCommand(BaseModel):
-    command: Literal["pause", "resume", "cancel"]
+    command: Literal["pause", "resume", "cancel", "approve_scope"]
     idempotency_key: str = Field(min_length=8, max_length=200)
+
+
+class GoalAssessmentRequest(BaseModel):
+    title: str = Field(min_length=3, max_length=240)
+    objective: str = Field(min_length=10, max_length=20_000)
+    acceptance_criteria: list[str] = Field(min_length=1, max_length=50)
+    validation_commands: list[list[str]] = Field(default_factory=list, max_length=20)
+
+
+class WorkerProfileRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    adapter: Literal["native", "codex", "opencode", "hermes", "model_review"]
+    model: str = Field(default="", max_length=240)
+    auth_mode: Literal["inherited", "native_login", "vault_env"] = "inherited"
+    credential_env: str = Field(default="", max_length=120)
+    reviewer_profile: str = Field(default="reviewer-default", max_length=80)
+    enabled: bool = True
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkerSwitchRequest(BaseModel):
+    profile_slug: str = Field(min_length=2, max_length=80)
+
+
+class ReplayRequest(BaseModel):
+    playbook_slug: str | None = Field(default=None, max_length=120)
 
 
 def _idempotent_command(key: str, target_type: str, target_id: int, command: str, execute) -> dict[str, Any]:
@@ -185,6 +215,19 @@ def goals(limit: int = Query(100, ge=1, le=500)) -> dict[str, Any]:
     }}
 
 
+@router.post("/goals/assess", dependencies=[Owner])
+def assess_goal(body: GoalAssessmentRequest) -> dict[str, Any]:
+    try:
+        return agent.assess_goal(
+            title=body.title,
+            objective=body.objective,
+            acceptance_criteria=body.acceptance_criteria,
+            validation_commands=body.validation_commands,
+        )
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
 @router.post("/goals", dependencies=[Owner])
 def create_goal(body: GoalCreate) -> dict[str, Any]:
     try:
@@ -198,8 +241,11 @@ def create_goal(body: GoalCreate) -> dict[str, Any]:
             autonomy=body.autonomy,
             preferred_models=body.preferred_models,
             max_iterations=body.max_iterations,
+            worker_profile_slug=body.worker_profile_slug,
+            reviewer_profile_slug=body.reviewer_profile_slug,
         )
-        start_loop()
+        if goal["status"] == "queued":
+            start_loop()
         return goal
     except Exception as exc:
         raise _error(exc) from exc
@@ -217,9 +263,14 @@ def get_goal(goal_id: int) -> dict[str, Any]:
 @router.post("/goals/{goal_id}/commands", dependencies=[Owner])
 def goal_command(goal_id: int, body: GoalCommand) -> dict[str, Any]:
     try:
+        def execute() -> dict[str, Any]:
+            result = get_loop().command(goal_id, body.command)
+            if body.command in {"resume", "approve_scope"}:
+                start_loop()
+            return result
         return _idempotent_command(
             body.idempotency_key, "goal", goal_id, body.command,
-            lambda: get_loop().command(goal_id, body.command),
+            execute,
         )
     except Exception as exc:
         raise _error(exc) from exc
@@ -269,6 +320,97 @@ def workflow_command(workflow_id: int, body: WorkflowCommand) -> dict[str, Any]:
             body.idempotency_key, "workflow", workflow_id, body.command,
             lambda: agent.command(workflow_id, body.command),
         )
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/workflows/{workflow_id}/switch-worker", dependencies=[Owner])
+def switch_worker(workflow_id: int, body: WorkerSwitchRequest) -> dict[str, Any]:
+    try:
+        return agent.switch_worker(workflow_id, body.profile_slug)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/workflows/{workflow_id}/checkpoints", dependencies=[Owner])
+def checkpoints(workflow_id: int, limit: int = Query(50, ge=1, le=200)) -> dict[str, Any]:
+    try:
+        agent.get_workflow(workflow_id)
+        return {"checkpoints": agent.store.list_checkpoints(workflow_id, limit)}
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/workers", dependencies=[Owner])
+def workers(probe: bool = Query(False)) -> dict[str, Any]:
+    try:
+        return {"workers": agent.worker_profiles(probe=probe)}
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.put("/workers/{slug}", dependencies=[Owner])
+def save_worker(slug: str, body: WorkerProfileRequest) -> dict[str, Any]:
+    try:
+        if body.auth_mode == "vault_env" and not body.credential_env:
+            raise ValueError("Vault-backed workers require a credential environment name.")
+        if body.adapter != "model_review":
+            reviewer = agent.store.get_worker_profile(body.reviewer_profile)
+            if not reviewer or reviewer["adapter"] != "model_review":
+                raise ValueError("Coding worker must reference an available reviewer profile.")
+        profile = WorkerProfile(
+            slug=slug,
+            name=body.name,
+            adapter=body.adapter,
+            model=body.model,
+            auth_mode=body.auth_mode,
+            credential_env=body.credential_env,
+            reviewer_profile=body.reviewer_profile,
+            enabled=body.enabled,
+            config=body.config,
+        )
+        return agent.store.upsert_worker_profile(profile.public_dict())
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/workers/{slug}/probe", dependencies=[Owner])
+def probe_worker(slug: str) -> dict[str, Any]:
+    try:
+        return agent.worker.probe(slug)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/workers/{slug}/login", dependencies=[Owner])
+def worker_login(slug: str) -> dict[str, Any]:
+    row = agent.store.get_worker_profile(slug)
+    if not row:
+        raise HTTPException(status_code=404, detail="Coding worker profile was not found.")
+    adapter = str(row["adapter"])
+    commands = {
+        "codex": ["codex", "login"],
+        "opencode": ["opencode", "auth", "login"],
+        "hermes": ["hermes", "login"],
+    }
+    if adapter not in commands:
+        return {"interactive_required": False, "detail": "This worker uses Models or Vault configuration."}
+    return {
+        "interactive_required": True,
+        "command": commands[adapter],
+        "detail": "Run this command in the isolated runner account terminal, then probe the worker again.",
+    }
+
+
+@router.get("/learning", dependencies=[Owner])
+def learning() -> dict[str, Any]:
+    return agent.learning_state()
+
+
+@router.post("/learning/replay", dependencies=[Owner])
+def replay_learning(body: ReplayRequest) -> dict[str, Any]:
+    try:
+        return CodingLearningService(agent.store).replay(body.playbook_slug)
     except Exception as exc:
         raise _error(exc) from exc
 

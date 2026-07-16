@@ -18,6 +18,7 @@ LOGGER = logging.getLogger(__name__)
 RETRYABLE_ERRORS = {
     "validation_failed", "review_failed", "review_unavailable", "worker_timeout",
     "worker_failed", "no_changes", "internal_error", "external_step_failed", "backend_restarted",
+    "quality_gate_failed",
 }
 CONFIG_ERRORS = {
     "worker_unavailable", "github_disabled", "deploy_disabled", "special_approval_required",
@@ -169,6 +170,12 @@ class CodingLoopService:
         self.store.finish_goal_iteration(goal_id, int(goal["iteration_count"]), state, {
             "session_id": workflow["id"], "state": workflow["state"], "completed_at": utc_now(),
         })
+        self.agent._record_learning(
+            int(workflow["id"]),
+            outcome=state,
+            stage=str(workflow.get("stage") or "completed"),
+            evidence={"goal_id": goal_id, "iteration": goal["iteration_count"]},
+        )
         return self.store.update_goal(goal_id, status=state, last_error=None, completed_at=utc_now())
 
     def command(self, goal_id: int, command: str) -> dict[str, Any]:
@@ -189,7 +196,13 @@ class CodingLoopService:
                 raise RuntimeError(f"Goal cannot resume from {goal['status']}.")
             return self.store.update_goal(goal_id, status="retrying", last_error=None,
                                           lease_owner=None, lease_expires_at=None)
-        raise ValueError("Goal command must be pause, resume, or cancel.")
+        if command == "approve_scope":
+            if goal["status"] != "awaiting_scope_approval":
+                raise RuntimeError(f"Goal does not require scope approval from {goal['status']}.")
+            return self.store.update_goal(
+                goal_id, status="queued", last_error=None, lease_owner=None, lease_expires_at=None
+            )
+        raise ValueError("Goal command must be pause, resume, cancel, or approve_scope.")
 
 
 _loop: CodingLoopService | None = None
