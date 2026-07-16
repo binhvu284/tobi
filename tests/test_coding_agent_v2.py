@@ -316,6 +316,11 @@ client = TestClient(app)
 workers_response = client.get("/api/developer/workers")
 ok("worker profile API lists seeded adapters", workers_response.status_code == 200 and
    len(workers_response.json()["workers"]) >= 4)
+ok("worker profile API exposes Models catalog and routing", (
+    "models" in workers_response.json() and
+    "providers" in workers_response.json() and
+    "coding_review" in workers_response.json()["routing"]
+))
 assessment_response = client.post("/api/developer/goals/assess", json={
     "title": "Assess secure database refactor",
     "objective": "Refactor authentication and database schema across the application.",
@@ -329,6 +334,12 @@ invalid_profile = client.put("/api/developer/workers/invalid-worker", json={
     "enabled": True, "config": {},
 })
 ok("worker API rejects missing vault credential reference", invalid_profile.status_code == 422)
+invalid_model_profile = client.put("/api/developer/workers/invalid-model-worker", json={
+    "name": "Invalid model worker", "adapter": "native", "model": "missing:model",
+    "auth_mode": "inherited", "credential_env": "", "reviewer_profile": "reviewer-default",
+    "enabled": True, "config": {},
+})
+ok("worker API rejects models outside enabled Models providers", invalid_model_profile.status_code == 422)
 learning_response = client.get("/api/developer/learning")
 ok("learning API exposes records and playbooks", learning_response.status_code == 200 and
    "playbooks" in learning_response.json())

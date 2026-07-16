@@ -18,6 +18,7 @@ import { useVaultSession } from '../hooks/useVaultSession'
 const TASKS: { id: string; label: string }[] = [
   { id: 'simple', label: 'Simple / chat' },
   { id: 'coding', label: 'Coding' },
+  { id: 'coding_review', label: 'Coding review' },
   { id: 'research', label: 'Research' },
   { id: 'writing', label: 'Writing' },
   { id: 'planning', label: 'Planning' },

@@ -36,7 +36,21 @@ Never approve missing evidence, disabled tests, policy changes, secret exposure,
             return {"qualified": False, "score": 0.0, "unmet": ["Required validation checks did not pass."],
                     "risks": [], "summary": "Validation evidence is incomplete."}
         try:
-            from core.model_router import get_llm
+            from core.model_router import available_models, get_llm, load_llm_config
+
+            config = load_llm_config()
+            selected = str(
+                model
+                or (config.get("task_overrides") or {}).get("coding_review")
+                or config.get("default_model")
+                or ""
+            )
+            if selected and selected not in {
+                str(item["id"]) for item in available_models()
+            }:
+                raise CodingReviewError(
+                    f"Reviewer model {selected} is not available from an enabled Models provider."
+                )
             client = get_llm("coding_review", model=model)
             payload = {
                 "objective": objective,
@@ -53,6 +67,8 @@ Never approve missing evidence, disabled tests, policy changes, secret exposure,
                 max_tokens=2000,
             )
             result = _json_object(raw)
+        except CodingReviewError:
+            raise
         except Exception as exc:
             raise CodingReviewError(f"Independent coding review is unavailable: {type(exc).__name__}") from exc
         qualified = bool(result.get("qualified"))

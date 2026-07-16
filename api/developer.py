@@ -344,7 +344,21 @@ def checkpoints(workflow_id: int, limit: int = Query(50, ge=1, le=200)) -> dict[
 @router.get("/workers", dependencies=[Owner])
 def workers(probe: bool = Query(False)) -> dict[str, Any]:
     try:
-        return {"workers": agent.worker_profiles(probe=probe)}
+        from core import model_router
+
+        config = model_router.load_llm_config()
+        overrides = config.get("task_overrides") or {}
+        default_model = str(config.get("default_model") or "")
+        return {
+            "workers": agent.worker_profiles(probe=probe),
+            "models": model_router.available_models(),
+            "providers": model_router.provider_catalog(),
+            "routing": {
+                "default_model": default_model,
+                "coding": str(overrides.get("coding") or default_model),
+                "coding_review": str(overrides.get("coding_review") or default_model),
+            },
+        }
     except Exception as exc:
         raise _error(exc) from exc
 
@@ -354,6 +368,14 @@ def save_worker(slug: str, body: WorkerProfileRequest) -> dict[str, Any]:
     try:
         if body.auth_mode == "vault_env" and not body.credential_env:
             raise ValueError("Vault-backed workers require a credential environment name.")
+        if body.adapter in {"native", "model_review"} and body.model:
+            from core import model_router
+
+            available = {str(item["id"]) for item in model_router.available_models()}
+            if body.model not in available:
+                raise ValueError(
+                    "Selected model is not available from an enabled Models provider."
+                )
         if body.adapter != "model_review":
             reviewer = agent.store.get_worker_profile(body.reviewer_profile)
             if not reviewer or reviewer["adapter"] != "model_review":

@@ -421,8 +421,12 @@ class CodingWorkerRouter:
             raise CodingWorkerUnavailable(
                 f"Worker adapter {profile.adapter} is disabled by reviewed policy."
             )
-        if profile.adapter == "native" and profile.model:
-            brief["preferred_models"] = [profile.model]
+        if profile.adapter == "native":
+            status, detail, selected_model = self._models_route(profile)
+            if status != "ready":
+                raise CodingWorkerUnavailable(detail)
+            if selected_model:
+                brief["preferred_models"] = [selected_model]
         checkpoint = self.store.latest_checkpoint(workflow_id) if self.store else None
         if checkpoint:
             brief["checkpoint_handoff"] = checkpoint.get("handoff") or {}
@@ -579,9 +583,8 @@ class CodingWorkerRouter:
                 "runner_mode": self.runner_mode,
                 "runner": runner_health,
             }
-        if profile.adapter == "native":
-            status = "ready"
-            detail = "Uses the Models page coding route with typed Mission Control tools."
+        if profile.adapter in {"native", "model_review"}:
+            status, detail, _ = self._models_route(profile)
         elif profile.adapter == "codex":
             result = self.codex.probe(profile)
             status, detail = result["status"], result["detail"]
@@ -591,8 +594,6 @@ class CodingWorkerRouter:
         elif profile.adapter == "hermes":
             status = "ready" if self.policy.data.get("workers", {}).get("allow_external_cli") else "disabled"
             detail = "Hermes external CLI policy state."
-        elif profile.adapter == "model_review":
-            status, detail = "ready", "Uses the Models page coding_review route."
         else:
             status, detail = "unavailable", "Unknown adapter."
         if self.store:
@@ -604,6 +605,40 @@ class CodingWorkerRouter:
             "runner_mode": self.runner_mode,
             "runner": runner_health,
         }
+
+    @staticmethod
+    def _models_route(profile: WorkerProfile) -> tuple[str, str, str]:
+        from core import model_router
+
+        config = model_router.load_llm_config()
+        task = "coding_review" if profile.adapter == "model_review" else "coding"
+        selected = str(
+            profile.model
+            or (config.get("task_overrides") or {}).get(task)
+            or config.get("default_model")
+            or ""
+        )
+        if not selected:
+            return (
+                "ready",
+                f"Uses the Models page {task.replace('_', ' ')} route with its legacy default.",
+                "",
+            )
+        available = {
+            str(item["id"]): str(item["label"])
+            for item in model_router.available_models()
+        }
+        if selected not in available:
+            return (
+                "unavailable",
+                f"Model {selected} is disabled, missing credentials, or no longer listed on the Models page.",
+                selected,
+            )
+        return (
+            "ready",
+            f"Uses Models page {task.replace('_', ' ')} model: {available[selected]}.",
+            selected,
+        )
 
     def cancel(self, workflow_id: int) -> bool:
         return bool(

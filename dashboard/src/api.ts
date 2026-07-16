@@ -836,6 +836,12 @@ export type DeveloperWorkerProfile = {
   runner_mode?: 'local' | 'service'
   runner?: { status: string; detail: string; nodes?: Array<Record<string, unknown>> } | null
 }
+export type DeveloperWorkerCatalog = {
+  workers: DeveloperWorkerProfile[]
+  models: AvailableModel[]
+  providers: LlmProvider[]
+  routing: { default_model: string; coding: string; coding_review: string }
+}
 export type DeveloperQueueItem = {
   id: number; queue_id: number; title: string; plan_path: string; plan_hash: string
   status: string; risk: string; target_version?: string | null; queue_status?: string | null
@@ -926,7 +932,7 @@ export async function switchDeveloperWorker(workflowId: number, profileSlug: str
 }
 export async function getDeveloperWorkers(
   probe = false, signal?: AbortSignal,
-): Promise<{ workers: DeveloperWorkerProfile[] }> {
+): Promise<DeveloperWorkerCatalog> {
   return vreq(`/api/developer/workers?probe=${probe ? 'true' : 'false'}`, { signal })
 }
 export async function saveDeveloperWorker(

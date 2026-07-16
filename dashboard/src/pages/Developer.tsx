@@ -13,9 +13,9 @@ import {
   getDeveloperLearning, getDeveloperOverview, getDeveloperQueue, getDeveloperStorage, getDeveloperVersions,
   getDeveloperGoals, getDeveloperWorkerLogin, getDeveloperWorkers, probeDeveloperWorker, replayDeveloperLearning,
   saveDeveloperWorker, startDeveloperWorkflow, streamDeveloperEvents, switchDeveloperWorker, cleanupDeveloperStorage,
-  type DeveloperAssessment, type DeveloperEvent, type DeveloperOverview, type DeveloperGoal,
+  type AvailableModel, type DeveloperAssessment, type DeveloperEvent, type DeveloperOverview, type DeveloperGoal,
   type DeveloperQueueItem, type DeveloperRelease, type DeveloperStorage, type DeveloperWorkerProfile,
-  type DeveloperWorkflow,
+  type DeveloperWorkflow, type LlmProvider,
 } from '../api'
 
 type Tab = 'overview' | 'goals' | 'loop' | 'workers' | 'learning' | 'queue' | 'versions' | 'storage'
@@ -287,8 +287,10 @@ function GoalsView({ goals, workers, busy, onCreate, onCommand }: {
   </div>
 }
 
-function WorkersView({ workers, busy, onSave, onProbe, onLogin }: {
+function WorkersView({ workers, models, providers, routing, busy, onSave, onProbe, onLogin }: {
   workers: DeveloperWorkerProfile[]; busy: boolean
+  models: AvailableModel[]; providers: LlmProvider[]
+  routing: { default_model: string; coding: string; coding_review: string }
   onSave: (slug: string, profile: DeveloperWorkerProfile) => void
   onProbe: (slug: string) => void
   onLogin: (slug: string) => void
@@ -300,18 +302,70 @@ function WorkersView({ workers, busy, onSave, onProbe, onLogin }: {
   if (!draft) return <Empty text="No coding worker profiles are configured." />
   const update = <K extends keyof DeveloperWorkerProfile>(key: K, value: DeveloperWorkerProfile[K]) =>
     setDraft(current => current ? { ...current, [key]: value } : current)
+  const modelsManaged = draft.adapter === 'native' || draft.adapter === 'model_review'
+  const routeTask = draft.adapter === 'model_review' ? 'coding_review' : 'coding'
+  const routeModel = routing[routeTask] || routing.default_model
+  const routeLabel = models.find(model => model.id === routeModel)?.label || routeModel || 'Legacy default'
+  const providerModels = providers
+    .map(provider => ({
+      provider,
+      models: models.filter(model => model.provider === provider.id),
+    }))
+    .filter(group => group.models.length > 0)
+  const unavailableProviders = providers.filter(provider =>
+    provider.enabled && provider.needs_key && !provider.key_present,
+  )
+  const selectedModelUnavailable = Boolean(
+    modelsManaged && draft.model && !models.some(model => model.id === draft.model),
+  )
+  const changeAdapter = (adapter: DeveloperWorkerProfile['adapter']) => {
+    setDraft(current => {
+      if (!current) return current
+      return {
+        ...current,
+        adapter,
+        model: '',
+        auth_mode: adapter === 'codex' ? 'native_login' : 'inherited',
+        credential_env: '',
+      }
+    })
+  }
   return <div className="space-y-7">
     <section className="grid gap-4 border-y border-border py-5 lg:grid-cols-[240px_minmax(0,1fr)]">
       <div><label><span className="mb-1 block text-xs text-muted">Worker profile</span><select value={slug} onChange={event => setSlug(event.target.value)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text">{workers.map(worker => <option key={worker.slug} value={worker.slug}>{worker.name}</option>)}</select></label><div className="mt-3 flex items-center gap-2"><StateBadge state={draft.health_status} /><span className="text-xs text-muted">{draft.health_detail ?? 'Not probed yet.'}</span></div>{draft.runner_mode && <div className="mt-2 text-[11px] text-muted">Execution boundary: {draft.runner_mode === 'service' ? 'supervised runner service' : 'local isolated process'}</div>}</div>
       <div className="grid gap-3 sm:grid-cols-2">
         <label><span className="mb-1 block text-xs text-muted">Name</span><input value={draft.name} onChange={event => update('name', event.target.value)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text" /></label>
-        <label><span className="mb-1 block text-xs text-muted">Adapter</span><select value={draft.adapter} onChange={event => update('adapter', event.target.value as DeveloperWorkerProfile['adapter'])} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text"><option value="native">MC Native</option><option value="codex">Codex CLI</option><option value="opencode">OpenCode CLI</option><option value="hermes">Hermes CLI</option><option value="model_review">Model reviewer</option></select></label>
-        <label><span className="mb-1 block text-xs text-muted">Model ID</span><input value={draft.model} onChange={event => update('model', event.target.value)} placeholder="Blank uses Models routing" className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text" /></label>
-        <label><span className="mb-1 block text-xs text-muted">Authentication</span><select value={draft.auth_mode} onChange={event => { const auth = event.target.value as DeveloperWorkerProfile['auth_mode']; setDraft(current => current ? { ...current, auth_mode: auth, credential_env: auth === 'vault_env' ? current.credential_env : '' } : current) }} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text"><option value="inherited">Models / inherited</option><option value="native_login">Native agent login</option><option value="vault_env">Vault environment secret</option></select></label>
-        <label><span className="mb-1 block text-xs text-muted">Vault environment name</span><input disabled={draft.auth_mode !== 'vault_env'} value={draft.auth_mode === 'vault_env' ? draft.credential_env : ''} onChange={event => update('credential_env', event.target.value.toUpperCase())} placeholder={draft.auth_mode === 'vault_env' ? 'ZAI_API_KEY' : 'Only used for Vault authentication'} className="h-10 w-full rounded-md border border-border bg-background px-3 font-mono text-sm text-text disabled:cursor-not-allowed disabled:opacity-50" /></label>
+        <label><span className="mb-1 block text-xs text-muted">Adapter</span><select value={draft.adapter} onChange={event => changeAdapter(event.target.value as DeveloperWorkerProfile['adapter'])} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text"><option value="native">MC Native</option><option value="codex">Codex CLI</option><option value="opencode">OpenCode CLI</option><option value="hermes">Hermes CLI</option><option value="model_review">Model reviewer</option></select></label>
+        {modelsManaged ? <label>
+          <span className="mb-1 block text-xs text-muted">Models provider</span>
+          <select value={draft.model} onChange={event => update('model', event.target.value)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text">
+            <option value="">Follow {routeTask === 'coding_review' ? 'Coding review' : 'Coding'} route - {routeLabel}</option>
+            {selectedModelUnavailable && <option value={draft.model}>{draft.model} - Unavailable</option>}
+            {providerModels.map(group => <optgroup key={group.provider.id} label={group.provider.label}>
+              {group.models.map(model => <option key={model.id} value={model.id}>{model.model}</option>)}
+            </optgroup>)}
+          </select>
+        </label> : <label>
+          <span className="mb-1 block text-xs text-muted">CLI model ID (optional)</span>
+          <input value={draft.model} onChange={event => update('model', event.target.value)} placeholder="Managed by the selected CLI" className="h-10 w-full rounded-md border border-border bg-background px-3 font-mono text-sm text-text" />
+        </label>}
+        {modelsManaged ? <div>
+          <span className="mb-1 block text-xs text-muted">Credentials</span>
+          <div className="flex h-10 items-center rounded-md border border-border bg-overlay/5 px-3 text-sm text-text">Managed in Models</div>
+        </div> : <label><span className="mb-1 block text-xs text-muted">Authentication</span><select value={draft.auth_mode} onChange={event => { const auth = event.target.value as DeveloperWorkerProfile['auth_mode']; setDraft(current => current ? { ...current, auth_mode: auth, credential_env: auth === 'vault_env' ? current.credential_env : '' } : current) }} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text"><option value="inherited">CLI / inherited</option><option value="native_login">Native agent login</option><option value="vault_env">Vault environment secret</option></select></label>}
+        {!modelsManaged && <label><span className="mb-1 block text-xs text-muted">Vault environment name</span><input disabled={draft.auth_mode !== 'vault_env'} value={draft.auth_mode === 'vault_env' ? draft.credential_env : ''} onChange={event => update('credential_env', event.target.value.toUpperCase())} placeholder={draft.auth_mode === 'vault_env' ? 'ZAI_API_KEY' : 'Only used for Vault authentication'} className="h-10 w-full rounded-md border border-border bg-background px-3 font-mono text-sm text-text disabled:cursor-not-allowed disabled:opacity-50" /></label>}
         <label className="flex h-10 items-center gap-2 self-end border-y border-border px-2"><input type="checkbox" checked={draft.enabled} onChange={event => update('enabled', event.target.checked)} /><span className="text-sm text-text">Enabled for new sprints</span></label>
       </div>
     </section>
+    <div className="flex flex-col gap-2 border-b border-border pb-5 text-xs text-muted sm:flex-row sm:items-start sm:justify-between">
+      <div className="leading-5">
+        {modelsManaged
+          ? `${providerModels.length} enabled provider${providerModels.length === 1 ? '' : 's'} - ${models.length} usable model${models.length === 1 ? '' : 's'} from Models.`
+          : 'External CLI model IDs and authentication are managed by that CLI. Select MC Native to use a Models-page provider.'}
+        {modelsManaged && unavailableProviders.length > 0 && <div className="text-warning">Enabled but unavailable: {unavailableProviders.map(provider => provider.label).join(', ')}. Add credentials in Models or Integrations.</div>}
+      </div>
+      <a href="/models" className="inline-flex shrink-0 items-center gap-1 text-accent hover:underline">Manage models <ExternalLink size={12} /></a>
+    </div>
     <div className="flex flex-wrap gap-2"><button disabled={busy} onClick={() => onSave(draft.slug, draft)} className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background disabled:opacity-40"><Save size={14} /> Save profile</button><button disabled={busy} onClick={() => onProbe(draft.slug)} className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm text-text disabled:opacity-40"><TestTube2 size={14} /> Test worker</button>{draft.auth_mode === 'native_login' && <button disabled={busy} onClick={() => onLogin(draft.slug)} className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm text-text disabled:opacity-40"><KeyRound size={14} /> Login instructions</button>}</div>
     <section><h2 className="mb-3 text-sm font-semibold text-text">Worker availability</h2><div className="border-t border-border">{workers.map(worker => <div key={worker.slug} className="grid gap-2 border-b border-border/70 py-3 sm:grid-cols-[minmax(0,1fr)_190px_140px] sm:items-center"><div><div className="flex items-center gap-2"><Bot size={14} className="text-accent" /><span className="text-sm text-text">{worker.name}</span></div><div className="mt-1 text-xs text-muted">{worker.slug} · {worker.model || 'Models route'}</div></div><div className="text-xs text-muted">{label(worker.adapter)} · {label(worker.auth_mode)}{worker.runner_mode ? ` · ${label(worker.runner_mode)}` : ''}</div><div className="sm:text-right"><StateBadge state={worker.health_status} /></div></div>)}</div></section>
   </div>
@@ -401,6 +455,9 @@ export default function Developer() {
   const [storage, setStorage] = useState<DeveloperStorage | null>(null)
   const [goals, setGoals] = useState<DeveloperGoal[]>([])
   const [workers, setWorkers] = useState<DeveloperWorkerProfile[]>([])
+  const [workerModels, setWorkerModels] = useState<AvailableModel[]>([])
+  const [workerProviders, setWorkerProviders] = useState<LlmProvider[]>([])
+  const [modelRouting, setModelRouting] = useState({ default_model: '', coding: '', coding_review: '' })
   const [learning, setLearning] = useState<{ records: Array<Record<string, unknown>>; playbooks: Array<Record<string, unknown>> }>({ records: [], playbooks: [] })
   const [events, setEvents] = useState<DeveloperEvent[]>([])
   const [loading, setLoading] = useState(true)
@@ -429,7 +486,9 @@ export default function Developer() {
       ])
       if (controller.signal.aborted) return
       setOverview(o); setQueue(q.items); setReleases(v.releases); setStorage(s); setGoals(g.goals)
-      setWorkers(w.workers); setLearning(learn); setError(null)
+      setWorkers(w.workers); setWorkerModels(w.models ?? []); setWorkerProviders(w.providers ?? [])
+      setModelRouting(w.routing ?? { default_model: '', coding: '', coding_review: '' })
+      setLearning(learn); setError(null)
     } catch (err) {
       if (controller.signal.aborted && !timedOut) return
       const apiError = err as { message?: string; status?: number; code?: string }
@@ -494,12 +553,16 @@ export default function Developer() {
   const createGoal = (input: Parameters<typeof createDeveloperGoal>[0]) => act(() => createDeveloperGoal(input), 'Development goal queued')
   const goalCommand = (id: number, cmd: 'pause' | 'resume' | 'cancel' | 'approve_scope') => act(() => commandDeveloperGoal(id, cmd), `Goal ${label(cmd)} accepted`)
   const switchWorker = (slug: string) => active && act(() => switchDeveloperWorker(active.id, slug), `Worker switched to ${slug}`)
-  const saveWorker = (slug: string, profile: DeveloperWorkerProfile) => workerAction(() => saveDeveloperWorker(slug, {
-    name: profile.name, adapter: profile.adapter, model: profile.model, auth_mode: profile.auth_mode,
-    credential_env: profile.auth_mode === 'vault_env' ? profile.credential_env : '',
-    reviewer_profile: profile.reviewer_profile,
-    enabled: profile.enabled, config: profile.config,
-  }), 'Worker profile saved')
+  const saveWorker = (slug: string, profile: DeveloperWorkerProfile) => {
+    const modelsManaged = profile.adapter === 'native' || profile.adapter === 'model_review'
+    return workerAction(() => saveDeveloperWorker(slug, {
+      name: profile.name, adapter: profile.adapter, model: profile.model,
+      auth_mode: modelsManaged ? 'inherited' : profile.auth_mode,
+      credential_env: !modelsManaged && profile.auth_mode === 'vault_env' ? profile.credential_env : '',
+      reviewer_profile: profile.reviewer_profile,
+      enabled: profile.enabled, config: profile.config,
+    }), 'Worker profile saved')
+  }
   const probeWorker = (slug: string) => workerAction(() => probeDeveloperWorker(slug), `Worker ${slug} tested`)
   const loginWorker = async (slug: string) => {
     setBusy(true)
@@ -543,7 +606,7 @@ export default function Developer() {
             </div>}
             {tab === 'loop' && <CodingLoop workflow={active} events={events} workers={workers} busy={busy} onSwitch={switchWorker} />}
             {tab === 'goals' && <GoalsView goals={goals} workers={workers} busy={busy} onCreate={createGoal} onCommand={goalCommand} />}
-            {tab === 'workers' && <WorkersView workers={workers} busy={busy} onSave={saveWorker} onProbe={probeWorker} onLogin={loginWorker} />}
+            {tab === 'workers' && <WorkersView workers={workers} models={workerModels} providers={workerProviders} routing={modelRouting} busy={busy} onSave={saveWorker} onProbe={probeWorker} onLogin={loginWorker} />}
             {tab === 'learning' && <LearningView state={learning} busy={busy} onReplay={replayLearning} />}
             {tab === 'queue' && <QueueView items={queue} busy={busy} onStart={id => act(() => startDeveloperWorkflow(id), `Queue #${id} started`)} />}
             {tab === 'versions' && <VersionsView releases={releases} />}
