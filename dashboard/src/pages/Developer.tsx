@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle, BookOpen, Bot, CheckCircle2, Circle, Code2, ExternalLink, GitBranch,
-  Cpu, KeyRound, Loader2, Pause, Play, Plus, RefreshCw, RotateCcw, Save, ShieldCheck,
+  KeyRound, Loader2, Pause, Play, Plus, RefreshCw, RotateCcw, Save, ShieldCheck,
   Square, Target, TerminalSquare, TestTube2, XCircle,
 } from 'lucide-react'
 import AmbientField from '../components/motion/AmbientField'
+import LlmLogo, { BRAND_META, brandForModel, brandForProvider } from '../components/LlmLogo'
 import VaultUnlockPanel from '../components/VaultUnlockPanel'
 import { useToast } from '../context/ToastProvider'
 import { useVaultSession } from '../hooks/useVaultSession'
@@ -333,7 +334,7 @@ function WorkersView({ workers, models, providers, routing, busy, onSave, onProb
   const selectedModelUnavailable = Boolean(
     modelsManaged && draft.model && !models.some(model => model.id === draft.model),
   )
-  const effectiveModel = draft.model || routeModel
+  const effectiveModel = modelsManaged ? (draft.model || routeModel) : draft.model
   const effectiveModelLabel = models.find(model => model.id === effectiveModel)?.label
     || effectiveModel
     || 'Legacy environment route'
@@ -352,19 +353,46 @@ function WorkersView({ workers, models, providers, routing, busy, onSave, onProb
     hermes: 'Hermes CLI',
     model_review: 'Model review',
   }[adapter])
-  const adapterIcon = (adapter: DeveloperWorkerProfile['adapter']) => {
-    if (adapter === 'native') return <Cpu size={15} />
-    if (adapter === 'model_review') return <ShieldCheck size={15} />
-    return <TerminalSquare size={15} />
-  }
-  const workerModel = (worker: DeveloperWorkerProfile) => {
+  const workerModelId = (worker: DeveloperWorkerProfile) => {
     if (worker.adapter === 'native' || worker.adapter === 'model_review') {
       const task = worker.adapter === 'model_review' ? 'coding_review' : 'coding'
-      const inherited = routing[task] || routing.default_model
-      const id = worker.model || inherited
-      return models.find(model => model.id === id)?.label || id || 'Legacy route'
+      return worker.model || routing[task] || routing.default_model
     }
-    return worker.model || 'CLI default'
+    return worker.model
+  }
+  const workerModel = (worker: DeveloperWorkerProfile) => {
+    const id = workerModelId(worker)
+    return models.find(model => model.id === id)?.label || id || 'CLI default'
+  }
+  const workerProvider = (worker: DeveloperWorkerProfile) => {
+    if (worker.adapter === 'codex') return 'codex'
+    return null
+  }
+  const workerLogo = (worker: DeveloperWorkerProfile, size = 15) =>
+    <LlmLogo model={workerModelId(worker)} provider={workerProvider(worker)} size={size} />
+  const draftProvider = draft.adapter === 'codex' ? 'codex' : null
+  const draftLogo = (size = 15) =>
+    <LlmLogo model={modelsManaged ? effectiveModel : draft.model} provider={draftProvider} size={size} />
+  const draftBrand = effectiveModel ? brandForModel(effectiveModel) : brandForProvider(draftProvider)
+  const providerName = BRAND_META[draftBrand].name
+  const iconDescription = modelsManaged || draft.model
+    ? `${providerName} model provider`
+    : `${adapterName(draft.adapter)} default`
+  const providerBadge = (
+    <span className="inline-flex items-center gap-1.5 text-[11px] text-muted">
+      {draftLogo(12)}
+      <span>{providerName}</span>
+    </span>
+  )
+  const modelLabelWithProvider = (
+    <div className="flex min-w-0 items-center gap-2">
+      {draftLogo(14)}
+      <span className="min-w-0 break-words">{effectiveModelLabel}</span>
+    </div>
+  )
+  const providerLogoTitle = (worker: DeveloperWorkerProfile) => {
+    const id = workerModelId(worker)
+    return models.find(model => model.id === id)?.label || workerModel(worker)
   }
   const healthDot = (status: string) => {
     if (status === 'ready') return 'bg-success'
@@ -419,9 +447,7 @@ function WorkersView({ workers, models, providers, routing, busy, onSave, onProb
             className={`group min-w-0 bg-surface px-4 py-3 text-left transition-colors ${active ? 'border-l-2 border-accent bg-accent/10 pl-[14px]' : 'border-l-2 border-transparent hover:bg-overlay/5'}`}
           >
             <div className="flex items-start gap-3">
-              <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border ${active ? 'border-accent/40 bg-accent/10 text-accent' : 'border-border text-muted group-hover:text-text'}`}>
-                {adapterIcon(worker.adapter)}
-              </div>
+              <span className="mt-0.5" title={providerLogoTitle(worker)}>{workerLogo(worker, 15)}</span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className={`truncate text-sm font-medium ${active ? 'text-text' : 'text-muted group-hover:text-text'}`}>{worker.name}</span>
@@ -439,7 +465,7 @@ function WorkersView({ workers, models, providers, routing, busy, onSave, onProb
     <section className="min-w-0 bg-surface">
       <header className="flex min-h-14 flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-accent/30 bg-accent/10 text-accent">{adapterIcon(draft.adapter)}</div>
+          <span title={iconDescription}>{draftLogo(18)}</span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="truncate text-sm font-semibold text-text">{draft.name}</h2>
@@ -495,12 +521,13 @@ function WorkersView({ workers, models, providers, routing, busy, onSave, onProb
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="border-l-2 border-accent pl-3">
                   <div className="text-[10px] uppercase text-muted">Effective model</div>
-                  <div className="mt-1 break-words text-xs font-medium text-text">{effectiveModelLabel}</div>
+                  <div className="mt-1 text-xs font-medium text-text">{modelLabelWithProvider}</div>
                   <div className="mt-1 text-[10px] text-muted">{draft.model ? 'Pinned to this worker' : `Inherited from ${routeTask === 'coding_review' ? 'Coding review' : 'Coding'} route`}</div>
                 </div>
                 <div className="border-l-2 border-border pl-3">
                   <div className="text-[10px] uppercase text-muted">Model catalog</div>
-                  <div className="mt-1 text-xs text-text">{providerModels.length} providers / {models.length} models</div>
+                  <div className="mt-1">{providerBadge}</div>
+                  <div className="mt-1 text-[10px] text-muted">{providerModels.length} providers / {models.length} models</div>
                   <a href="/models" className="mt-1 inline-flex items-center gap-1 text-[10px] text-accent hover:underline">Manage models <ExternalLink size={10} /></a>
                 </div>
               </div>
