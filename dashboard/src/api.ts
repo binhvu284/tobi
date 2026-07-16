@@ -10,6 +10,7 @@ export * from './api.office'
 export * from './api.abilities'
 export * from './api.pm'
 export * from './api.brain'
+export * from './api.architecture'
 
 export async function getStatus() {
   return get('/api/status')

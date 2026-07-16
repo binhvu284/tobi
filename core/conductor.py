@@ -79,29 +79,14 @@ def tool_get_evolution(**_: Any) -> dict:
     }
 
 
-_ARCHITECTURE = {
-    "summary": "TOBI is a personal-Jarvis agent: a Python service that runs Mission Control "
-               "and a Telegram bot over one shared brain.",
-    "layers": [
-        {"layer": "Host / runtime", "detail": "Python 3 process on a Windows dev box (local migration) or VPS; "
-         "main.py is the orchestrator + scheduler (run modes: start/bot/api/research/execute/ceo)."},
-        {"layer": "API", "detail": "FastAPI in api/dashboard.py serves the Mission Control dashboard and every "
-         "/api/* endpoint, plus the mounted MCP server."},
-        {"layer": "Engines (core/)", "detail": "model_router, task_classifier, research, executor, CEO loop, "
-         "brain (the second brain), graph_engine, and this conductor."},
-        {"layer": "Data", "detail": "SQLite (core/database.py): projects, tasks, agents, missions, lessons, "
-         "conversations, brain_memories, and the encrypted vault."},
-        {"layer": "Interfaces", "detail": "The React Mission Control chat and the Telegram bot — both front doors "
-         "onto the Conductor."},
-        {"layer": "Integrations", "detail": "The Genesis vault holds encrypted credentials for Notion, GitHub, "
-         "Vercel, Supabase, Telegram, the LLM providers, and Tavily."},
-    ],
-}
-
-
 def tool_explain_architecture(**_: Any) -> dict:
-    """TOBI's real system architecture, layer by layer."""
-    return _ARCHITECTURE
+    """TOBI's real system architecture, layer by layer. The prose lives in
+    core/architecture_docs.LAYERS (one source of truth with the Architecture V2 page, #20)."""
+    try:
+        from core import architecture_docs
+        return architecture_docs.layers()
+    except Exception:
+        return {"summary": "Architecture information is temporarily unavailable.", "layers": []}
 
 
 def tool_office_status(**_: Any) -> dict:

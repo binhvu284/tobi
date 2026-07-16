@@ -1,0 +1,39 @@
+%% Mission Control — React frontend architecture (canonical). Flowchart-only subset (#20).
+%% Derived from dashboard/src App.tsx composition, the provider stack, and the API client split.
+flowchart TD
+  App[App.tsx route composition] --> Theme[ThemeProvider]
+  Theme --> Motion[MotionProvider]
+  Motion --> Toast[ToastProvider]
+  Toast --> Tabs[WorkspaceTabsProvider]
+  Tabs --> Shell[AppShell shell and navigation]
+
+  Shell --> Header[Global header and tab strip]
+  Shell --> Sidebar[Sidebar and command palette]
+  Shell --> Panes[Mounted workspace route panes]
+
+  Panes --> Chat[Chat and Agent]
+  Panes --> Projects[Projects and workspaces]
+  Panes --> Brain[Brain]
+  Panes --> Graph[Graph]
+  Panes --> Evolution[Evolution and Ability]
+  Panes --> Architecture[Architecture]
+  Panes --> Office[Office V3]
+  Panes --> Health[Health and Performance]
+  Panes --> Developer[Developer]
+  Panes --> More[Explore, Storage, Integrations, Settings]
+
+  Chat --> Client[api.ts barrel]
+  Projects --> Client
+  Brain --> Client
+  Evolution --> Client
+  Architecture --> Client
+  Health --> Client
+
+  Client --> Domains[Domain API modules]
+  Domains --> Core[apiCore get and request]
+  Core --> DashAPI[FastAPI 8080]
+
+  Graph -.-> Lazy[Lazy-loaded heavy chunks]
+  Office -.-> Lazy
+  More -.-> Lazy
+  Architecture -.-> Lazy
