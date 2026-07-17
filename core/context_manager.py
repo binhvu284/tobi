@@ -140,6 +140,9 @@ def build_manifest(message: str, mode: str, history: list[dict], project_context
             if block:
                 manifest.add(_item("brain_recall", "Owner memory recall", block, "trusted", 0.88,
                                    {"chips": chips}))
+                from core import brain_feedback   # T08: owner-visible influence trace
+                brain_feedback.record_influence([c["memory_id"] for c in chips],
+                                                manifest.mode, query_hint=message or "")
         except Exception:
             pass  # recall is additive — a failure must never break the turn
 

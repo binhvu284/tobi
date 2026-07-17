@@ -770,6 +770,26 @@ def _ensure_brain_schema(conn: sqlite3.Connection) -> None:
         created_at        DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Brain V2 (#20 / T08): usefulness feedback + influence traces. Feedback
+    -- tunes ranking only — it never deletes a memory or its evidence. Influence
+    -- rows record which memory shaped which turn (the owner-visible trace).
+    CREATE TABLE IF NOT EXISTS brain_memory_feedback (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        memory_id   INTEGER NOT NULL REFERENCES brain_memory_v2(id) ON DELETE CASCADE,
+        verdict     TEXT NOT NULL,                     -- useful | irrelevant | wrong
+        turn_ref    TEXT,                              -- the turn/influence event it judges
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_memory_influence (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        memory_id   INTEGER NOT NULL REFERENCES brain_memory_v2(id) ON DELETE CASCADE,
+        surface     TEXT DEFAULT 'chat',               -- chat | agent
+        turn_ref    TEXT,
+        query_hint  TEXT,                              -- truncated query context (why it surfaced)
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- Brain V2 (#20 / T06): owner-approved legacy migration. Preview scans legacy
     -- brain_memories (never modifying them) into grouped proposals; apply creates
     -- V2 rows via the real engine with compat_ref back to the legacy id. The run

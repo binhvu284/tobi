@@ -54,9 +54,13 @@ def _estimate_tokens(text: str) -> int:
 
 
 def usefulness(memory_id: int) -> float:
-    """Usefulness-feedback signal (0–1). Neutral until T08 lands the feedback
-    table; the ranking already carries its 5% weight so T08 plugs in here."""
-    return 0.5
+    """Usefulness-feedback signal (0–1) from the T08 verdict store; neutral 0.5
+    when unavailable so retrieval never depends on the feedback table."""
+    try:
+        from core import brain_feedback
+        return brain_feedback.usefulness(memory_id)
+    except Exception:
+        return 0.5
 
 
 # ── stage 1: stable behavior profile ─────────────────────────────────────────
