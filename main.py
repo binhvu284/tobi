@@ -227,6 +227,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ── Silence noisy HTTP polling logs (Telegram getUpdates, httpx, etc.) ──
+for _name in ("httpx", "httpcore", "openai", "urllib3"):
+    logging.getLogger(_name).setLevel(logging.WARNING)
+
 _tg_app = None
 
 
@@ -780,9 +784,27 @@ async def run_daemon():
     await app.updater.start_polling(drop_pending_updates=True)
     logger.info("🤖 Tobi running + polling Telegram. Ctrl+C to stop.\n")
 
+    import time as _time, math as _math
+    _boot = _time.time()
+    _pulse = 0
+    # Smoke wisps — each heartbeat prints a different fragment so when many
+    # lines accumulate in the console they form a flowing smoke wave pattern.
+    _SMOKE_CHARS = ['·', '⋅', '∘', '○', '◌', '◯', '○', '∘', '⋅', '·']
+    _SMOPE_WISP = '˜'
     try:
         while True:
             schedule.run_pending()
+            _pulse += 1
+            if _pulse % 5 == 0:  # every ~5 min
+                _mins = int((_time.time() - _boot) / 60)
+                _h = _mins // 60
+                _m = _mins % 60
+                _uptime = f"{_h}h{_m:02d}m" if _h else f"{_m}m"
+                # Smoke intensity breathes in a sine wave (0–6 wisps)
+                _wave = round(_math.sin((_pulse / 5) * 0.6) * 3 + 3)
+                _char = _SMOKE_CHARS[(_pulse // 5) % len(_SMOKE_CHARS)]
+                _wisps = _SMOPE_WISP * max(0, _wave)
+                logger.info(f"🚬 still smoking, everything okay! · uptime {_uptime}  {_wisps}{_char}")
             await asyncio.sleep(60)
     finally:
         await app.updater.stop()
