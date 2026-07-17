@@ -294,7 +294,12 @@ def apply_run(run_id: int, conn: Optional[sqlite3.Connection] = None,
     remaining = c.execute(
         "SELECT count(*) FROM brain_migration_items WHERE run_id=? AND approved=1 "
         "AND applied_memory_id IS NULL AND error IS NULL", (run_id,)).fetchone()[0]
-    if remaining == 0:
+    applied_total = c.execute(
+        "SELECT count(*) FROM brain_migration_items WHERE run_id=? AND applied_memory_id IS NOT NULL",
+        (run_id,)).fetchone()[0]
+    # Only finalize once something was actually applied — an apply with zero
+    # approvals must NOT close the run and strand its undecided items.
+    if remaining == 0 and applied_total > 0:
         _touch(c, run_id, status="applied")
     return {"applied_now": done, "remaining_approved": remaining, **run_status(run_id, conn=c)}
 

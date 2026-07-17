@@ -280,18 +280,20 @@ function MigrationTab() {
       const st = await v2MigrationCommand(run.id, 'apply')
       setRun(st)
       await refresh(run.id)
-      toast({ kind: 'success', title: `Applied ${st.applied} approved items — legacy rows untouched` })
+      toast({ kind: 'success', title: `Applied ${st.applied_now ?? st.applied} approved items — legacy rows untouched` })
     } catch (e) { toast({ kind: 'error', title: errMsg(e) }) }
     finally { setBusy(false) }
   }, [run, refresh, toast])
 
-  const decideGroup = useCallback(async (g: string, approve: boolean) => {
+  const decide = useCallback(async (approve: boolean, payload: { ids?: number[]; group?: string }) => {
     if (!run) return
-    try { await v2MigrationDecide(run.id, approve, { group: g }); await refresh(run.id) }
+    try { await v2MigrationDecide(run.id, approve, payload); await refresh(run.id) }
     catch (e) { toast({ kind: 'error', title: errMsg(e) }) }
   }, [run, refresh, toast])
 
   const visible = useMemo(() => group === 'all' ? items : items.filter(i => i.group === group), [items, group])
+  const approvedCount = useMemo(() => items.filter(i => i.approved === true && !i.applied_memory_id).length, [items])
+  const triaging = run !== null && (run.status === 'ready' || run.status === 'applied')
 
   return (
     <div className="space-y-3">
@@ -308,27 +310,36 @@ function MigrationTab() {
         <>
           <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface/40 p-3">
             <Badge tone={run.status === 'applied' ? 'success' : 'accent'}>{run.status}</Badge>
-            <span className="text-xs text-muted">{run.scanned}/{run.total_legacy} scanned · {run.applied} applied</span>
+            <span className="text-xs text-muted">{run.scanned}/{run.total_legacy} scanned · {run.applied} applied · {approvedCount} approved waiting</span>
             <div className="ml-auto flex gap-1.5">
-              {run.status === 'ready' && (
-                <button disabled={busy} onClick={apply}
-                  className="rounded-lg border border-success/40 bg-success/10 px-2 py-1 text-[11px] font-medium text-success">Apply approved</button>
+              {triaging && (
+                <button disabled={busy || approvedCount === 0} onClick={apply}
+                  title={approvedCount === 0 ? 'Approve items first — ✓ a row, a group, or Approve all' : undefined}
+                  className="rounded-lg border border-success/40 bg-success/10 px-2 py-1 text-[11px] font-medium text-success disabled:opacity-40">
+                  Apply approved ({approvedCount})
+                </button>
               )}
               <button onClick={() => { setRun(null); setItems([]) }}
                 className="rounded-lg border border-border px-2 py-1 text-[11px] text-muted hover:text-text">Close</button>
             </div>
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {['all', ...Object.keys(run.groups)].map(g => (
               <button key={g} onClick={() => setGroup(g)}
                 className={`rounded-full border px-2.5 py-1 text-[11px] ${group === g ? 'border-accent/50 bg-accent/15 text-accent' : 'border-border text-muted hover:text-text'}`}>
                 {g}{g !== 'all' && ` (${run.groups[g]})`}
               </button>
             ))}
-            {group !== 'all' && run.status === 'ready' && (
+            {triaging && (
               <span className="ml-auto flex gap-1.5">
-                <button onClick={() => decideGroup(group, true)} className="rounded-lg border border-border px-2 py-1 text-[11px] text-muted hover:text-success">Approve group</button>
-                <button onClick={() => decideGroup(group, false)} className="rounded-lg border border-border px-2 py-1 text-[11px] text-muted hover:text-danger">Reject group</button>
+                <button onClick={() => decide(true, group === 'all' ? {} : { group })}
+                  className="rounded-lg border border-success/40 px-2 py-1 text-[11px] text-success hover:bg-success/10">
+                  Approve {group === 'all' ? 'all' : group}
+                </button>
+                <button onClick={() => decide(false, group === 'all' ? {} : { group })}
+                  className="rounded-lg border border-border px-2 py-1 text-[11px] text-muted hover:text-danger">
+                  Reject {group === 'all' ? 'all' : group}
+                </button>
               </span>
             )}
           </div>
@@ -346,6 +357,14 @@ function MigrationTab() {
                     {i.applied_memory_id && <Badge tone="purple">applied #{i.applied_memory_id}</Badge>}
                   </div>
                 </div>
+                {!i.error && !i.applied_memory_id && triaging && (
+                  <div className="flex shrink-0 gap-1">
+                    <button onClick={() => decide(true, { ids: [i.id] })}
+                      className={`rounded-lg border px-2 py-1 text-[11px] ${i.approved === true ? 'border-success/50 bg-success/15 text-success' : 'border-border text-muted hover:text-success'}`}>✓</button>
+                    <button onClick={() => decide(false, { ids: [i.id] })}
+                      className={`rounded-lg border px-2 py-1 text-[11px] ${i.approved === false ? 'border-danger/50 bg-danger/15 text-danger' : 'border-border text-muted hover:text-danger'}`}>✗</button>
+                  </div>
+                )}
               </div>
             ))}
           </div>

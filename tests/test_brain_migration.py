@@ -153,6 +153,14 @@ legacy_after = [tuple(r) for r in conn.execute(
     "SELECT id, content, category, confidence, source, status FROM brain_memories ORDER BY id").fetchall()]
 ok("legacy rows completely untouched (acceptance)", legacy_after == legacy_before)
 
+# ── zero-approval apply must not strand the run ──────────────────────────────
+run3 = mig.create_run(conn=conn)
+mig.run_preview(run3, conn=conn)
+r0 = mig.apply_run(run3, conn=conn)   # nothing approved yet
+ok("apply with zero approvals applies nothing and keeps the run open",
+   r0["applied_now"] == 0 and r0["status"] == "ready", str(r0["status"]))
+mig.cancel_run(run3, conn=conn)
+
 # ── cancel path ──────────────────────────────────────────────────────────────
 run2 = mig.create_run(conn=conn)
 mig.run_preview(run2, conn=conn, max_steps=3)
