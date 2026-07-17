@@ -99,13 +99,24 @@ export function chatTabKey(route: string): string | null {
   return m ? `chat:${m[1]}` : null
 }
 
+// Brain V2 (#20 T09): /brain/v2 is an inner route of the ONE Brain tab (same
+// pattern as project inner tabs) — navigating between legacy and V2 swaps the
+// tab's content instead of being ignored as an unknown route.
+const BRAIN_V2_RE = /^\/brain\/v2$/
+
+export function brainTabKey(route: string): string | null {
+  return BRAIN_V2_RE.test(normalizeWorkspaceRoute(route)) ? '/brain' : null
+}
+
 function tabKeyFor(route: string): string {
-  return projectTabKey(route) ?? chatTabKey(route) ?? normalizeWorkspaceRoute(route)
+  return projectTabKey(route) ?? chatTabKey(route) ?? brainTabKey(route)
+    ?? normalizeWorkspaceRoute(route)
 }
 
 function isTabbable(route: string): boolean {
   const clean = normalizeWorkspaceRoute(route)
   return ROUTE_META.has(clean) || PROJECT_ROUTE_RE.test(clean) || CHAT_SESSION_RE.test(clean)
+    || BRAIN_V2_RE.test(clean)
 }
 
 export function getWorkspaceRouteMeta(route: string): WorkspaceRouteMeta {
@@ -114,6 +125,7 @@ export function getWorkspaceRouteMeta(route: string): WorkspaceRouteMeta {
   if (pkey) return { route: pkey, label: `Project ${pkey.split('/')[2]}`, Icon: FolderKanban }
   const ckey = chatTabKey(clean)
   if (ckey) return { route: ckey, label: 'Chat', Icon: MessagesSquare }
+  if (BRAIN_V2_RE.test(clean)) return ROUTE_META.get('/brain') ?? WORKSPACE_ROUTES[0]
   return ROUTE_META.get(clean) ?? WORKSPACE_ROUTES[0]
 }
 
