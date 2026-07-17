@@ -99,6 +99,12 @@ def _stable_profile() -> str:
                      for cat in ordered if cat in kept)
 
 
+def _stable_profile_v2() -> str:
+    """#20 T07: the typed V2 stable profile (versioned, ≤800 tokens)."""
+    from core import brain_retrieval
+    return brain_retrieval.stable_profile()[0]
+
+
 def build_manifest(message: str, mode: str, history: list[dict], project_context: Optional[dict] = None,
                    attachments_text: str = "") -> ContextManifest:
     budget = 16000 if mode == "agent" else 6000
@@ -109,9 +115,33 @@ def build_manifest(message: str, mode: str, history: list[dict], project_context
     # (it contributes nothing to the prompt — prompt_context skips it and it rides in via history).
 
     # 1. Owner memory — ALWAYS present (the fix): a budget-capped stable profile, not a regex gate.
-    profile = _cached("owner_profile", _stable_profile)
+    # #20 T07: with brain.v2_enabled the profile comes from the typed V2 store (versioned,
+    # authority-aware) and a query-dependent recall block is added; flag off = legacy unchanged.
+    v2_on = False
+    try:
+        from core import owner_flags
+        v2_on = owner_flags.brain_v2_mode() == "on"
+    except Exception:
+        pass
+    if v2_on:
+        profile = _cached("owner_profile_v2", _stable_profile_v2)
+        profile = profile or _cached("owner_profile", _stable_profile)  # V2 store may be young
+    else:
+        profile = _cached("owner_profile", _stable_profile)
     if profile:  # guard the empty case: estimate_tokens is max(1, …), so "" would still cost 1
         manifest.add(_item("owner_memory", "Owner memory", profile, "trusted", 0.9))
+
+    # 1b. #20 T07 stage-2 recall (V2 on only): ranked task memories within the mode budgets,
+    # with owner-visible chips in metadata. Query-dependent → deliberately uncached.
+    if v2_on:
+        try:
+            from core import brain_retrieval
+            block, chips = brain_retrieval.context_block(message or "", manifest.mode)
+            if block:
+                manifest.add(_item("brain_recall", "Owner memory recall", block, "trusted", 0.88,
+                                   {"chips": chips}))
+        except Exception:
+            pass  # recall is additive — a failure must never break the turn
 
     # 2. Evolution — genuinely query-scoped (tier/awakening questions). Kept gated on purpose.
     if _EVOLUTION_RE.search(message or ""):
