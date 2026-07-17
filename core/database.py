@@ -770,6 +770,38 @@ def _ensure_brain_schema(conn: sqlite3.Connection) -> None:
         created_at        DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Brain V2 (#20 / T06): owner-approved legacy migration. Preview scans legacy
+    -- brain_memories (never modifying them) into grouped proposals; apply creates
+    -- V2 rows via the real engine with compat_ref back to the legacy id. The run
+    -- row is the migration ledger + resume checkpoint.
+    CREATE TABLE IF NOT EXISTS brain_migration_runs (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        status          TEXT DEFAULT 'preview',        -- preview | ready | applied | cancelled
+        snapshot_json   TEXT,                          -- pre-migration counts (spec step 1)
+        next_legacy_id  INTEGER DEFAULT 0,             -- resume checkpoint (scan cursor)
+        total_legacy    INTEGER DEFAULT 0,
+        created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_migration_items (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id            INTEGER NOT NULL REFERENCES brain_migration_runs(id) ON DELETE CASCADE,
+        legacy_id         INTEGER NOT NULL,            -- brain_memories.id (read-only source)
+        group_kind        TEXT,                        -- reclassify | duplicate | conflict | sensitive | noise
+        candidate_json    TEXT,                        -- NULL when sensitive (vault-encrypted instead)
+        sensitive         INTEGER DEFAULT 0,
+        enc_ct            BLOB,
+        enc_nonce         BLOB,
+        proposed_outcome  TEXT,
+        proposed_status   TEXT,
+        matched_legacy_id INTEGER,                     -- intra-run duplicate/conflict partner
+        approved          INTEGER,                     -- NULL undecided | 1 | 0
+        applied_memory_id INTEGER,                     -- set on apply (also the resume guard)
+        error             TEXT,
+        created_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS brain_conflicts (
         id                  INTEGER PRIMARY KEY AUTOINCREMENT,
         memory_id           INTEGER REFERENCES brain_memories(id) ON DELETE CASCADE,
