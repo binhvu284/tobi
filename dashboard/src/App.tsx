@@ -20,6 +20,7 @@ import Models from './pages/Models'
 import Integrations from './pages/Integrations'
 import Mcp from './pages/Mcp'
 import Brain from './pages/Brain'
+import BrainV2 from './pages/BrainV2'
 import Chat from './pages/Chat'
 import Inbox from './pages/Inbox'
 import Actions from './pages/Actions'
@@ -44,6 +45,7 @@ function RouteSet({ location }: { location?: string }) {
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/inbox" element={<Inbox />} />
       <Route path="/brain" element={<Brain />} />
+      <Route path="/brain/v2" element={<BrainV2 />} />
       <Route path="/chat" element={<Chat />} />
       <Route path="/chat/:sessionId" element={<Chat />} />
       <Route path="/actions" element={<Actions />} />
