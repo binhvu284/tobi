@@ -796,15 +796,14 @@ async def run_daemon():
                 _h = _mins // 60
                 _m = _mins % 60
                 _uptime = f"{_h}h{_m:02d}m" if _h else f"{_m}m"
-                # ── Smoke: a connected sine-wave trail ──
-                # Each heartbeat prints a 3-char wave segment (〜) at a
-                # smoothly drifting horizontal offset. Because the offset
-                # oscillates in a sine, consecutive lines overlap and the
-                # 〜 characters visually connect into one flowing smoke
-                # stream that sways left ↔ right.
-                _step = _pulse // 5  # heartbeat count
-                _offset = int(6 + 3 * _math.sin(_step * 0.45))  # drifts 3→9, slow sway
-                _trail = ' ' * _offset + '\u301c\u301c\u301c'   # 〜〜〜
+                # ── Smoke: a connected vertical smoke trail ──
+                # Each heartbeat prints a vertical bar (╎) at a smoothly
+                # drifting horizontal position. Consecutive lines overlap
+                # so the bars connect top-to-bottom, forming one continuous
+                # smoke column that sways left ↔ right.
+                _step = _pulse // 5
+                _offset = int(6 + 3 * _math.sin(_step * 0.45))
+                _trail = ' ' * _offset + '\u254e\u254e'  # ╎╎ (vertical smoke)
                 logger.info(f"\U0001f6ac still smoking, everything okay! \u00b7 uptime {_uptime}  {_trail}")
             await asyncio.sleep(60)
     finally:
