@@ -38,4 +38,5 @@ Generated Graphify data lives in `graphify-out/`. Use it to locate related symbo
 - Preserve user/runtime data under `.tobi/`, `.hermes/`, the configured database directory, and project resources.
 - Treat port-8080 Mission Control as a trusted single-owner surface unless authentication is added.
 - Do not run `main.py start` casually: it starts Telegram and scheduled work. Use the narrower commands in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for local verification.
+- UI buttons that trigger async work (network calls, renders, exports) MUST show an inline loading state — a spinner and/or a disabled state — for the duration, so the UI never appears frozen and the action can't be double-fired. Re-enable on both success and failure.
 - Token efficiency: prefer token-saving methods — graphify-first analysis, targeted file-range reads, and search tools over full-file dumps (`core/performance_doctor.py` is the reference pattern: it reads the graph as a map and opens source only to count lines, never feeding raw code to an LLM). When you use one, name the method and give a rough estimate of the tokens or % saved versus the naive approach.

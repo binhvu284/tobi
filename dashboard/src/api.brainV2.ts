@@ -88,12 +88,17 @@ export async function v2Stats(): Promise<V2Stats> { return get('/api/brain/v2/st
 export async function v2Profile(): Promise<{ profile: string; version: string; token_budget: number }> {
   return get('/api/brain/v2/profile')
 }
-export async function v2Memories(f: { status?: string; memory_type?: string } = {}): Promise<V2Memory[]> {
+export async function v2Memories(f: { status?: string; memory_type?: string; limit?: number } = {}): Promise<V2Memory[]> {
   const p = new URLSearchParams()
   if (f.status) p.set('status', f.status)
   if (f.memory_type) p.set('memory_type', f.memory_type)
+  if (f.limit) p.set('limit', String(f.limit))
   const q = p.toString()
   return get(`/api/brain/v2/memories${q ? `?${q}` : ''}`)
+}
+export async function v2Remember(content: string, category?: string):
+  Promise<{ ok: boolean; action?: string; v2?: { id?: number | null; outcome?: string; status?: string | null; skipped?: string } }> {
+  return request('/api/brain/v2/remember', { method: 'POST', body: JSON.stringify({ content, category }) })
 }
 export async function v2Memory(id: number): Promise<V2Memory> { return get(`/api/brain/v2/memories/${id}`) }
 export async function v2SetStatus(id: number, status: string): Promise<V2Memory> {

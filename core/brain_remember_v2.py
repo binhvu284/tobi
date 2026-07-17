@@ -58,19 +58,113 @@ _SENSITIVE_RE = re.compile(
     r"address|phone\s*number|passport|id\s*card|ssn|salary|income|medical|diagnos\w+|"
     r"medication|therapy|hospital)\b", re.I)
 
+# Keyword type inference for the heuristic path. When the background LLM is
+# unavailable (or returns junk), the legacy category classifier degrades to a
+# blanket "identity" default, so every Remember was mis-typed as identity. These
+# rules recover a sensible type from the content itself, first match wins.
+_TYPE_RULES = [
+    (MemoryType.BEHAVIOR_RULE,
+     r"\b(always|never|must|should always|don'?t ever|make sure|ensure you|"
+     r"when i (say|said|ask|mention)|whenever i)\b"),
+    (MemoryType.FRUSTRATION_TRIGGER,
+     r"\b(annoy\w*|frustrat\w*|hate when|drives me|pisses me|hallucinat\w*|stop (doing|saying))\b"),
+    (MemoryType.PREFERENCE,
+     r"\b(i prefer|prefer(s|red)?|i like|i love|i hate|i want|favou?rite|i'?d rather|"
+     r"call me|address me as|please use)\b"),
+    (MemoryType.RELATIONSHIP,
+     r"\bmy (wife|husband|partner|friend|colleague|boss|manager|team|mother|father|"
+     r"mom|dad|brother|sister|son|daughter|co-?founder)\b"),
+    (MemoryType.WORKFLOW_STANDARD,
+     r"\b(workflow|process|procedure|report|format|template|checklist|standard|"
+     r"weekly|daily|routine|deliver(ed|y)?)\b"),
+    (MemoryType.PROJECT_CONTEXT,
+     r"\b(project|repo(sitor(y|ies))?|codebase|mission control|\bmc\b|deploy\w*|"
+     r"feature|endpoint|api|database|tobi|dashboard|build|pipeline)\b"),
+    (MemoryType.IDENTITY,
+     r"\b(i am|i'?m a|my name is|i work as|i'?m from|i live in|i was born|my role is)\b"),
+]
+
+# Meta-instruction wrappers the owner types around a Remember; stripped so the
+# stored text is the fact, not the framing. Order-independent, applied repeatedly.
+_PREAMBLE_RE = re.compile(
+    r"^\s*(so\s+)?(please\s+)?(also\s+)?(remember|note|keep in mind|don'?t forget|"
+    r"save|store|remember this|remember that)[:,]?\s+(this|that|it)?\b[:,]?\s*", re.I)
+_TRAILER_RE = re.compile(
+    r"\s*(understand\??|understood\??|got it\??|okay\??|ok\??|clear\??|"
+    r"remember (it|this|that)?( to your brain)?\.?|to your brain\.?)\s*$", re.I)
+
+
+def _clean_remember_text(content: str) -> str:
+    """Trim the conversational framing owners wrap around a fact so the stored
+    memory reads as a fact, not a chat line. Conservative: only strips known
+    leading/trailing wrappers, never touches the middle."""
+    text = content.strip()
+    for _ in range(3):
+        new = _TRAILER_RE.sub("", _PREAMBLE_RE.sub("", text)).strip()
+        if new == text:
+            break
+        text = new
+    # unwrap a fully-quoted remainder
+    if len(text) >= 2 and text[0] in "\"'“‘" and text[-1] in "\"'”’":
+        text = text[1:-1].strip()
+    return text or content.strip()
+
+
+def _classify_type(content: str, category: Optional[str]) -> MemoryType:
+    """Keyword type inference. A real category hint (not the LLM-failure
+    'identity' default) is honoured first; otherwise the content decides."""
+    if category and category != "identity" and category in CATEGORY_TO_TYPE:
+        return CATEGORY_TO_TYPE[category]
+    low = content.lower()
+    for mtype, pat in _TYPE_RULES:
+        if re.search(pat, low):
+            return mtype
+    # fall back to the (possibly weak) category hint, else FACT
+    return CATEGORY_TO_TYPE.get(category or "", MemoryType.FACT)
+
+
+def _looks_rambling(content: str) -> bool:
+    """A long or clearly conversational Remember can't be trusted as a clean,
+    distilled fact — it should queue for review, not auto-activate."""
+    words = len(content.split())
+    meta = re.search(r"\b(when i (say|said|ask)|i meant|something like|understand\?|"
+                     r"remember it to your brain|what (changes|update|feature))\b",
+                     content, re.I)
+    return words > 22 or bool(meta)
+
 
 def heuristic_candidate(content: str, category: Optional[str] = None,
                         source_ref: str = "remember") -> MemoryCandidate:
     """Deterministic fallback candidate for an explicit owner Remember.
 
-    Dims are calibrated so a typical explicit remember scores ~72: strong enough
-    to activate when safe, while the sensitive/hard/conflict gates still queue
-    risky content. No model, no network."""
+    Clean, short statements score ~72 and activate when safe. Long or
+    conversational input (which the LLM would normally distill, but can't when
+    the background model is down) is typed by keyword, lightly de-framed, and
+    scored into the pending band so trash never silently enters the profile —
+    it surfaces for the owner to review, edit, or approve. No model, no network."""
+    cleaned = _clean_remember_text(content)
     sensitive = bool(_SENSITIVE_RE.search(content)) or category == "health"
+    mtype = _classify_type(cleaned, category)
+    tags = (category,) if category and category != "identity" else ()
+
+    if _looks_rambling(content):
+        # undistilled + rambling → land in pending (score ~52), not active
+        return MemoryCandidate(
+            distilled_text=cleaned,
+            memory_type=mtype,
+            tags=tags + ("undistilled",),
+            explicitness=Explicitness.EXPLICIT,
+            confidence=0.75,
+            durability=0.7, actionability=0.5, specificity=0.35,
+            source_strength=0.9, novelty=0.4, future_usefulness=0.45,  # ~52 → pending
+            trust=Trust.TRUSTED,
+            sensitive=sensitive,
+            source_ref=source_ref,
+        )
     return MemoryCandidate(
-        distilled_text=content,
-        memory_type=CATEGORY_TO_TYPE.get(category or "", MemoryType.FACT),
-        tags=(category,) if category else (),
+        distilled_text=cleaned,
+        memory_type=mtype,
+        tags=tags,
         explicitness=Explicitness.EXPLICIT,   # the owner said "remember this"
         confidence=0.9,
         durability=0.85, actionability=0.6, specificity=0.7,
