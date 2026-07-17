@@ -227,6 +227,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ── Silence noisy HTTP polling logs (Telegram getUpdates, httpx, etc.) ──
+for _name in ("httpx", "httpcore", "openai", "urllib3"):
+    logging.getLogger(_name).setLevel(logging.WARNING)
+
 _tg_app = None
 
 
@@ -780,9 +784,19 @@ async def run_daemon():
     await app.updater.start_polling(drop_pending_updates=True)
     logger.info("🤖 Tobi running + polling Telegram. Ctrl+C to stop.\n")
 
+    import time as _time
+    _boot = _time.time()
+    _pulse = 0
     try:
         while True:
             schedule.run_pending()
+            _pulse += 1
+            if _pulse % 5 == 0:  # every ~5 min
+                _mins = int((_time.time() - _boot) / 60)
+                _h = _mins // 60
+                _m = _mins % 60
+                _uptime = f"{_h}h{_m:02d}m" if _h else f"{_m}m"
+                logger.info(f"🚬 still smoking, everything okay! · uptime {_uptime}")
             await asyncio.sleep(60)
     finally:
         await app.updater.stop()
