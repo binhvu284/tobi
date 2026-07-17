@@ -192,6 +192,15 @@ except Exception as _developer_err:
     import logging as _logging
     _logging.getLogger("tobi.dashboard").warning("Developer router unavailable: %s", _developer_err)
 
+# Queue #20 T09: Brain Memory V2 API — additive under /api/brain/v2/*; the
+# legacy /api/brain/* routes below are untouched.
+try:
+    from api.brain_v2 import router as brain_v2_router
+    app.include_router(brain_v2_router)
+except Exception as _brain_v2_err:
+    import logging as _logging
+    _logging.getLogger("tobi.dashboard").warning("Brain V2 router unavailable: %s", _brain_v2_err)
+
 # MCP Hub (#5) — mount TOBI's MCP server (Streamable HTTP) at /mcp. Inbound auth,
 # rate-limit, scope, and audit are enforced by McpAuthMiddleware inside the app.
 if MCP_AVAILABLE:
