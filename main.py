@@ -784,7 +784,7 @@ async def run_daemon():
     await app.updater.start_polling(drop_pending_updates=True)
     logger.info("🤖 Tobi running + polling Telegram. Ctrl+C to stop.\n")
 
-    import time as _time, math as _math, random as _rand
+    import time as _time, math as _math
     _boot = _time.time()
     _pulse = 0
     try:
@@ -796,20 +796,15 @@ async def run_daemon():
                 _h = _mins // 60
                 _m = _mins % 60
                 _uptime = f"{_h}h{_m:02d}m" if _h else f"{_m}m"
-                # ── Smoke: scattered particles that drift + billow ──
-                # Each heartbeat emits 2–5 smoke particles at drifting
-                # horizontal positions. When stacked vertically, they
-                # look like rising, dispersing smoke from the cigarette.
-                _rng = _rand.Random(_pulse * 7919 + 31)
-                _particles = ['\u2218', '\u00b7', '\u22c5', '\u02d8', '\u02da']
-                _n = _rng.randint(2, 5)
-                _positions = sorted(_rng.randint(0, 14) for _ in range(_n))
-                _trail = ''
-                _prev = -1
-                for _pos in _positions:
-                    _gap = ' ' * (_pos - _prev - 1)
-                    _trail += _gap + _rng.choice(_particles)
-                    _prev = _pos
+                # ── Smoke: a connected sine-wave trail ──
+                # Each heartbeat prints a 3-char wave segment (〜) at a
+                # smoothly drifting horizontal offset. Because the offset
+                # oscillates in a sine, consecutive lines overlap and the
+                # 〜 characters visually connect into one flowing smoke
+                # stream that sways left ↔ right.
+                _step = _pulse // 5  # heartbeat count
+                _offset = int(6 + 3 * _math.sin(_step * 0.45))  # drifts 3→9, slow sway
+                _trail = ' ' * _offset + '\u301c\u301c\u301c'   # 〜〜〜
                 logger.info(f"\U0001f6ac still smoking, everything okay! \u00b7 uptime {_uptime}  {_trail}")
             await asyncio.sleep(60)
     finally:
