@@ -1072,26 +1072,45 @@ def retrieve(query: str, k: int = 6) -> list[dict]:
     return semantic_search(query, k=k)
 
 
-def profile_summary(max_per_cat: int = 4) -> str:
+def profile_rows(max_per_cat: int = 4) -> list[tuple[str, str]]:
+    """The structured source of profile_summary(): (category, content) for active memories,
+    ≤max_per_cat per category, confidence-ranked within each, emitted in CATEGORY_IDS order.
+    Returned as whole rows so callers (e.g. the stable-profile builder) can trim by WHOLE
+    memory rather than slicing a joined string (splitting on '; ' would corrupt any memory
+    that itself contains '; ')."""
     conn = get_connection()
-    rows = conn.execute(
-        """SELECT category, content FROM brain_memories
-           WHERE status='active' AND deleted_at IS NULL
-           ORDER BY confidence DESC, updated_at DESC LIMIT 80"""
-    ).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute(
+            """SELECT category, content FROM brain_memories
+               WHERE status='active' AND deleted_at IS NULL
+               ORDER BY confidence DESC, updated_at DESC LIMIT 80"""
+        ).fetchall()
+    finally:
+        conn.close()  # close even if the table is missing, so callers can't leak the handle
     by: dict[str, list[str]] = {}
     for r in rows:
         by.setdefault(r["category"], [])
         if len(by[r["category"]]) < max_per_cat:
             by[r["category"]].append(r["content"])
-    if not by:
-        return ""
-    parts = []
+    out: list[tuple[str, str]] = []
     for cat in CATEGORY_IDS:
-        if by.get(cat):
-            parts.append(f"{cat.upper()}: " + "; ".join(by[cat]))
-    return "\n".join(parts)
+        for content in by.get(cat, []):
+            out.append((cat, content))
+    return out
+
+
+def profile_summary(max_per_cat: int = 4) -> str:
+    rows = profile_rows(max_per_cat)
+    if not rows:
+        return ""
+    by: dict[str, list[str]] = {}
+    order: list[str] = []
+    for cat, content in rows:
+        if cat not in by:
+            by[cat] = []
+            order.append(cat)
+        by[cat].append(content)
+    return "\n".join(f"{cat.upper()}: " + "; ".join(by[cat]) for cat in order)
 
 
 def get_narrative() -> Optional[dict]:
@@ -1314,19 +1333,24 @@ def mirror_to_hermes(limit: int = 50) -> dict:
     return {"mirrored": mirrored}
 
 
-def remember(content: str, category: Optional[str] = None) -> dict:
+def _resolve_category(content: str, category: Optional[str]) -> str:
+    if category and category in CATEGORY_IDS:
+        return category
+    raw = _llm(
+        f"Classify this fact about the owner into exactly one category from {CATEGORY_IDS}. "
+        f"Reply with only the category id.\n\nFact: {content}",
+        max_tokens=10, task_type="classify",
+    )
+    category = (raw or "").strip().lower()
+    return category if category in CATEGORY_IDS else "identity"
+
+
+def remember_legacy(content: str, category: Optional[str] = None) -> dict:
+    """The pre-V2 Remember path, byte-for-byte (T04 keeps it as the rollback)."""
     content = (content or "").strip()
     if not content:
         return {"ok": False}
-    if not category or category not in CATEGORY_IDS:
-        raw = _llm(
-            f"Classify this fact about the owner into exactly one category from {CATEGORY_IDS}. "
-            f"Reply with only the category id.\n\nFact: {content}",
-            max_tokens=10, task_type="classify",
-        )
-        category = (raw or "").strip().lower()
-        if category not in CATEGORY_IDS:
-            category = "identity"
+    category = _resolve_category(content, category)
     # Dedup: if nearly identical to an existing memory (≥ MERGE_THRESHOLD), merge.
     # Otherwise create as active immediately — never route to conflict queue,
     # because the user explicitly asked to remember this.
@@ -1339,6 +1363,35 @@ def remember(content: str, category: Optional[str] = None) -> dict:
         return {"ok": True, "id": best_id, "category": category, "action": "merged"}
     mid = add_memory(content, category, confidence=0.9, source="remember", status="active")
     return {"ok": True, "id": mid, "category": category, "action": "active"}
+
+
+def remember(content: str, category: Optional[str] = None) -> dict:
+    """Explicit owner Remember, routed by owner_flags.brain_v2_mode() (#20 T04):
+    off → legacy path exactly as before; shadow → legacy result + best-effort V2
+    ingest alongside (additive `v2` key, failures never surface); on → V2 is
+    authoritative with a legacy compat row and the legacy response shape."""
+    content = (content or "").strip()
+    if not content:
+        return {"ok": False}
+    try:
+        from core import owner_flags
+        mode = owner_flags.brain_v2_mode()
+    except Exception:
+        mode = "off"
+    if mode == "off":
+        return remember_legacy(content, category)
+
+    from core import brain_remember_v2
+    if mode == "shadow":
+        res = remember_legacy(content, category)
+        v2 = brain_remember_v2.remember_shadow(content, res.get("category") or category,
+                                               compat_ref=res.get("id"))
+        if v2 is not None:
+            res["v2"] = {"id": v2.memory_id, "outcome": v2.outcome,
+                         "status": v2.status.value if v2.status else None}
+        return res
+    # mode == "on"
+    return brain_remember_v2.remember_on(content, _resolve_category(content, category))
 
 
 # ── stats ────────────────────────────────────────────────────────────────────

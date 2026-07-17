@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Brain as BrainIcon, Search, Plus, Upload, Sparkles, Inbox, Filter,
@@ -162,6 +163,9 @@ export default function Brain() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link to="/brain/v2" className="flex items-center gap-1.5 rounded-lg border border-purple/40 bg-purple/10 px-2.5 py-1.5 text-xs font-medium text-purple hover:bg-purple/20">
+            <Sparkle size={13} /> Brain V2
+          </Link>
           <button onClick={() => setShowReview(true)} className="relative flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted hover:text-text">
             <Inbox size={13} /> Review
             {!!(stats && (stats.pending + stats.conflicts)) && <span className="rounded-full bg-warning px-1.5 text-[10px] font-bold text-bg">{stats.pending + stats.conflicts}</span>}

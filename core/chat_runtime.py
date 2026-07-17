@@ -130,14 +130,9 @@ def ensure_schema() -> None:
 
 def runtime_mode() -> str:
     ensure_schema()
-    conn = get_connection()
-    try:
-        conn.execute("CREATE TABLE IF NOT EXISTS owner_settings (key TEXT PRIMARY KEY, value TEXT)")
-        row = conn.execute("SELECT value FROM owner_settings WHERE key=?", (RUNTIME_FLAG,)).fetchone()
-        value = str(row[0] if row else "on").strip().lower()
-        return value if value in {"off", "shadow", "on"} else "on"
-    finally:
-        conn.close()
+    # Fails open (unset/unknown → "on") — the shipped behavior of this live flag; do not change.
+    from core import owner_flags
+    return owner_flags.get_enum(RUNTIME_FLAG, {"off", "shadow", "on"}, default="on")
 
 
 def set_runtime_mode(mode: str) -> str:
@@ -145,13 +140,8 @@ def set_runtime_mode(mode: str) -> str:
     if mode not in {"off", "shadow", "on"}:
         raise ValueError("chat_runtime_v2 must be off, shadow, or on")
     ensure_schema()
-    conn = get_connection()
-    try:
-        conn.execute("CREATE TABLE IF NOT EXISTS owner_settings (key TEXT PRIMARY KEY, value TEXT)")
-        conn.execute("INSERT OR REPLACE INTO owner_settings(key,value) VALUES (?,?)", (RUNTIME_FLAG, mode))
-        conn.commit()
-    finally:
-        conn.close()
+    from core import owner_flags
+    owner_flags.set_str(RUNTIME_FLAG, mode)
     return mode
 
 

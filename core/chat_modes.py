@@ -45,35 +45,14 @@ def _conn():
     return get_connection()
 
 
-def _ensure_settings(conn) -> None:
-    conn.execute("CREATE TABLE IF NOT EXISTS owner_settings (key TEXT PRIMARY KEY, value TEXT)")
-
-
 def _get_setting(key: str, default: str) -> str:
-    try:
-        conn = _conn()
-        try:
-            _ensure_settings(conn)
-            row = conn.execute("SELECT value FROM owner_settings WHERE key=?", (key,)).fetchone()
-            return row[0] if row and row[0] is not None else default
-        finally:
-            conn.close()
-    except Exception:
-        return default
+    from core import owner_flags
+    return owner_flags.get_str(key, default)
 
 
 def _set_setting(key: str, value: str) -> None:
-    conn = _conn()
-    try:
-        _ensure_settings(conn)
-        conn.execute(
-            "INSERT INTO owner_settings (key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (key, value),
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    from core import owner_flags
+    owner_flags.set_str(key, value)
 
 
 def mode_v2_enabled() -> bool:

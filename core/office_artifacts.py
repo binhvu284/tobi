@@ -63,12 +63,10 @@ def ensure_schema(conn=None) -> None:
                 created_at TEXT NOT NULL,
                 consumed_at TEXT
             );
-            CREATE TABLE IF NOT EXISTS owner_settings (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
             """
         )
+        from core import owner_flags  # owner_settings lives in the shared helper (canonical shape)
+        owner_flags.ensure_schema(conn)
         conn.commit()
     finally:
         if own:
@@ -77,15 +75,8 @@ def ensure_schema(conn=None) -> None:
 
 def v3_enabled() -> bool:
     default = os.getenv("OFFICE_V3_ENABLED", "1").strip().lower() not in {"0", "false", "off", "no"}
-    conn = get_connection()
-    try:
-        ensure_schema(conn)
-        row = conn.execute("SELECT value FROM owner_settings WHERE key=?", (FLAG_KEY,)).fetchone()
-        if not row:
-            return default
-        return str(row[0]).strip().lower() in {"1", "true", "on", "yes"}
-    finally:
-        conn.close()
+    from core import owner_flags
+    return owner_flags.get_bool(FLAG_KEY, default)
 
 
 def stage_action_payload(action: str, args: dict) -> dict:
@@ -146,18 +137,8 @@ def discard_action_payload(args: dict) -> None:
 
 
 def set_v3_enabled(enabled: bool) -> bool:
-    conn = get_connection()
-    try:
-        ensure_schema(conn)
-        conn.execute(
-            "INSERT INTO owner_settings(key,value) VALUES(?,?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (FLAG_KEY, "1" if enabled else "0"),
-        )
-        conn.commit()
-        return bool(enabled)
-    finally:
-        conn.close()
+    from core import owner_flags
+    return owner_flags.set_bool(FLAG_KEY, enabled)
 
 
 def _safe_payload(payload: Optional[dict]) -> Optional[str]:

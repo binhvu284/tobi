@@ -668,6 +668,160 @@ def _ensure_brain_schema(conn: sqlite3.Connection) -> None:
         created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- ── Brain Memory V2 (#20 / T01) — additive; legacy brain_memories untouched ──
+    CREATE TABLE IF NOT EXISTS brain_memory_v2 (
+        id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+        compat_ref           INTEGER REFERENCES brain_memories(id) ON DELETE SET NULL,
+        distilled_text       TEXT NOT NULL,
+        memory_type          TEXT NOT NULL,            -- brain_contracts.MemoryType
+        behavior_implication TEXT DEFAULT '',
+        scope_type           TEXT DEFAULT 'global',    -- ScopeType
+        scope_key            TEXT,
+        authority            TEXT DEFAULT 'soft',      -- Authority: soft | hard
+        explicitness         TEXT DEFAULT 'inferred',  -- Explicitness: explicit | inferred
+        confidence           REAL DEFAULT 0.6,
+        durability           REAL DEFAULT 0,
+        actionability        REAL DEFAULT 0,
+        specificity          REAL DEFAULT 0,
+        source_strength      REAL DEFAULT 0,
+        novelty              REAL DEFAULT 0,
+        future_usefulness    REAL DEFAULT 0,
+        quality_score        REAL DEFAULT 0,           -- weighted 0–100
+        suggested_usage      TEXT DEFAULT '',
+        trust                TEXT DEFAULT 'trusted',   -- Trust: trusted | untrusted
+        sensitive            INTEGER DEFAULT 0,        -- bool
+        status               TEXT DEFAULT 'pending',   -- MemoryStatus
+        created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at           DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_memory_evidence (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        memory_id   INTEGER NOT NULL REFERENCES brain_memory_v2(id) ON DELETE CASCADE,
+        excerpt     TEXT DEFAULT '',                   -- <= 320 chars
+        source_ref  TEXT,
+        trust       TEXT DEFAULT 'trusted',
+        provenance  TEXT,                              -- how/where captured
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_memory_links (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_id     INTEGER NOT NULL REFERENCES brain_memory_v2(id) ON DELETE CASCADE,
+        to_id       INTEGER NOT NULL REFERENCES brain_memory_v2(id) ON DELETE CASCADE,
+        link_type   TEXT NOT NULL,                     -- supersedes | supports | conflicts_with | derived_from
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_memory_tags (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        memory_id   INTEGER NOT NULL REFERENCES brain_memory_v2(id) ON DELETE CASCADE,
+        tag         TEXT NOT NULL,
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Brain V2 (#20 / T02): vault-encrypted sensitive fields. The plaintext columns
+    -- above hold a redaction placeholder for sensitive memories; the real bytes live
+    -- here, AES-GCM-encrypted via vault.encrypt_payload (bound to `purpose` as AAD).
+    -- Purged with the memory on owner deletion; unreadable while the vault is locked.
+    CREATE TABLE IF NOT EXISTS brain_secure_payloads (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        memory_id   INTEGER NOT NULL REFERENCES brain_memory_v2(id) ON DELETE CASCADE,
+        field       TEXT NOT NULL,                     -- 'distilled_text' | 'evidence:<evidence_id>'
+        purpose     TEXT NOT NULL,                     -- AES-GCM AAD binding used at encrypt time
+        ciphertext  BLOB NOT NULL,
+        nonce       BLOB NOT NULL,
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(memory_id, field)
+    );
+
+    -- Brain V2 (#20 / T05): resumable dry-run import jobs. The upload itself is
+    -- vault-encrypted (payload_*); progress checkpoints in next_chunk so a
+    -- restart resumes exactly where it stopped. Temp payloads are purged on
+    -- commit/cancel and expired after 24h.
+    CREATE TABLE IF NOT EXISTS brain_ingestion_jobs (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        filename        TEXT NOT NULL,
+        status          TEXT DEFAULT 'dry_run',        -- dry_run | ready | committed | cancelled | failed
+        total_chunks    INTEGER DEFAULT 0,
+        next_chunk      INTEGER DEFAULT 0,             -- resume checkpoint
+        payload_ct      BLOB,                          -- vault-encrypted upload (NULL after purge)
+        payload_nonce   BLOB,
+        payload_purpose TEXT,
+        error           TEXT,
+        created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_ingestion_candidates (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id            INTEGER NOT NULL REFERENCES brain_ingestion_jobs(id) ON DELETE CASCADE,
+        chunk_index       INTEGER DEFAULT 0,
+        candidate_json    TEXT,                        -- NULL when sensitive (vault-encrypted instead)
+        sensitive         INTEGER DEFAULT 0,
+        enc_ct            BLOB,
+        enc_nonce         BLOB,
+        proposed_outcome  TEXT,                        -- dry-run preview: active|pending|rejected|merged|conflicted|corrected
+        proposed_status   TEXT,
+        matched_id        INTEGER,
+        approved          INTEGER,                     -- NULL = undecided, 1 = approve, 0 = reject
+        applied_memory_id INTEGER,                     -- set on commit
+        error             TEXT,
+        created_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Brain V2 (#20 / T08): usefulness feedback + influence traces. Feedback
+    -- tunes ranking only — it never deletes a memory or its evidence. Influence
+    -- rows record which memory shaped which turn (the owner-visible trace).
+    CREATE TABLE IF NOT EXISTS brain_memory_feedback (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        memory_id   INTEGER NOT NULL REFERENCES brain_memory_v2(id) ON DELETE CASCADE,
+        verdict     TEXT NOT NULL,                     -- useful | irrelevant | wrong
+        turn_ref    TEXT,                              -- the turn/influence event it judges
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_memory_influence (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        memory_id   INTEGER NOT NULL REFERENCES brain_memory_v2(id) ON DELETE CASCADE,
+        surface     TEXT DEFAULT 'chat',               -- chat | agent
+        turn_ref    TEXT,
+        query_hint  TEXT,                              -- truncated query context (why it surfaced)
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Brain V2 (#20 / T06): owner-approved legacy migration. Preview scans legacy
+    -- brain_memories (never modifying them) into grouped proposals; apply creates
+    -- V2 rows via the real engine with compat_ref back to the legacy id. The run
+    -- row is the migration ledger + resume checkpoint.
+    CREATE TABLE IF NOT EXISTS brain_migration_runs (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        status          TEXT DEFAULT 'preview',        -- preview | ready | applied | cancelled
+        snapshot_json   TEXT,                          -- pre-migration counts (spec step 1)
+        next_legacy_id  INTEGER DEFAULT 0,             -- resume checkpoint (scan cursor)
+        total_legacy    INTEGER DEFAULT 0,
+        created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_migration_items (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id            INTEGER NOT NULL REFERENCES brain_migration_runs(id) ON DELETE CASCADE,
+        legacy_id         INTEGER NOT NULL,            -- brain_memories.id (read-only source)
+        group_kind        TEXT,                        -- reclassify | duplicate | conflict | sensitive | noise
+        candidate_json    TEXT,                        -- NULL when sensitive (vault-encrypted instead)
+        sensitive         INTEGER DEFAULT 0,
+        enc_ct            BLOB,
+        enc_nonce         BLOB,
+        proposed_outcome  TEXT,
+        proposed_status   TEXT,
+        matched_legacy_id INTEGER,                     -- intra-run duplicate/conflict partner
+        approved          INTEGER,                     -- NULL undecided | 1 | 0
+        applied_memory_id INTEGER,                     -- set on apply (also the resume guard)
+        error             TEXT,
+        created_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS brain_conflicts (
         id                  INTEGER PRIMARY KEY AUTOINCREMENT,
         memory_id           INTEGER REFERENCES brain_memories(id) ON DELETE CASCADE,

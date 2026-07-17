@@ -9,7 +9,6 @@ import ErrorBoundary from './components/ErrorBoundary'
 import PageBoot from './components/motion/PageBoot'
 import PageLoader from './components/PageLoader'
 import Dashboard from './pages/Dashboard'
-import Architecture from './pages/Architecture'
 import Ability from './pages/Ability'
 import Evolution from './pages/Evolution'
 import Health from './pages/Health'
@@ -21,6 +20,7 @@ import Models from './pages/Models'
 import Integrations from './pages/Integrations'
 import Mcp from './pages/Mcp'
 import Brain from './pages/Brain'
+import BrainV2 from './pages/BrainV2'
 import Chat from './pages/Chat'
 import Inbox from './pages/Inbox'
 import Actions from './pages/Actions'
@@ -35,6 +35,8 @@ const News = lazy(() => import('./pages/News'))
 // Project v2 full-page workspace (#12) — lazy so the main bundle stays lean.
 const ProjectWorkspace = lazy(() => import('./pages/ProjectWorkspace'))
 const Developer = lazy(() => import('./pages/Developer'))
+// Architecture V2 dynamically imports the Mermaid renderer (~500KB) — lazy-load so it stays out of the main bundle.
+const Architecture = lazy(() => import('./pages/Architecture'))
 
 function RouteSet({ location }: { location?: string }) {
   return (
@@ -43,13 +45,16 @@ function RouteSet({ location }: { location?: string }) {
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/inbox" element={<Inbox />} />
       <Route path="/brain" element={<Brain />} />
+      <Route path="/brain/v2" element={<BrainV2 />} />
       <Route path="/chat" element={<Chat />} />
       <Route path="/chat/:sessionId" element={<Chat />} />
       <Route path="/actions" element={<Actions />} />
       <Route path="/graph" element={
         <Suspense fallback={<PageLoader preset="graph" />}><Graph /></Suspense>
       } />
-      <Route path="/architecture" element={<Architecture />} />
+      <Route path="/architecture" element={
+        <Suspense fallback={<PageLoader preset="architecture" />}><Architecture /></Suspense>
+      } />
       <Route path="/ability" element={<Ability />} />
       <Route path="/evolution" element={<Evolution />} />
       <Route path="/office" element={

@@ -52,6 +52,7 @@ class ChatRuntimeTests(unittest.TestCase):
         self.assertEqual(manifest.token_budget, 6000)
         project = next(item for item in manifest.items if item.source == "project")
         self.assertEqual(project.trust, "untrusted")
+        self.assertTrue(project.content.startswith(context_manager.UNTRUSTED_FENCE))  # #20: fenced
         self.assertIn("Project Alpha", context_manager.prompt_context(manifest))
 
     def test_turn_trace_is_ordered_and_redacted(self):
