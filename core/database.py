@@ -720,6 +720,21 @@ def _ensure_brain_schema(conn: sqlite3.Connection) -> None:
         created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Brain V2 (#20 / T02): vault-encrypted sensitive fields. The plaintext columns
+    -- above hold a redaction placeholder for sensitive memories; the real bytes live
+    -- here, AES-GCM-encrypted via vault.encrypt_payload (bound to `purpose` as AAD).
+    -- Purged with the memory on owner deletion; unreadable while the vault is locked.
+    CREATE TABLE IF NOT EXISTS brain_secure_payloads (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        memory_id   INTEGER NOT NULL REFERENCES brain_memory_v2(id) ON DELETE CASCADE,
+        field       TEXT NOT NULL,                     -- 'distilled_text' | 'evidence:<evidence_id>'
+        purpose     TEXT NOT NULL,                     -- AES-GCM AAD binding used at encrypt time
+        ciphertext  BLOB NOT NULL,
+        nonce       BLOB NOT NULL,
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(memory_id, field)
+    );
+
     CREATE TABLE IF NOT EXISTS brain_conflicts (
         id                  INTEGER PRIMARY KEY AUTOINCREMENT,
         memory_id           INTEGER REFERENCES brain_memories(id) ON DELETE CASCADE,

@@ -373,6 +373,45 @@ def reveal(conn: sqlite3.Connection, name: str, master: str, profile: str | None
     return value
 
 
+# ── purpose-bound payload encryption (public API for non-secret subsystems) ──
+# Brain (and any other subsystem) must NOT reach into vault internals (_key,
+# _encrypt). It encrypts sensitive, non-secret payloads only through these two
+# functions. Every payload is bound to a caller-supplied `purpose` string via
+# AES-GCM associated data, so ciphertext encrypted for one purpose can never be
+# decrypted as another (or moved between memories). Uses the same in-memory key
+# and auto-relock rules as secrets: a locked vault means no encrypt/decrypt.
+_PAYLOAD_AAD_PREFIX = "tobi-payload::"
+
+
+def can_encrypt_payloads() -> bool:
+    """True when the vault is set up, unlocked, and crypto is available — i.e.
+    encrypt_payload/decrypt_payload will succeed rather than raise VaultLocked."""
+    return CRYPTO_AVAILABLE and is_unlocked()
+
+
+def encrypt_payload(purpose: str, plaintext: str) -> tuple[bytes, bytes]:
+    """Encrypt a sensitive non-secret payload, bound to `purpose`. Requires an
+    unlocked vault. Returns (ciphertext, nonce). Raises VaultLocked when locked."""
+    _require_crypto()
+    if not purpose or not purpose.strip():
+        raise VaultError("A purpose binding is required for payload encryption.")
+    if not is_unlocked():
+        raise VaultLocked("Vault is locked — sensitive payload cannot be encrypted.")
+    _touch()
+    return _encrypt(_key, _PAYLOAD_AAD_PREFIX + purpose, plaintext)  # type: ignore[arg-type]
+
+
+def decrypt_payload(purpose: str, ciphertext: bytes, nonce: bytes) -> str:
+    """Decrypt a payload written by encrypt_payload under the same `purpose`.
+    Requires an unlocked vault. Raises VaultLocked when locked; the underlying
+    AES-GCM raises on a purpose mismatch or tampering (fails closed)."""
+    _require_crypto()
+    if not is_unlocked():
+        raise VaultLocked("Vault is locked — sensitive payload is unavailable.")
+    _touch()
+    return _decrypt(_key, _PAYLOAD_AAD_PREFIX + purpose, ciphertext, nonce)  # type: ignore[arg-type]
+
+
 # ── env injection (consumption) ─────────────────────────────────────────
 def inject_env(conn: sqlite3.Connection, profile: str | None = None) -> int:
     """Overlay the active profile's secrets onto os.environ (vault wins; .env is the
