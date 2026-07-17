@@ -52,8 +52,9 @@ function themeIsDark(): boolean {
 }
 
 function nodeIdFromEl(el: Element): string | null {
-  const id = el.id || ''
-  const m = /^flowchart-(.+?)-\d+$/.exec(id)
+  // mermaid 11 ids look like "arch-svg-<rand>-flowchart-<nodeId>-<n>" (older mermaid was just
+  // "flowchart-<nodeId>-<n>"). Match the trailing "flowchart-<id>-<n>" wherever it appears.
+  const m = /flowchart-(.+?)-\d+$/.exec(el.id || '')
   return m ? m[1] : null
 }
 
@@ -267,8 +268,11 @@ function ArchitectureV2() {
     return () => obs.disconnect()
   }, [diagram, renderMermaid])
 
-  // After the SVG lands: colourise node shapes, force-fill label text (fixes the
-  // "empty boxes" — sanitised SVG could drop the label fill), collect labels, wire clicks.
+  // After the SVG lands: colourise shapes and draw EVERY node label ourselves as native SVG
+  // <text>. We do NOT trust mermaid's own labels — mermaid 11 emits them as HTML inside
+  // <foreignObject>, and DOMPurify strips the XHTML namespace off the inner <div>, leaving the
+  // text in the DOM but rendered as an invisible SVG element. So we remove mermaid's label and
+  // paint our own from the .mmd source — deterministic, never depends on the sanitizer.
   useEffect(() => {
     const stage = stageRef.current
     if (!stage || !svg) return
@@ -285,46 +289,50 @@ function ArchitectureV2() {
         shape.style.fill = color + '22'; shape.style.stroke = color; shape.style.strokeWidth = '1.5px'
       })
       if (!id) return
-      const label = labelMap.get(id) || (node.querySelector('.nodeLabel, foreignObject, text')?.textContent || id).trim()
+      const label = (labelMap.get(id) || id).trim()
       labels.set(id, label)
 
-      // Did a readable label survive sanitising? (foreignObject HTML or a non-injected <text>)
-      const survived = !!node.querySelector('foreignObject')?.textContent?.trim()
-        || [...node.querySelectorAll('text')].some(t => (t.textContent || '').trim() && t.getAttribute('data-arch') !== '1')
-      if (survived) {
-        node.querySelectorAll<SVGElement>('text, tspan').forEach(t => { t.style.fill = textFill; t.setAttribute('fill', textFill) })
-        node.querySelectorAll<HTMLElement>('foreignObject div, foreignObject span, .nodeLabel').forEach(el => { el.style.color = textFill })
-      } else {
-        // Sanitiser dropped the label → draw our own, word-wrapped and centred in the shape.
-        node.querySelectorAll('text[data-arch="1"]').forEach(n => n.remove())
-        const shape = node.querySelector('rect, polygon, circle, ellipse, path') as SVGGraphicsElement | null
-        let bbox: DOMRect | null = null
-        try { bbox = shape ? (shape.getBBox() as unknown as DOMRect) : null } catch { bbox = null }
-        if (bbox && bbox.width > 0) {
-          const cx = bbox.x + bbox.width / 2, cy = bbox.y + bbox.height / 2
-          const maxChars = Math.max(6, Math.floor(bbox.width / 7.4))
-          const lines: string[] = []
-          let cur = ''
-          for (const w of label.split(/\s+/)) {
-            if (cur && (cur + ' ' + w).length > maxChars) { lines.push(cur); cur = w }
-            else cur = cur ? cur + ' ' + w : w
-          }
-          if (cur) lines.push(cur)
-          const lh = 14, startY = cy - ((lines.length - 1) * lh) / 2
-          const text = document.createElementNS(NS, 'text')
-          text.setAttribute('data-arch', '1'); text.setAttribute('text-anchor', 'middle')
-          text.setAttribute('fill', textFill)
-          text.style.fill = textFill; text.style.fontSize = '13px'; text.style.fontWeight = '500'; text.style.pointerEvents = 'none'
-          lines.forEach((ln, i) => {
-            const tspan = document.createElementNS(NS, 'tspan')
-            tspan.setAttribute('x', String(cx)); tspan.setAttribute('y', String(startY + i * lh))
-            tspan.setAttribute('dominant-baseline', 'central')
-            tspan.textContent = ln
-            text.appendChild(tspan)
-          })
-          node.appendChild(text)
-        }
+      // remove mermaid's own (unreliable) label — the HTML foreignObject and any SVG <text> it
+      // emitted — but never the shape. Then draw ours.
+      node.querySelectorAll('foreignObject, text:not([data-arch])').forEach(n => n.remove())
+      node.querySelectorAll('text[data-arch="1"]').forEach(n => n.remove())
+
+      // find the node's box to size + centre the label
+      const shape = node.querySelector('rect, polygon, circle, ellipse, path') as SVGGraphicsElement | null
+      let cx = 0, cy = 0, boxW = 120
+      try {
+        const b = shape?.getBBox()
+        if (b && b.width > 0) { cx = b.x + b.width / 2; cy = b.y + b.height / 2; boxW = b.width }
+      } catch { /* getBBox can throw if not yet laid out; fall back to rect attrs below */ }
+      if (boxW === 120 && shape && shape.tagName === 'rect') {
+        const x = +(shape.getAttribute('x') || 0), y = +(shape.getAttribute('y') || 0)
+        const w = +(shape.getAttribute('width') || 120), h = +(shape.getAttribute('height') || 36)
+        cx = x + w / 2; cy = y + h / 2; boxW = w
       }
+
+      // word-wrap to the box width
+      const maxChars = Math.max(6, Math.floor(boxW / 7.2))
+      const lines: string[] = []
+      let cur = ''
+      for (const w of label.split(/\s+/)) {
+        if (cur && (cur + ' ' + w).length > maxChars) { lines.push(cur); cur = w }
+        else cur = cur ? cur + ' ' + w : w
+      }
+      if (cur) lines.push(cur)
+      const lh = 14, startY = cy - ((lines.length - 1) * lh) / 2
+      const text = document.createElementNS(NS, 'text')
+      text.setAttribute('data-arch', '1'); text.setAttribute('text-anchor', 'middle')
+      text.setAttribute('fill', textFill)
+      text.style.fill = textFill; text.style.fontSize = '13px'; text.style.fontWeight = '500'; text.style.pointerEvents = 'none'
+      lines.forEach((ln, i) => {
+        const tspan = document.createElementNS(NS, 'tspan')
+        tspan.setAttribute('x', String(cx)); tspan.setAttribute('y', String(startY + i * lh))
+        tspan.setAttribute('dominant-baseline', 'central')
+        tspan.textContent = ln
+        text.appendChild(tspan)
+      })
+      node.appendChild(text)
+
       ;(node as HTMLElement).style.cursor = 'pointer'
       const onClick = () => { setSelected(prev => (prev === id ? '' : id)); setTextTab('guide') }
       node.addEventListener('click', onClick)
@@ -354,9 +362,10 @@ function ArchitectureV2() {
         s.style.strokeWidth = selected && id === selected ? '3px' : '1.5px'
       })
     })
-    stage.querySelectorAll<SVGElement>('path[id^="L_"], g.edgePaths path, .flowchart-link').forEach(edge => {
+    stage.querySelectorAll<SVGElement>('g.edgePaths path, path.flowchart-link, path[data-id^="L_"]').forEach(edge => {
       if (!selected) { edge.style.opacity = '1'; return }
-      const m = /^L_([A-Za-z0-9_]+)_([A-Za-z0-9_]+)_/.exec(edge.id || '')
+      const ref = edge.getAttribute('data-id') || edge.id || ''
+      const m = /L_([A-Za-z0-9]+)_([A-Za-z0-9]+)_/.exec(ref)
       const touches = m ? (m[1] === selected || m[2] === selected) : false
       edge.style.opacity = touches ? '1' : '0.1'
     })
@@ -381,7 +390,7 @@ function ArchitectureV2() {
   // which is exactly what the translate() pan applies) — clear feedback for Map clicks.
   const centerNode = useCallback((id: string) => {
     const stage = stageRef.current
-    const el = stage?.querySelector(`g.node[id^="flowchart-${id}-"]`) as HTMLElement | null
+    const el = stage?.querySelector(`g.node[id*="flowchart-${id}-"]`) as HTMLElement | null
     if (!stage || !el) return
     const nb = el.getBoundingClientRect(); const sb = stage.getBoundingClientRect()
     setPan(p => ({
