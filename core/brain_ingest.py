@@ -218,6 +218,53 @@ def _reject(cand: MemoryCandidate, conn: sqlite3.Connection, compat_ref: Optiona
     return IngestResult(outcome="rejected", memory_id=mid, status=MemoryStatus.REJECTED)
 
 
+# ── dry-run preview (T05) ────────────────────────────────────────────────────
+def preview(candidate: MemoryCandidate, *, conn: Optional[sqlite3.Connection] = None,
+            similarity: Optional[Callable[[str, str], float]] = None) -> IngestResult:
+    """What ``ingest()`` WOULD do against the current store — no writes at all.
+
+    Mirrors ingest's decision order exactly (corrections → merge → trash →
+    conflict → gate); the drift guard is tests asserting preview == ingest on
+    the same store. Merge promotion is previewed prospectively (as if the new
+    evidence were already added). memory_id is None except for merges, where it
+    is the existing target id.
+    """
+    if not isinstance(candidate, MemoryCandidate):
+        raise TypeError("preview() requires a validated MemoryCandidate")
+    c = repo._conn(conn)
+    sim_fn = similarity or text_similarity
+    match, sim = _best_match(candidate, _match_pool(c), sim_fn)
+
+    if (candidate.memory_type is MemoryType.CORRECTION and match is not None
+            and sim >= CONFLICT_AT and activation_gate(candidate) is not MemoryStatus.REJECTED):
+        return IngestResult(outcome="corrected", memory_id=None,
+                            status=activation_gate(candidate), matched_id=match.id)
+    if match is not None and sim >= MERGE_AT:
+        status = match.status
+        prospective_sources = _distinct_sources(c, match.id) + (
+            1 if candidate.source_ref and not c.execute(
+                "SELECT 1 FROM brain_memory_evidence WHERE memory_id=? AND source_ref=?",
+                (match.id, candidate.source_ref)).fetchone() else 0)
+        if (match.status is MemoryStatus.PENDING
+                and match.explicitness is Explicitness.INFERRED
+                and match.confidence >= MIN_ACTIVATE_CONFIDENCE
+                and candidate.confidence >= MIN_ACTIVATE_CONFIDENCE
+                and prospective_sources >= 2
+                and match.quality_score >= ACTIVATE_AT
+                and not match.sensitive
+                and match.authority is Authority.SOFT
+                and not _has_conflict_links(c, match.id)):
+            status = MemoryStatus.ACTIVE
+        return IngestResult(outcome="merged", memory_id=match.id, status=status, matched_id=match.id)
+    if activation_gate(candidate) is MemoryStatus.REJECTED:
+        return IngestResult(outcome="rejected", memory_id=None, status=MemoryStatus.REJECTED)
+    if match is not None and sim >= CONFLICT_AT:
+        return IngestResult(outcome="conflicted", memory_id=None,
+                            status=activation_gate(candidate, has_conflict=True), matched_id=match.id)
+    status = activation_gate(candidate)
+    return IngestResult(outcome=status.value, memory_id=None, status=status)
+
+
 # ── the engine ───────────────────────────────────────────────────────────────
 def ingest(candidate: MemoryCandidate, *, conn: Optional[sqlite3.Connection] = None,
            similarity: Optional[Callable[[str, str], float]] = None,

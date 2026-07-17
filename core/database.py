@@ -735,6 +735,41 @@ def _ensure_brain_schema(conn: sqlite3.Connection) -> None:
         UNIQUE(memory_id, field)
     );
 
+    -- Brain V2 (#20 / T05): resumable dry-run import jobs. The upload itself is
+    -- vault-encrypted (payload_*); progress checkpoints in next_chunk so a
+    -- restart resumes exactly where it stopped. Temp payloads are purged on
+    -- commit/cancel and expired after 24h.
+    CREATE TABLE IF NOT EXISTS brain_ingestion_jobs (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        filename        TEXT NOT NULL,
+        status          TEXT DEFAULT 'dry_run',        -- dry_run | ready | committed | cancelled | failed
+        total_chunks    INTEGER DEFAULT 0,
+        next_chunk      INTEGER DEFAULT 0,             -- resume checkpoint
+        payload_ct      BLOB,                          -- vault-encrypted upload (NULL after purge)
+        payload_nonce   BLOB,
+        payload_purpose TEXT,
+        error           TEXT,
+        created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_ingestion_candidates (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id            INTEGER NOT NULL REFERENCES brain_ingestion_jobs(id) ON DELETE CASCADE,
+        chunk_index       INTEGER DEFAULT 0,
+        candidate_json    TEXT,                        -- NULL when sensitive (vault-encrypted instead)
+        sensitive         INTEGER DEFAULT 0,
+        enc_ct            BLOB,
+        enc_nonce         BLOB,
+        proposed_outcome  TEXT,                        -- dry-run preview: active|pending|rejected|merged|conflicted|corrected
+        proposed_status   TEXT,
+        matched_id        INTEGER,
+        approved          INTEGER,                     -- NULL = undecided, 1 = approve, 0 = reject
+        applied_memory_id INTEGER,                     -- set on commit
+        error             TEXT,
+        created_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS brain_conflicts (
         id                  INTEGER PRIMARY KEY AUTOINCREMENT,
         memory_id           INTEGER REFERENCES brain_memories(id) ON DELETE CASCADE,
