@@ -177,12 +177,15 @@ def _distinct_sources(conn: sqlite3.Connection, memory_id: int) -> int:
 
 
 def _merge(cand: MemoryCandidate, target: repo.StoredMemory,
-           conn: sqlite3.Connection) -> IngestResult:
+           conn: sqlite3.Connection, compat_ref: Optional[int] = None) -> IngestResult:
     """Duplicate: fold the observation into the existing memory — evidence +
     confidence, no new row. May promote an inferred pending memory to active when
     two independent corroborating observations reach confidence ≥ 0.85 and every
     other activation condition already holds (spec §gates 4)."""
     repo.add_evidence(target.id, cand.evidence_excerpt, cand.source_ref, cand.trust, conn=conn)
+    if compat_ref is not None and target.compat_ref is None:  # backfill the legacy link
+        conn.execute("UPDATE brain_memory_v2 SET compat_ref=? WHERE id=?", (compat_ref, target.id))
+        conn.commit()
     new_conf = max(target.confidence, cand.confidence)
     if new_conf != target.confidence:
         repo.set_confidence(target.id, new_conf, conn=conn)
@@ -203,7 +206,7 @@ def _merge(cand: MemoryCandidate, target: repo.StoredMemory,
     return IngestResult(outcome="merged", memory_id=target.id, status=status, matched_id=target.id)
 
 
-def _reject(cand: MemoryCandidate, conn: sqlite3.Connection) -> IngestResult:
+def _reject(cand: MemoryCandidate, conn: sqlite3.Connection, compat_ref: Optional[int] = None) -> IngestResult:
     """Persist rejection metadata only. A sensitive reject keeps no content at
     all — placeholder text, no evidence, no vault payload (spec §gates 1)."""
     meta = cand
@@ -211,16 +214,20 @@ def _reject(cand: MemoryCandidate, conn: sqlite3.Connection) -> IngestResult:
         meta = replace(cand, distilled_text=REJECTED_SENSITIVE_META, evidence_excerpt="",
                        source_ref=cand.source_ref, sensitive=False,
                        tags=tuple(cand.tags) + ("rejected_sensitive",))
-    mid = repo.save(meta, status=MemoryStatus.REJECTED, conn=conn)
+    mid = repo.save(meta, status=MemoryStatus.REJECTED, compat_ref=compat_ref, conn=conn)
     return IngestResult(outcome="rejected", memory_id=mid, status=MemoryStatus.REJECTED)
 
 
 # ── the engine ───────────────────────────────────────────────────────────────
 def ingest(candidate: MemoryCandidate, *, conn: Optional[sqlite3.Connection] = None,
-           similarity: Optional[Callable[[str, str], float]] = None) -> IngestResult:
+           similarity: Optional[Callable[[str, str], float]] = None,
+           compat_ref: Optional[int] = None) -> IngestResult:
     """Run one validated candidate through dedup → conflict/correction →
     activation gate, persisting through the repository boundary. Deterministic:
-    the same candidate against the same store always lands the same way."""
+    the same candidate against the same store always lands the same way.
+
+    ``compat_ref`` (T04) links the resulting V2 row to its legacy
+    ``brain_memories`` id; on a merge it backfills the target's link if empty."""
     if not isinstance(candidate, MemoryCandidate):
         raise TypeError("ingest() requires a validated MemoryCandidate")
     c = repo._conn(conn)
@@ -234,7 +241,7 @@ def ingest(candidate: MemoryCandidate, *, conn: Optional[sqlite3.Connection] = N
     if (candidate.memory_type is MemoryType.CORRECTION and match is not None
             and sim >= CONFLICT_AT and activation_gate(candidate) is not MemoryStatus.REJECTED):
         status = activation_gate(candidate)
-        mid = repo.save(candidate, status=status, conn=c)
+        mid = repo.save(candidate, status=status, compat_ref=compat_ref, conn=c)
         repo.link(mid, match.id, LinkType.SUPERSEDES, conn=c)
         repo.set_status(match.id, MemoryStatus.SUPERSEDED, conn=c)
         return IngestResult(outcome="corrected", memory_id=mid, status=status,
@@ -242,21 +249,21 @@ def ingest(candidate: MemoryCandidate, *, conn: Optional[sqlite3.Connection] = N
 
     # duplicate: merge, never a second row
     if match is not None and sim >= MERGE_AT:
-        return _merge(candidate, match, c)
+        return _merge(candidate, match, c, compat_ref)
 
     # trash: reject before conflict bookkeeping — a rejected candidate creates no links
     if activation_gate(candidate) is MemoryStatus.REJECTED:
-        return _reject(candidate, c)
+        return _reject(candidate, c, compat_ref)
 
     # conflict band: keep both, link them, force the newcomer to owner review
     if match is not None and sim >= CONFLICT_AT:
         status = activation_gate(candidate, has_conflict=True)  # always pending here
-        mid = repo.save(candidate, status=status, conn=c)
+        mid = repo.save(candidate, status=status, compat_ref=compat_ref, conn=c)
         repo.link(mid, match.id, LinkType.CONFLICTS_WITH, conn=c)
         return IngestResult(outcome="conflicted", memory_id=mid, status=status,
                             matched_id=match.id, links=((mid, match.id, LinkType.CONFLICTS_WITH.value),))
 
     # clean landing: the deterministic gate decides
     status = activation_gate(candidate)
-    mid = repo.save(candidate, status=status, conn=c)
+    mid = repo.save(candidate, status=status, compat_ref=compat_ref, conn=c)
     return IngestResult(outcome=status.value, memory_id=mid, status=status)
