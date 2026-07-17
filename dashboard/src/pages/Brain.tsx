@@ -163,7 +163,7 @@ export default function Brain() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Link to="/brain/v2" className="flex items-center gap-1.5 rounded-lg border border-purple/40 bg-purple/10 px-2.5 py-1.5 text-xs font-medium text-purple hover:bg-purple/20">
+          <Link to="/brain" className="flex items-center gap-1.5 rounded-lg border border-purple/40 bg-purple/10 px-2.5 py-1.5 text-xs font-medium text-purple hover:bg-purple/20">
             <Sparkle size={13} /> Brain V2
           </Link>
           <button onClick={() => setShowReview(true)} className="relative flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted hover:text-text">

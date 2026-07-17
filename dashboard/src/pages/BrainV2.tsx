@@ -479,7 +479,7 @@ export default function BrainV2() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Link to="/brain" className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted hover:text-text"><ArrowLeft size={13} /> Legacy Brain</Link>
+          <Link to="/brain/legacy" className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted hover:text-text"><ArrowLeft size={13} /> Legacy Brain</Link>
           <button onClick={() => void reload()} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted hover:text-text"><RefreshCw size={13} /> Refresh</button>
         </div>
       </div>

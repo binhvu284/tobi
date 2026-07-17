@@ -102,7 +102,7 @@ export function chatTabKey(route: string): string | null {
 // Brain V2 (#20 T09): /brain/v2 is an inner route of the ONE Brain tab (same
 // pattern as project inner tabs) — navigating between legacy and V2 swaps the
 // tab's content instead of being ignored as an unknown route.
-const BRAIN_V2_RE = /^\/brain\/v2$/
+const BRAIN_V2_RE = /^\/brain\/(v2|legacy)$/
 
 export function brainTabKey(route: string): string | null {
   return BRAIN_V2_RE.test(normalizeWorkspaceRoute(route)) ? '/brain' : null

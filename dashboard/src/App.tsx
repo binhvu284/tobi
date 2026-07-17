@@ -44,8 +44,10 @@ function RouteSet({ location }: { location?: string }) {
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/inbox" element={<Inbox />} />
-      <Route path="/brain" element={<Brain />} />
-      <Route path="/brain/v2" element={<BrainV2 />} />
+      <Route path="/brain" element={<BrainV2 />} />
+      <Route path="/brain/legacy" element={<Brain />} />
+      {/* old bookmark compat: /brain/v2 is now the default /brain */}
+      <Route path="/brain/v2" element={<Navigate to="/brain" replace />} />
       <Route path="/chat" element={<Chat />} />
       <Route path="/chat/:sessionId" element={<Chat />} />
       <Route path="/actions" element={<Actions />} />
