@@ -784,13 +784,9 @@ async def run_daemon():
     await app.updater.start_polling(drop_pending_updates=True)
     logger.info("🤖 Tobi running + polling Telegram. Ctrl+C to stop.\n")
 
-    import time as _time, math as _math
+    import time as _time, math as _math, random as _rand
     _boot = _time.time()
     _pulse = 0
-    # Smoke wisps — each heartbeat prints a different fragment so when many
-    # lines accumulate in the console they form a flowing smoke wave pattern.
-    _SMOKE_CHARS = ['·', '⋅', '∘', '○', '◌', '◯', '○', '∘', '⋅', '·']
-    _SMOPE_WISP = '˜'
     try:
         while True:
             schedule.run_pending()
@@ -800,11 +796,21 @@ async def run_daemon():
                 _h = _mins // 60
                 _m = _mins % 60
                 _uptime = f"{_h}h{_m:02d}m" if _h else f"{_m}m"
-                # Smoke intensity breathes in a sine wave (0–6 wisps)
-                _wave = round(_math.sin((_pulse / 5) * 0.6) * 3 + 3)
-                _char = _SMOKE_CHARS[(_pulse // 5) % len(_SMOKE_CHARS)]
-                _wisps = _SMOPE_WISP * max(0, _wave)
-                logger.info(f"🚬 still smoking, everything okay! · uptime {_uptime}  {_wisps}{_char}")
+                # ── Smoke: scattered particles that drift + billow ──
+                # Each heartbeat emits 2–5 smoke particles at drifting
+                # horizontal positions. When stacked vertically, they
+                # look like rising, dispersing smoke from the cigarette.
+                _rng = _rand.Random(_pulse * 7919 + 31)
+                _particles = ['\u2218', '\u00b7', '\u22c5', '\u02d8', '\u02da']
+                _n = _rng.randint(2, 5)
+                _positions = sorted(_rng.randint(0, 14) for _ in range(_n))
+                _trail = ''
+                _prev = -1
+                for _pos in _positions:
+                    _gap = ' ' * (_pos - _prev - 1)
+                    _trail += _gap + _rng.choice(_particles)
+                    _prev = _pos
+                logger.info(f"\U0001f6ac still smoking, everything okay! \u00b7 uptime {_uptime}  {_trail}")
             await asyncio.sleep(60)
     finally:
         await app.updater.stop()
