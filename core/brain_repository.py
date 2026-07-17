@@ -184,6 +184,45 @@ def link(from_id: int, to_id: int, link_type: LinkType,
     c.commit()
 
 
+def add_evidence(memory_id: int, excerpt: str = "", source_ref: Optional[str] = None,
+                 trust: Trust = Trust.TRUSTED, conn: Optional[sqlite3.Connection] = None) -> int:
+    """Append an evidence row to an existing memory (dedup/corroboration path).
+
+    Honors the memory's sensitivity: evidence attached to a sensitive memory is
+    encrypted through the vault and the plaintext column holds the sentinel
+    (raises VaultLocked when the vault can't encrypt — fails closed, no row)."""
+    if not isinstance(trust, Trust):
+        raise TypeError("trust must be a Trust")
+    c = _conn(conn)
+    row = c.execute("SELECT sensitive FROM brain_memory_v2 WHERE id=?", (memory_id,)).fetchone()
+    if not row:
+        raise ValueError(f"no such memory: {memory_id}")
+    sensitive = bool(row["sensitive"])
+    if sensitive and excerpt and not vault.can_encrypt_payloads():
+        raise vault.VaultLocked("Vault must be unlocked to attach sensitive evidence.")
+    stored = REDACTED if (sensitive and excerpt) else excerpt
+    cur = c.execute(
+        "INSERT INTO brain_memory_evidence (memory_id, excerpt, source_ref, trust) VALUES (?,?,?,?)",
+        (memory_id, stored, source_ref, trust.value),
+    )
+    if sensitive and excerpt:
+        _store_secure(c, memory_id, f"evidence:{cur.lastrowid}", excerpt)
+    c.commit()
+    return int(cur.lastrowid)
+
+
+def set_confidence(memory_id: int, confidence: float,
+                   conn: Optional[sqlite3.Connection] = None) -> None:
+    """Update confidence (merge/corroboration path). Validates the 0–1 range."""
+    conf = float(confidence)
+    if not (0.0 <= conf <= 1.0):
+        raise ValueError(f"confidence must be in [0, 1], got {conf!r}")
+    c = _conn(conn)
+    c.execute("UPDATE brain_memory_v2 SET confidence=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+              (conf, memory_id))
+    c.commit()
+
+
 def set_status(memory_id: int, status: MemoryStatus,
                conn: Optional[sqlite3.Connection] = None) -> None:
     """Update lifecycle status (used by archive/restore/activation review)."""
