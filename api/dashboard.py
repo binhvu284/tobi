@@ -143,25 +143,12 @@ class TaskCommandRequest(BaseModel):
     author: str = "owner"
 
 
-def fmt_ago(ts_str: str | None) -> str | None:
-    """Human-readable 'time ago' from an ISO timestamp. Shared by /api/agents + /api/health."""
-    if not ts_str:
-        return None
-    try:
-        dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-        now = datetime.now(timezone.utc) if dt.tzinfo else datetime.now()
-        delta = now - dt
-        mins = int(delta.total_seconds() / 60)
-        if mins < 1:
-            return "just now"
-        if mins < 60:
-            return f"{mins}m ago"
-        hours = mins // 60
-        if hours < 24:
-            return f"{hours}h ago"
-        return f"{hours // 24}d ago"
-    except Exception:
-        return ts_str
+# Shared API primitives (refactor Slice 0 — see docs/REFACTORING_PLAN.md).
+# DB_PATH / _get_conn / _json_loads / fmt_ago now live in api/deps.py so route
+# groups extracted into api/routers/* can share them. Imported back into this
+# module's namespace to preserve every existing reference (including external
+# access such as core.conductor's `dashboard._get_conn`).
+from api.deps import DB_PATH, _get_conn, _json_loads, fmt_ago
 
 app = FastAPI(title="Tobi Mission Control")
 
@@ -219,22 +206,7 @@ if MCP_AVAILABLE:
         _logging.getLogger("tobi.dashboard").warning("MCP mount skipped: %s", _mcp_err)
 
 DIST_DIR = Path(__file__).parent.parent / "dashboard" / "dist"
-DB_PATH = os.path.expanduser(os.getenv("DB_PATH", "~/.mmo_agent/agent.db"))
-
-
-def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def _json_loads(value: str | None, fallback: Any) -> Any:
-    if not value:
-        return fallback
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return fallback
+# DB_PATH / _get_conn / _json_loads imported from api.deps above (Slice 0).
 
 
 def _legacy_status_from_v1(status_v1: str) -> str:
