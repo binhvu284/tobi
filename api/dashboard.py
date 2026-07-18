@@ -207,6 +207,8 @@ from api.routers.missions import router as missions_router
 app.include_router(missions_router)
 from api.routers.office import router as office_router
 app.include_router(office_router)
+from api.routers.usage import router as usage_router
+app.include_router(usage_router)
 
 # MCP Hub (#5) — mount TOBI's MCP server (Streamable HTTP) at /mcp. Inbound auth,
 # rate-limit, scope, and audit are enforced by McpAuthMiddleware inside the app.
@@ -5177,69 +5179,6 @@ def llm_usage(days: int = 7):
 def llm_usage_recent(limit: int = 50):
     from core import usage
     return {"calls": usage.recent(limit=limit)}
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# Storage & Usage (#10) — storage scan + LLM usage analytics [S3: read-only,
-# except the manual scan trigger and the owner's own plan/budget config]
-# ════════════════════════════════════════════════════════════════════════════
-class UsagePlansReq(BaseModel):
-    plans: list[dict] = Field(default_factory=list)
-
-
-class UsageBudgetReq(BaseModel):
-    monthly_cap_usd: float = 0.0
-    alert_pct: int = 80
-
-
-@app.get("/api/usage/overview")
-def usage_overview(range: str = "month"):
-    """Cost/tokens/requests/latency by provider·model·surface·agent + daily trend [S15][S19]."""
-    from core import usage_meter
-    if range not in usage_meter.RANGES:
-        raise HTTPException(400, "range must be day | week | month | all")
-    return usage_meter.overview(range)
-
-
-@app.get("/api/usage/calls")
-def usage_calls(limit: int = 50, offset: int = 0, q: str = "", surface: str = "",
-                model: str = ""):
-    """Paginated, filterable per-call log inspector [S20]."""
-    from core import usage_meter
-    return usage_meter.calls(limit=limit, offset=offset, q=q, surface=surface, model=model)
-
-
-@app.get("/api/usage/plans")
-def usage_plans_get():
-    from core import usage_meter
-    return {"plans": usage_meter.get_plans()}
-
-
-@app.post("/api/usage/plans")
-def usage_plans_set(body: UsagePlansReq):
-    """Configure provider plans/quotas → usage-vs-limit bars [S17]."""
-    from core import usage_meter
-    return {"plans": usage_meter.set_plans(body.plans)}
-
-
-@app.get("/api/usage/budget")
-def usage_budget_get():
-    from core import usage_meter
-    return usage_meter.get_budget()
-
-
-@app.post("/api/usage/budget")
-def usage_budget_set(body: UsageBudgetReq):
-    """Set the monthly $ cap + alert threshold [S18]."""
-    from core import usage_meter
-    return usage_meter.set_budget(body.monthly_cap_usd, body.alert_pct)
-
-
-@app.get("/api/usage/prices")
-def usage_prices():
-    """The active price table (config/llm_prices.yaml mirrored to DB) [S14]."""
-    from core import usage_meter
-    return {"prices": usage_meter.get_prices()}
 
 
 class LlmConfigReq(BaseModel):
