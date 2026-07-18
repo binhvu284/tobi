@@ -23,7 +23,7 @@ from core import brain_import as imp
 from core import brain_migration as mig
 from core import brain_feedback as fb
 from core import brain_retrieval as ret
-from core.brain_contracts import MemoryStatus
+from core.brain_contracts import MemoryStatus, MemoryType
 from core.brain_ingest import text_similarity, MERGE_AT
 
 router = APIRouter(prefix="/api/brain/v2", tags=["brain-v2"])
@@ -250,6 +250,30 @@ def memory_set_status(memory_id: int, payload: StatusReq):
     if repo.read(memory_id) is None:
         raise HTTPException(404, "no such memory")
     repo.set_status(memory_id, MemoryStatus(payload.status))
+    return _memory_dict(repo.read(memory_id))
+
+
+class EditReq(BaseModel):
+    distilled_text: Optional[str] = Field(default=None, min_length=1, max_length=2000)
+    memory_type: Optional[str] = None
+    behavior_implication: Optional[str] = Field(default=None, max_length=500)
+
+
+@router.post("/memories/{memory_id}/edit")
+def memory_edit(memory_id: int, payload: EditReq):
+    """Owner edit of a memory's text / type / implication. Sensitive text re-encrypts
+    through the vault (423 when locked); unknown type → 400; unknown memory → 404."""
+    if repo.read(memory_id) is None:
+        raise HTTPException(404, "no such memory")
+    try:
+        mt = MemoryType(payload.memory_type) if payload.memory_type else None
+    except ValueError:
+        raise HTTPException(400, f"unknown memory_type: {payload.memory_type}")
+    try:
+        repo.edit_fields(memory_id, distilled_text=payload.distilled_text, memory_type=mt,
+                         behavior_implication=payload.behavior_implication)
+    except Exception as e:
+        raise _http(e)
     return _memory_dict(repo.read(memory_id))
 
 

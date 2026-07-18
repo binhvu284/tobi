@@ -104,6 +104,9 @@ export async function v2Memory(id: number): Promise<V2Memory> { return get(`/api
 export async function v2SetStatus(id: number, status: string): Promise<V2Memory> {
   return request(`/api/brain/v2/memories/${id}/status`, { method: 'POST', body: JSON.stringify({ status }) })
 }
+export async function v2EditMemory(id: number, patch: { distilled_text?: string; memory_type?: string; behavior_implication?: string }): Promise<V2Memory> {
+  return request(`/api/brain/v2/memories/${id}/edit`, { method: 'POST', body: JSON.stringify(patch) })
+}
 export async function v2Feedback(id: number, verdict: 'useful' | 'irrelevant' | 'wrong', turn_ref?: string):
   Promise<{ ok: boolean; usefulness: number }> {
   return request(`/api/brain/v2/memories/${id}/feedback`,

@@ -4,13 +4,13 @@ import {
   Brain as BrainIcon, Lock, Unlock, RefreshCw, Upload, Sparkles, ArrowLeft,
   ThumbsUp, ThumbsDown, XCircle, Trash2, Archive, CheckCircle2, ChevronDown,
   ChevronRight, Loader2, ShieldAlert, Search, Database, GitMerge, Eye, Play,
-  X, Filter, CheckSquare, Square, Plus, CalendarClock, TrendingUp, ArrowDownAZ, Eraser,
+  X, Filter, CheckSquare, Square, Plus, CalendarClock, TrendingUp, ArrowDownAZ, Eraser, Pencil,
 } from 'lucide-react'
 import {
   type V2Memory, type V2Stats, type V2JobStatus, type V2Candidate,
   type V2MigrationStatus, type V2MigrationItem, type V2RecallItem,
   type V2Influence, type V2CleanupProposal,
-  v2Stats, v2Profile, v2Memories, v2SetStatus, v2Feedback, v2Influence,
+  v2Stats, v2Profile, v2Memories, v2SetStatus, v2EditMemory, v2Feedback, v2Influence,
   v2Purge, v2Recall, v2Remember, v2ImportCreate, v2ImportCandidates, v2ImportCommand,
   v2ImportDecide, v2MigrationCreate, v2MigrationItems, v2MigrationCommand,
   v2MigrationDecide, v2CleanupPreview, v2CleanupApply,
@@ -141,6 +141,10 @@ function MemoryRow({ m, onChanged, selectMode = false, selected = false, onToggl
   const [influence, setInfluence] = useState<V2Influence[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmPurge, setConfirmPurge] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editText, setEditText] = useState(m.distilled_text)
+  const [editType, setEditType] = useState(m.memory_type)
+  const [editImpl, setEditImpl] = useState(m.behavior_implication)
   const meta = typeMeta(m.memory_type)
 
   const act = useCallback(async (fn: () => Promise<unknown>, done: string) => {
@@ -149,6 +153,17 @@ function MemoryRow({ m, onChanged, selectMode = false, selected = false, onToggl
     catch (e) { toast({ kind: 'error', title: errMsg(e) }) }
     finally { setBusy(false) }
   }, [toast, onChanged])
+
+  const startEdit = useCallback(() => {
+    setEditText(m.distilled_text); setEditType(m.memory_type); setEditImpl(m.behavior_implication); setEditing(true)
+  }, [m.distilled_text, m.memory_type, m.behavior_implication])
+  const saveEdit = useCallback(() => {
+    if (!editText.trim()) return
+    void act(async () => {
+      await v2EditMemory(m.id, { distilled_text: editText.trim(), memory_type: editType, behavior_implication: editImpl.trim() })
+      setEditing(false)
+    }, 'Saved')
+  }, [editText, editType, editImpl, m.id, act])
 
   const loadInfluence = useCallback(async () => {
     try { setInfluence(await v2Influence(m.id)) } catch { setInfluence([]) }
@@ -182,7 +197,39 @@ function MemoryRow({ m, onChanged, selectMode = false, selected = false, onToggl
           </div>
         </div>
       </button>
-      {open && !selectMode && (
+      {open && !selectMode && editing && (
+        <div className="space-y-2 border-t border-border px-3 py-2.5 text-xs">
+          <p className="font-semibold text-muted">Edit memory</p>
+          {m.redacted ? (
+            <p className="text-warning">Unlock the vault to edit this sensitive memory.</p>
+          ) : (
+            <>
+              <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={3} autoFocus
+                onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveEdit() }}
+                className="w-full rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-text" placeholder="Memory text…" />
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-1 text-[10px] text-muted">Type
+                  <select value={editType} onChange={e => setEditType(e.target.value)}
+                    className="rounded border border-border bg-surface px-1.5 py-1 text-[11px] text-text">
+                    {TYPES.map(t => <option key={t} value={t}>{typeMeta(t).label}</option>)}
+                  </select>
+                </label>
+                <input value={editImpl} onChange={e => setEditImpl(e.target.value)} placeholder="Behavior implication (optional)"
+                  className="min-w-[160px] flex-1 rounded-lg border border-border bg-surface px-2.5 py-1 text-[11px] text-text" />
+              </div>
+              <div className="flex gap-1.5 pt-0.5">
+                <button disabled={busy || !editText.trim()} onClick={saveEdit}
+                  className="flex items-center gap-1 rounded-lg border border-success/40 bg-success/10 px-2.5 py-1 text-[11px] font-medium text-success disabled:opacity-40">
+                  {busy ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle2 size={11} />} Save
+                </button>
+                <button disabled={busy} onClick={() => setEditing(false)}
+                  className="rounded-lg border border-border px-2.5 py-1 text-[11px] text-muted hover:text-text">Cancel</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+      {open && !selectMode && !editing && (
         <div className="space-y-2.5 border-t border-border px-3 py-2.5 text-xs">
           {m.behavior_implication && <p className="text-muted"><span className="text-text">Implication:</span> {m.behavior_implication}</p>}
           {m.evidence.length > 0 && (
@@ -211,6 +258,8 @@ function MemoryRow({ m, onChanged, selectMode = false, selected = false, onToggl
             <button disabled={busy} onClick={() => act(() => v2Feedback(m.id, 'wrong'), 'Marked wrong')}
               className="flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] text-muted hover:text-danger"><XCircle size={11} /> Wrong</button>
             <span className="mx-1 h-4 w-px bg-border" />
+            <button disabled={busy} onClick={startEdit}
+              className="flex items-center gap-1 rounded-lg border border-accent/40 bg-accent/10 px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent/20"><Pencil size={11} /> Edit</button>
             {m.status === 'pending' && (
               <button disabled={busy} onClick={() => act(() => v2SetStatus(m.id, 'active'), 'Activated')}
                 className="flex items-center gap-1 rounded-lg border border-success/40 bg-success/10 px-2 py-1 text-[11px] text-success"><CheckCircle2 size={11} /> Approve</button>
@@ -242,23 +291,32 @@ function ImportTab() {
   const [cands, setCands] = useState<V2Candidate[]>([])
   const [busy, setBusy] = useState(false)
   const [hideTrash, setHideTrash] = useState(true)   // auto-filter rejected/trash by default
+  const [dragOver, setDragOver] = useState(false)
 
   const refresh = useCallback(async (id: number) => {
     setCands(await v2ImportCandidates(id))
   }, [])
 
-  // Read a picked .md/.txt/.json file and load it into the import box.
-  const onFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0]
-    e.target.value = ''  // allow re-picking the same file
+  // Read a .md/.txt/.json file (from the picker or a drag-drop) into the import box.
+  const loadFile = useCallback((f: File | null | undefined) => {
     if (!f) return
     if (f.size > 10 * 1024 * 1024) { toast({ kind: 'error', title: 'File too large (max 10 MiB)' }); return }
+    if (!/\.(md|markdown|txt|json)$/i.test(f.name) && !/^(text\/|application\/json)/.test(f.type)) {
+      toast({ kind: 'error', title: 'Unsupported file — use .md, .txt, or .json' }); return
+    }
     setFilename(f.name)
     const reader = new FileReader()
     reader.onload = () => setContent(String(reader.result || ''))
     reader.onerror = () => toast({ kind: 'error', title: 'Could not read the file' })
     reader.readAsText(f)
   }, [toast])
+
+  const onFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    loadFile(e.target.files?.[0]); e.target.value = ''  // allow re-picking the same file
+  }, [loadFile])
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault(); setDragOver(false); loadFile(e.dataTransfer.files?.[0])
+  }, [loadFile])
 
   const start = useCallback(async () => {
     setBusy(true)
@@ -299,8 +357,14 @@ function ImportTab() {
   return (
     <div className="space-y-3">
       {!job && (
-        <div className="space-y-2 rounded-xl border border-border bg-surface/40 p-3.5">
-          <p className="text-xs text-muted">Import a <span className="text-text">.md</span> file (or paste MD / TXT / JSON, ≤10 MiB). Every item runs through the V2 quality gate — <span className="text-text">trash is filtered out automatically</span>, and nothing is saved until you commit.</p>
+        <div
+          onDrop={onDrop}
+          onDragOver={e => { e.preventDefault(); if (!dragOver) setDragOver(true) }}
+          onDragEnter={e => { e.preventDefault(); setDragOver(true) }}
+          onDragLeave={e => { if (e.currentTarget === e.target) setDragOver(false) }}
+          className={`relative space-y-2 rounded-xl border p-3.5 transition-colors ${dragOver ? 'border-accent bg-accent/10 ring-2 ring-accent/30' : 'border-border bg-surface/40'}`}
+        >
+          <p className="text-xs text-muted"><span className="text-text">Drag a .md file here</span> — or pick one, or paste MD / TXT / JSON (≤10 MiB). Every item runs through the V2 quality gate: <span className="text-text">trash is filtered out automatically</span>, and nothing is saved until you commit.</p>
           <div className="flex flex-wrap items-center gap-2">
             <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20">
               <input type="file" accept=".md,.markdown,.txt,.json,text/markdown,text/plain" onChange={onFile} className="hidden" />
@@ -315,6 +379,11 @@ function ImportTab() {
             className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 disabled:opacity-50">
             {busy ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />} Dry-run import
           </button>
+          {dragOver && (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-bg/70 backdrop-blur-sm">
+              <span className="flex items-center gap-2 text-sm font-medium text-accent"><Upload size={16} /> Drop the .md file to load it</span>
+            </div>
+          )}
         </div>
       )}
       {job && (

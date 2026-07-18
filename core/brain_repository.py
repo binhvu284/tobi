@@ -239,6 +239,48 @@ def archive(memory_id: int, conn: Optional[sqlite3.Connection] = None) -> None:
     set_status(memory_id, MemoryStatus.ARCHIVED, conn=conn)
 
 
+def edit_fields(memory_id: int, *, distilled_text: Optional[str] = None,
+                memory_type: Optional[MemoryType] = None,
+                behavior_implication: Optional[str] = None,
+                conn: Optional[sqlite3.Connection] = None) -> None:
+    """Owner edit of a memory's content (text / type / implication). For a sensitive
+    memory the new text is re-encrypted into the vault (requires an unlocked vault) and
+    the plaintext column keeps the REDACTED sentinel; non-sensitive text updates the
+    column directly. No-op when nothing is passed. Never widens exposure."""
+    c = _conn(conn)
+    row = c.execute("SELECT sensitive FROM brain_memory_v2 WHERE id=?", (memory_id,)).fetchone()
+    if row is None:
+        raise ValueError(f"unknown memory {memory_id}")
+    sensitive = bool(row["sensitive"])
+    sets: list[str] = []
+    params: list = []
+    if distilled_text is not None:
+        text = distilled_text.strip()
+        if not text:
+            raise ValueError("distilled_text cannot be empty")
+        if len(text) > 2000:
+            raise ValueError("distilled_text exceeds the length limit")
+        if sensitive:
+            if not vault.can_encrypt_payloads():
+                raise vault.VaultLocked("Vault must be unlocked to edit a sensitive memory.")
+            _store_secure(c, memory_id, "distilled_text", text)
+            sets.append("distilled_text=?"); params.append(REDACTED)
+        else:
+            sets.append("distilled_text=?"); params.append(text)
+    if memory_type is not None:
+        if not isinstance(memory_type, MemoryType):
+            raise TypeError("memory_type must be a MemoryType")
+        sets.append("memory_type=?"); params.append(memory_type.value)
+    if behavior_implication is not None:
+        sets.append("behavior_implication=?"); params.append(behavior_implication.strip()[:500])
+    if not sets:
+        return
+    sets.append("updated_at=CURRENT_TIMESTAMP")
+    params.append(memory_id)
+    c.execute(f"UPDATE brain_memory_v2 SET {', '.join(sets)} WHERE id=?", params)
+    c.commit()
+
+
 def purge(memory_id: int, conn: Optional[sqlite3.Connection] = None) -> bool:
     """Permanently delete a memory and its protected payload (owner deletion).
 
