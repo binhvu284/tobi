@@ -1117,6 +1117,14 @@ def api_architecture_version(diagram_id: str, sha: str):
     return data
 
 
+@app.post("/api/architecture/update")
+def api_architecture_update():
+    """Sync architecture from GitHub: git fetch origin main (read-only, no working-tree mutation),
+    so history() surfaces the newest committed versions. Returns {ok, fetched, changed}."""
+    from core import architecture_docs
+    return architecture_docs.sync()
+
+
 @app.get("/api/architecture/config")
 def api_architecture_config_get():
     from core import owner_flags

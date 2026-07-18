@@ -137,17 +137,34 @@ def get_diagram(diagram_id: str):
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
-def _git(*args: str):
+def _git(*args: str, timeout: int = 6):
     try:
-        out = subprocess.run(["git", *args], cwd=str(_ROOT), capture_output=True, text=True, timeout=6)
+        out = subprocess.run(["git", *args], cwd=str(_ROOT), capture_output=True, text=True, timeout=timeout)
         return out.stdout if out.returncode == 0 else None
     except Exception:
         return None
 
 
+def sync():
+    """``git fetch origin main`` — a network READ that refreshes the ``origin/main`` remote-tracking
+    ref so the newest GitHub versions appear in ``history()``. Never mutates the working tree or any
+    local branch (no pull/merge/checkout), so it can't conflict with local edits or the auto-committer.
+    Never raises."""
+    if _git("rev-parse", "--is-inside-work-tree") is None:
+        return {"ok": False, "fetched": False, "error": "not a git checkout"}
+    before = (_git("rev-parse", "origin/main") or "").strip()
+    res = _git("fetch", "origin", "main", timeout=30)
+    if res is None:
+        return {"ok": False, "fetched": False, "error": "git fetch failed (offline or no remote access)"}
+    after = (_git("rev-parse", "origin/main") or "").strip()
+    return {"ok": True, "fetched": True, "changed": bool(after and after != before),
+            "origin_main": after[:12]}
+
+
 def history(diagram_id: str, limit: int = 10):
-    """Recent commits that touched this diagram's file. Unknown id → None. Not a git checkout →
-    {available: False}. SHAs returned as full %H (allowlist key) + short (display)."""
+    """Recent commits that touched this diagram's file, from HEAD ∪ origin/main (so GitHub's latest
+    shows even when local HEAD is behind). Unknown id → None. Not a git checkout → {available: False}.
+    SHAs returned as full %H (allowlist key) + short (display)."""
     meta = DIAGRAMS.get(diagram_id)
     if not meta:
         return None
@@ -156,7 +173,12 @@ def history(diagram_id: str, limit: int = 10):
     except Exception:
         n = 10
     rel = f"docs/architecture/diagrams/{meta['file']}"  # from the enum, never client input
-    out = _git("log", f"--max-count={n}", "--format=%H%x1f%h%x1f%aI%x1f%s", "--", rel)
+    refs = ["HEAD"]
+    if _git("rev-parse", "--verify", "--quiet", "origin/main") is not None:
+        refs.append("origin/main")
+    out = _git("log", f"--max-count={n}", "--format=%H%x1f%h%x1f%aI%x1f%s", *refs, "--", rel)
+    if out is None and len(refs) > 1:  # a bad origin ref shouldn't hide local history
+        out = _git("log", f"--max-count={n}", "--format=%H%x1f%h%x1f%aI%x1f%s", "HEAD", "--", rel)
     if out is None:
         return {"items": [], "count": 0, "available": False}
     items = []

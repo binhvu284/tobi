@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  AlertTriangle, Copy, Download, History, Maximize2, Minimize2, Network, RotateCcw,
+  AlertTriangle, Copy, Download, Maximize2, Minimize2, Network, RotateCcw,
   ZoomIn, ZoomOut, Loader2, List, FileText, Search, X, GripVertical, Crosshair, ArrowLeftRight,
+  RefreshCw, GitBranch, ChevronDown,
   User, LayoutDashboard, Send, TerminalSquare, Plug, Cpu, Database, Brain, Workflow, Wrench,
   FolderKanban, Boxes, Globe, Server, Circle, type LucideIcon,
 } from 'lucide-react'
 import DOMPurify from 'dompurify'
 import {
   getArchitectureConfig, getArchitectureDiagram, getArchitectureDiagrams,
-  getArchitectureHistory, getArchitectureVersion,
+  getArchitectureHistory, getArchitectureVersion, syncArchitecture,
   type ArchDiagram, type ArchDiagramMeta, type ArchVersion,
 } from '../api'
 import { useToast } from '../context/ToastProvider'
@@ -118,9 +119,12 @@ function ArchitectureV2() {
   const [renderError, setRenderError] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [history, setHistory] = useState<ArchVersion[]>([])
-  const [showHistory, setShowHistory] = useState(false)
+  const [showVersions, setShowVersions] = useState(false)
   const [histBusy, setHistBusy] = useState(false)
   const [verBusy, setVerBusy] = useState<string>('')
+  const [updating, setUpdating] = useState(false)
+  const [selectedSha, setSelectedSha] = useState<string>('')     // '' → latest / working-tree
+  const [verContent, setVerContent] = useState<string | null>(null)  // non-null → viewing a historical version
   const [copyBusy, setCopyBusy] = useState(false)
   const [exportBusy, setExportBusy] = useState(false)
   const [selected, setSelected] = useState<string>('')
@@ -138,10 +142,14 @@ function ArchitectureV2() {
   const stageRef = useRef<HTMLDivElement | null>(null)
   const guideRef = useRef<HTMLDivElement | null>(null)
   const bodyRef = useRef<HTMLDivElement | null>(null)
+  const versionsRef = useRef<HTMLDivElement | null>(null)
+
+  // Content currently on screen: a picked historical version, else the current (working-tree) diagram.
+  const activeContent = verContent ?? (diagram?.valid ? diagram.content : '')
 
   const edges = useMemo<EdgeGraph>(
-    () => (diagram?.content ? parseEdges(diagram.content) : { out: new Map(), inc: new Map() }),
-    [diagram],
+    () => (activeContent ? parseEdges(activeContent) : { out: new Map(), inc: new Map() }),
+    [activeContent],
   )
 
   // Node labels straight from the .mmd source (id[Label], id(Label), id[(Label)], …). This is
@@ -150,13 +158,22 @@ function ArchitectureV2() {
     const m = new Map<string, string>()
     const re = /\b([A-Za-z0-9_]+)\s*[[({]+\s*"?(.*?)"?\s*[\])}]+/g
     let x: RegExpExecArray | null
-    while (diagram?.content && (x = re.exec(diagram.content))) {
+    while (activeContent && (x = re.exec(activeContent))) {
       const id = x[1]
       const label = x[2].replace(/<br\s*\/?>/gi, ' ').replace(/["']/g, '').trim()
       if (label && !m.has(id)) m.set(id, label)
     }
     return m
-  }, [diagram])
+  }, [activeContent])
+
+  // close the version dropdown on outside click / Escape
+  useEffect(() => {
+    if (!showVersions) return
+    const onDoc = (e: MouseEvent) => { if (versionsRef.current && !versionsRef.current.contains(e.target as Node)) setShowVersions(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowVersions(false) }
+    document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey) }
+  }, [showVersions])
 
   useEffect(() => {
     let alive = true
@@ -175,13 +192,14 @@ function ArchitectureV2() {
     if (!activeId) return
     let alive = true
     setLoading(true); setSelected(''); setScale(1); setPan({ x: 0, y: 0 })
+    setVerContent(null); setSelectedSha('')
     getArchitectureDiagram(activeId)
       .then(d => { if (alive) setDiagram(d) })
       .catch(() => { if (alive) setDiagram(null) })
       .finally(() => { if (alive) setLoading(false) })
     setHistBusy(true)
-    getArchitectureHistory(activeId, 10)
-      .then(h => { if (alive) setHistory(h.available ? h.items : []) })
+    getArchitectureHistory(activeId, 20)
+      .then(h => { if (alive) { const items = h.available ? h.items : []; setHistory(items); setSelectedSha(items[0]?.sha || '') } })
       .catch(() => { if (alive) setHistory([]) })
       .finally(() => { if (alive) setHistBusy(false) })
     return () => { alive = false }
@@ -231,15 +249,15 @@ function ArchitectureV2() {
   }, [])
 
   useEffect(() => {
-    if (diagram?.valid && diagram.content) void renderMermaid(diagram.content)
+    if (activeContent) void renderMermaid(activeContent)
     else setSvg('')
-  }, [diagram, renderMermaid])
+  }, [activeContent, renderMermaid])
 
   useEffect(() => {
-    const obs = new MutationObserver(() => { if (diagram?.valid && diagram.content) void renderMermaid(diagram.content) })
+    const obs = new MutationObserver(() => { if (activeContent) void renderMermaid(activeContent) })
     obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     return () => obs.disconnect()
-  }, [diagram, renderMermaid])
+  }, [activeContent, renderMermaid])
 
   // After the SVG lands: colourise shapes and draw EVERY node label ourselves as native SVG
   // <text>. We do NOT trust mermaid's own labels — mermaid 11 emits them as HTML inside
@@ -429,17 +447,44 @@ function ArchitectureV2() {
       toast({ kind: 'success', title: 'Exported', detail: 'Sanitized SVG downloaded' })
     } finally { setExportBusy(false) }
   }
-  const loadVersion = async (sha: string) => {
+  // View a version: the latest maps back to the current (working-tree) diagram; an older one is
+  // git-shown. Content drives the render via `activeContent`.
+  const viewVersion = useCallback(async (v: ArchVersion, isLatest: boolean) => {
+    setShowVersions(false)
+    setSelectedSha(v.sha)
+    setSelected('')
+    if (isLatest) { setVerContent(null); return }
     if (verBusy) return
-    setVerBusy(sha)
+    setVerBusy(v.sha)
     try {
-      const v = await getArchitectureVersion(activeId, sha)
-      await renderMermaid(v.content)
-      setShowHistory(false)
-      toast({ kind: 'info', title: 'Historical version', detail: `Showing ${sha.slice(0, 8)} — reload the tab to return to current` })
+      const data = await getArchitectureVersion(activeId, v.sha)
+      setVerContent(data.content)
     } catch { toast({ kind: 'error', title: 'Version unavailable', detail: 'That revision could not be loaded' }) }
     finally { setVerBusy('') }
-  }
+  }, [activeId, verBusy, toast])
+
+  // "Update architecture": git fetch origin (backend), then refresh the diagram + version list.
+  const doUpdate = useCallback(async () => {
+    if (updating) return
+    setUpdating(true)
+    try {
+      const res = await syncArchitecture()
+      if (!res.ok) { toast({ kind: 'error', title: 'Sync failed', detail: res.error || 'Could not reach GitHub' }); return }
+      const [d, h] = await Promise.all([getArchitectureDiagram(activeId), getArchitectureHistory(activeId, 20)])
+      setDiagram(d)
+      const items = h.available ? h.items : []
+      setHistory(items); setVerContent(null); setSelectedSha(items[0]?.sha || '')
+      toast({
+        kind: 'success',
+        title: res.changed ? 'Updated from GitHub' : 'Already up to date',
+        detail: `${items.length} version${items.length === 1 ? '' : 's'} on record`,
+      })
+    } catch (e) { toast({ kind: 'error', title: 'Sync failed', detail: (e as Error)?.message || '' }) }
+    finally { setUpdating(false) }
+  }, [updating, activeId, toast])
+
+  const selIdx = Math.max(0, history.findIndex(v => v.sha === selectedSha))
+  const viewingHistorical = verContent !== null
 
   // ── the diagram pane (one instance; fullscreen just repositions its wrapper) ─
   const diagramPane = () => (
@@ -450,7 +495,6 @@ function ArchitectureV2() {
           <IconBtn title="Zoom out" onClick={() => setScale(s => Math.max(0.3, s * 0.9))}><ZoomOut size={15} /></IconBtn>
           <IconBtn title="Zoom in" onClick={() => setScale(s => Math.min(4, s * 1.1))}><ZoomIn size={15} /></IconBtn>
           <IconBtn title="Reset view" onClick={reset}><RotateCcw size={15} /></IconBtn>
-          <IconBtn title="Version history" onClick={() => setShowHistory(v => !v)} active={showHistory} busy={histBusy}><History size={15} /></IconBtn>
           <IconBtn title="Copy Mermaid" onClick={copyMermaid} busy={copyBusy}><Copy size={15} /></IconBtn>
           <IconBtn title="Export SVG" onClick={exportSvg} busy={exportBusy}><Download size={15} /></IconBtn>
           <IconBtn title={full === 'diagram' ? 'Exit fullscreen' : 'Fullscreen diagram'} onClick={() => setFull(full === 'diagram' ? null : 'diagram')} active={full === 'diagram'}>
@@ -481,23 +525,10 @@ function ArchitectureV2() {
             />
           </div>
         )}
-        {showHistory && (
-          <div className="absolute right-2 top-2 max-h-[70%] w-72 overflow-y-auto rounded-lg border border-border bg-card p-2 shadow-lg">
-            <p className="mb-1 px-1 text-xs font-medium text-muted">Recent versions</p>
-            {histBusy ? (
-              <p className="flex items-center gap-1.5 px-1 py-2 text-xs text-muted"><Loader2 size={12} className="animate-spin" /> Loading history…</p>
-            ) : history.length === 0 ? (
-              <p className="px-1 py-2 text-xs text-muted">No git history for this diagram.</p>
-            ) : history.map(v => (
-              <button key={v.sha} disabled={!!verBusy} onClick={() => loadVersion(v.sha)}
-                className="block w-full rounded px-2 py-1.5 text-left text-xs hover:bg-accent/10 disabled:opacity-50">
-                <span className="inline-flex items-center gap-1 font-mono text-accent">
-                  {verBusy === v.sha && <Loader2 size={10} className="animate-spin" />}{v.short}
-                </span>{' '}
-                <span className="text-muted">{(v.date || '').slice(0, 10)}</span>
-                <span className="block truncate text-fg/80">{v.subject}</span>
-              </button>
-            ))}
+        {viewingHistorical && (
+          <div className="absolute left-2 top-2 flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-2.5 py-1 text-[11px] text-warning backdrop-blur">
+            <GitBranch size={12} /> Viewing v{history.length - selIdx} (historical) · {history[selIdx]?.short}
+            <button onClick={() => history[0] && viewVersion(history[0], true)} className="ml-1 rounded border border-warning/40 px-1.5 py-px hover:bg-warning/10">Back to latest</button>
           </div>
         )}
         <div className="pointer-events-none absolute bottom-2 left-2 rounded-md border border-border bg-card/80 px-2 py-0.5 text-[10px] text-muted backdrop-blur">
@@ -579,7 +610,48 @@ function ArchitectureV2() {
             </button>
           ))}
         </div>
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-1.5">
+          <button onClick={doUpdate} disabled={updating} title="git fetch origin (binhvu284/tobi) and refresh versions"
+            className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-xs font-medium text-accent transition hover:bg-accent/20 disabled:opacity-60">
+            {updating ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Update architecture
+          </button>
+          <div ref={versionsRef} className="relative">
+            <button onClick={() => setShowVersions(o => !o)}
+              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition ${showVersions ? 'border-accent/50 text-accent' : 'border-border text-muted hover:text-fg'}`}>
+              <GitBranch size={14} /> {history.length ? `v${history.length - selIdx}` : 'Version'} <ChevronDown size={13} />
+            </button>
+            {showVersions && (
+              <div className="absolute right-0 z-30 mt-1 max-h-[60vh] w-80 overflow-y-auto rounded-xl border border-border bg-card p-1.5 shadow-2xl">
+                <p className="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-muted">Versions · git history</p>
+                {histBusy ? (
+                  <p className="flex items-center gap-1.5 px-2 py-3 text-xs text-muted"><Loader2 size={12} className="animate-spin" /> Loading versions…</p>
+                ) : history.length === 0 ? (
+                  <p className="px-2 py-3 text-xs text-muted">No git history for this diagram.</p>
+                ) : history.map((v, i) => {
+                  const isLatest = i === 0
+                  const isCurrent = i === selIdx
+                  return (
+                    <button key={v.sha} disabled={!!verBusy} onClick={() => viewVersion(v, isLatest)}
+                      className={`flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left transition ${isCurrent ? 'bg-accent/10' : 'hover:bg-bg/60'} disabled:opacity-50`}>
+                      <span className="mt-px w-7 shrink-0 font-mono text-xs font-semibold text-accent">v{history.length - i}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-1.5">
+                          <span className="truncate text-xs text-fg">{v.subject}</span>
+                          {verBusy === v.sha && <Loader2 size={11} className="shrink-0 animate-spin text-muted" />}
+                        </span>
+                        <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-muted">
+                          <span className="font-mono">{v.short}</span> · {(v.date || '').slice(0, 10)}
+                          {isLatest && <span className="rounded-full border border-success/40 bg-success/10 px-1.5 text-success">latest</span>}
+                          {isCurrent && <span className="rounded-full border border-accent/40 bg-accent/10 px-1.5 text-accent">current</span>}
+                        </span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+          <span className="mx-0.5 h-5 w-px bg-border" />
           <IconBtn title={swapped ? 'Diagram → left' : 'Diagram → right'} onClick={() => setSwapped(s => !s)} active={swapped}><ArrowLeftRight size={16} /></IconBtn>
           <IconBtn title="Fit to view" onClick={() => { setScale(1); setPan({ x: 0, y: 0 }) }}><Crosshair size={16} /></IconBtn>
         </div>

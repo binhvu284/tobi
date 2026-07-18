@@ -14,6 +14,7 @@ export type ArchVersion = { sha: string; short: string; date: string; subject: s
 export type ArchHistory = { items: ArchVersion[]; count: number; available: boolean }
 export type ArchVersionContent = { id: string; sha: string; short: string; content: string; valid: boolean }
 export type ArchConfig = { v2_enabled: boolean }
+export type ArchSyncResult = { ok: boolean; fetched: boolean; changed?: boolean; origin_main?: string; error?: string }
 
 export async function getArchitectureDiagrams(): Promise<ArchDiagramList> {
   return get('/api/architecture/diagrams')
@@ -29,6 +30,9 @@ export async function getArchitectureVersion(id: string, sha: string): Promise<A
 }
 export async function getArchitectureConfig(): Promise<ArchConfig> {
   return get('/api/architecture/config')
+}
+export async function syncArchitecture(): Promise<ArchSyncResult> {
+  return request('/api/architecture/update', { method: 'POST' })
 }
 export async function setArchitectureConfig(v2_enabled: boolean): Promise<ArchConfig> {
   return request('/api/architecture/config', { method: 'POST', body: JSON.stringify({ v2_enabled }) })
