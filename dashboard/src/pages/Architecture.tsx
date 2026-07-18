@@ -68,30 +68,6 @@ function hueFor(id: string): string {
   return NODE_PALETTE[h % NODE_PALETTE.length]
 }
 
-// Colour every node at the mermaid level via injected classDef/class statements.
-// `color:` sets the LABEL text fill too, so this fixes contrast + colour in one pass,
-// before any DOM sanitising can interfere. Ids come from the parsed edges (all nodes
-// in the canonical diagrams have edges); unknown ids are simply never referenced.
-function colorizeSource(src: string, textColor: string): string {
-  const { out, inc } = parseEdges(src)
-  const ids = [...new Set<string>([...out.keys(), ...inc.keys()])]
-  if (ids.length === 0) return src
-  const groups = new Map<string, string[]>()
-  for (const id of ids) {
-    const c = hueFor(id)
-    if (!groups.has(c)) groups.set(c, [])
-    groups.get(c)!.push(id)
-  }
-  const lines: string[] = []
-  let i = 0
-  for (const [color, gids] of groups) {
-    const cls = `ac${i++}`
-    lines.push(`classDef ${cls} fill:${color}22,stroke:${color},stroke-width:1.5px,color:${textColor};`)
-    lines.push(`class ${gids.join(',')} ${cls};`)
-  }
-  return `${src}\n${lines.join('\n')}\n`
-}
-
 // Icon per guide section, matched on the section title (which mirrors the node id).
 function sectionIcon(title: string): LucideIcon {
   const t = title.toLowerCase()
@@ -239,13 +215,10 @@ function ArchitectureV2() {
         },
         flowchart: { htmlLabels: true, useMaxWidth: true, curve: 'basis', padding: 14 },
       })
-      let raw = ''
-      try {
-        raw = (await mermaid.render('arch-svg-' + Math.random().toString(36).slice(2), colorizeSource(content, textColor))).svg
-      } catch {
-        // Injected classDefs can rarely upset an edge case — fall back to the raw source.
-        raw = (await mermaid.render('arch-svg-' + Math.random().toString(36).slice(2), content)).svg
-      }
+      // Render the raw source. We deliberately do NOT inject classDef colours: mermaid compiles
+      // classDef styles into `!important` CSS that fill-inherits onto label text and beats our
+      // inline styles. Instead the post-render effect colours the shapes and draws the labels.
+      const raw = (await mermaid.render('arch-svg-' + Math.random().toString(36).slice(2), content)).svg
       // Keep foreignObject (HTML labels), its inner markup (html profile), and <style>.
       setSvg(DOMPurify.sanitize(raw, {
         USE_PROFILES: { svg: true, svgFilters: true, html: true },
@@ -292,26 +265,35 @@ function ArchitectureV2() {
       const label = (labelMap.get(id) || id).trim()
       labels.set(id, label)
 
-      // remove mermaid's own (unreliable) label — the HTML foreignObject and any SVG <text> it
-      // emitted — but never the shape. Then draw ours.
-      node.querySelectorAll('foreignObject, text:not([data-arch])').forEach(n => n.remove())
-      node.querySelectorAll('text[data-arch="1"]').forEach(n => n.remove())
-
-      // find the node's box to size + centre the label
-      const shape = node.querySelector('rect, polygon, circle, ellipse, path') as SVGGraphicsElement | null
-      let cx = 0, cy = 0, boxW = 120
-      try {
-        const b = shape?.getBBox()
-        if (b && b.width > 0) { cx = b.x + b.width / 2; cy = b.y + b.height / 2; boxW = b.width }
-      } catch { /* getBBox can throw if not yet laid out; fall back to rect attrs below */ }
-      if (boxW === 120 && shape && shape.tagName === 'rect') {
-        const x = +(shape.getAttribute('x') || 0), y = +(shape.getAttribute('y') || 0)
-        const w = +(shape.getAttribute('width') || 120), h = +(shape.getAttribute('height') || 36)
-        cx = x + w / 2; cy = y + h / 2; boxW = w
+      // Anchor to mermaid's OWN label group + its computed box: mermaid already placed the label
+      // correctly for every shape (rectangles, cylinders, circles, diamonds), so we reuse that
+      // group's transform + size, then remove its broken foreignObject and draw our own <text>
+      // in the same spot. This is why cylinder labels no longer spill outside the shape.
+      const fo = node.querySelector('foreignObject') as SVGGraphicsElement | null
+      let parent: Element = node
+      let cx = 0, cy = 0, boxW = 0
+      if (fo) {
+        parent = (fo.parentNode as Element) || node
+        const fx = +(fo.getAttribute('x') || 0), fy = +(fo.getAttribute('y') || 0)
+        const fw = +(fo.getAttribute('width') || 0), fh = +(fo.getAttribute('height') || 0)
+        cx = fx + fw / 2; cy = fy + fh / 2; boxW = fw
+      }
+      node.querySelectorAll('foreignObject, text:not([data-arch]), text[data-arch="1"]').forEach(n => n.remove())
+      if (!boxW) {
+        // no HTML label to anchor to → fall back to the shape's own box, drawn on the node
+        parent = node
+        const shape = node.querySelector('rect, polygon, circle, ellipse, path') as SVGGraphicsElement | null
+        try { const b = shape?.getBBox(); if (b && b.width > 0) { cx = b.x + b.width / 2; cy = b.y + b.height / 2; boxW = b.width } } catch { /* not laid out */ }
+        if (!boxW) {
+          const r = node.querySelector('rect')
+          const w = +(r?.getAttribute('width') || 120), h = +(r?.getAttribute('height') || 34)
+          const x = +(r?.getAttribute('x') || -w / 2), y = +(r?.getAttribute('y') || -h / 2)
+          cx = x + w / 2; cy = y + h / 2; boxW = w
+        }
       }
 
-      // word-wrap to the box width
-      const maxChars = Math.max(6, Math.floor(boxW / 7.2))
+      // word-wrap to the label-box width (our 12px text is smaller than mermaid's, so it fits)
+      const maxChars = Math.max(6, Math.floor(boxW / 6.4))
       const lines: string[] = []
       let cur = ''
       for (const w of label.split(/\s+/)) {
@@ -319,19 +301,22 @@ function ArchitectureV2() {
         else cur = cur ? cur + ' ' + w : w
       }
       if (cur) lines.push(cur)
-      const lh = 14, startY = cy - ((lines.length - 1) * lh) / 2
+      const lh = 13, startY = cy - ((lines.length - 1) * lh) / 2
       const text = document.createElementNS(NS, 'text')
       text.setAttribute('data-arch', '1'); text.setAttribute('text-anchor', 'middle')
       text.setAttribute('fill', textFill)
-      text.style.fill = textFill; text.style.fontSize = '13px'; text.style.fontWeight = '500'; text.style.pointerEvents = 'none'
+      text.style.setProperty('fill', textFill, 'important')   // beat mermaid's per-node label CSS
+      text.style.fontSize = '12px'; text.style.fontWeight = '600'; text.style.pointerEvents = 'none'
       lines.forEach((ln, i) => {
         const tspan = document.createElementNS(NS, 'tspan')
         tspan.setAttribute('x', String(cx)); tspan.setAttribute('y', String(startY + i * lh))
         tspan.setAttribute('dominant-baseline', 'central')
+        tspan.setAttribute('fill', textFill)
+        tspan.style.setProperty('fill', textFill, 'important')
         tspan.textContent = ln
         text.appendChild(tspan)
       })
-      node.appendChild(text)
+      parent.appendChild(text)
 
       ;(node as HTMLElement).style.cursor = 'pointer'
       const onClick = () => { setSelected(prev => (prev === id ? '' : id)); setTextTab('guide') }
