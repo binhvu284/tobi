@@ -44,7 +44,7 @@ function toolFor(profile: DeveloperWorkerProfile): DeveloperTool {
 
 function AgentRow({ profile, models, providers, routing, busy, onSave, onProbe, onLogin, onModels }: {
   profile: DeveloperWorkerProfile; models: AvailableModel[]; providers: LlmProvider[]; routing: Routing; busy: boolean
-  onSave: (slug: string, profile: DeveloperWorkerProfile) => Promise<DeveloperWorkerProfile | null>
+  onSave: (slug: string, profile: DeveloperWorkerProfile, success?: string) => Promise<DeveloperWorkerProfile | null>
   onProbe: (slug: string) => Promise<DeveloperWorkerProfile | null>
   onLogin: (slug: string) => Promise<DeveloperWorkerLogin | null>
   onModels: (slug: string, refresh?: boolean) => Promise<DeveloperWorkerModels | null>
@@ -53,13 +53,14 @@ function AgentRow({ profile, models, providers, routing, busy, onSave, onProbe, 
   const [draft, setDraft] = useState(profile)
   const [auth, setAuth] = useState<DeveloperWorkerLogin | null>(null)
   const [cliCatalog, setCliCatalog] = useState<DeveloperWorkerModels | null>(null)
-  const [localBusy, setLocalBusy] = useState<'save' | 'test' | 'auth' | 'models' | null>(null)
+  const [localBusy, setLocalBusy] = useState<'save' | 'test' | 'auth' | 'models' | 'toggle' | null>(null)
   const reviewer = profile.adapter === 'model_review'
 
   useEffect(() => { setDraft(profile) }, [profile.slug])
   useEffect(() => {
     setDraft(current => ({
       ...current,
+      enabled: profile.enabled,
       health_status: profile.health_status,
       health_detail: profile.health_detail,
       last_probed_at: profile.last_probed_at,
@@ -67,7 +68,7 @@ function AgentRow({ profile, models, providers, routing, busy, onSave, onProbe, 
       runner_mode: profile.runner_mode,
     }))
   }, [
-    profile.health_status, profile.health_detail, profile.last_probed_at,
+    profile.enabled, profile.health_status, profile.health_detail, profile.last_probed_at,
     profile.runner, profile.runner_mode,
   ])
 
@@ -91,6 +92,7 @@ function AgentRow({ profile, models, providers, routing, busy, onSave, onProbe, 
   const providerName = provider?.label || BRAND_META[brandForProvider(providerId)].name || label(providerId)
   const modelName = modelRow?.label || modelRow?.model || effectiveModel || (sharedManaged ? 'Shared route' : 'CLI default')
   const authorized = ['codex', 'opencode'].includes(draft.adapter) && profile.health_status === 'ready'
+  const displayStatus = !profile.enabled ? 'Off' : profile.health_status === 'ready' ? 'Ready' : label(profile.health_status)
   const toolOptions: Array<{ id: DeveloperTool; detail: string; soon?: boolean }> = reviewer
     ? [{ id: 'model_review', detail: 'Independent quality gate' }]
     : [
@@ -153,15 +155,47 @@ function AgentRow({ profile, models, providers, routing, busy, onSave, onProbe, 
   }, [open, sharedManaged, profile.health_status])
 
   const working = busy || localBusy !== null
+  const toggleEnabled = async () => {
+    const enabled = !profile.enabled
+    setDraft(current => ({ ...current, enabled }))
+    setLocalBusy('toggle')
+    try {
+      const updated = await onSave(
+        profile.slug,
+        { ...profile, enabled },
+        enabled ? 'Agent activated' : 'Agent deactivated',
+      )
+      setDraft(current => ({ ...current, enabled: updated?.enabled ?? profile.enabled }))
+    } finally { setLocalBusy(null) }
+  }
   return (
-    <motion.section layout className={`overflow-visible rounded-md border transition-colors ${open ? 'border-accent/35 bg-surface/75 shadow-[0_18px_50px_rgb(0_0_0/0.12)]' : 'border-border/70 bg-surface/35 hover:border-border hover:bg-surface/60'}`}>
-      <button type="button" onClick={() => setOpen(value => !value)} className="grid min-h-16 w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 text-left sm:grid-cols-[auto_minmax(150px,1fr)_120px_minmax(190px,1fr)_auto] sm:px-4">
-        <span className="flex h-9 w-9 items-center justify-center rounded-md border border-border/70 bg-background text-xs font-semibold text-text">{avatarText(profile)}</span>
-        <span className="min-w-0"><span className="block truncate text-sm font-medium text-text">{profile.name}</span><span className="mt-0.5 block truncate text-[10px] text-muted sm:hidden">{developerToolName(toolFor(profile))} - {modelName}</span></span>
-        <span className={`hidden w-fit rounded border px-2 py-0.5 text-[10px] font-medium sm:inline-flex ${statusTone(profile.health_status)}`}>{profile.health_status === 'ready' ? 'Ready' : profile.enabled ? label(profile.health_status) : 'Off'}</span>
-        <span className="hidden min-w-0 items-center gap-2 sm:flex"><LlmLogo model={effectiveModel} provider={providerId} size={13} /><span className="min-w-0"><span className="block truncate text-xs text-text">{providerName}</span><span className="block truncate text-[10px] text-muted">{modelName}</span></span></span>
-        <span className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${profile.health_status === 'ready' ? 'bg-success' : profile.enabled ? 'bg-warning' : 'bg-muted'}`} /><ChevronDown size={16} className={`text-muted transition-transform ${open ? 'rotate-180' : ''}`} /></span>
-      </button>
+    <motion.section layout className={`overflow-visible rounded-md border transition-colors ${open ? 'border-accent/35 bg-surface/75 shadow-[0_18px_50px_rgb(0_0_0/0.12)]' : profile.enabled ? 'border-border/70 bg-surface/35 hover:border-border hover:bg-surface/60' : 'border-border/50 bg-surface/20 hover:border-border/70'}`}>
+      <div className="flex min-h-16 w-full items-stretch">
+        <button type="button" onClick={() => setOpen(value => !value)} className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-3 px-3 text-left sm:grid-cols-[auto_minmax(150px,1fr)_120px_minmax(190px,1fr)] sm:px-4">
+          <span className="flex h-9 w-9 items-center justify-center rounded-md border border-border/70 bg-background text-xs font-semibold text-text">{avatarText(profile)}</span>
+          <span className="min-w-0"><span className={`block truncate text-sm font-medium ${profile.enabled ? 'text-text' : 'text-muted'}`}>{profile.name}</span><span className="mt-0.5 block truncate text-[10px] text-muted sm:hidden">{developerToolName(toolFor(profile))} - {modelName}</span></span>
+          <span className={`hidden w-fit rounded border px-2 py-0.5 text-[10px] font-medium sm:inline-flex ${statusTone(profile.enabled ? profile.health_status : 'off')}`}>{displayStatus}</span>
+          <span className="hidden min-w-0 items-center gap-2 sm:flex"><LlmLogo model={effectiveModel} provider={providerId} size={13} /><span className="min-w-0"><span className="block truncate text-xs text-text">{providerName}</span><span className="block truncate text-[10px] text-muted">{modelName}</span></span></span>
+        </button>
+        <div className="flex shrink-0 items-center gap-2 pr-3 sm:pr-4">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={profile.enabled}
+            aria-label={`${profile.enabled ? 'Deactivate' : 'Activate'} ${profile.name} for new goals`}
+            title={`${profile.enabled ? 'Deactivate' : 'Activate'} for new goals`}
+            disabled={working}
+            onClick={() => void toggleEnabled()}
+            className="inline-flex h-9 items-center gap-2 rounded-md px-1.5 text-left transition-colors hover:bg-overlay/5 disabled:cursor-wait disabled:opacity-60"
+          >
+            <span className={`relative h-5 w-9 rounded-full border transition-colors ${profile.enabled ? 'border-success/60 bg-success/20' : 'border-border bg-background'}`}>
+              <span className={`absolute top-0.5 h-3.5 w-3.5 rounded-full transition-all ${profile.enabled ? 'left-[17px] bg-success' : 'left-0.5 bg-muted'}`} />
+            </span>
+            <span className={`hidden text-[10px] font-medium lg:block ${profile.enabled ? 'text-success' : 'text-muted'}`}>{localBusy === 'toggle' ? <Loader2 size={12} className="animate-spin" /> : profile.enabled ? 'Active' : 'Off'}</span>
+          </button>
+          <button type="button" title={open ? 'Collapse agent' : 'Expand agent'} onClick={() => setOpen(value => !value)} className="flex h-9 w-7 items-center justify-center rounded-md text-muted hover:bg-overlay/5 hover:text-text"><ChevronDown size={16} className={`transition-transform ${open ? 'rotate-180' : ''}`} /></button>
+        </div>
+      </div>
 
       <AnimatePresence initial={false}>
         {open && <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18 }} className="overflow-hidden">
@@ -205,7 +239,7 @@ function AgentRow({ profile, models, providers, routing, busy, onSave, onProbe, 
 
 export default function DeveloperAgents({ workers, models, providers, routing, busy, onSave, onProbe, onLogin, onModels }: {
   workers: DeveloperWorkerProfile[]; models: AvailableModel[]; providers: LlmProvider[]; routing: Routing; busy: boolean
-  onSave: (slug: string, profile: DeveloperWorkerProfile) => Promise<DeveloperWorkerProfile | null>
+  onSave: (slug: string, profile: DeveloperWorkerProfile, success?: string) => Promise<DeveloperWorkerProfile | null>
   onProbe: (slug: string) => Promise<DeveloperWorkerProfile | null>
   onLogin: (slug: string) => Promise<DeveloperWorkerLogin | null>
   onModels: (slug: string, refresh?: boolean) => Promise<DeveloperWorkerModels | null>
