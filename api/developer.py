@@ -78,8 +78,16 @@ class WorkflowCreate(BaseModel):
 
 
 class WorkflowCommand(BaseModel):
-    command: Literal["pause", "resume", "cancel", "retry"]
+    command: Literal["pause", "resume", "cancel", "retry", "remove"]
     idempotency_key: str = Field(min_length=8, max_length=200)
+
+
+class ProcessSettingsRequest(BaseModel):
+    auto_queue: bool
+
+
+class ApprovalRejectRequest(BaseModel):
+    purpose: Literal["special_paths", "merge_deploy"]
 
 
 class ReauthRequest(BaseModel):
@@ -189,7 +197,16 @@ def overview() -> dict[str, Any]:
             "github_configured": agent.github.configured(),
             "deployment_configured": agent.deployments.configured(),
         },
+        "process": agent.process_settings(),
     }
+
+
+@router.patch("/process/settings", dependencies=[Owner])
+def process_settings(body: ProcessSettingsRequest) -> dict[str, Any]:
+    try:
+        return agent.set_auto_queue(body.auto_queue)
+    except Exception as exc:
+        raise _error(exc) from exc
 
 
 @router.get("/queue", dependencies=[Owner])
@@ -565,6 +582,14 @@ def reauth(body: ReauthRequest) -> dict[str, Any]:
 def approve(workflow_id: int, body: ApprovalRequest) -> dict[str, Any]:
     try:
         return agent.approve(workflow_id, body.purpose, body.challenge)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/workflows/{workflow_id}/reject", dependencies=[Owner])
+def reject_approval(workflow_id: int, body: ApprovalRejectRequest) -> dict[str, Any]:
+    try:
+        return agent.reject_approval(workflow_id, body.purpose)
     except Exception as exc:
         raise _error(exc) from exc
 

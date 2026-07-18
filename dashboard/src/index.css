@@ -1077,6 +1077,62 @@
 [data-motion="off"] .developer-progress-live,
 [data-motion="off"] .developer-goal-live { animation: none !important; }
 
+@keyframes developer-process-border {
+  0%, 100% { box-shadow: 0 0 0 1px rgb(var(--warning) / 0.08), 0 20px 55px rgb(0 0 0 / 0.16); }
+  50% { box-shadow: 0 0 0 1px rgb(var(--warning) / 0.34), 0 0 30px rgb(var(--warning) / 0.13), 0 20px 55px rgb(0 0 0 / 0.2); }
+}
+@keyframes developer-process-bar-flow {
+  0% { background-position: 0 50%; filter: brightness(0.9); }
+  50% { filter: brightness(1.25); }
+  100% { background-position: 180% 50%; filter: brightness(0.9); }
+}
+@keyframes developer-process-dots {
+  0%, 100% { opacity: 0.28; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-2px); }
+}
+@keyframes developer-checkpoint-breathe {
+  0%, 100% { box-shadow: inset 0 0 0 1px rgb(var(--accent) / 0.08); }
+  50% { box-shadow: inset 0 0 0 1px rgb(var(--accent) / 0.3), 0 0 24px rgb(var(--accent) / 0.09); }
+}
+@keyframes developer-sprint-current {
+  0%, 100% { box-shadow: inset 2px 0 0 rgb(var(--accent) / 0.45); }
+  50% { box-shadow: inset 2px 0 0 rgb(var(--accent)), 0 0 18px rgb(var(--accent) / 0.1); }
+}
+.developer-process-cooking { animation: developer-process-border 2.8s ease-in-out infinite; }
+.developer-process-completed { box-shadow: 0 0 26px rgb(var(--success) / 0.12), inset 0 0 0 1px rgb(var(--success) / 0.08); }
+.developer-process-grid {
+  background-image: linear-gradient(rgb(var(--border) / 0.18) 1px, transparent 1px), linear-gradient(90deg, rgb(var(--border) / 0.18) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: linear-gradient(to right, black, transparent 74%);
+}
+.developer-process-bar {
+  background-image: linear-gradient(90deg, rgb(var(--warning)), rgb(var(--accent)), rgb(var(--warning)));
+  background-size: 180% 100%;
+  animation: developer-process-bar-flow 1.8s linear infinite;
+  box-shadow: 0 0 14px rgb(var(--warning) / 0.5);
+}
+.developer-process-skeleton { display: inline-flex; align-items: center; gap: 3px; }
+.developer-process-skeleton i { width: 3px; height: 3px; border-radius: 999px; background: rgb(var(--warning)); animation: developer-process-dots 1.1s ease-in-out infinite; }
+.developer-process-skeleton i:nth-child(2) { animation-delay: .14s; }
+.developer-process-skeleton i:nth-child(3) { animation-delay: .28s; }
+.developer-checkpoint-card { animation: developer-checkpoint-breathe 3.2s ease-in-out infinite; }
+.developer-sprint-line { box-shadow: 0 0 8px rgb(var(--accent) / 0.75); }
+.developer-sprint-current { animation: developer-sprint-current 2s ease-in-out infinite; }
+.developer-terminal-caret { width: 5px; height: 12px; flex: 0 0 auto; background: rgb(var(--accent)); animation: caret-blink .9s step-end infinite; }
+body:has(.developer-process-split button[title^="Drag"]:active) { cursor: col-resize; user-select: none; }
+[data-motion="reduced"] .developer-process-cooking,
+[data-motion="reduced"] .developer-process-bar,
+[data-motion="reduced"] .developer-process-skeleton i,
+[data-motion="reduced"] .developer-checkpoint-card,
+[data-motion="reduced"] .developer-sprint-current,
+[data-motion="reduced"] .developer-terminal-caret,
+[data-motion="off"] .developer-process-cooking,
+[data-motion="off"] .developer-process-bar,
+[data-motion="off"] .developer-process-skeleton i,
+[data-motion="off"] .developer-checkpoint-card,
+[data-motion="off"] .developer-sprint-current,
+[data-motion="off"] .developer-terminal-caret { animation: none !important; }
+
 /* ── Reduced-motion guards (first-class, Decision #25) ──
    reduced ⇒ kill decorative loops/sweeps, keep opacity feedback;
    off ⇒ neutralize all animation/transition (instant). */

@@ -87,6 +87,7 @@ class CodingAgent:
         self.deployments = DeploymentManager(self.policy, self.store)
         self._threads: dict[int, threading.Thread] = {}
         self._thread_lock = threading.Lock()
+        self._auto_queue_lock = threading.Lock()
         self.runtime_owner = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
 
     def sync(self) -> list[dict[str, Any]]:
@@ -457,6 +458,46 @@ class CodingAgent:
             self._threads[session_id] = thread
             thread.start()
         return self.get_workflow(session_id)
+
+    def process_settings(self) -> dict[str, Any]:
+        from core import owner_flags
+        return {"auto_queue": owner_flags.get_bool("developer.auto_queue", False)}
+
+    def set_auto_queue(self, enabled: bool) -> dict[str, Any]:
+        from core import owner_flags
+        owner_flags.set_bool("developer.auto_queue", enabled)
+        next_workflow = self.start_next_queued() if enabled else None
+        return {"auto_queue": enabled, "next_workflow": next_workflow}
+
+    def start_next_queued(self) -> dict[str, Any] | None:
+        """Start one eligible planned queue item; never skip an active or blocked run."""
+        from core import owner_flags
+        if not owner_flags.get_bool("developer.auto_queue", False):
+            return None
+        with self._auto_queue_lock:
+            active_states = {
+                "approved", "preparing", "coding", "validating", "reviewing", "pushed",
+                "merging", "deploying", "paused", "blocked", "awaiting_merge_deploy_approval",
+                "failed",
+            }
+            if any(item["state"] in active_states for item in self.list_workflows(200)):
+                return None
+            for task in self.sync():
+                if task.get("status") != "planned":
+                    continue
+                dependencies = json.loads(task.get("dependencies_json") or "[]")
+                if any(
+                    not (dependency := self.store.get_task(queue_id=int(queue_id)))
+                    or dependency.get("status") != "completed"
+                    for queue_id in dependencies
+                ):
+                    continue
+                workflow = self.create_workflow(int(task["queue_id"]))
+                self._event(int(workflow["id"]), "auto_queue_started", {
+                    "queue_id": task["queue_id"], "reason": "previous_workflow_completed",
+                })
+                return self.start_background(int(workflow["id"]))
+        return None
 
     def _event(self, session_id: int, event_type: str, payload: dict[str, Any], actor: str = "tobi") -> None:
         self.store.append_event(session_id, event_type, _safe(payload), actor=actor)
@@ -962,6 +1003,12 @@ class CodingAgent:
                                       completed_at=utc_now())
             self._event(session_id, "workflow_canceled", {"worktree_retained": bool(session.get("worktree"))}, actor="owner")
             return self.get_workflow(session_id)
+        if command == "remove":
+            if session["state"] not in {"completed", "canceled", "failed", "rolled_back"}:
+                raise RuntimeError("Only a finished workflow can be removed from Process.")
+            self.store.update_session(session_id, archived_at=utc_now())
+            self._event(session_id, "workflow_archived", {"state": session["state"]}, actor="owner")
+            return self.get_workflow(session_id)
         if command in {"resume", "retry"}:
             if session.get("error_code") in STALE_SNAPSHOT_ERRORS:
                 return self.restart_stale_workflow(session_id, background=background)
@@ -991,6 +1038,43 @@ class CodingAgent:
             self._event(session_id, f"workflow_{command}d", {"stage": session["stage"]}, actor="owner")
             return self.start_background(session_id) if background else self.run_to_gate(session_id)
         raise ValueError(f"Unknown workflow command: {command}")
+
+    def reject_approval(self, session_id: int, purpose: str) -> dict[str, Any]:
+        """Reject an approval and resume from code with the rejection in the durable handoff."""
+        session = self.get_workflow(session_id)
+        if purpose == "special_paths":
+            if session.get("error_code") != "special_approval_required":
+                raise RuntimeError("Workflow is not waiting for protected-path approval.")
+            changed = self.git.changed_files(session["worktree"]) if session.get("worktree") else []
+            protected = [path for path in changed if self.policy.path_decision(path).protected]
+            restored = self.git.restore_paths(session["worktree"], protected) if protected else []
+            instruction = "Protected-path access was rejected. Preserve the approved scope using non-protected files."
+        elif purpose == "merge_deploy":
+            if session["state"] != "awaiting_merge_deploy_approval":
+                raise RuntimeError("Workflow is not waiting for merge and deployment approval.")
+            restored = []
+            instruction = "Merge and deployment were rejected. Revise the implementation and provide new evidence."
+        else:
+            raise ValueError("Unsupported approval purpose.")
+        conn = self.store.connect()
+        try:
+            conn.execute(
+                """UPDATE coding_stages SET status='pending',started_at=NULL,completed_at=NULL,result_json=NULL
+                   WHERE session_id=? AND node_id IN ('code','validate','review','commit','scan','push','pull_request','merge_deploy','health')""",
+                (session_id,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        self.store.update_session(
+            session_id, state="paused", stage="code", progress=18, blocker=None,
+            error_code=None, completed_at=None, cancel_requested=0,
+        )
+        self._event(session_id, "approval_rejected", {
+            "purpose": purpose, "instruction": instruction, "restored_paths": restored,
+        }, actor="owner")
+        self._checkpoint(session_id, status="owner_revision", next_action=instruction)
+        return self.command(session_id, "resume")
 
     def reconcile(self) -> list[dict[str, Any]]:
         """Fail closed after backend restart and repair durable checkpoints where evidence is conclusive."""
@@ -1144,6 +1228,7 @@ class CodingAgent:
             session_id, outcome="completed", stage="health",
             evidence={"version": session["target_version"], "sha": release["commit_sha"]},
         )
+        self.start_next_queued()
         return self.get_workflow(session_id)
 
     def _mark_task_completed(self, task_id: int) -> None:

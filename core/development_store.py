@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS coding_sessions (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     completed_at TEXT,
+    archived_at TEXT,
     FOREIGN KEY(task_id) REFERENCES development_tasks(id)
 );
 CREATE TABLE IF NOT EXISTS coding_stages (
@@ -402,6 +403,7 @@ class DevelopmentStore:
                 "current_sprint_id": "INTEGER",
                 "sprint_budget_json": "TEXT NOT NULL DEFAULT '{}'",
                 "v2_enabled": "INTEGER NOT NULL DEFAULT 1",
+                "archived_at": "TEXT",
             }
             existing = {str(row[1]) for row in conn.execute("PRAGMA table_info(coding_sessions)")}
             for name, declaration in session_additions.items():
@@ -598,6 +600,7 @@ class DevelopmentStore:
             rows = conn.execute(
                 """SELECT s.*,t.queue_id,t.title,t.plan_path,t.target_version,t.risk
                    FROM coding_sessions s JOIN development_tasks t ON t.id=s.task_id
+                   WHERE s.archived_at IS NULL
                    ORDER BY s.updated_at DESC LIMIT ?""",
                 (max(1, min(limit, 200)),),
             ).fetchall()
@@ -614,6 +617,7 @@ class DevelopmentStore:
             "worker_profile_slug", "reviewer_profile_slug", "active_worker_session_id",
             "assessment_id", "current_sprint_id", "sprint_budget_json", "v2_enabled",
             "criteria_snapshot_json",
+            "archived_at",
         }
         changes = {key: value for key, value in fields.items() if key in allowed}
         if not changes:

@@ -9,6 +9,7 @@ import AmbientField from '../components/motion/AmbientField'
 import LlmLogo, { BRAND_META, brandForModel, brandForProvider } from '../components/LlmLogo'
 import ModelMenu from '../components/chat/ModelMenu'
 import DeveloperAgents from '../components/developer/DeveloperAgents'
+import DeveloperProcess from '../components/developer/DeveloperProcess'
 import DevelopmentGoals, { type GoalCommand } from '../components/developer/DevelopmentGoals'
 import VaultUnlockPanel from '../components/VaultUnlockPanel'
 import { useToast } from '../context/ToastProvider'
@@ -18,6 +19,7 @@ import {
   getDeveloperLearning, getDeveloperOverview, getDeveloperQueue, getDeveloperStorage, getDeveloperVersions,
   getDeveloperGoals, getDeveloperWorkerLogin, getDeveloperWorkerModels, getDeveloperWorkers, probeDeveloperWorker, replayDeveloperLearning,
   saveDeveloperWorker, startDeveloperWorkflow, streamDeveloperEvents, switchDeveloperWorker, cleanupDeveloperStorage,
+  rejectDeveloperWorkflow, setDeveloperProcessSettings,
   type AvailableModel, type DeveloperAssessment, type DeveloperEvent, type DeveloperOverview, type DeveloperGoal,
   type DeveloperQueueItem, type DeveloperRelease, type DeveloperStorage, type DeveloperWorkerLogin,
   type DeveloperWorkerModels, type DeveloperWorkerProfile,
@@ -1362,8 +1364,10 @@ export default function Developer() {
       return null
     } finally { setBusy(false) }
   }
-  const command = (cmd: 'pause' | 'resume' | 'cancel' | 'retry') => active && act(() => commandDeveloperWorkflow(active.id, cmd), `Workflow ${cmd} accepted`)
+  const command = (cmd: 'pause' | 'resume' | 'cancel' | 'retry' | 'remove') => active && act(() => commandDeveloperWorkflow(active.id, cmd), `Workflow ${cmd} accepted`)
   const approve = (purpose: 'special_paths' | 'merge_deploy', master: string) => active && act(() => approveDeveloperWorkflow(active.id, purpose, master), 'Approval accepted')
+  const rejectApproval = (purpose: 'special_paths' | 'merge_deploy') => active && act(() => rejectDeveloperWorkflow(active.id, purpose), 'Approval rejected; agent revision started')
+  const setAutoQueue = (enabled: boolean) => { void act(() => setDeveloperProcessSettings(enabled), enabled ? 'Auto queue enabled' : 'Auto queue disabled') }
   const createGoal = (input: Parameters<typeof createDeveloperGoal>[0]) => act(() => createDeveloperGoal(input), 'Development goal queued')
   const goalCommand = (id: number, cmd: GoalCommand) => act(() => commandDeveloperGoal(id, cmd), `Goal ${label(cmd)} accepted`)
   const switchWorker = (slug: string) => active && act(() => switchDeveloperWorker(active.id, slug), `Worker switched to ${slug}`)
@@ -1400,7 +1404,7 @@ export default function Developer() {
 
   const capabilities = useMemo(() => Object.entries(overview?.policy.capabilities ?? {}), [overview])
   const tabs: { id: Tab; label: string }[] = [
-    { id: 'overview', label: 'Overview' }, { id: 'goals', label: 'Goals' }, { id: 'loop', label: 'Coding Loop' },
+    { id: 'overview', label: 'Overview' }, { id: 'goals', label: 'Goals' }, { id: 'loop', label: 'Process' },
     { id: 'workers', label: 'Agents' }, { id: 'learning', label: 'Learning' }, { id: 'queue', label: 'Queue' },
     { id: 'versions', label: 'Versions' }, { id: 'storage', label: 'Storage' },
   ]
@@ -1420,7 +1424,7 @@ export default function Developer() {
           detail="Authorize protected coding workflows here. The same session immediately unlocks Integrations, Models, and MCP." /></div>
         : error ? <div className="mx-4 mt-6 border-l-2 border-danger bg-danger/5 px-4 py-4 sm:mx-6"><div className="flex items-start gap-3"><AlertTriangle size={17} className="mt-0.5 shrink-0 text-danger" /><div className="min-w-0 flex-1"><div className="text-sm font-semibold text-heading">{error.code === 'backend_mismatch' ? 'Mission Control backend update required' : 'Developer data unavailable'}</div><p className="mt-1 text-xs leading-5 text-muted">{error.message}</p><button onClick={() => load()} className="mt-3 inline-flex h-8 items-center gap-2 rounded-md border border-border px-2.5 text-xs text-text hover:bg-overlay/5"><RefreshCw size={13} /> Retry</button></div></div></div>
         : <>
-          {active && (tab === 'overview' || tab === 'loop') && <WorkflowHeader workflow={active} busy={busy} onCommand={command} onApprove={approve} />}
+          {active && tab === 'overview' && <WorkflowHeader workflow={active} busy={busy} onCommand={command} onApprove={approve} />}
           <main className="px-4 py-6 sm:px-6">
             {tab === 'overview' && <div className="space-y-8">
               {!active && <div className="grid w-full gap-3 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.8fr)]"><section className="relative overflow-hidden rounded-lg border border-accent/25 bg-surface/70 px-5 py-6 shadow-[0_20px_60px_rgb(0_0_0/0.12)] sm:px-6"><div className="absolute inset-y-0 left-0 w-1 bg-accent" /><div className="flex items-start justify-between gap-5"><div><div className="text-[10px] font-semibold uppercase text-accent">Development runtime</div><h2 className="mt-2 text-lg font-semibold text-text">Ready for a controlled run</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted">Select a queue item or create a goal. Mission Control will isolate the work, preserve checkpoints, and keep owner gates visible.</p></div><button onClick={() => setTab('goals')} className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md bg-accent px-3 text-xs font-medium text-background"><Plus size={14} /> New goal</button></div><div className="mt-6 h-2 overflow-hidden rounded-full bg-background/70"><div className="h-full w-0 rounded-full bg-accent" /></div><div className="mt-2 text-[11px] text-muted">Idle - waiting for a goal</div></section><section className="rounded-lg border border-border bg-surface/60 px-5 py-5"><div className="flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-md bg-success/10 text-success"><CheckCircle2 size={18} /></div><div><div className="text-[10px] font-semibold uppercase text-muted">Owner action</div><p className="mt-1.5 text-sm leading-6 text-text">No action is required. Start when the next goal is ready.</p></div></div></section></div>}
@@ -1435,9 +1439,9 @@ export default function Developer() {
                 </section>
               </div>
             </div>}
-            {tab === 'loop' && <CodingLoop workflow={active} events={events} workers={workers} busy={busy}
-              streamState={streamState} streamIssue={streamIssue} lastSignalAt={lastSignalAt}
-              onSwitch={switchWorker} onCommand={command} />}
+            {tab === 'loop' && <DeveloperProcess workflow={active} events={events} workers={workers} queue={queue} busy={busy}
+              autoQueue={overview?.process?.auto_queue ?? false} streamState={streamState} streamIssue={streamIssue}
+              onAutoQueue={setAutoQueue} onCommand={command} onApprove={approve} onReject={rejectApproval} />}
             {tab === 'goals' && <DevelopmentGoals goals={goals} workers={workers} busy={busy} onCreate={createGoal} onCommand={goalCommand} />}
             {tab === 'workers' && <DeveloperAgents workers={workers} models={workerModels} providers={workerProviders} routing={modelRouting} busy={busy} onSave={saveWorker} onProbe={probeWorker} onLogin={loginWorker} onModels={loadWorkerModels} />}
             {tab === 'learning' && <LearningView state={learning} busy={busy} onReplay={replayLearning} />}

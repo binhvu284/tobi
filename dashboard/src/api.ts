@@ -852,7 +852,7 @@ export type DeveloperWorkerModels = {
 export type DeveloperQueueItem = {
   id: number; queue_id: number; title: string; plan_path: string; plan_hash: string
   status: string; risk: string; target_version?: string | null; queue_status?: string | null
-  queue_effort?: string | null; dependencies_json: string
+  queue_effort?: string | null; dependencies_json: string; acceptance_criteria_json?: string
 }
 export type DeveloperRelease = {
   id: number; version: string; tier?: string | null; source: string; queue_item?: number | null
@@ -867,6 +867,7 @@ export type DeveloperOverview = {
     version: number; hash: string; capabilities: Record<string, boolean>
     github_configured: boolean; deployment_configured: boolean
   }
+  process?: { auto_queue: boolean }
 }
 export type DeveloperStorage = {
   worktree_root: string; worktree_bytes: number; worktree_count: number; git_available: boolean
@@ -926,7 +927,7 @@ export async function startDeveloperWorkflow(queueId: number): Promise<Developer
   })
 }
 export async function commandDeveloperWorkflow(
-  workflowId: number, command: 'pause' | 'resume' | 'cancel' | 'retry',
+  workflowId: number, command: 'pause' | 'resume' | 'cancel' | 'retry' | 'remove',
 ): Promise<DeveloperWorkflow> {
   return vreq(`/api/developer/workflows/${workflowId}/commands`, {
     method: 'POST', body: JSON.stringify({ command, idempotency_key: crypto.randomUUID() }),
@@ -956,6 +957,13 @@ export async function probeDeveloperWorker(slug: string): Promise<DeveloperWorke
 export async function getDeveloperWorkerLogin(slug: string): Promise<DeveloperWorkerLogin> {
   return vreq(`/api/developer/workers/${encodeURIComponent(slug)}/login`)
 }
+export async function setDeveloperProcessSettings(autoQueue: boolean): Promise<{
+  auto_queue: boolean; next_workflow?: DeveloperWorkflow | null
+}> {
+  return vreq('/api/developer/process/settings', {
+    method: 'PATCH', body: JSON.stringify({ auto_queue: autoQueue }),
+  })
+}
 export async function getDeveloperWorkerModels(slug: string, refresh = false): Promise<DeveloperWorkerModels> {
   return vreq(`/api/developer/workers/${encodeURIComponent(slug)}/models?refresh=${refresh ? 'true' : 'false'}`)
 }
@@ -979,6 +987,13 @@ export async function approveDeveloperWorkflow(
   })
   return vreq(`/api/developer/workflows/${workflowId}/approve`, {
     method: 'POST', body: JSON.stringify({ purpose, challenge: reauth.challenge }),
+  })
+}
+export async function rejectDeveloperWorkflow(
+  workflowId: number, purpose: 'special_paths' | 'merge_deploy',
+): Promise<DeveloperWorkflow> {
+  return vreq(`/api/developer/workflows/${workflowId}/reject`, {
+    method: 'POST', body: JSON.stringify({ purpose }),
   })
 }
 export async function cleanupDeveloperStorage(master: string): Promise<{ removed_artifacts: number; removed_worktrees: number }> {

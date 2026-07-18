@@ -105,6 +105,30 @@ class GitWorkspaceManager:
                     files.add(source.replace("\\", "/"))
         return sorted(files)
 
+    def restore_paths(self, worktree: Path | str, paths: Sequence[str]) -> list[str]:
+        """Restore selected worktree paths after the owner rejects a protected-path action."""
+        root = self._assert_worktree(worktree)
+        restored: list[str] = []
+        for relative in paths:
+            normalized = str(relative).replace("\\", "/").lstrip("/")
+            target = (root / normalized).resolve()
+            if not target.is_relative_to(root):
+                raise PolicyDenied("Restore target escaped the approved worktree root.")
+            tracked = True
+            try:
+                self.git("ls-files", "--error-unmatch", "--", normalized, cwd=root)
+            except GitCommandError:
+                tracked = False
+            if tracked:
+                self.git("restore", "--staged", "--worktree", "--", normalized, cwd=root)
+            else:
+                if target.is_file() or target.is_symlink():
+                    target.unlink()
+                elif target.is_dir():
+                    shutil.rmtree(target)
+            restored.append(normalized)
+        return restored
+
     def diff_summary(self, worktree: Path | str) -> dict[str, Any]:
         root = self._assert_worktree(worktree)
         return {

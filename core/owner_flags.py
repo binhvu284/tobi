@@ -39,6 +39,7 @@ KEYS = {
     "brain.v2_enabled": "#20 Brain Memory V2 (bool, default off)",
     "brain.v2_shadow": "#20 Brain V2 shadow evaluation (bool, default off)",
     "architecture.v2_enabled": "#20 Architecture V2 viewer (bool, default off)",
+    "developer.auto_queue": "continue with the next eligible Developer queue item after success (bool)",
 }
 
 # New #20 flags — fail closed (default off). Phase A does NOT read these; they are pre-
