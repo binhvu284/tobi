@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
-  AlertTriangle, Check, CheckCircle2, ChevronDown, Circle, Clock3, GripVertical,
-  Pause, Play, Radio, ShieldAlert, Square, TerminalSquare, Trash2, XCircle,
+  AlertTriangle, BadgeCheck, Check, CheckCheck, CheckCircle2, ChevronDown, Circle, Clock3, Copy,
+  GripVertical, LoaderCircle, Pause, Play, Radio, ShieldAlert, Square, TerminalSquare, Trash2, XCircle,
 } from 'lucide-react'
 import LlmLogo from '../LlmLogo'
 import type {
@@ -201,6 +201,7 @@ export default function DeveloperProcess({
 }: Props) {
   const [split, setSplit] = useState(58)
   const [dragging, setDragging] = useState(false)
+  const [logCopied, setLogCopied] = useState(false)
   const splitRef = useRef<HTMLDivElement | null>(null)
   const activityRef = useRef<HTMLDivElement | null>(null)
 
@@ -222,6 +223,31 @@ export default function DeveloperProcess({
     if (panel) panel.scrollTop = panel.scrollHeight
   }, [events.length, workflow?.id])
 
+  useEffect(() => {
+    if (!logCopied) return
+    const timer = window.setTimeout(() => setLogCopied(false), 1800)
+    return () => window.clearTimeout(timer)
+  }, [logCopied])
+
+  const copyProcessLog = async () => {
+    if (!events.length) return
+    const log = events.map(event => `[${timeLabel(event.created_at)}] ${event.actor}> ${eventLine(event)}`).join('\n')
+    try {
+      await navigator.clipboard.writeText(log)
+      setLogCopied(true)
+    } catch {
+      const field = document.createElement('textarea')
+      field.value = log
+      field.style.position = 'fixed'
+      field.style.opacity = '0'
+      document.body.appendChild(field)
+      field.select()
+      const copied = document.execCommand('copy')
+      field.remove()
+      if (copied) setLogCopied(true)
+    }
+  }
+
   const nextItem = useMemo(() => nextEligibleItem(queue, workflow?.queue_id), [queue, workflow?.queue_id])
 
   if (!workflow) return (
@@ -232,7 +258,7 @@ export default function DeveloperProcess({
           <AutoToggle enabled={autoQueue} onChange={onAutoQueue} />
         </div>
       </section>
-      <NextQueueSection item={nextItem} autoQueue={autoQueue} onAutoQueue={onAutoQueue} />
+      {autoQueue && <NextQueueSection item={nextItem} />}
     </div>
   )
 
@@ -257,9 +283,10 @@ export default function DeveloperProcess({
       <section className={`overflow-hidden rounded-md border bg-surface/45 ${visual.border}`}>
         <div className="flex flex-col gap-4 px-4 py-4 lg:flex-row lg:items-center lg:justify-between sm:px-5">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 text-[9px] font-medium uppercase text-muted">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 text-[9px] font-medium uppercase text-muted">
               <span>Item #{workflow.queue_id}</span><span className="text-border">/</span>
               <span className={`inline-flex items-center gap-1.5 ${visual.text}`}><span className={`h-1.5 w-1.5 rounded-full ${visual.bar}`} />{visual.label}{currentTone === 'cooking' && <span className="developer-process-skeleton" aria-label="Active process"><i /><i /><i /></span>}</span>
+              {currentTone === 'cooking' && <><span className="text-border">/</span><span className="flex min-w-0 max-w-[min(44vw,620px)] items-center gap-1.5 normal-case text-muted"><TerminalSquare size={10} className="shrink-0 text-warning" /><span className="truncate font-mono">{activity}</span><span className="developer-terminal-caret h-[9px]" /></span></>}
             </div>
             <h2 className="mt-1.5 truncate text-base font-semibold text-text">{workflow.title}</h2>
           </div>
@@ -270,16 +297,15 @@ export default function DeveloperProcess({
             <ProcessActions workflow={workflow} busy={busy} onCommand={onCommand} />
           </div>
         </div>
-        <div className="grid border-t border-border/70 md:grid-cols-[minmax(220px,0.65fr)_minmax(220px,0.55fr)_minmax(0,1fr)]">
+        <div className="grid border-t border-border/70 md:grid-cols-[minmax(0,1fr)_280px]">
           <div className="px-4 py-3 sm:px-5">
             <div className="flex items-center justify-between gap-3 text-[9px] text-muted"><span>Progress</span><span className="font-medium text-text">{workflow.progress}%</span></div>
-            <div className="mt-2 h-1 overflow-hidden rounded-full bg-background"><div className={`h-full rounded-full transition-[width] duration-700 ${visual.bar} ${currentTone === 'cooking' ? 'developer-process-bar' : ''}`} style={{ width: `${Math.max(2, workflow.progress)}%` }} /></div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-background"><div className={`h-full rounded-full transition-[width] duration-700 ${visual.bar} ${currentTone === 'cooking' ? 'developer-process-bar' : ''}`} style={{ width: `${Math.max(2, workflow.progress)}%` }} /></div>
           </div>
           <div className="border-t border-border/70 px-4 py-3 md:border-l md:border-t-0 sm:px-5">
             <div className="text-[9px] text-muted">Current sprint</div>
             <div className="mt-1 truncate text-[11px] font-medium text-text">{TERMINAL.has(workflow.state) ? `Stopped at ${titleCase(workflow.stage)}` : workflow.sprint?.title || titleCase(workflow.stage)}</div>
           </div>
-          <div className="flex min-w-0 items-center gap-2 border-t border-border/70 px-4 py-3 font-mono text-[9px] text-muted md:border-l md:border-t-0 sm:px-5"><TerminalSquare size={12} className={`shrink-0 ${visual.text}`} /><span className="truncate">{activity}</span>{!TERMINAL.has(workflow.state) && <span className="developer-terminal-caret" />}</div>
         </div>
         {currentTone === 'crashed' && <div className="flex items-start gap-2 border-t border-danger/25 bg-danger/5 px-4 py-3 text-[10px] leading-5 text-danger sm:px-5"><AlertTriangle size={13} className="mt-0.5 shrink-0" /><div><span className="font-semibold">{titleCase(workflow.error_code || 'workflow_failed')}:</span> <span className="text-muted">{workflow.blocker || streamIssue || 'Open Live activities for the latest failure evidence.'}</span></div></div>}
       </section>
@@ -302,7 +328,7 @@ export default function DeveloperProcess({
 
       <section ref={splitRef} className="developer-process-split grid overflow-hidden rounded-md border border-border bg-surface/25 lg:grid-cols-[var(--process-left)_6px_minmax(0,1fr)]" style={{ '--process-left': `${split}%` } as CSSProperties}>
         <article className="min-w-0">
-          <header className="flex h-12 items-center justify-between gap-3 border-b border-border/70 px-4"><div className="flex items-center gap-2"><TerminalSquare size={14} className="text-accent" /><h3 className="text-xs font-semibold text-text">Live activities</h3></div><span className={`inline-flex items-center gap-1.5 text-[9px] ${streamState === 'live' ? 'text-success' : TERMINAL.has(workflow.state) ? 'text-muted' : 'text-warning'}`}><Radio size={11} className={streamState === 'live' && !TERMINAL.has(workflow.state) ? 'animate-pulse' : ''} />{TERMINAL.has(workflow.state) ? 'Closed' : streamState === 'live' ? 'Live' : titleCase(streamState)}</span></header>
+          <header className="flex h-12 items-center justify-between gap-3 border-b border-border/70 px-4"><div className="flex items-center gap-2"><TerminalSquare size={14} className="text-accent" /><h3 className="text-xs font-semibold text-text">Live activities</h3></div><div className="flex items-center gap-2"><span className={`inline-flex items-center gap-1.5 text-[9px] ${streamState === 'live' ? 'text-success' : TERMINAL.has(workflow.state) ? 'text-muted' : 'text-warning'}`}><Radio size={11} className={streamState === 'live' && !TERMINAL.has(workflow.state) ? 'animate-pulse' : ''} />{TERMINAL.has(workflow.state) ? 'Closed' : streamState === 'live' ? 'Live' : titleCase(streamState)}</span><button type="button" disabled={!events.length} onClick={copyProcessLog} title="Copy the complete process log" className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[9px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${logCopied ? 'border-success/35 bg-success/5 text-success' : 'border-border text-muted hover:border-accent/35 hover:text-text'}`}>{logCopied ? <CheckCheck size={11} /> : <Copy size={11} />}{logCopied ? 'Copied' : 'Copy log'}</button></div></header>
           <div ref={activityRef} className="h-[380px] overflow-y-auto bg-[rgb(7_10_14/0.68)] px-4 py-3 font-mono text-[9px] leading-5">
             {events.length === 0 ? <div className="flex h-full items-center justify-center text-muted">Waiting for worker output...</div> : events.slice(-160).map(event => <div key={event.id} className="grid grid-cols-[58px_minmax(0,1fr)] gap-2 border-b border-white/5 py-1 last:border-0"><span className="text-muted/60">{timeLabel(event.created_at)}</span><span className={`${event.event_type.includes('failed') || event.event_type.includes('blocked') ? 'text-danger' : event.event_type.includes('completed') ? 'text-success' : 'text-[#cbd5e1]'}`}><span className="mr-2 text-accent/75">{event.actor}&gt;</span>{eventLine(event)}</span></div>)}
           </div>
@@ -317,22 +343,18 @@ export default function DeveloperProcess({
               const current = !TERMINAL.has(workflow.state) && (stage.node_id === workflow.stage || stage.status === 'running')
               const done = stage.status === 'completed'
               const failed = stage.status === 'failed' || stage.status === 'paused'
-              return <div key={stage.node_id} className={`relative flex min-h-10 items-center gap-3 rounded-md px-1.5 py-1.5 ${current ? 'developer-sprint-current bg-accent/10' : ''}`}><span className={`relative z-[1] flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${done ? 'border-success bg-success text-background' : failed ? 'border-danger bg-danger/10 text-danger' : current ? 'border-accent bg-background text-accent' : 'border-border bg-background text-muted'}`}>{done ? <Check size={11} /> : failed ? <XCircle size={11} /> : current ? <span className="h-1.5 w-1.5 rounded-full bg-accent" /> : <Circle size={10} />}</span><div className="min-w-0 flex-1"><div className={`truncate text-[10px] font-medium ${current ? 'text-accent' : done ? 'text-text' : 'text-muted'}`}>{stage.node_id === 'code' ? 'Run selected developer agent' : stage.title}</div><div className="mt-0.5 text-[8px] uppercase text-muted/70">{current ? 'In progress' : done ? 'Saved' : failed ? titleCase(stage.status) : 'Pending'}</div></div></div>
+              return <div key={stage.node_id} className={`relative flex min-h-10 items-center gap-3 overflow-hidden rounded-md px-1.5 py-1.5 ${current ? 'developer-sprint-current' : ''}`}><span className={`relative z-[2] flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${done ? 'developer-sprint-complete-marker border-success/45 bg-success/10 text-success' : failed ? 'border-danger bg-danger/10 text-danger' : current ? 'developer-sprint-active-marker border-accent bg-background text-accent' : 'border-border bg-background text-muted'}`}>{done ? <BadgeCheck size={15} strokeWidth={2.25} /> : failed ? <XCircle size={11} /> : current ? <LoaderCircle size={13} className="animate-spin" /> : <Circle size={10} />}</span><div className="relative z-[1] min-w-0 flex-1"><div className={`truncate text-[10px] font-medium ${current ? 'text-accent' : done ? 'text-text' : 'text-muted'}`}>{stage.node_id === 'code' ? 'Run selected developer agent' : stage.title}</div><div className="mt-0.5 text-[8px] uppercase text-muted/70">{current ? 'In progress' : done ? 'Evidence saved' : failed ? titleCase(stage.status) : 'Pending'}</div></div></div>
             })}</div>
           </div>
         </article>
       </section>
 
-      <NextQueueSection item={nextItem} autoQueue={autoQueue} onAutoQueue={onAutoQueue} />
+      {autoQueue && <NextQueueSection item={nextItem} />}
     </div>
   )
 }
 
-function NextQueueSection({ item, autoQueue, onAutoQueue }: {
-  item: DeveloperQueueItem | null
-  autoQueue: boolean
-  onAutoQueue: (enabled: boolean) => void
-}) {
+function NextQueueSection({ item }: { item: DeveloperQueueItem | null }) {
   const criteria = safeJsonList(item?.acceptance_criteria_json)
   return <section className="overflow-hidden rounded-md border border-border bg-surface/25">
     <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
@@ -344,12 +366,11 @@ function NextQueueSection({ item, autoQueue, onAutoQueue }: {
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        <span className={`inline-flex h-6 items-center rounded-md border px-2 text-[9px] font-medium ${autoQueue ? 'border-success/30 bg-success/5 text-success' : 'border-border text-muted'}`}>{autoQueue ? 'Auto ready' : 'Preview only'}</span>
-        {!autoQueue && <button type="button" onClick={() => onAutoQueue(true)} className="inline-flex h-7 items-center gap-1.5 rounded-md border border-accent/35 px-2.5 text-[9px] font-semibold text-accent hover:bg-accent/5"><Play size={11} /> Enable Auto</button>}
+        <span className="inline-flex h-6 items-center rounded-md border border-success/30 bg-success/5 px-2 text-[9px] font-medium text-success">Auto ready</span>
       </div>
     </div>
     {item ? <details className="group border-t border-border/70">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-2.5 text-[10px] text-muted hover:bg-overlay/5 sm:px-5"><span>{autoQueue ? 'This item starts after the current process finishes.' : 'Enable Auto to start this item after the current process.'}</span><span className="inline-flex shrink-0 items-center gap-1.5 text-accent">View scope <ChevronDown size={13} className="transition-transform group-open:rotate-180" /></span></summary>
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-2.5 text-[10px] text-muted hover:bg-overlay/5 sm:px-5"><span>This item starts after the current process finishes.</span><span className="inline-flex shrink-0 items-center gap-1.5 text-accent">View scope <ChevronDown size={13} className="transition-transform group-open:rotate-180" /></span></summary>
       <div className="border-t border-border/70 px-4 py-3 text-[10px] leading-5 text-muted sm:px-5"><div className="grid gap-2 sm:grid-cols-3"><div><span className="text-text">Status:</span> {item.queue_status || titleCase(item.status)}</div><div><span className="text-text">Effort:</span> {item.queue_effort || 'Not estimated'}</div><div className="truncate"><span className="text-text">Plan:</span> {item.plan_path}</div></div>{criteria.length > 0 && <ul className="mt-3 grid gap-x-5 gap-y-1 sm:grid-cols-2">{criteria.slice(0, 6).map(value => <li key={value} className="flex items-start gap-1.5"><Check size={10} className="mt-1 shrink-0 text-success" /><span>{value}</span></li>)}</ul>}</div>
     </details> : <div className="border-t border-border/70 px-4 py-3 text-[10px] leading-5 text-muted sm:px-5">The queue is empty, or its planned items are waiting for dependencies. Review the Queue tab to choose the next runnable item.</div>}
   </section>

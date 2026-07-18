@@ -1095,8 +1095,21 @@
   50% { box-shadow: inset 0 0 0 1px rgb(var(--accent) / 0.3), 0 0 24px rgb(var(--accent) / 0.09); }
 }
 @keyframes developer-sprint-current {
-  0%, 100% { box-shadow: inset 2px 0 0 rgb(var(--accent) / 0.45); }
-  50% { box-shadow: inset 2px 0 0 rgb(var(--accent)), 0 0 18px rgb(var(--accent) / 0.1); }
+  0%, 100% { box-shadow: inset 2px 0 0 rgb(var(--accent) / 0.55), inset 0 0 18px rgb(var(--accent) / 0.025); }
+  50% { box-shadow: inset 2px 0 0 rgb(var(--accent)), inset 0 0 26px rgb(var(--accent) / 0.08), 0 0 16px rgb(var(--accent) / 0.08); }
+}
+@keyframes developer-sprint-sweep {
+  0% { transform: translateX(-140%); opacity: 0; }
+  18% { opacity: 0.55; }
+  65%, 100% { transform: translateX(340%); opacity: 0; }
+}
+@keyframes developer-sprint-marker-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.88); }
+  50% { opacity: 0.75; transform: scale(1.22); }
+}
+@keyframes developer-sprint-rail-flow {
+  0%, 100% { filter: brightness(0.85); box-shadow: 0 0 5px rgb(var(--accent) / 0.55); }
+  50% { filter: brightness(1.25); box-shadow: 0 0 12px rgb(var(--accent)); }
 }
 .developer-process-cooking { animation: developer-process-border 2.8s ease-in-out infinite; }
 .developer-process-completed { box-shadow: inset 2px 0 0 rgb(var(--success) / 0.8), 0 0 18px rgb(var(--success) / 0.06); }
@@ -1111,22 +1124,51 @@
 .developer-process-skeleton i:nth-child(2) { animation-delay: .14s; }
 .developer-process-skeleton i:nth-child(3) { animation-delay: .28s; }
 .developer-checkpoint-card { animation: developer-checkpoint-breathe 3.2s ease-in-out infinite; }
-.developer-sprint-line { box-shadow: 0 0 8px rgb(var(--accent) / 0.75); }
-.developer-sprint-current { animation: developer-sprint-current 2s ease-in-out infinite; }
+.developer-sprint-line { box-shadow: 0 0 8px rgb(var(--accent) / 0.75); animation: developer-sprint-rail-flow 1.8s ease-in-out infinite; }
+.developer-sprint-current {
+  background: linear-gradient(90deg, rgb(var(--accent) / 0.13), rgb(var(--accent) / 0.035) 72%, transparent);
+  animation: developer-sprint-current 2.2s ease-in-out infinite;
+}
+.developer-sprint-current::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 28%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgb(var(--accent) / 0.14), transparent);
+  animation: developer-sprint-sweep 2.8s ease-in-out infinite;
+}
+.developer-sprint-active-marker { box-shadow: 0 0 10px rgb(var(--accent) / 0.65); }
+.developer-sprint-active-marker::before {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  z-index: -1;
+  border: 1px solid rgb(var(--accent) / 0.55);
+  border-radius: 999px;
+  animation: developer-sprint-marker-pulse 1.65s ease-in-out infinite;
+}
+.developer-sprint-complete-marker { box-shadow: 0 0 8px rgb(var(--success) / 0.24); }
 .developer-terminal-caret { width: 5px; height: 12px; flex: 0 0 auto; background: rgb(var(--accent)); animation: caret-blink .9s step-end infinite; }
 body:has(.developer-process-split button[title^="Drag"]:active) { cursor: col-resize; user-select: none; }
 [data-motion="reduced"] .developer-process-cooking,
 [data-motion="reduced"] .developer-process-bar,
 [data-motion="reduced"] .developer-process-skeleton i,
 [data-motion="reduced"] .developer-checkpoint-card,
+[data-motion="reduced"] .developer-sprint-line,
 [data-motion="reduced"] .developer-sprint-current,
+[data-motion="reduced"] .developer-sprint-active-marker::before,
 [data-motion="reduced"] .developer-terminal-caret,
 [data-motion="off"] .developer-process-cooking,
 [data-motion="off"] .developer-process-bar,
 [data-motion="off"] .developer-process-skeleton i,
 [data-motion="off"] .developer-checkpoint-card,
+[data-motion="off"] .developer-sprint-line,
 [data-motion="off"] .developer-sprint-current,
+[data-motion="off"] .developer-sprint-active-marker::before,
 [data-motion="off"] .developer-terminal-caret { animation: none !important; }
+[data-motion="reduced"] .developer-sprint-current::after,
+[data-motion="off"] .developer-sprint-current::after { display: none; }
 
 /* ── Reduced-motion guards (first-class, Decision #25) ──
    reduced ⇒ kill decorative loops/sweeps, keep opacity feedback;
