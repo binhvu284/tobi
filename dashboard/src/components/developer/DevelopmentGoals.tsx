@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   MoreHorizontal, Pause, Play, Plus, RotateCcw, ShieldCheck, Square,
@@ -33,15 +34,9 @@ function GoalMenu({ goal, busy, onCommand }: {
   onCommand: (id: number, command: GoalCommand) => Promise<boolean>
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    if (!open) return
-    const close = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [open])
+  const [position, setPosition] = useState({ top: 0, left: 0, opensUp: false })
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
 
   const resumable = ['paused', 'blocked', 'awaiting_config'].includes(goal.status)
   const reattemptable = ['paused', 'blocked', 'awaiting_config', 'canceled', 'completed', 'qualified_local'].includes(goal.status)
@@ -60,26 +55,61 @@ function GoalMenu({ goal, busy, onCommand }: {
   if (cancellable) items.push({ command: 'cancel', label: 'Cancel', icon: Square, danger: true })
   if (deletable) items.push({ command: 'delete', label: 'Delete', icon: Trash2, danger: true })
 
+  useEffect(() => {
+    if (!open) return
+    const closeOutside = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (!triggerRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false)
+    }
+    const closeOnViewportChange = () => setOpen(false)
+    document.addEventListener('mousedown', closeOutside)
+    window.addEventListener('resize', closeOnViewportChange)
+    window.addEventListener('scroll', closeOnViewportChange, true)
+    return () => {
+      document.removeEventListener('mousedown', closeOutside)
+      window.removeEventListener('resize', closeOnViewportChange)
+      window.removeEventListener('scroll', closeOnViewportChange, true)
+    }
+  }, [open])
+
+  const toggleMenu = () => {
+    if (open) { setOpen(false); return }
+    const rect = triggerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const menuWidth = 208
+    const menuHeight = items.length * 36 + 8
+    const opensUp = rect.bottom + 4 + menuHeight > window.innerHeight && rect.top > menuHeight + 12
+    setPosition({
+      top: opensUp ? Math.max(8, rect.top - menuHeight - 4) : Math.min(window.innerHeight - menuHeight - 8, rect.bottom + 4),
+      left: Math.max(8, Math.min(window.innerWidth - menuWidth - 8, rect.right - menuWidth)),
+      opensUp,
+    })
+    setOpen(true)
+  }
+
   return (
-    <div ref={ref} className="relative">
+    <div className="relative">
       <button
+        ref={triggerRef}
         type="button"
         title="Goal actions"
         aria-label={`Actions for ${goal.title}`}
-        onClick={() => setOpen(value => !value)}
+        onClick={toggleMenu}
         disabled={busy}
         className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-overlay/10 hover:text-text disabled:opacity-40"
       >
         <MoreHorizontal size={17} />
       </button>
-      <AnimatePresence>
+      {createPortal(<AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: -4, scale: 0.98 }}
+            ref={menuRef}
+            initial={{ opacity: 0, y: position.opensUp ? 4 : -4, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -4, scale: 0.98 }}
+            exit={{ opacity: 0, y: position.opensUp ? 4 : -4, scale: 0.98 }}
             transition={{ duration: 0.12 }}
-            className="absolute right-0 z-30 mt-1 w-52 rounded-md border border-border bg-surface p-1 shadow-2xl"
+            style={{ top: position.top, left: position.left }}
+            className="fixed z-[100] w-52 rounded-md border border-border bg-surface p-1 shadow-2xl"
           >
             {items.map(item => {
               const Icon = item.icon
@@ -96,7 +126,7 @@ function GoalMenu({ goal, busy, onCommand }: {
             })}
           </motion.div>
         )}
-      </AnimatePresence>
+      </AnimatePresence>, document.body)}
     </div>
   )
 }
