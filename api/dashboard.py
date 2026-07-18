@@ -199,6 +199,8 @@ from api.routers.graph import router as graph_router
 app.include_router(graph_router)
 from api.routers.storage import router as storage_router
 app.include_router(storage_router)
+from api.routers.architecture import router as architecture_router
+app.include_router(architecture_router)
 
 # MCP Hub (#5) — mount TOBI's MCP server (Streamable HTTP) at /mcp. Inbound auth,
 # rate-limit, scope, and audit are enforced by McpAuthMiddleware inside the app.
@@ -1054,73 +1056,6 @@ def api_hermes_skills():
     no DB mirror; a missing folder returns an empty list."""
     from core import hermes_skills
     return hermes_skills.skills_report()
-
-
-# ── Architecture V2 (#20): read-only repo-backed Mermaid diagrams + git history ───────
-class ArchitectureConfigReq(BaseModel):
-    v2_enabled: Optional[bool] = None
-
-
-@app.get("/api/architecture/diagrams")
-def api_architecture_diagrams():
-    """List the canonical architecture diagrams (allowlisted ids + titles). Never raises."""
-    from core import architecture_docs
-    return architecture_docs.list_diagrams()
-
-
-@app.get("/api/architecture/diagrams/{diagram_id}")
-def api_architecture_diagram(diagram_id: str):
-    """One diagram's validated Mermaid content + guide. Unknown id → 404. Invalid content is
-    returned as valid:false with empty content (the page shows a failure panel, never raw)."""
-    from core import architecture_docs
-    data = architecture_docs.get_diagram(diagram_id)
-    if data is None:
-        raise HTTPException(status_code=404, detail="unknown diagram")
-    return data
-
-
-@app.get("/api/architecture/diagrams/{diagram_id}/history")
-def api_architecture_history(diagram_id: str, limit: int = 10):
-    """Recent git commits that touched this diagram. Unknown id → 404; non-git checkout →
-    available:false (never a 500)."""
-    from core import architecture_docs
-    data = architecture_docs.history(diagram_id, limit)
-    if data is None:
-        raise HTTPException(status_code=404, detail="unknown diagram")
-    return data
-
-
-@app.get("/api/architecture/diagrams/{diagram_id}/versions/{sha}")
-def api_architecture_version(diagram_id: str, sha: str):
-    """A historical version's validated content. Unknown id, non-allowlisted/invalid sha, or
-    content that fails validation → 404 (never interpolate an unvetted ref into git)."""
-    from core import architecture_docs
-    data = architecture_docs.version(diagram_id, sha)
-    if data is None:
-        raise HTTPException(status_code=404, detail="unknown diagram version")
-    return data
-
-
-@app.post("/api/architecture/update")
-def api_architecture_update():
-    """Sync architecture from GitHub: git fetch origin main (read-only, no working-tree mutation),
-    so history() surfaces the newest committed versions. Returns {ok, fetched, changed}."""
-    from core import architecture_docs
-    return architecture_docs.sync()
-
-
-@app.get("/api/architecture/config")
-def api_architecture_config_get():
-    from core import owner_flags
-    return {"v2_enabled": owner_flags.get_bool(owner_flags.ARCHITECTURE_V2_ENABLED, False)}
-
-
-@app.post("/api/architecture/config")
-def api_architecture_config_set(body: ArchitectureConfigReq):
-    from core import owner_flags
-    if body.v2_enabled is not None:
-        owner_flags.set_bool(owner_flags.ARCHITECTURE_V2_ENABLED, bool(body.v2_enabled))
-    return {"v2_enabled": owner_flags.get_bool(owner_flags.ARCHITECTURE_V2_ENABLED, False)}
 
 
 @app.get("/api/abilities/{skill_id}")
