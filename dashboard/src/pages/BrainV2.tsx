@@ -241,10 +241,24 @@ function ImportTab() {
   const [job, setJob] = useState<V2JobStatus | null>(null)
   const [cands, setCands] = useState<V2Candidate[]>([])
   const [busy, setBusy] = useState(false)
+  const [hideTrash, setHideTrash] = useState(true)   // auto-filter rejected/trash by default
 
   const refresh = useCallback(async (id: number) => {
     setCands(await v2ImportCandidates(id))
   }, [])
+
+  // Read a picked .md/.txt/.json file and load it into the import box.
+  const onFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    e.target.value = ''  // allow re-picking the same file
+    if (!f) return
+    if (f.size > 10 * 1024 * 1024) { toast({ kind: 'error', title: 'File too large (max 10 MiB)' }); return }
+    setFilename(f.name)
+    const reader = new FileReader()
+    reader.onload = () => setContent(String(reader.result || ''))
+    reader.onerror = () => toast({ kind: 'error', title: 'Could not read the file' })
+    reader.readAsText(f)
+  }, [toast])
 
   const start = useCallback(async () => {
     setBusy(true)
@@ -276,15 +290,27 @@ function ImportTab() {
     catch (e) { toast({ kind: 'error', title: errMsg(e) }) }
   }, [job, refresh, toast])
 
+  // Trash = a candidate the quality gate proposes to reject; auto-filtered from import.
+  const isTrash = (c: V2Candidate) => !c.error && c.proposed_outcome === 'rejected'
+  const goodCands = useMemo(() => cands.filter(c => !c.error && !isTrash(c)), [cands])
+  const trashCount = useMemo(() => cands.filter(isTrash).length, [cands])
+  const visibleCands = useMemo(() => hideTrash ? cands.filter(c => !isTrash(c)) : cands, [cands, hideTrash])
+
   return (
     <div className="space-y-3">
       {!job && (
         <div className="space-y-2 rounded-xl border border-border bg-surface/40 p-3.5">
-          <p className="text-xs text-muted">Paste TXT / MD / JSON content (≤10 MiB). Import always dry-runs first — nothing is saved until you commit approved candidates.</p>
-          <input value={filename} onChange={e => setFilename(e.target.value)}
-            className="w-full rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-text" placeholder="filename.md" />
+          <p className="text-xs text-muted">Import a <span className="text-text">.md</span> file (or paste MD / TXT / JSON, ≤10 MiB). Every item runs through the V2 quality gate — <span className="text-text">trash is filtered out automatically</span>, and nothing is saved until you commit.</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20">
+              <input type="file" accept=".md,.markdown,.txt,.json,text/markdown,text/plain" onChange={onFile} className="hidden" />
+              <Upload size={13} /> Choose .md file
+            </label>
+            <input value={filename} onChange={e => setFilename(e.target.value)}
+              className="min-w-[140px] flex-1 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-text" placeholder="filename.md" />
+          </div>
           <textarea value={content} onChange={e => setContent(e.target.value)} rows={8}
-            className="w-full rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-text" placeholder="Paste the content to import…" />
+            className="w-full rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-text" placeholder="…or paste the content to import here" />
           <button disabled={busy || !content.trim()} onClick={start}
             className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 disabled:opacity-50">
             {busy ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />} Dry-run import
@@ -300,7 +326,9 @@ function ImportTab() {
             <div className="ml-auto flex gap-1.5">
               {job.status === 'ready' && (
                 <>
-                  <button onClick={() => decide(true, {})} className="rounded-lg border border-border px-2 py-1 text-[11px] text-muted hover:text-text">Approve all</button>
+                  <button disabled={busy || goodCands.length === 0} onClick={() => decide(true, { ids: goodCands.map(c => c.id) })}
+                    title="Approve every candidate that passed the quality gate (excludes trash)"
+                    className="rounded-lg border border-border px-2 py-1 text-[11px] text-muted hover:text-success disabled:opacity-40">Approve good ({goodCands.length})</button>
                   <button disabled={busy} onClick={() => cmd('commit')}
                     className="rounded-lg border border-success/40 bg-success/10 px-2 py-1 text-[11px] font-medium text-success">Commit approved</button>
                   <button disabled={busy} onClick={() => cmd('cancel')}
@@ -311,8 +339,16 @@ function ImportTab() {
                 className="rounded-lg border border-border px-2 py-1 text-[11px] text-muted hover:text-text">New import</button>
             </div>
           </div>
+          {trashCount > 0 && (
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-surface/30 px-3 py-1.5 text-[11px] text-muted">
+              <Filter size={12} /> {trashCount} low-value {trashCount === 1 ? 'item' : 'items'} auto-filtered (won't be imported).
+              <button onClick={() => setHideTrash(h => !h)} className="ml-auto flex items-center gap-1 text-muted hover:text-text">
+                <Eye size={12} /> {hideTrash ? 'Show filtered' : 'Hide filtered'}
+              </button>
+            </div>
+          )}
           <div className="space-y-1.5">
-            {cands.map(c => (
+            {visibleCands.map(c => (
               <div key={c.id} className="flex items-start gap-2 rounded-xl border border-border bg-surface/40 px-3 py-2">
                 <div className="min-w-0 flex-1">
                   {c.error
@@ -465,50 +501,22 @@ function MigrationTab() {
   )
 }
 
-// ── ask brain tab ─────────────────────────────────────────────────────────────
-function AskTab() {
-  const { toast } = useToast()
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState<V2RecallItem[] | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  const ask = useCallback(async () => {
-    if (!query.trim()) return
-    setBusy(true)
-    try { setResults(await v2Recall(query.trim())) }
-    catch (e) { toast({ kind: 'error', title: errMsg(e) }) }
-    finally { setBusy(false) }
-  }, [query, toast])
-
+// ── tell tobi tab (coming soon) ───────────────────────────────────────────────
+function TellTab() {
   return (
-    <div className="space-y-3">
-      <div className="flex gap-2">
-        <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && ask()}
-          className="flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-xs text-text"
-          placeholder="Ask what TOBI would recall for a turn — e.g. 'how should I format the weekly report?'" />
-        <button disabled={busy} onClick={ask}
-          className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 disabled:opacity-50">
-          {busy ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />} Recall
-        </button>
+    <div className="rounded-2xl border border-dashed border-purple/30 bg-purple/5 px-6 py-12 text-center">
+      <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-purple/30 bg-purple/10 text-purple">
+        <Sparkles size={20} />
       </div>
-      {results !== null && (
-        results.length === 0
-          ? <div className="rounded-xl border border-dashed border-border py-8 text-center text-xs text-muted">Nothing relevant — irrelevant memory stays out by design.</div>
-          : <div className="space-y-1.5">
-            {results.map(r => (
-              <div key={r.memory_id} className="rounded-xl border border-border bg-surface/40 px-3 py-2">
-                <p className="text-xs text-text">{r.hedged && <em className="text-warning">(unconfirmed) </em>}{r.text}</p>
-                <div className="mt-1 flex flex-wrap gap-1.5">
-                  <Badge tone={r.authority === 'hard' ? 'purple' : 'muted'}>{r.authority === 'hard' ? 'hard rule' : r.type}</Badge>
-                  <Badge>score {r.score.toFixed(2)}</Badge>
-                  <Badge>relevance {Math.round((r.signals.semantic ?? 0) * 100)}%</Badge>
-                  <Badge>{r.scope}</Badge>
-                  <Badge tone={r.chip.evidence === 'owner' ? 'muted' : 'warning'}>{r.chip.evidence}</Badge>
-                </div>
-              </div>
-            ))}
-          </div>
-      )}
+      <h3 className="text-sm font-semibold text-heading">Tell TOBI <span className="ml-1 rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning">coming soon</span></h3>
+      <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-muted">
+        A conversational way to teach TOBI about you — add facts, correct what it got wrong, and set
+        rules in plain language, each routed through the same quality gate. It's on the way.
+      </p>
+      <p className="mx-auto mt-3 max-w-md text-[11px] text-muted">
+        For now: use <span className="text-text">+ Add</span> in the Library to remember something, and the
+        <span className="text-text"> Semantic</span> toggle there to see what TOBI would recall.
+      </p>
     </div>
   )
 }
@@ -693,10 +701,11 @@ export default function BrainV2() {
 
       <div className="flex flex-wrap gap-1.5">
         {([['overview', 'Overview', Database], ['library', 'Library', BrainIcon], ['import', 'Import', Upload],
-        ['migration', 'Migration', GitMerge], ['ask', 'Ask Brain', Sparkles]] as [Tab, string, typeof Database][]).map(([id, label, Icon]) => (
+        ['migration', 'Migration', GitMerge], ['ask', 'Tell TOBI', Sparkles]] as [Tab, string, typeof Database][]).map(([id, label, Icon]) => (
           <button key={id} onClick={() => setTab(id)}
             className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs ${tab === id ? 'border-accent/50 bg-accent/15 text-accent' : 'border-border text-muted hover:text-text'}`}>
             <Icon size={13} /> {label}
+            {id === 'ask' && <span className="rounded-full bg-warning/15 px-1.5 text-[9px] font-medium text-warning">soon</span>}
           </button>
         ))}
       </div>
@@ -899,7 +908,7 @@ export default function BrainV2() {
 
       {tab === 'import' && <ImportTab />}
       {tab === 'migration' && <MigrationTab />}
-      {tab === 'ask' && <AskTab />}
+      {tab === 'ask' && <TellTab />}
     </div>
   )
 }
