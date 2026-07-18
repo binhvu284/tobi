@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle, Copy, Download, Maximize2, Minimize2, Network, RotateCcw,
   ZoomIn, ZoomOut, Loader2, List, FileText, Search, X, GripVertical, Crosshair, ArrowLeftRight,
@@ -132,7 +132,7 @@ function ArchitectureV2() {
 
   const [textTab, setTextTab] = useState<TextTab>('guide')
   const [mapQuery, setMapQuery] = useState('')
-  const [split, setSplit] = useState(0.62)          // left-pane share of the body width
+  const [split, setSplit] = useState(0.68)          // left-pane share of the body width
   const [full, setFull] = useState<FullPane>(null)
   const [swapped, setSwapped] = useState(false)     // false: diagram left / text right
 
@@ -143,6 +143,7 @@ function ArchitectureV2() {
   const guideRef = useRef<HTMLDivElement | null>(null)
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const versionsRef = useRef<HTMLDivElement | null>(null)
+  const fitRef = useRef(true)   // request an auto fit-to-content on the next render
 
   // Content currently on screen: a picked historical version, else the current (working-tree) diagram.
   const activeContent = verContent ?? (diagram?.valid ? diagram.content : '')
@@ -192,7 +193,7 @@ function ArchitectureV2() {
     if (!activeId) return
     let alive = true
     setLoading(true); setSelected(''); setScale(1); setPan({ x: 0, y: 0 })
-    setVerContent(null); setSelectedSha('')
+    setVerContent(null); setSelectedSha(''); fitRef.current = true
     getArchitectureDiagram(activeId)
       .then(d => { if (alive) setDiagram(d) })
       .catch(() => { if (alive) setDiagram(null) })
@@ -231,7 +232,9 @@ function ArchitectureV2() {
           clusterBkg: dark ? 'rgba(88,166,255,0.05)' : 'rgba(99,102,241,0.06)',
           clusterBorder: dark ? '#374151' : '#cbd5e1',
         },
-        flowchart: { htmlLabels: true, useMaxWidth: true, curve: 'basis', padding: 14 },
+        // useMaxWidth:false → mermaid emits the SVG at full natural resolution (crisp); we then
+        // fit-to-content ourselves so it fills the pane without shrinking detail.
+        flowchart: { htmlLabels: true, useMaxWidth: false, curve: 'basis', padding: 16 },
       })
       // Render the raw source. We deliberately do NOT inject classDef colours: mermaid compiles
       // classDef styles into `!important` CSS that fill-inherits onto label text and beats our
@@ -311,7 +314,7 @@ function ArchitectureV2() {
       }
 
       // word-wrap to the label-box width (our 12px text is smaller than mermaid's, so it fits)
-      const maxChars = Math.max(6, Math.floor(boxW / 6.4))
+      const maxChars = Math.max(6, Math.floor(boxW / 7.4))
       const lines: string[] = []
       let cur = ''
       for (const w of label.split(/\s+/)) {
@@ -324,7 +327,7 @@ function ArchitectureV2() {
       text.setAttribute('data-arch', '1'); text.setAttribute('text-anchor', 'middle')
       text.setAttribute('fill', textFill)
       text.style.setProperty('fill', textFill, 'important')   // beat mermaid's per-node label CSS
-      text.style.fontSize = '12px'; text.style.fontWeight = '600'; text.style.pointerEvents = 'none'
+      text.style.fontSize = '14px'; text.style.fontWeight = '600'; text.style.pointerEvents = 'none'
       lines.forEach((ln, i) => {
         const tspan = document.createElementNS(NS, 'tspan')
         tspan.setAttribute('x', String(cx)); tspan.setAttribute('y', String(startY + i * lh))
@@ -387,7 +390,38 @@ function ArchitectureV2() {
     setPan({ x: drag.current.px + (e.clientX - drag.current.x), y: drag.current.py + (e.clientY - drag.current.y) })
   }
   const onUp = () => { drag.current = null }
-  const reset = () => { setScale(1); setPan({ x: 0, y: 0 }); setSelected('') }
+
+  // Size the diagram for READABILITY, not just to cram the whole thing in. We fill the pane on its
+  // tighter axis (so labels render near full size and stay crisp), letting the long axis overflow
+  // into a pan — the natural way to read a wide architecture diagram. Vector, so zooming stays sharp.
+  const fitToContent = useCallback(() => {
+    const stage = stageRef.current
+    const svgEl = stage?.querySelector('svg') as SVGSVGElement | null
+    if (!stage || !svgEl) return
+    const sr = stage.getBoundingClientRect()
+    let w = parseFloat(svgEl.getAttribute('width') || '')
+    let h = parseFloat(svgEl.getAttribute('height') || '')
+    if (!w || !h) {
+      const vb = svgEl.viewBox?.baseVal
+      if (vb && vb.width) { w = vb.width; h = vb.height }
+    }
+    if (!w || !h || !sr.width || !sr.height) return
+    const wf = sr.width / w, hf = sr.height / h
+    const s = Math.max(0.35, Math.min(1.4, Math.max(wf, hf) * 0.96))
+    const dispW = w * s, dispH = h * s
+    setScale(s)
+    setPan({
+      x: dispW <= sr.width ? (sr.width - dispW) / 2 : 20,
+      y: dispH <= sr.height ? (sr.height - dispH) / 2 : 20,
+    })
+  }, [])
+
+  const reset = () => { fitRef.current = true; fitToContent(); setSelected('') }
+
+  // Auto fit-to-content once per new diagram/version render (before paint → no flash).
+  useLayoutEffect(() => {
+    if (svg && fitRef.current) { fitToContent(); fitRef.current = false }
+  }, [svg, fitToContent])
 
   // pan the diagram so a node lands in the centre of its stage (screen-space delta,
   // which is exactly what the translate() pan applies) — clear feedback for Map clicks.
@@ -453,6 +487,7 @@ function ArchitectureV2() {
     setShowVersions(false)
     setSelectedSha(v.sha)
     setSelected('')
+    fitRef.current = true
     if (isLatest) { setVerContent(null); return }
     if (verBusy) return
     setVerBusy(v.sha)
@@ -473,7 +508,7 @@ function ArchitectureV2() {
       const [d, h] = await Promise.all([getArchitectureDiagram(activeId), getArchitectureHistory(activeId, 20)])
       setDiagram(d)
       const items = h.available ? h.items : []
-      setHistory(items); setVerContent(null); setSelectedSha(items[0]?.sha || '')
+      setHistory(items); setVerContent(null); setSelectedSha(items[0]?.sha || ''); fitRef.current = true
       toast({
         kind: 'success',
         title: res.changed ? 'Updated from GitHub' : 'Already up to date',
@@ -518,7 +553,7 @@ function ArchitectureV2() {
             onWheel={onWheel} onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
           >
             <div
-              className="origin-top-left transition-transform duration-75"
+              className="origin-top-left [&_svg]:!max-w-none [&_text]:[text-rendering:geometricPrecision] [&_svg]:[shape-rendering:geometricPrecision]"
               style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})` }}
               // eslint-disable-next-line react/no-danger -- sanitized with DOMPurify (svg profile) above
               dangerouslySetInnerHTML={{ __html: svg }}
@@ -653,7 +688,7 @@ function ArchitectureV2() {
           </div>
           <span className="mx-0.5 h-5 w-px bg-border" />
           <IconBtn title={swapped ? 'Diagram → left' : 'Diagram → right'} onClick={() => setSwapped(s => !s)} active={swapped}><ArrowLeftRight size={16} /></IconBtn>
-          <IconBtn title="Fit to view" onClick={() => { setScale(1); setPan({ x: 0, y: 0 }) }}><Crosshair size={16} /></IconBtn>
+          <IconBtn title="Fit to view" onClick={fitToContent}><Crosshair size={16} /></IconBtn>
         </div>
       </header>
 
