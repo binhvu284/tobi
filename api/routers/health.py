@@ -1,20 +1,86 @@
 """Health & performance routes — /api/health/* .
 
 Extracted from api/dashboard.py (refactor Slice 1). Byte-identical handlers;
-only @router.* decorators became @router.* and the shared helpers now import
+only @app.* decorators became @router.* and the shared helpers now import
 from api.deps. See docs/REFACTORING_PLAN.md.
 """
 from __future__ import annotations
 
 import asyncio
+import os
+import re
+import sqlite3
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from api.deps import _get_conn, fmt_ago
+from api.deps import _get_conn, _last, fmt_ago, LOGS_DIR
+from core.database import get_dashboard
 
 router = APIRouter(tags=["health"])
+
+API_PORT = os.getenv("API_PORT", "8000")
+
+# Log-tail diagnostics — moved verbatim from api/dashboard.py; used only by the
+# Health deep check. Matches main.py's "[ERROR]" format and the default
+# "ERROR:logger:" library format, plus tracebacks. Word-boundaried so it won't
+# fire on the word "error" mid-sentence.
+_LEVEL_RE = re.compile(r"(\[(ERROR|CRITICAL|WARNING)\]|\b(ERROR|CRITICAL|WARNING):)")
+_TRACE_RE = re.compile(r"Traceback \(most recent call last\)|^\s*\w+Error:|Exception")
+# Redact secrets that may appear in log lines (Telegram bot tokens, key=… pairs).
+_REDACT = [
+    (re.compile(r"bot\d+:[A-Za-z0-9_\-]+"), "bot***REDACTED***"),
+    (re.compile(r"(?i)(token|key|secret|password)=\S+"), r"\1=***"),
+]
+
+
+def _redact(text: str) -> str:
+    for pat, repl in _REDACT:
+        text = pat.sub(repl, text)
+    return text
+
+
+def _recent_errors(limit: int = 12, scan_lines: int = 3000) -> list[dict]:
+    """Tail the live log and surface the most recent error/warning lines.
+
+    Reads whichever of logs/tobi.log or logs/system.log has content (prefers the
+    one written most recently). This is the most direct 'where's the problem' signal.
+    Secrets (bot tokens, key=…) are redacted before returning.
+    """
+    candidates = [LOGS_DIR / "tobi.log", LOGS_DIR / "system.log"]
+    log_file = None
+    best_mtime = -1.0
+    for p in candidates:
+        try:
+            if p.exists() and p.stat().st_size > 0 and p.stat().st_mtime > best_mtime:
+                best_mtime, log_file = p.stat().st_mtime, p
+        except OSError:
+            continue
+    if not log_file:
+        return []
+
+    try:
+        with log_file.open("r", encoding="utf-8", errors="replace") as fh:
+            lines = fh.readlines()[-scan_lines:]
+    except OSError:
+        return []
+
+    hits: list[dict] = []
+    for line in lines:
+        m = _LEVEL_RE.search(line)
+        is_trace = bool(_TRACE_RE.search(line))
+        if not m and not is_trace:
+            continue
+        token = (m.group(2) or m.group(3)) if m else None
+        level = "WARNING" if token == "WARNING" else "ERROR"
+        hits.append({
+            "level": level,
+            "msg": _redact(line.rstrip())[:300],
+            "source": log_file.name,
+        })
+    return hits[-limit:][::-1]  # newest first
 
 
 @router.get("/api/health")

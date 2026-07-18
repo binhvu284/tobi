@@ -1,9 +1,11 @@
 """Explore / news routes — /api/explore/* .
 
 Extracted from api/dashboard.py (refactor Slice). Byte-identical handlers;
-only @router.* -> @router.*. See docs/REFACTORING_PLAN.md.
+only @app.* -> @router.*. See docs/REFACTORING_PLAN.md.
 """
 from __future__ import annotations
+
+import json
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse

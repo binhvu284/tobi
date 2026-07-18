@@ -40,7 +40,6 @@ except Exception:
     mcp_tunnel = None
     MCP_AVAILABLE = False
 
-LOGS_DIR = Path(__file__).parent.parent / "logs"
 API_PORT = os.getenv("API_PORT", "8000")
 
 TASK_STATUS_V1 = {
@@ -148,7 +147,7 @@ class TaskCommandRequest(BaseModel):
 # groups extracted into api/routers/* can share them. Imported back into this
 # module's namespace to preserve every existing reference (including external
 # access such as core.conductor's `dashboard._get_conn`).
-from api.deps import DB_PATH, _get_conn, _json_loads, fmt_ago
+from api.deps import DB_PATH, _get_conn, _json_loads, _last, fmt_ago
 
 app = FastAPI(title="Tobi Mission Control")
 
@@ -198,6 +197,8 @@ from api.routers.explore import router as explore_router
 app.include_router(explore_router)
 from api.routers.graph import router as graph_router
 app.include_router(graph_router)
+from api.routers.storage import router as storage_router
+app.include_router(storage_router)
 
 # MCP Hub (#5) — mount TOBI's MCP server (Streamable HTTP) at /mcp. Inbound auth,
 # rate-limit, scope, and audit are enforced by McpAuthMiddleware inside the app.
@@ -1909,74 +1910,8 @@ async def api_task_high_risk_audit(limit: int = Query(default=50, ge=1, le=200))
         conn.close()
 
 
-# ── Health diagnostics ──────────────────────────────────────────────────────────
-
 import re
 
-# Matches both main.py's "[ERROR]" format and the default "ERROR:logger:" library
-# format, plus tracebacks. Word-boundaried so it won't fire on the word "error" mid-sentence.
-_LEVEL_RE = re.compile(r"(\[(ERROR|CRITICAL|WARNING)\]|\b(ERROR|CRITICAL|WARNING):)")
-_TRACE_RE = re.compile(r"Traceback \(most recent call last\)|^\s*\w+Error:|Exception")
-# Redact secrets that may appear in log lines (Telegram bot tokens, key=… pairs).
-_REDACT = [
-    (re.compile(r"bot\d+:[A-Za-z0-9_\-]+"), "bot***REDACTED***"),
-    (re.compile(r"(?i)(token|key|secret|password)=\S+"), r"\1=***"),
-]
-
-
-def _redact(text: str) -> str:
-    for pat, repl in _REDACT:
-        text = pat.sub(repl, text)
-    return text
-
-
-def _recent_errors(limit: int = 12, scan_lines: int = 3000) -> list[dict]:
-    """Tail the live log and surface the most recent error/warning lines.
-
-    Reads whichever of logs/tobi.log or logs/system.log has content (prefers the
-    one written most recently). This is the most direct 'where's the problem' signal.
-    Secrets (bot tokens, key=…) are redacted before returning.
-    """
-    candidates = [LOGS_DIR / "tobi.log", LOGS_DIR / "system.log"]
-    log_file = None
-    best_mtime = -1.0
-    for p in candidates:
-        try:
-            if p.exists() and p.stat().st_size > 0 and p.stat().st_mtime > best_mtime:
-                best_mtime, log_file = p.stat().st_mtime, p
-        except OSError:
-            continue
-    if not log_file:
-        return []
-
-    try:
-        with log_file.open("r", encoding="utf-8", errors="replace") as fh:
-            lines = fh.readlines()[-scan_lines:]
-    except OSError:
-        return []
-
-    hits: list[dict] = []
-    for line in lines:
-        m = _LEVEL_RE.search(line)
-        is_trace = bool(_TRACE_RE.search(line))
-        if not m and not is_trace:
-            continue
-        token = (m.group(2) or m.group(3)) if m else None
-        level = "WARNING" if token == "WARNING" else "ERROR"
-        hits.append({
-            "level": level,
-            "msg": _redact(line.rstrip())[:300],
-            "source": log_file.name,
-        })
-    return hits[-limit:][::-1]  # newest first
-
-
-def _last(conn: sqlite3.Connection, query: str) -> str | None:
-    try:
-        row = conn.execute(query).fetchone()
-        return row[0] if row and row[0] else None
-    except sqlite3.Error:
-        return None
 
 
 class OwnerSettingsPatchRequest(BaseModel):
@@ -5795,35 +5730,6 @@ class UsagePlansReq(BaseModel):
 class UsageBudgetReq(BaseModel):
     monthly_cap_usd: float = 0.0
     alert_pct: int = 80
-
-
-@app.get("/api/storage/overview")
-def storage_overview():
-    """KPIs + per-feature breakdown + growth trend. Scans lazily on first visit
-    so the page is never empty, then serves snapshots (instant loads) [S4]."""
-    from core import storage_scan
-    ov = storage_scan.overview()
-    if not ov["scanned_at"]["db"]:
-        storage_scan.run_scan("all")
-        ov = storage_scan.overview()
-    return ov
-
-
-@app.get("/api/storage/category/{feature}")
-def storage_category(feature: str, top: int = 12):
-    """Drill-down: biggest DB tables + biggest files/dirs for one feature [S9]."""
-    from core import storage_scan
-    return storage_scan.category_detail(feature, top_n=max(3, min(top, 50)))
-
-
-@app.post("/api/storage/scan")
-def storage_scan_now(scope: str = "all", force_deps: bool = False):
-    """Manual "Scan now" [S4]. scope: db | fs | all."""
-    from core import storage_scan
-    if scope not in ("db", "fs", "all"):
-        raise HTTPException(400, "scope must be db | fs | all")
-    res = storage_scan.run_scan(scope, force_deps=force_deps)
-    return {"scan": res, "overview": storage_scan.overview()}
 
 
 @app.get("/api/usage/overview")

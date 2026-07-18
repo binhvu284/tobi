@@ -1,12 +1,14 @@
 """Knowledge-graph routes — /api/graph/* .
 
 Extracted from api/dashboard.py (refactor Slice). Byte-identical handlers;
-only @router.* -> @router.*. See docs/REFACTORING_PLAN.md.
+only @app.* -> @router.*. See docs/REFACTORING_PLAN.md.
 """
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
+
+from core import graph_engine as graph
 
 router = APIRouter(tags=["graph"])
 
