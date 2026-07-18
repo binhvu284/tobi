@@ -24,6 +24,7 @@ from core.development_store import DevelopmentStore, utc_now
 from core.git_workspace import GitCommandError, GitWorkspaceManager
 from core.github_coding import GitHubCodingError, GitHubCodingService
 from core.coding_workers import CodingWorkerBlocked, CodingWorkerRouter, CodingWorkerUnavailable
+from core.coding_tools import resolve_runtime_command
 from core.release_manager import ReleaseManager
 from core.repo_index import RepositoryIndex
 
@@ -975,7 +976,10 @@ class CodingAgent:
                 unique.append(argv)
         for argv in unique:
             self.policy.assert_command(argv)
-            completed = subprocess.run(argv, cwd=str(worktree), capture_output=True, text=True, timeout=timeout)
+            completed = subprocess.run(
+                resolve_runtime_command(argv), cwd=str(worktree), capture_output=True,
+                text=True, timeout=timeout,
+            )
             result = _safe({"argv": argv, "ok": completed.returncode == 0, "exit_code": completed.returncode,
                             "output": (completed.stdout + completed.stderr)[-20_000:]})
             results.append(result)
