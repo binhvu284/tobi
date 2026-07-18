@@ -1187,6 +1187,7 @@ export default function Developer() {
   const [lastSignalAt, setLastSignalAt] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [autoQueuePending, setAutoQueuePending] = useState<boolean | null>(null)
   const [error, setError] = useState<DeveloperLoadError | null>(null)
   const [headerCollapsed, setHeaderCollapsed] = useState(() => localStorage.getItem('tobi.developer.header.collapsed') === 'true')
   const lastSequence = useRef(0)
@@ -1367,7 +1368,23 @@ export default function Developer() {
   const command = (cmd: 'pause' | 'resume' | 'cancel' | 'retry' | 'remove') => active && act(() => commandDeveloperWorkflow(active.id, cmd), `Workflow ${cmd} accepted`)
   const approve = (purpose: 'special_paths' | 'merge_deploy', master: string) => active && act(() => approveDeveloperWorkflow(active.id, purpose, master), 'Approval accepted')
   const rejectApproval = (purpose: 'special_paths' | 'merge_deploy') => active && act(() => rejectDeveloperWorkflow(active.id, purpose), 'Approval rejected; agent revision started')
-  const setAutoQueue = (enabled: boolean) => { void act(() => setDeveloperProcessSettings(enabled), enabled ? 'Auto queue enabled' : 'Auto queue disabled') }
+  const setAutoQueue = async (enabled: boolean) => {
+    if (autoQueuePending !== null) return
+    setAutoQueuePending(enabled)
+    try {
+      const result = await setDeveloperProcessSettings(enabled)
+      setOverview(current => current ? {
+        ...current,
+        process: { ...(current.process ?? {}), auto_queue: result.auto_queue },
+      } : current)
+      toast({ kind: 'success', title: result.auto_queue ? 'Auto queue enabled' : 'Auto queue disabled' })
+      if (result.next_workflow) await load(true)
+    } catch (err) {
+      toast({ kind: 'error', title: 'Auto queue was not changed', detail: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setAutoQueuePending(null)
+    }
+  }
   const createGoal = (input: Parameters<typeof createDeveloperGoal>[0]) => act(() => createDeveloperGoal(input), 'Development goal queued')
   const goalCommand = (id: number, cmd: GoalCommand) => act(() => commandDeveloperGoal(id, cmd), `Goal ${label(cmd)} accepted`)
   const switchWorker = (slug: string) => active && act(() => switchDeveloperWorker(active.id, slug), `Worker switched to ${slug}`)
@@ -1440,7 +1457,7 @@ export default function Developer() {
               </div>
             </div>}
             {tab === 'loop' && <DeveloperProcess workflow={active} events={events} workers={workers} queue={queue} busy={busy}
-              autoQueue={overview?.process?.auto_queue ?? false} streamState={streamState} streamIssue={streamIssue}
+              autoQueue={autoQueuePending ?? overview?.process?.auto_queue ?? false} autoQueueBusy={autoQueuePending !== null} streamState={streamState} streamIssue={streamIssue}
               onAutoQueue={setAutoQueue} onCommand={command} onApprove={approve} onReject={rejectApproval} />}
             {tab === 'goals' && <DevelopmentGoals goals={goals} workers={workers} busy={busy} onCreate={createGoal} onCommand={goalCommand} />}
             {tab === 'workers' && <DeveloperAgents workers={workers} models={workerModels} providers={workerProviders} routing={modelRouting} busy={busy} onSave={saveWorker} onProbe={probeWorker} onLogin={loginWorker} onModels={loadWorkerModels} />}

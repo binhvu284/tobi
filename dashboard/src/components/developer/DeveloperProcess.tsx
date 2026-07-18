@@ -19,6 +19,7 @@ type Props = {
   queue: DeveloperQueueItem[]
   busy: boolean
   autoQueue: boolean
+  autoQueueBusy?: boolean
   streamState: 'idle' | 'connecting' | 'live' | 'reconnecting' | 'closed'
   streamIssue: string | null
   onAutoQueue: (enabled: boolean) => void
@@ -136,8 +137,8 @@ function AgentIdentity({ workflow, workers }: { workflow: DeveloperWorkflow; wor
   )
 }
 
-function AutoToggle({ enabled, onChange }: { enabled: boolean; onChange: (enabled: boolean) => void }) {
-  return <button type="button" role="switch" aria-checked={enabled} onClick={() => onChange(!enabled)} className="inline-flex h-8 items-center gap-2 text-left">
+function AutoToggle({ enabled, busy = false, onChange }: { enabled: boolean; busy?: boolean; onChange: (enabled: boolean) => void }) {
+  return <button type="button" role="switch" aria-checked={enabled} disabled={busy} onClick={() => onChange(!enabled)} className="inline-flex h-8 items-center gap-2 text-left disabled:cursor-wait disabled:opacity-60">
     <span className={`relative h-5 w-9 rounded-full border transition-colors ${enabled ? 'border-accent/60 bg-accent/25' : 'border-border bg-background'}`}><span className={`absolute top-0.5 h-3.5 w-3.5 rounded-full transition-all ${enabled ? 'left-[17px] bg-accent' : 'left-0.5 bg-muted'}`} /></span>
     <span><span className="block text-[10px] font-medium text-text">Auto</span><span className="block text-[8px] text-muted">Next queue item</span></span>
   </button>
@@ -196,7 +197,7 @@ function ApprovalCard({ workflow, busy, onApprove, onReject, onCommand }: {
 }
 
 export default function DeveloperProcess({
-  workflow, events, workers, queue, busy, autoQueue, streamState, streamIssue,
+  workflow, events, workers, queue, busy, autoQueue, autoQueueBusy, streamState, streamIssue,
   onAutoQueue, onCommand, onApprove, onReject,
 }: Props) {
   const [split, setSplit] = useState(58)
@@ -255,7 +256,7 @@ export default function DeveloperProcess({
       <section className="rounded-md border border-border bg-surface/45 px-5 py-8">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div><div className="text-[10px] font-semibold uppercase text-accent">Process runtime</div><h2 className="mt-2 text-lg font-semibold text-text">No development process is active</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted">Start an item from Queue, or enable Auto to take the next eligible planned item.</p></div>
-          <AutoToggle enabled={autoQueue} onChange={onAutoQueue} />
+          <AutoToggle enabled={autoQueue} busy={autoQueueBusy} onChange={onAutoQueue} />
         </div>
       </section>
       {autoQueue && <NextQueueSection item={nextItem} />}
@@ -293,7 +294,7 @@ export default function DeveloperProcess({
           <div className="flex flex-wrap items-center gap-x-5 gap-y-3 lg:justify-end">
             <AgentIdentity workflow={workflow} workers={workers} />
             <span className="hidden h-8 w-px bg-border lg:block" />
-            <AutoToggle enabled={autoQueue} onChange={onAutoQueue} />
+            <AutoToggle enabled={autoQueue} busy={autoQueueBusy} onChange={onAutoQueue} />
             <ProcessActions workflow={workflow} busy={busy} onCommand={onCommand} />
           </div>
         </div>
