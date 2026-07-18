@@ -500,7 +500,23 @@ class DevelopmentStore:
     def list_tasks(self) -> list[dict[str, Any]]:
         conn = self.connect()
         try:
-            return [dict(row) for row in conn.execute("SELECT * FROM development_tasks ORDER BY queue_id DESC")]
+            return [dict(row) for row in conn.execute(
+                "SELECT * FROM development_tasks WHERE status<>'deleted' ORDER BY queue_id DESC"
+            )]
+        finally:
+            conn.close()
+
+    def set_task_status(self, queue_id: int, status: str) -> dict[str, Any] | None:
+        conn = self.connect()
+        try:
+            conn.execute(
+                "UPDATE development_tasks SET status=?,updated_at=? WHERE queue_id=?",
+                (status, utc_now(), queue_id),
+            )
+            conn.commit()
+            return self._row(conn.execute(
+                "SELECT * FROM development_tasks WHERE queue_id=?", (queue_id,)
+            ).fetchone())
         finally:
             conn.close()
 
@@ -888,7 +904,9 @@ class DevelopmentStore:
         conn = self.connect()
         try:
             return [dict(row) for row in conn.execute(
-                "SELECT * FROM development_goals ORDER BY updated_at DESC LIMIT ?", (max(1, min(limit, 500)),)
+                """SELECT * FROM development_goals
+                   WHERE status<>'deleted' ORDER BY updated_at DESC LIMIT ?""",
+                (max(1, min(limit, 500)),)
             )]
         finally:
             conn.close()

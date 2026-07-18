@@ -230,6 +230,12 @@ class ExternalCLIWorker:
         self.policy = policy
         self.runner = runner
 
+    def native_auth_command(self) -> list[str] | None:
+        return None
+
+    def native_auth_valid(self, returncode: int, output: str) -> bool:
+        return returncode == 0
+
     def probe(self, profile: WorkerProfile) -> dict[str, Any]:
         if isinstance(self.runner, QueuedProcessRunner):
             health = self.runner.health()
@@ -275,6 +281,32 @@ class ExternalCLIWorker:
                 "detail": f"Vault secret {profile.credential_env} is not injected.",
                 "executable": executable,
             }
+        if profile.auth_mode == "native_login":
+            auth_command = self.native_auth_command()
+            if auth_command:
+                try:
+                    checked = subprocess.run(
+                        _platform_cli_command(auth_command),
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        timeout=12,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+                    )
+                    auth_output = f"{checked.stdout}\n{checked.stderr}"
+                    if not self.native_auth_valid(checked.returncode, auth_output):
+                        return {
+                            "status": "needs_auth",
+                            "detail": f"{self.executable} is installed but its native login is not authorized.",
+                            "executable": executable,
+                        }
+                except (OSError, subprocess.SubprocessError):
+                    return {
+                        "status": "needs_auth",
+                        "detail": f"{self.executable} is installed but its native login could not be verified.",
+                        "executable": executable,
+                    }
         return {
             "status": "ready",
             "detail": "Executable and configured authentication source are available.",
@@ -416,6 +448,9 @@ class CodexCLIWorker(ExternalCLIWorker):
     adapter = "codex"
     executable = "codex"
 
+    def native_auth_command(self) -> list[str]:
+        return ["codex", "login", "status"]
+
     def command(
         self,
         profile: WorkerProfile,
@@ -440,6 +475,15 @@ class CodexCLIWorker(ExternalCLIWorker):
 class OpenCodeCLIWorker(ExternalCLIWorker):
     adapter = "opencode"
     executable = "opencode"
+
+    def native_auth_command(self) -> list[str]:
+        return ["opencode", "auth", "list"]
+
+    def native_auth_valid(self, returncode: int, output: str) -> bool:
+        normalized = output.lower()
+        return returncode == 0 and not any(
+            marker in normalized for marker in ("0 credentials", "no credentials", "not authenticated")
+        )
 
     def command(
         self,

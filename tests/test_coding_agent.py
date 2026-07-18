@@ -223,6 +223,34 @@ pause_response = client.post(f"/api/developer/goals/{goal_id}/commands", json=co
 replay_response = client.post(f"/api/developer/goals/{goal_id}/commands", json=command_body)
 ok("goal pause command is accepted", pause_response.status_code == 200 and pause_response.json()["status"] == "paused")
 ok("goal command replay is idempotent", replay_response.status_code == 200 and replay_response.json() == pause_response.json())
+reattempt_response = client.post(f"/api/developer/goals/{goal_id}/commands", json={
+    "command": "reattempt", "idempotency_key": "coding-agent-goal-reattempt-contract",
+})
+ok("goal re-attempt creates a complete new goal", (
+    reattempt_response.status_code == 200
+    and int(reattempt_response.json()["id"]) != goal_id
+    and store.get_task(queue_id=900_000_000 + int(reattempt_response.json()["id"])) is not None
+), reattempt_response.text[:200])
+retry_goal_id = int(reattempt_response.json()["id"])
+retry_pause = client.post(f"/api/developer/goals/{retry_goal_id}/commands", json={
+    "command": "pause", "idempotency_key": "coding-agent-retry-pause-contract",
+})
+ok("re-attempted goal can be paused", retry_pause.status_code == 200 and retry_pause.json()["status"] == "paused")
+delete_response = client.post(f"/api/developer/goals/{retry_goal_id}/commands", json={
+    "command": "delete", "idempotency_key": "coding-agent-goal-delete-contract",
+})
+ok("goal delete is a recoverable soft delete", delete_response.status_code == 200 and delete_response.json()["status"] == "deleted")
+visible_goal_ids = {int(item["id"]) for item in client.get("/api/developer/goals").json()["goals"]}
+ok("soft-deleted goal is hidden from owner goal list", retry_goal_id not in visible_goal_ids)
+ok("soft-deleted goal mirror is hidden from development queue", all(
+    int(item["queue_id"]) != 900_000_000 + retry_goal_id for item in store.list_tasks()
+))
+native_models = client.get("/api/developer/workers/mc-native/models")
+ok("Mission Control agent uses the shared Models-page catalog", (
+    native_models.status_code == 200
+    and native_models.json()["source"] == "models_page"
+    and isinstance(native_models.json()["models"], list)
+), native_models.text[:200])
 from api import dashboard  # noqa: E402
 ok("dashboard registers Developer router", any(getattr(route, "path", "") == "/api/developer/overview" for route in dashboard.app.routes))
 

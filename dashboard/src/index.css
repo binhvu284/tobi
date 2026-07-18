@@ -1056,6 +1056,27 @@
   transition: background-color .3s ease, border-color .3s ease, color .3s ease, fill .3s ease, stroke .3s ease !important;
 }
 
+/* Developer operations: motion communicates active work, never decoration alone. */
+@keyframes developer-progress-flow {
+  0% { background-position: 0 50%; box-shadow: 0 0 8px rgb(var(--accent) / 0.45); }
+  50% { box-shadow: 0 0 18px rgb(var(--accent) / 0.8), 0 0 30px rgb(var(--success) / 0.2); }
+  100% { background-position: 200% 50%; box-shadow: 0 0 8px rgb(var(--accent) / 0.45); }
+}
+.developer-progress-live {
+  background-image: linear-gradient(90deg, rgb(var(--accent)), rgb(var(--success)), rgb(var(--accent)));
+  background-size: 200% 100%;
+  animation: developer-progress-flow 2.2s linear infinite;
+}
+@keyframes developer-goal-pulse {
+  0%, 100% { color: rgb(var(--text)); text-shadow: 0 0 0 transparent; }
+  50% { color: rgb(var(--accent)); text-shadow: 0 0 12px rgb(var(--accent) / 0.45); }
+}
+.developer-goal-live { animation: developer-goal-pulse 2.4s ease-in-out infinite; }
+[data-motion="reduced"] .developer-progress-live,
+[data-motion="reduced"] .developer-goal-live,
+[data-motion="off"] .developer-progress-live,
+[data-motion="off"] .developer-goal-live { animation: none !important; }
+
 /* ── Reduced-motion guards (first-class, Decision #25) ──
    reduced ⇒ kill decorative loops/sweeps, keep opacity feedback;
    off ⇒ neutralize all animation/transition (instant). */

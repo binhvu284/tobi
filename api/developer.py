@@ -3,6 +3,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import shutil
+import subprocess
+import time
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
@@ -15,6 +20,7 @@ from core.coding_contracts import WorkerProfile
 from core.coding_learning import CodingLearningService
 from core.coding_loop import CodingLoopService
 from core.coding_policy import PolicyDenied
+from core.coding_workers import _platform_cli_command
 
 
 router = APIRouter(prefix="/api/developer", tags=["developer"])
@@ -104,7 +110,7 @@ class GoalCreate(BaseModel):
 
 
 class GoalCommand(BaseModel):
-    command: Literal["pause", "resume", "cancel", "approve_scope"]
+    command: Literal["pause", "resume", "reattempt", "cancel", "delete", "approve_scope"]
     idempotency_key: str = Field(min_length=8, max_length=200)
 
 
@@ -283,7 +289,7 @@ def goal_command(goal_id: int, body: GoalCommand) -> dict[str, Any]:
     try:
         def execute() -> dict[str, Any]:
             result = get_loop().command(goal_id, body.command)
-            if body.command in {"resume", "approve_scope"}:
+            if body.command in {"resume", "reattempt", "approve_scope"}:
                 start_loop()
             return result
         return _idempotent_command(
@@ -438,8 +444,88 @@ def worker_login(slug: str) -> dict[str, Any]:
     return {
         "interactive_required": True,
         "command": commands[adapter],
-        "detail": "Run this command in the isolated runner account terminal, then probe the worker again.",
+        "provider": adapter,
+        "detail": "Run this command in the coding runner account, complete the provider flow, then check authorization here.",
+        "steps": [
+            "Run the displayed command in the same account that runs the coding agent.",
+            "Complete the browser, device-code, or provider prompt without sharing credentials with Mission Control.",
+            "Return to Agents and check authorization. Mission Control stores status only, never the login secret.",
+        ],
     }
+
+
+_CLI_MODEL_CACHE: dict[str, tuple[float, list[dict[str, Any]], str, str]] = {}
+
+
+@router.get("/workers/{slug}/models", dependencies=[Owner])
+def worker_models(slug: str, refresh: bool = Query(False)) -> dict[str, Any]:
+    row = agent.store.get_worker_profile(slug)
+    if not row:
+        raise HTTPException(status_code=404, detail="Coding agent profile was not found.")
+    adapter = str(row["adapter"])
+    if adapter in {"native", "model_review"}:
+        from core import model_router
+
+        return {
+            "models": model_router.available_models(),
+            "source": "models_page",
+            "detail": "Available from enabled providers on the Models page.",
+        }
+    cached = _CLI_MODEL_CACHE.get(slug)
+    if cached and not refresh and time.monotonic() - cached[0] < 300:
+        return {"models": cached[1], "source": cached[2], "detail": cached[3]}
+    if adapter == "codex":
+        from core import model_router
+
+        configured = [
+            item for item in model_router.available_models()
+            if str(item.get("provider") or "") == "codex"
+        ]
+        saved = str(row.get("model") or "")
+        if saved and all(str(item.get("id")) != saved for item in configured):
+            configured.insert(0, {
+                "id": saved, "provider": "codex", "model": saved, "label": saved,
+            })
+        detail = (
+            "Codex CLI does not expose a stable model-list command. Use its authorized default"
+            " or a Codex model enabled on the Models page."
+        )
+        result = (time.monotonic(), configured, "codex", detail)
+        _CLI_MODEL_CACHE[slug] = result
+        return {"models": configured, "source": "codex", "detail": detail}
+    if adapter != "opencode":
+        return {"models": [], "source": adapter, "detail": "This developer tool manages its own model."}
+    executable = shutil.which("opencode")
+    if not executable:
+        raise HTTPException(status_code=503, detail="OpenCode CLI is not installed for the coding runner account.")
+    try:
+        completed = subprocess.run(
+            _platform_cli_command(["opencode", "models", "--pure"], cwd=Path(__file__).resolve().parents[1]),
+            cwd=str(Path(__file__).resolve().parents[1]),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=20,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise HTTPException(status_code=503, detail="OpenCode model discovery did not complete.") from exc
+    if completed.returncode != 0:
+        raise HTTPException(status_code=503, detail="OpenCode could not list models for this runner account.")
+    model_ids = list(dict.fromkeys(
+        line.strip() for line in completed.stdout.splitlines()
+        if line.strip() and "/" in line and not line.lstrip().startswith(("[", "{"))
+    ))
+    models = [{
+        "id": model_id,
+        "provider": model_id.split("/", 1)[0],
+        "model": model_id.split("/", 1)[1],
+        "label": model_id.split("/", 1)[1],
+    } for model_id in model_ids[:500]]
+    detail = f"{len(models)} models reported by the authorized OpenCode CLI."
+    _CLI_MODEL_CACHE[slug] = (time.monotonic(), models, "opencode", detail)
+    return {"models": models, "source": "opencode", "detail": detail}
 
 
 @router.get("/learning", dependencies=[Owner])

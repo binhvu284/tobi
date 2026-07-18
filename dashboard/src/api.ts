@@ -843,6 +843,12 @@ export type DeveloperWorkerCatalog = {
   providers: LlmProvider[]
   routing: { default_model: string; coding: string; coding_review: string }
 }
+export type DeveloperWorkerLogin = {
+  interactive_required: boolean; command?: string[]; provider?: string; detail: string; steps?: string[]
+}
+export type DeveloperWorkerModels = {
+  models: AvailableModel[]; source: string; detail: string
+}
 export type DeveloperQueueItem = {
   id: number; queue_id: number; title: string; plan_path: string; plan_hash: string
   status: string; risk: string; target_version?: string | null; queue_status?: string | null
@@ -908,7 +914,7 @@ export async function createDeveloperGoal(input: {
   return vreq('/api/developer/goals', { method: 'POST', body: JSON.stringify(input) })
 }
 export async function commandDeveloperGoal(
-  goalId: number, command: 'pause' | 'resume' | 'cancel' | 'approve_scope',
+  goalId: number, command: 'pause' | 'resume' | 'reattempt' | 'cancel' | 'delete' | 'approve_scope',
 ): Promise<DeveloperGoal> {
   return vreq(`/api/developer/goals/${goalId}/commands`, {
     method: 'POST', body: JSON.stringify({ command, idempotency_key: crypto.randomUUID() }),
@@ -947,10 +953,11 @@ export async function saveDeveloperWorker(
 export async function probeDeveloperWorker(slug: string): Promise<DeveloperWorkerProfile> {
   return vreq(`/api/developer/workers/${encodeURIComponent(slug)}/probe`, { method: 'POST' })
 }
-export async function getDeveloperWorkerLogin(slug: string): Promise<{
-  interactive_required: boolean; command?: string[]; detail: string
-}> {
+export async function getDeveloperWorkerLogin(slug: string): Promise<DeveloperWorkerLogin> {
   return vreq(`/api/developer/workers/${encodeURIComponent(slug)}/login`)
+}
+export async function getDeveloperWorkerModels(slug: string, refresh = false): Promise<DeveloperWorkerModels> {
+  return vreq(`/api/developer/workers/${encodeURIComponent(slug)}/models?refresh=${refresh ? 'true' : 'false'}`)
 }
 export async function getDeveloperLearning(signal?: AbortSignal): Promise<{
   records: Array<Record<string, unknown>>; playbooks: Array<Record<string, unknown>>

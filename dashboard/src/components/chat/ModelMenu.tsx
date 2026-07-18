@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, Check, Eye, Brain, Zap, Cpu } from 'lucide-react'
+import { ChevronDown, Check, Eye, Brain, Zap, Cpu, Search } from 'lucide-react'
 import type { AvailableModel } from '../../api'
 import LlmLogo, { BRAND_META, brandForProvider } from '../LlmLogo'
 
@@ -57,6 +57,7 @@ export default function ModelMenu({
   autoLabel?: string; wide?: boolean; align?: 'left' | 'right'
 }) {
   const [openState, setOpenState] = useState(false)
+  const [query, setQuery] = useState('')
   const open = openProp ?? openState
   const setOpen = (o: boolean) => { setOpenState(o); onOpenChange?.(o) }
   const ref = useRef<HTMLDivElement>(null)
@@ -70,15 +71,20 @@ export default function ModelMenu({
   }, [open])
 
   const current = models.find(m => m.id === value)
+  const normalizedQuery = query.trim().toLowerCase()
+  const visibleModels = normalizedQuery
+    ? models.filter(model => [model.id, model.model, model.label, model.provider]
+      .some(item => String(item || '').toLowerCase().includes(normalizedQuery)))
+    : models
   // group by provider, preserving catalog order
   const groups: { provider: string; items: AvailableModel[] }[] = []
-  for (const m of models) {
+  for (const m of visibleModels) {
     let g = groups.find(x => x.provider === m.provider)
     if (!g) { g = { provider: m.provider, items: [] }; groups.push(g) }
     g.items.push(m)
   }
 
-  const pick = (id: string) => { onChange(id); setOpen(false) }
+  const pick = (id: string) => { onChange(id); setQuery(''); setOpen(false) }
 
   return (
     <div className={`relative ${wide ? 'w-full' : ''}`} ref={ref}>
@@ -100,12 +106,24 @@ export default function ModelMenu({
               align === 'left' ? 'left-0' : 'right-0'
             } ${
               direction === 'up' ? 'bottom-full mb-1.5' : 'mt-1.5'}`}>
-            <button onClick={() => pick('')}
+            {models.length > 6 && (
+              <label className="mb-1.5 flex h-9 items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-2.5 focus-within:border-accent/60">
+                <Search size={13} className="shrink-0 text-muted" />
+                <input
+                  value={query}
+                  onChange={event => setQuery(event.target.value)}
+                  autoFocus
+                  placeholder="Search providers and models"
+                  className="min-w-0 flex-1 bg-transparent text-xs text-text outline-none placeholder:text-muted"
+                />
+              </label>
+            )}
+            {!normalizedQuery && <button onClick={() => pick('')}
               className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-bg/60 ${!value ? 'text-accent' : 'text-text'}`}>
               <span className="flex h-[23px] w-[23px] items-center justify-center rounded-md bg-accent/15 text-accent"><Zap size={13} /></span>
               <span className="flex-1">{autoLabel}</span>
               {!value && <Check size={14} className="text-accent" />}
-            </button>
+            </button>}
             {groups.length === 0 && (
               <div className="px-2 py-3 text-center text-[11px] text-muted">No models yet — add a provider key in Models.</div>
             )}

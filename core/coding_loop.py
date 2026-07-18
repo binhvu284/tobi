@@ -1,6 +1,7 @@
 """Durable single-owner development goal loop for always-on VPS operation."""
 from __future__ import annotations
 
+import json
 import logging
 import os
 import socket
@@ -182,6 +183,34 @@ class CodingLoopService:
         goal = self.store.get_goal(goal_id)
         if not goal:
             raise KeyError(goal_id)
+        if command == "reattempt":
+            if goal["status"] not in {
+                "paused", "blocked", "awaiting_config", "canceled", "completed", "qualified_local",
+            }:
+                raise RuntimeError(f"Goal cannot be re-attempted from {goal['status']}.")
+            return self.agent.create_goal(
+                title=str(goal["title"]),
+                objective=str(goal["objective"]),
+                acceptance_criteria=json.loads(goal["acceptance_criteria_json"]),
+                validation_commands=json.loads(goal["validation_commands_json"]),
+                autonomy=str(goal["autonomy"]),
+                preferred_models=json.loads(goal["preferred_models_json"]),
+                max_iterations=int(goal["max_iterations"]),
+                worker_profile_slug=str(goal.get("worker_profile_slug") or "mc-native"),
+                reviewer_profile_slug=str(goal.get("reviewer_profile_slug") or "reviewer-default"),
+            )
+        if command == "delete":
+            if goal["status"] in {"queued", "running", "retrying", "awaiting_approval"}:
+                raise RuntimeError("Pause or cancel an active goal before deleting it.")
+            deleted = self.store.update_goal(
+                goal_id,
+                status="deleted",
+                lease_owner=None,
+                lease_expires_at=None,
+                completed_at=goal.get("completed_at") or utc_now(),
+            )
+            self.store.set_task_status(900_000_000 + goal_id, "deleted")
+            return deleted
         if command == "pause":
             if goal.get("current_session_id"):
                 self.agent.command(int(goal["current_session_id"]), "pause")
@@ -207,7 +236,7 @@ class CodingLoopService:
             return self.store.update_goal(
                 goal_id, status="queued", last_error=None, lease_owner=None, lease_expires_at=None
             )
-        raise ValueError("Goal command must be pause, resume, cancel, or approve_scope.")
+        raise ValueError("Goal command must be pause, resume, reattempt, cancel, delete, or approve_scope.")
 
 
 _loop: CodingLoopService | None = None

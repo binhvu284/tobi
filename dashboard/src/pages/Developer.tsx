@@ -1,23 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity, AlertTriangle, BookOpen, CheckCircle2, Circle, Clock3, Code2, ExternalLink,
-  GitBranch, KeyRound, ListTree, Loader2, Pause, Play, Plus, Radio, RefreshCw,
+  ChevronDown, ChevronUp, GitBranch, KeyRound, ListTree, Loader2, Pause, Play, Plus, Radio, RefreshCw,
   RotateCcw, Save, ScrollText, ShieldCheck, Square, Target,
   TerminalSquare, TestTube2, WifiOff, Wrench, XCircle,
 } from 'lucide-react'
 import AmbientField from '../components/motion/AmbientField'
 import LlmLogo, { BRAND_META, brandForModel, brandForProvider } from '../components/LlmLogo'
 import ModelMenu from '../components/chat/ModelMenu'
+import DeveloperAgents from '../components/developer/DeveloperAgents'
+import DevelopmentGoals, { type GoalCommand } from '../components/developer/DevelopmentGoals'
 import VaultUnlockPanel from '../components/VaultUnlockPanel'
 import { useToast } from '../context/ToastProvider'
 import { useVaultSession } from '../hooks/useVaultSession'
 import {
   approveDeveloperWorkflow, assessDeveloperGoal, commandDeveloperGoal, commandDeveloperWorkflow, createDeveloperGoal,
   getDeveloperLearning, getDeveloperOverview, getDeveloperQueue, getDeveloperStorage, getDeveloperVersions,
-  getDeveloperGoals, getDeveloperWorkerLogin, getDeveloperWorkers, probeDeveloperWorker, replayDeveloperLearning,
+  getDeveloperGoals, getDeveloperWorkerLogin, getDeveloperWorkerModels, getDeveloperWorkers, probeDeveloperWorker, replayDeveloperLearning,
   saveDeveloperWorker, startDeveloperWorkflow, streamDeveloperEvents, switchDeveloperWorker, cleanupDeveloperStorage,
   type AvailableModel, type DeveloperAssessment, type DeveloperEvent, type DeveloperOverview, type DeveloperGoal,
-  type DeveloperQueueItem, type DeveloperRelease, type DeveloperStorage, type DeveloperWorkerProfile,
+  type DeveloperQueueItem, type DeveloperRelease, type DeveloperStorage, type DeveloperWorkerLogin,
+  type DeveloperWorkerModels, type DeveloperWorkerProfile,
   type DeveloperWorkflow, type LlmProvider,
 } from '../api'
 
@@ -377,33 +380,55 @@ function WorkflowHeader({ workflow, busy, onCommand, onApprove }: {
   onCommand: (command: 'pause' | 'resume' | 'cancel' | 'retry') => void
   onApprove: (purpose: 'special_paths' | 'merge_deploy', master: string) => void
 }) {
+  const stopped = TERMINAL_STATES.has(workflow.state) || ['paused', 'blocked', 'failed', 'awaiting_merge_deploy_approval'].includes(workflow.state)
+  const ownerAction = workflow.state === 'awaiting_merge_deploy_approval'
+    ? 'Review and approve the merge and deployment gate.'
+    : workflow.error_code === 'special_approval_required'
+      ? 'Review protected-path access before this run continues.'
+      : workflow.blocker
+        ? workflow.blocker
+        : ['paused', 'blocked', 'failed'].includes(workflow.state)
+          ? 'Resume or retry after reviewing the latest evidence.'
+          : TERMINAL_STATES.has(workflow.state)
+            ? 'No action required. This run has stopped.'
+            : 'No action needed. The development agent is working.'
   return (
-    <section className="border-y border-border bg-surface/40 px-4 py-5 sm:px-6">
-      <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <StateBadge state={workflow.state} />
-            <span className="text-xs text-muted">Queue #{workflow.queue_id}</span>
-            {workflow.target_version && <span className="text-xs text-muted">v{workflow.target_version}</span>}
+    <section className="px-4 pt-5 sm:px-6">
+      <div className="mx-auto grid max-w-7xl gap-3 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.8fr)]">
+        <article className="relative overflow-hidden rounded-lg border border-accent/25 bg-[linear-gradient(125deg,color-mix(in_srgb,rgb(var(--accent))_12%,rgb(var(--surface)))_0%,rgb(var(--surface))_48%,color-mix(in_srgb,rgb(var(--success))_7%,rgb(var(--surface)))_100%)] px-5 py-5 shadow-[0_20px_60px_rgb(0_0_0/0.14)] sm:px-6">
+          <div className="absolute inset-y-0 left-0 w-1 bg-accent" />
+          <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <StateBadge state={workflow.state} />
+                <span className="text-xs text-muted">Queue #{workflow.queue_id}</span>
+                {workflow.target_version && <span className="text-xs text-muted">v{workflow.target_version}</span>}
+              </div>
+              <h2 className="mt-3 text-lg font-semibold text-text sm:text-xl">{workflow.title}</h2>
+              <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
+                <span className="inline-flex items-center gap-1.5"><GitBranch size={13} />{workflow.branch ?? 'Branch pending'}</span>
+                <span className="inline-flex items-center gap-1.5"><TerminalSquare size={13} />{label(workflow.stage)}</span>
+              </div>
+            </div>
+            <WorkflowActions workflow={workflow} busy={busy} onCommand={onCommand} />
           </div>
-          <h2 className="mt-3 text-lg font-semibold text-text sm:text-xl">{workflow.title}</h2>
-          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
-            <span className="inline-flex items-center gap-1.5"><GitBranch size={13} />{workflow.branch ?? 'Branch pending'}</span>
-            <span className="inline-flex items-center gap-1.5"><TerminalSquare size={13} />{label(workflow.stage)}</span>
+          <div className="mt-6 h-2 overflow-hidden rounded-full bg-background/60 shadow-inner">
+            <div className={`h-full rounded-full bg-accent transition-[width] duration-500 ${stopped ? '' : 'developer-progress-live'}`} style={{ width: `${Math.max(2, workflow.progress)}%` }} />
           </div>
-        </div>
-        <WorkflowActions workflow={workflow} busy={busy} onCommand={onCommand} />
+          <div className="mt-2 flex justify-between text-[11px] text-muted"><span>{workflow.progress}% complete</span><span>{label(workflow.stage)}</span></div>
+        </article>
+
+        <article className={`rounded-lg border px-5 py-5 ${stopped && !TERMINAL_STATES.has(workflow.state) ? 'border-warning/35 bg-warning/5' : 'border-border bg-surface/60'}`}>
+          <div className="flex items-start gap-3">
+            <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${stopped && !TERMINAL_STATES.has(workflow.state) ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success'}`}>
+              {stopped && !TERMINAL_STATES.has(workflow.state) ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
+            </div>
+            <div className="min-w-0"><div className="text-[10px] font-semibold uppercase text-muted">Owner action</div><p className="mt-1.5 text-sm leading-6 text-text">{ownerAction}</p></div>
+          </div>
+          {workflow.blocker && !workflow.error_code?.includes('approval') && <div className="mt-4 border-l-2 border-warning pl-3 text-xs leading-5 text-warning">{workflow.blocker}</div>}
+          <ApprovalGate workflow={workflow} busy={busy} onApprove={onApprove} />
+        </article>
       </div>
-      <div className="mt-5 h-1.5 overflow-hidden rounded bg-overlay/10">
-        <div className="h-full rounded bg-accent transition-[width] duration-500" style={{ width: `${Math.max(2, workflow.progress)}%` }} />
-      </div>
-      <div className="mt-1.5 flex justify-between text-[11px] text-muted"><span>{workflow.progress}%</span><span>{label(workflow.stage)}</span></div>
-      {workflow.blocker && (
-        <div className="mt-4 flex items-start gap-2 border-l-2 border-warning pl-3 text-sm text-warning">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0" /><span>{workflow.blocker}</span>
-        </div>
-      )}
-      <ApprovalGate workflow={workflow} busy={busy} onApprove={onApprove} />
     </section>
   )
 }
@@ -1161,8 +1186,10 @@ export default function Developer() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<DeveloperLoadError | null>(null)
+  const [headerCollapsed, setHeaderCollapsed] = useState(() => localStorage.getItem('tobi.developer.header.collapsed') === 'true')
   const lastSequence = useRef(0)
   const loadController = useRef<AbortController | null>(null)
+  const previousVaultSession = useRef(vaultSession)
 
   const load = useCallback(async (quiet = false) => {
     if (quiet && loadController.current) return
@@ -1214,7 +1241,16 @@ export default function Developer() {
       loadController.current?.abort()
     }
   }, [load])
-  useEffect(() => { if (vaultSession) load(true) }, [vaultSession, load])
+  useEffect(() => {
+    const wasUnlocked = previousVaultSession.current
+    previousVaultSession.current = vaultSession
+    if (vaultSession && !wasUnlocked) void load()
+  }, [vaultSession, load])
+
+  const setDeveloperHeaderCollapsed = (collapsed: boolean) => {
+    setHeaderCollapsed(collapsed)
+    localStorage.setItem('tobi.developer.header.collapsed', String(collapsed))
+  }
 
   const active = overview?.active_workflow ?? overview?.workflows[0] ?? null
   const activeIsTerminal = active ? TERMINAL_STATES.has(active.state) : false
@@ -1314,20 +1350,22 @@ export default function Developer() {
     }
     finally { setBusy(false) }
   }
-  const workerAction = async (fn: () => Promise<DeveloperWorkerProfile>, success: string) => {
+  const workerAction = async (fn: () => Promise<DeveloperWorkerProfile>, success: string): Promise<DeveloperWorkerProfile | null> => {
     setBusy(true)
     try {
       const updated = await fn()
       setWorkers(current => current.map(item => item.slug === updated.slug ? { ...item, ...updated } : item))
       toast({ kind: 'success', title: success })
+      return updated
     } catch (err) {
-      toast({ kind: 'error', title: 'Worker action stopped', detail: err instanceof Error ? err.message : String(err) })
+      toast({ kind: 'error', title: 'Agent action stopped', detail: err instanceof Error ? err.message : String(err) })
+      return null
     } finally { setBusy(false) }
   }
   const command = (cmd: 'pause' | 'resume' | 'cancel' | 'retry') => active && act(() => commandDeveloperWorkflow(active.id, cmd), `Workflow ${cmd} accepted`)
   const approve = (purpose: 'special_paths' | 'merge_deploy', master: string) => active && act(() => approveDeveloperWorkflow(active.id, purpose, master), 'Approval accepted')
   const createGoal = (input: Parameters<typeof createDeveloperGoal>[0]) => act(() => createDeveloperGoal(input), 'Development goal queued')
-  const goalCommand = (id: number, cmd: 'pause' | 'resume' | 'cancel' | 'approve_scope') => act(() => commandDeveloperGoal(id, cmd), `Goal ${label(cmd)} accepted`)
+  const goalCommand = (id: number, cmd: GoalCommand) => act(() => commandDeveloperGoal(id, cmd), `Goal ${label(cmd)} accepted`)
   const switchWorker = (slug: string) => active && act(() => switchDeveloperWorker(active.id, slug), `Worker switched to ${slug}`)
   const saveWorker = (slug: string, profile: DeveloperWorkerProfile) => {
     const modelsManaged = profile.adapter === 'native' || profile.adapter === 'model_review'
@@ -1337,36 +1375,45 @@ export default function Developer() {
       credential_env: !modelsManaged && profile.auth_mode === 'vault_env' ? profile.credential_env : '',
       reviewer_profile: profile.reviewer_profile,
       enabled: profile.enabled, config: profile.config,
-    }), 'Worker profile saved')
+    }), 'Agent profile saved')
   }
-  const probeWorker = (slug: string) => workerAction(() => probeDeveloperWorker(slug), `Worker ${slug} tested`)
-  const loginWorker = async (slug: string) => {
+  const probeWorker = (slug: string) => workerAction(() => probeDeveloperWorker(slug), `Agent ${slug} tested`)
+  const loginWorker = async (slug: string): Promise<DeveloperWorkerLogin | null> => {
     setBusy(true)
     try {
       const result = await getDeveloperWorkerLogin(slug)
-      toast({ kind: 'info', title: result.interactive_required ? 'Runner login required' : 'Worker authentication', detail: result.command ? `${result.command.join(' ')} · ${result.detail}` : result.detail })
-    } catch (err) { toast({ kind: 'error', title: 'Login instructions unavailable', detail: err instanceof Error ? err.message : String(err) }) }
+      return result
+    } catch (err) {
+      toast({ kind: 'error', title: 'Login instructions unavailable', detail: err instanceof Error ? err.message : String(err) })
+      return null
+    }
     finally { setBusy(false) }
+  }
+  const loadWorkerModels = async (slug: string, refresh = false): Promise<DeveloperWorkerModels | null> => {
+    try { return await getDeveloperWorkerModels(slug, refresh) }
+    catch (err) {
+      toast({ kind: 'error', title: 'Agent models unavailable', detail: err instanceof Error ? err.message : String(err) })
+      return null
+    }
   }
   const replayLearning = () => act(() => replayDeveloperLearning(), 'Learning replay completed')
 
   const capabilities = useMemo(() => Object.entries(overview?.policy.capabilities ?? {}), [overview])
   const tabs: { id: Tab; label: string }[] = [
     { id: 'overview', label: 'Overview' }, { id: 'goals', label: 'Goals' }, { id: 'loop', label: 'Coding Loop' },
-    { id: 'workers', label: 'Workers' }, { id: 'learning', label: 'Learning' }, { id: 'queue', label: 'Queue' },
+    { id: 'workers', label: 'Agents' }, { id: 'learning', label: 'Learning' }, { id: 'queue', label: 'Queue' },
     { id: 'versions', label: 'Versions' }, { id: 'storage', label: 'Storage' },
   ]
 
   return (
     <div className="relative min-h-full"><AmbientField tone="rgb(var(--accent))" variant="grid" />
-      <header className="border-b border-border px-4 py-5 sm:px-6">
-        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-          <div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-md border border-accent/30 bg-accent/10 text-accent"><Code2 size={19} /></div><div><h1 className="text-xl font-semibold text-text">Developer</h1><p className="mt-0.5 text-xs text-muted">Controlled self-development</p></div></div>
-          <button onClick={() => load()} disabled={loading} title="Refresh Developer state" className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border px-3 text-sm text-text hover:bg-overlay/5 disabled:opacity-50"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> Refresh</button>
+      {headerCollapsed ? <div className="sticky top-0 z-30 flex justify-end border-b border-border/60 bg-background/85 px-4 py-2 backdrop-blur sm:px-6"><button onClick={() => setDeveloperHeaderCollapsed(false)} title="Expand Developer header" className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-surface px-3 text-xs font-medium text-text shadow-lg"><Code2 size={15} className="text-accent" /> Developer <ChevronDown size={14} className="text-muted" /></button></div> : <header className="sticky top-0 z-30 border-b border-border bg-background/90 backdrop-blur-xl">
+        <div className="flex items-center justify-between gap-4 px-4 py-3 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-accent/30 bg-accent/10 text-accent"><Code2 size={19} /></div><div className="min-w-0"><h1 className="truncate text-lg font-semibold text-text">Developer</h1><p className="mt-0.5 truncate text-[11px] text-muted">Controlled self-development</p></div></div>
+          <div className="flex shrink-0 items-center gap-1"><button onClick={() => load()} disabled={loading} title="Refresh Developer state" className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border text-text hover:bg-overlay/5 disabled:opacity-50"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /></button><button onClick={() => setDeveloperHeaderCollapsed(true)} title="Collapse Developer header" className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted hover:bg-overlay/5 hover:text-text"><ChevronUp size={16} /></button></div>
         </div>
-      </header>
-
-      <div className="border-b border-border px-4 sm:px-6"><div className="flex overflow-x-auto">{tabs.map(item => <button key={item.id} onClick={() => setTab(item.id)} className={`h-11 shrink-0 border-b-2 px-3 text-sm transition-colors ${tab === item.id ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text'}`}>{item.label}</button>)}</div></div>
+        <nav aria-label="Developer sections" className="flex overflow-x-auto px-2 sm:px-4">{tabs.map(item => <button key={item.id} onClick={() => setTab(item.id)} className={`h-10 shrink-0 border-b-2 px-3 text-xs font-medium transition-colors ${tab === item.id ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text'}`}>{item.label}</button>)}</nav>
+      </header>}
 
       {loading && !overview ? <DeveloperSkeleton />
         : error?.status === 401 ? <div className="mx-4 mt-6 sm:mx-6"><VaultUnlockPanel mode="inline" title="Unlock Developer"
@@ -1376,15 +1423,15 @@ export default function Developer() {
           {active && (tab === 'overview' || tab === 'loop') && <WorkflowHeader workflow={active} busy={busy} onCommand={command} onApprove={approve} />}
           <main className="px-4 py-6 sm:px-6">
             {tab === 'overview' && <div className="space-y-8">
-              {!active && <Empty text="Select an eligible queue item to begin a controlled workflow." />}
+              {!active && <div className="mx-auto grid max-w-7xl gap-3 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.8fr)]"><section className="relative overflow-hidden rounded-lg border border-accent/25 bg-surface/70 px-5 py-6 shadow-[0_20px_60px_rgb(0_0_0/0.12)] sm:px-6"><div className="absolute inset-y-0 left-0 w-1 bg-accent" /><div className="flex items-start justify-between gap-5"><div><div className="text-[10px] font-semibold uppercase text-accent">Development runtime</div><h2 className="mt-2 text-lg font-semibold text-text">Ready for a controlled run</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted">Select a queue item or create a goal. Mission Control will isolate the work, preserve checkpoints, and keep owner gates visible.</p></div><button onClick={() => setTab('goals')} className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md bg-accent px-3 text-xs font-medium text-background"><Plus size={14} /> New goal</button></div><div className="mt-6 h-2 overflow-hidden rounded-full bg-background/70"><div className="h-full w-0 rounded-full bg-accent" /></div><div className="mt-2 text-[11px] text-muted">Idle - waiting for a goal</div></section><section className="rounded-lg border border-border bg-surface/60 px-5 py-5"><div className="flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-md bg-success/10 text-success"><CheckCircle2 size={18} /></div><div><div className="text-[10px] font-semibold uppercase text-muted">Owner action</div><p className="mt-1.5 text-sm leading-6 text-text">No action is required. Start when the next goal is ready.</p></div></div></section></div>}
               <section><h2 className="mb-3 text-sm font-semibold text-text">Runtime gates</h2><div className="grid gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-2 lg:grid-cols-5">{capabilities.map(([name, enabled]) => <div key={name} className="flex items-center justify-between bg-surface px-3 py-3"><span className="text-xs text-muted">{label(name)}</span>{enabled ? <CheckCircle2 size={15} className="text-success" /> : <Circle size={15} className="text-muted/50" />}</div>)}</div></section>
               <section><h2 className="mb-3 text-sm font-semibold text-text">Control-plane status</h2><div className="grid gap-4 sm:grid-cols-3"><div className="border-l-2 border-accent pl-3"><div className="text-xs text-muted">Policy</div><div className="mt-1 font-mono text-sm text-text">v{overview?.policy.version} · {overview?.policy.hash.slice(0, 10)}</div></div><div className="border-l-2 border-border pl-3"><div className="text-xs text-muted">GitHub App</div><div className="mt-1 text-sm text-text">{overview?.policy.github_configured ? 'Configured' : 'Not configured'}</div></div><div className="border-l-2 border-border pl-3"><div className="text-xs text-muted">Deployment</div><div className="mt-1 text-sm text-text">{overview?.policy.deployment_configured ? 'Configured' : 'Not configured'}</div></div></div></section>
             </div>}
             {tab === 'loop' && <CodingLoop workflow={active} events={events} workers={workers} busy={busy}
               streamState={streamState} streamIssue={streamIssue} lastSignalAt={lastSignalAt}
               onSwitch={switchWorker} onCommand={command} />}
-            {tab === 'goals' && <GoalsView goals={goals} workers={workers} busy={busy} onCreate={createGoal} onCommand={goalCommand} />}
-            {tab === 'workers' && <WorkersView workers={workers} models={workerModels} providers={workerProviders} routing={modelRouting} busy={busy} onSave={saveWorker} onProbe={probeWorker} onLogin={loginWorker} />}
+            {tab === 'goals' && <DevelopmentGoals goals={goals} workers={workers} busy={busy} onCreate={createGoal} onCommand={goalCommand} />}
+            {tab === 'workers' && <DeveloperAgents workers={workers} models={workerModels} providers={workerProviders} routing={modelRouting} busy={busy} onSave={saveWorker} onProbe={probeWorker} onLogin={loginWorker} onModels={loadWorkerModels} />}
             {tab === 'learning' && <LearningView state={learning} busy={busy} onReplay={replayLearning} />}
             {tab === 'queue' && <QueueView items={queue} busy={busy} onStart={id => act(() => startDeveloperWorkflow(id), `Queue #${id} started`)} />}
             {tab === 'versions' && <VersionsView releases={releases} />}
