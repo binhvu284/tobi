@@ -20,8 +20,6 @@ import ClockCalendar from './ClockCalendar'
 import ProjectIcon from './project/ProjectIcon'
 import { SPRING, DUR, EASE } from '../lib/motion'
 
-const APP_VERSION = 'v3.0'
-
 const NAV = [
   { group: 'Main', links: [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -305,7 +303,7 @@ function BottomMenu({ collapsed, evo, onNavigate }: {
             <div className="min-w-0 flex-1 text-left">
               <div className="flex items-center gap-1.5">
                 <span className="truncate text-[11px] font-bold tracking-wide text-heading">{tierName}</span>
-                <span className="shrink-0 text-[9px] text-muted">{APP_VERSION}</span>
+                <span className="shrink-0 text-[9px] text-muted">v{evo?.version ?? '3.0'}</span>
               </div>
               <div className="mt-0.5 text-[9px] text-muted">Tier {tierPct}% · Overall {overall}%</div>
               <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-overlay/10">

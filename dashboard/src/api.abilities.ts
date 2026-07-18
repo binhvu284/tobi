@@ -219,6 +219,7 @@ export async function getAwakening(): Promise<AwakeningReport> {
 
 export type EvolutionReport = {
   tiers: TierData[]
+  version: string
   current_tier: number
   jarvis_pct: number
   total_active: number

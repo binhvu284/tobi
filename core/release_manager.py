@@ -7,6 +7,37 @@ from typing import Any
 from core.development_store import DevelopmentStore, utc_now
 
 
+DEFAULT_DEVELOPER_VERSION = "3.0"
+
+
+def current_developer_version(conn: Any, fallback: str = DEFAULT_DEVELOPER_VERSION) -> str:
+    """Return the active Developer target, then the newest viable release."""
+    queries = (
+        """SELECT t.target_version AS version
+           FROM coding_sessions s
+           JOIN development_tasks t ON t.id=s.task_id
+           WHERE s.state NOT IN ('completed','canceled','failed','rolled_back')
+             AND t.target_version IS NOT NULL AND t.target_version != ''
+           ORDER BY s.id DESC LIMIT 1""",
+        """SELECT version FROM releases
+           WHERE status NOT IN ('failed','rolled_back')
+           ORDER BY id DESC LIMIT 1""",
+    )
+    for query in queries:
+        try:
+            row = conn.execute(query).fetchone()
+        except Exception:
+            continue
+        if row:
+            try:
+                value = row["version"]
+            except (TypeError, IndexError):
+                value = row[0]
+            if value:
+                return str(value)
+    return fallback
+
+
 class ReleaseManager:
     def __init__(self, store: DevelopmentStore) -> None:
         self.store = store

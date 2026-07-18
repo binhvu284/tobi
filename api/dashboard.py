@@ -20,6 +20,7 @@ from core.database import (
     init_database, get_dashboard, get_all_projects,
     get_all_lessons, get_pending_human_tasks_all, complete_task,
 )
+from core.release_manager import current_developer_version
 from core import brain
 from core import graph_engine as graph
 from core import vault
@@ -3978,6 +3979,7 @@ async def get_evolution():
     except Exception:
         awk_status = {}
     _save_evo_snapshot(conn, {**statuses, **awk_status})
+    app_version = current_developer_version(conn)
     conn.close()
 
     total_abilities = sum(t["total_count"] for t in tiers)
@@ -3993,6 +3995,7 @@ async def get_evolution():
 
     return {
         "tiers": tiers,
+        "version": app_version,
         "current_tier": current_tier,
         "jarvis_pct": jarvis_pct,
         "total_active": total_active,
