@@ -438,6 +438,14 @@ invalid_model_profile = client.put("/api/developer/workers/invalid-model-worker"
     "enabled": True, "config": {},
 })
 ok("worker API rejects models outside enabled Models providers", invalid_model_profile.status_code == 422)
+disabled_model_profile = client.put("/api/developer/workers/invalid-model-worker", json={
+    "name": "Disabled model worker", "adapter": "native", "model": "missing:model",
+    "auth_mode": "inherited", "credential_env": "", "reviewer_profile": "reviewer-default",
+    "enabled": False, "config": {},
+})
+ok("worker API always permits the safe deactivation transition", (
+    disabled_model_profile.status_code == 200 and not disabled_model_profile.json()["enabled"]
+))
 learning_response = client.get("/api/developer/learning")
 ok("learning API exposes records and playbooks", learning_response.status_code == 200 and
    "playbooks" in learning_response.json())

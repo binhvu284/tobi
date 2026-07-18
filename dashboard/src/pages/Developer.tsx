@@ -1388,7 +1388,7 @@ export default function Developer() {
   const createGoal = (input: Parameters<typeof createDeveloperGoal>[0]) => act(() => createDeveloperGoal(input), 'Development goal queued')
   const goalCommand = (id: number, cmd: GoalCommand) => act(() => commandDeveloperGoal(id, cmd), `Goal ${label(cmd)} accepted`)
   const switchWorker = (slug: string) => active && act(() => switchDeveloperWorker(active.id, slug), `Worker switched to ${slug}`)
-  const saveWorker = (slug: string, profile: DeveloperWorkerProfile) => {
+  const saveWorker = (slug: string, profile: DeveloperWorkerProfile, success = 'Agent profile saved') => {
     const modelsManaged = profile.adapter === 'native' || profile.adapter === 'model_review'
     return workerAction(() => saveDeveloperWorker(slug, {
       name: profile.name, adapter: profile.adapter, model: profile.model,
@@ -1396,7 +1396,7 @@ export default function Developer() {
       credential_env: !modelsManaged && profile.auth_mode === 'vault_env' ? profile.credential_env : '',
       reviewer_profile: profile.reviewer_profile,
       enabled: profile.enabled, config: profile.config,
-    }), 'Agent profile saved')
+    }), success)
   }
   const probeWorker = (slug: string) => workerAction(() => probeDeveloperWorker(slug), `Agent ${slug} tested`)
   const loginWorker = async (slug: string): Promise<DeveloperWorkerLogin | null> => {

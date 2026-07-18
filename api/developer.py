@@ -407,9 +407,9 @@ def workers(probe: bool = Query(False)) -> dict[str, Any]:
 @router.put("/workers/{slug}", dependencies=[Owner])
 def save_worker(slug: str, body: WorkerProfileRequest) -> dict[str, Any]:
     try:
-        if body.auth_mode == "vault_env" and not body.credential_env:
+        if body.enabled and body.auth_mode == "vault_env" and not body.credential_env:
             raise ValueError("Vault-backed workers require a credential environment name.")
-        if body.adapter in {"native", "model_review"} and body.model:
+        if body.enabled and body.adapter in {"native", "model_review"} and body.model:
             from core import model_router
 
             available = {str(item["id"]) for item in model_router.available_models()}
@@ -417,9 +417,9 @@ def save_worker(slug: str, body: WorkerProfileRequest) -> dict[str, Any]:
                 raise ValueError(
                     "Selected model is not available from an enabled Models provider."
                 )
-        if body.adapter != "model_review":
+        if body.enabled and body.adapter != "model_review":
             reviewer = agent.store.get_worker_profile(body.reviewer_profile)
-            if not reviewer or reviewer["adapter"] != "model_review":
+            if not reviewer or reviewer["adapter"] != "model_review" or not reviewer["enabled"]:
                 raise ValueError("Coding worker must reference an available reviewer profile.")
         profile = WorkerProfile(
             slug=slug,
