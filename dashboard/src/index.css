@@ -1078,8 +1078,8 @@
 [data-motion="off"] .developer-goal-live { animation: none !important; }
 
 @keyframes developer-process-border {
-  0%, 100% { box-shadow: 0 0 0 1px rgb(var(--warning) / 0.08), 0 20px 55px rgb(0 0 0 / 0.16); }
-  50% { box-shadow: 0 0 0 1px rgb(var(--warning) / 0.34), 0 0 30px rgb(var(--warning) / 0.13), 0 20px 55px rgb(0 0 0 / 0.2); }
+  0%, 100% { box-shadow: inset 2px 0 0 rgb(var(--warning) / 0.48); }
+  50% { box-shadow: inset 2px 0 0 rgb(var(--warning)), 0 0 18px rgb(var(--warning) / 0.08); }
 }
 @keyframes developer-process-bar-flow {
   0% { background-position: 0 50%; filter: brightness(0.9); }
@@ -1099,12 +1099,7 @@
   50% { box-shadow: inset 2px 0 0 rgb(var(--accent)), 0 0 18px rgb(var(--accent) / 0.1); }
 }
 .developer-process-cooking { animation: developer-process-border 2.8s ease-in-out infinite; }
-.developer-process-completed { box-shadow: 0 0 26px rgb(var(--success) / 0.12), inset 0 0 0 1px rgb(var(--success) / 0.08); }
-.developer-process-grid {
-  background-image: linear-gradient(rgb(var(--border) / 0.18) 1px, transparent 1px), linear-gradient(90deg, rgb(var(--border) / 0.18) 1px, transparent 1px);
-  background-size: 28px 28px;
-  mask-image: linear-gradient(to right, black, transparent 74%);
-}
+.developer-process-completed { box-shadow: inset 2px 0 0 rgb(var(--success) / 0.8), 0 0 18px rgb(var(--success) / 0.06); }
 .developer-process-bar {
   background-image: linear-gradient(90deg, rgb(var(--warning)), rgb(var(--accent)), rgb(var(--warning)));
   background-size: 180% 100%;
