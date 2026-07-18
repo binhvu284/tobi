@@ -29,7 +29,7 @@ class CodingWorkerBlocked(RuntimeError):
 
 WORKER_ACTIONS = {
     "list_files", "read_file", "search", "replace_text", "write_file",
-    "run_check", "complete", "blocker",
+    "run_check", "inspect_performance", "complete", "blocker",
 }
 
 
@@ -88,11 +88,13 @@ Allowed actions:
 {"action":"replace_text","path":"...","old":"exact text","new":"replacement","count":1}
 {"action":"write_file","path":"...","content":"full UTF-8 content"}
 {"action":"run_check","index":0}
+{"action":"inspect_performance"}
 {"action":"complete","summary":"what changed","evidence":["..."]}
 {"action":"blocker","message":"why work cannot continue","action_needed":"owner action"}
 
-Inspect before editing. Keep changes within the stated goal. Use exact replacement text. Run focused
-checks during work. Do not claim completion until the acceptance criteria are met."""
+Inspect before editing. Keep changes within the stated goal. Use exact replacement text. Use
+inspect_performance before and after performance-grade work; it safely analyzes the current worktree.
+Run focused checks during work. Do not claim completion until the acceptance criteria are met."""
 
     def __init__(self, policy: CodingPolicy) -> None:
         self.policy = policy

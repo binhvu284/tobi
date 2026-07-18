@@ -1,8 +1,10 @@
 """Typed, policy-enforced tools exposed to model-based coding workers."""
 from __future__ import annotations
 
+import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -12,6 +14,17 @@ from core.coding_policy import CodingPolicy, PolicyDenied
 
 class CodingToolError(RuntimeError):
     pass
+
+
+def resolve_runtime_command(argv: Sequence[str]) -> list[str]:
+    """Run configured Python checks with the interpreter hosting Mission Control."""
+    resolved = [str(part) for part in argv]
+    if not resolved:
+        return resolved
+    executable = Path(resolved[0]).name.lower()
+    if executable in {"python", "python.exe", "python3", "python3.exe"}:
+        resolved[0] = sys.executable
+    return resolved
 
 
 class CodingToolBroker:
@@ -152,8 +165,9 @@ class CodingToolBroker:
             raise CodingToolError("Validation command index is out of range.")
         argv = self.validation_commands[index]
         self.policy.assert_command(argv)
+        runtime_argv = resolve_runtime_command(argv)
         completed = subprocess.run(
-            argv,
+            runtime_argv,
             cwd=str(self.worktree),
             capture_output=True,
             text=True,
@@ -168,6 +182,64 @@ class CodingToolBroker:
             "output": output.decode("utf-8", errors="replace"),
         }
         self._emit("tool_check", {key: value for key, value in result.items() if key != "output"})
+        return result
+
+    def inspect_performance(self) -> dict[str, Any]:
+        """Run the trusted quick analyzer against this worktree without persisting a snapshot."""
+        trusted_root = Path(__file__).resolve().parents[1]
+        script = """
+import importlib.util
+import json
+import pathlib
+import sys
+
+trusted_root = pathlib.Path(sys.argv[1]).resolve()
+worktree = pathlib.Path(sys.argv[2]).resolve()
+sys.path.insert(0, str(trusted_root))
+source = trusted_root / "core" / "performance_doctor.py"
+spec = importlib.util.spec_from_file_location("_tobi_trusted_performance_doctor", source)
+if spec is None or spec.loader is None:
+    raise RuntimeError("Performance Doctor could not be loaded.")
+doctor = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(doctor)
+doctor._ROOT = worktree
+doctor._GRAPH = worktree / "graphify-out" / "graph.json"
+doctor._AST = worktree / "graphify-out" / ".graphify_ast.json"
+doctor._save_snapshot = lambda result, depth: None
+doctor.trend = lambda limit=30: []
+print(json.dumps(doctor.analyze("quick"), ensure_ascii=True, default=str))
+"""
+        completed = subprocess.run(
+            [sys.executable, "-I", "-c", script, str(trusted_root), str(self.worktree)],
+            cwd=str(trusted_root),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=min(self.policy.limit("command_timeout_seconds", 900), 120),
+        )
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout or "Analyzer failed.")[-2000:]
+            raise CodingToolError(f"Performance Doctor failed: {detail.strip()}")
+        try:
+            report = json.loads(completed.stdout.strip())
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise CodingToolError("Performance Doctor returned malformed output.") from exc
+        result = {
+            "overall": report.get("overall") or {},
+            "counts": report.get("counts") or {},
+            "subsystems": list(report.get("subsystems") or [])[:20],
+            "findings": list(report.get("findings") or [])[:20],
+            "freshness": report.get("freshness") or {},
+            "diagnosis": str(report.get("diagnosis") or "")[:4000],
+            "generated_ms": report.get("generated_ms"),
+            "snapshot_saved": False,
+        }
+        self._emit("tool_performance", {
+            "overall": result["overall"],
+            "counts": result["counts"],
+            "snapshot_saved": False,
+        })
         return result
 
     def execute(self, action: dict[str, Any]) -> dict[str, Any]:
@@ -187,4 +259,6 @@ class CodingToolBroker:
             )
         if name == "run_check":
             return self.run_check(int(action.get("index", -1)))
+        if name == "inspect_performance":
+            return self.inspect_performance()
         raise CodingToolError(f"Unsupported coding tool action: {name or 'missing'}")
