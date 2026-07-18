@@ -73,11 +73,27 @@ Each `api/routers/<group>.py` carries its **own** Pydantic request models and an
 3. **Heavy/last:** `pm` (43 routes) → `mcp` (29 routes)
 4. **Core last of all:** the task/activity/owner-input core and the static-host + SSE plumbing stay in `dashboard.py` (or move to a final `routers/core.py`).
 
-### Verification per slice (automatic, cheap)
+### Verification per slice (four gates — all required)
 
-- **Route parity:** snapshot `GET /openapi.json` path+method set **before** the slice, diff **after** → an identical set proves no route was dropped, renamed, or shadowed. This is the primary guardrail for a 266-route move.
-- Backend import smoke: `python -c "import api.dashboard"` succeeds (catches broken imports after the move).
-- Live spot-check: `curl` 1–2 representative endpoints in the moved group return their pre-move status/shape.
+Route parity alone is **not sufficient**. It confirms a route still *exists*, but a
+handler that references a `dashboard.py` module-global (`graph`, `_last`, `json`, a
+regex constant…) which didn't travel with its block still imports fine and still
+lists in openapi — then throws `NameError` only when the endpoint is *called*. Two
+early slices shipped exactly this bug. The gate is therefore:
+
+1. **pyflakes** on the new router + `deps.py` + `dashboard.py` → **zero `undefined name`**.
+   This is the gate that catches the transitive-dependency class of bug. Install once:
+   `venv/Scripts/python.exe -m pip install pyflakes`.
+2. **Import smoke:** `python -c "import api.dashboard"` succeeds.
+3. **Route parity:** dump the sorted `(METHOD, path)` set from `app.openapi()` before and
+   after; the diff must be empty (baseline: **329 operations**). Script:
+   `scratchpad/route_snapshot.py`.
+4. **In-process TestClient smoke:** hit 1–2 representative GETs of the moved group and
+   assert `200` — the only gate that actually *executes* the handler.
+
+Each undefined name pyflakes reports is resolved by either importing the symbol from
+`core.*` (if it was a core import), pulling it from `api/deps.py` (if genuinely shared),
+or moving the helper cluster into the router (if now used only by that group).
 
 ---
 
@@ -97,6 +113,28 @@ Verification: `tsc --noEmit -p dashboard/tsconfig.json` + `vite build` green aft
 Real domain complexity (routing, grounding, tool execution under risk policy), not just size. Needs its own analysis pass to find safe seams before any split. **Not a quick win — do not bundle it with the mechanical work above.**
 
 ---
+
+## 4b. Progress log
+
+Branch `refactor/dashboard-decomposition` (not merged to `main`).
+
+| Slice | What | Result |
+|---|---|---|
+| 0 | `api/deps.py` — shared primitives (`DB_PATH`, `_get_conn`, `_json_loads`, `fmt_ago`; later `_last`, `LOGS_DIR`) | ✅ verified |
+| 1 | `api/routers/health.py` — `/api/health/*` (+ log-tail cluster moved here) | ✅ verified |
+| 2 | `api/routers/explore.py` — `/api/explore/*` | ✅ verified |
+| 3 | `api/routers/graph.py` — `/api/graph/*` | ✅ verified |
+| 4 | `api/routers/storage.py` — `/api/storage/*` | ✅ verified |
+| 5 | `api/routers/architecture.py` — `/api/architecture/*` | ✅ verified |
+
+`api/dashboard.py`: **6,636 → 5,942 lines**. openapi route set held at **329** through every slice.
+
+**Remaining groups** (rough size): pm (43), mcp (29), brain-legacy (27), chat (19),
+usage (7), keys (5), llm (scattered), vault (scattered), integrations (9), terminal (7),
+conductor (3), missions (7), office (9), agents (5), abilities+proposals (scattered),
+evolution/awakening (scattered), tasks (12). Non-contiguous groups (usage, llm, vault,
+brain, chat) need their models/helpers gathered from multiple ranges — do those with
+extra care.
 
 ## 5. Sequencing & guards
 
