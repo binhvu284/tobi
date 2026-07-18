@@ -122,7 +122,7 @@ class GitWorkspaceManager:
                 str(worktree), base_ref, timeout=180,
             )
             self._configure_sparse_checkout(worktree)
-        except GitCommandError as exc:
+        except (GitCommandError, PolicyDenied) as exc:
             warnings = self._rollback_failed_prepare(worktree, branch, base_sha)
             cleanup = f" Cleanup warning: {'; '.join(warnings)}" if warnings else ""
             raise GitCommandError(f"Unable to create isolated coding worktree. {exc}{cleanup}") from exc
