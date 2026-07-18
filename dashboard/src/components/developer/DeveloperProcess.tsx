@@ -232,7 +232,7 @@ export default function DeveloperProcess({
           <AutoToggle enabled={autoQueue} onChange={onAutoQueue} />
         </div>
       </section>
-      {autoQueue && nextItem && <NextItem item={nextItem} />}
+      <NextQueueSection item={nextItem} autoQueue={autoQueue} onAutoQueue={onAutoQueue} />
     </div>
   )
 
@@ -323,15 +323,34 @@ export default function DeveloperProcess({
         </article>
       </section>
 
-      {autoQueue && nextItem && <NextItem item={nextItem} />}
+      <NextQueueSection item={nextItem} autoQueue={autoQueue} onAutoQueue={onAutoQueue} />
     </div>
   )
 }
 
-function NextItem({ item }: { item: DeveloperQueueItem }) {
-  const criteria = safeJsonList(item.acceptance_criteria_json)
-  return <details className="group rounded-md border border-border bg-surface/35">
-    <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3.5"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent/10 text-xs font-semibold text-accent">#{item.queue_id}</span><span className="min-w-0 flex-1"><span className="block text-[10px] font-semibold uppercase text-muted">Next in queue</span><span className="mt-0.5 block truncate text-sm font-medium text-text">{item.title}</span></span><ChevronDown size={15} className="text-muted transition-transform group-open:rotate-180" /></summary>
-    <div className="border-t border-border px-4 py-4 text-xs leading-5 text-muted"><div className="grid gap-3 sm:grid-cols-3"><div><span className="text-text">Status:</span> {item.queue_status || titleCase(item.status)}</div><div><span className="text-text">Effort:</span> {item.queue_effort || 'Not estimated'}</div><div><span className="text-text">Plan:</span> {item.plan_path}</div></div>{criteria.length > 0 && <ul className="mt-4 space-y-1">{criteria.slice(0, 5).map(value => <li key={value}>- {value}</li>)}</ul>}</div>
-  </details>
+function NextQueueSection({ item, autoQueue, onAutoQueue }: {
+  item: DeveloperQueueItem | null
+  autoQueue: boolean
+  onAutoQueue: (enabled: boolean) => void
+}) {
+  const criteria = safeJsonList(item?.acceptance_criteria_json)
+  return <section className="overflow-hidden rounded-md border border-border bg-surface/25">
+    <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-xs font-semibold ${item ? 'bg-accent/10 text-accent' : 'bg-overlay/5 text-muted'}`}>{item ? `#${item.queue_id}` : <Circle size={14} />}</span>
+        <div className="min-w-0">
+          <div className="text-[9px] font-semibold uppercase text-muted">Up next</div>
+          <div className={`mt-0.5 truncate text-xs font-medium ${item ? 'text-text' : 'text-muted'}`}>{item?.title || 'No eligible planned item'}</div>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <span className={`inline-flex h-6 items-center rounded-md border px-2 text-[9px] font-medium ${autoQueue ? 'border-success/30 bg-success/5 text-success' : 'border-border text-muted'}`}>{autoQueue ? 'Auto ready' : 'Preview only'}</span>
+        {!autoQueue && <button type="button" onClick={() => onAutoQueue(true)} className="inline-flex h-7 items-center gap-1.5 rounded-md border border-accent/35 px-2.5 text-[9px] font-semibold text-accent hover:bg-accent/5"><Play size={11} /> Enable Auto</button>}
+      </div>
+    </div>
+    {item ? <details className="group border-t border-border/70">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-2.5 text-[10px] text-muted hover:bg-overlay/5 sm:px-5"><span>{autoQueue ? 'This item starts after the current process finishes.' : 'Enable Auto to start this item after the current process.'}</span><span className="inline-flex shrink-0 items-center gap-1.5 text-accent">View scope <ChevronDown size={13} className="transition-transform group-open:rotate-180" /></span></summary>
+      <div className="border-t border-border/70 px-4 py-3 text-[10px] leading-5 text-muted sm:px-5"><div className="grid gap-2 sm:grid-cols-3"><div><span className="text-text">Status:</span> {item.queue_status || titleCase(item.status)}</div><div><span className="text-text">Effort:</span> {item.queue_effort || 'Not estimated'}</div><div className="truncate"><span className="text-text">Plan:</span> {item.plan_path}</div></div>{criteria.length > 0 && <ul className="mt-3 grid gap-x-5 gap-y-1 sm:grid-cols-2">{criteria.slice(0, 6).map(value => <li key={value} className="flex items-start gap-1.5"><Check size={10} className="mt-1 shrink-0 text-success" /><span>{value}</span></li>)}</ul>}</div>
+    </details> : <div className="border-t border-border/70 px-4 py-3 text-[10px] leading-5 text-muted sm:px-5">The queue is empty, or its planned items are waiting for dependencies. Review the Queue tab to choose the next runnable item.</div>}
+  </section>
 }
