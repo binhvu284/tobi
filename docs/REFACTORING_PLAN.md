@@ -126,15 +126,25 @@ Branch `refactor/dashboard-decomposition` (not merged to `main`).
 | 3 | `api/routers/graph.py` — `/api/graph/*` | ✅ verified |
 | 4 | `api/routers/storage.py` — `/api/storage/*` | ✅ verified |
 | 5 | `api/routers/architecture.py` — `/api/architecture/*` | ✅ verified |
+| 6 | `api/routers/agents.py` — `/api/agents/*` (+ re-export `api_agents` for the office aggregate) | ✅ verified |
+| 7 | `api/routers/missions.py` — `/api/missions/*` (+ `_sse`, `_serialize_mission`) | ✅ verified |
+| 8 | `api/routers/office.py` — `/api/office/*` (imports `api_agents`+`api_missions`) | ✅ verified |
+| 9 | `api/routers/usage.py` — `/api/usage/*` | ✅ verified |
 
-`api/dashboard.py`: **6,636 → 5,942 lines**. openapi route set held at **329** through every slice.
+`api/dashboard.py`: **6,636 → 5,406 lines**. openapi route set held at **329** through every slice.
+
+**Cross-handler coupling pattern:** `api_office_v3_snapshot` calls the agents +
+missions list handlers directly (`asyncio.gather`). When a caller and callee land in
+different routers, import the callee handler from its router (office.py does this).
+While the caller still sits in dashboard, re-import the callee there temporarily and
+drop it once the caller moves. The pyflakes gate flags every such dangling reference.
 
 **Remaining groups** (rough size): pm (43), mcp (29), brain-legacy (27), chat (19),
-usage (7), keys (5), llm (scattered), vault (scattered), integrations (9), terminal (7),
-conductor (3), missions (7), office (9), agents (5), abilities+proposals (scattered),
-evolution/awakening (scattered), tasks (12). Non-contiguous groups (usage, llm, vault,
-brain, chat) need their models/helpers gathered from multiple ranges — do those with
-extra care.
+tasks (12), integrations (9), terminal (7), keys (5), llm (scattered), vault (scattered),
+conductor (3), abilities+proposals (scattered), evolution/awakening (scattered).
+Non-contiguous groups (llm, vault, brain, chat) need their models/helpers gathered from
+multiple ranges — do those with extra care (watch block boundaries: the usage slice
+clipped an adjacent llm model; the pyflakes+TestClient gate caught and it was restored).
 
 ## 5. Sequencing & guards
 
