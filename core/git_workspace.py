@@ -41,7 +41,9 @@ class GitWorkspaceManager:
         )
         if result.returncode != 0:
             message = (result.stderr or result.stdout or "Git command failed.").strip()
-            raise GitCommandError(message[:2000])
+            if len(message) > 2000:
+                message = f"[earlier command output omitted]\n{message[-1967:]}"
+            raise GitCommandError(message)
         return result.stdout.strip()
 
     def git(self, *args: str, cwd: Path | None = None, timeout: int = 120, allow_network: bool = False) -> str:
@@ -61,6 +63,41 @@ class GitWorkspaceManager:
         self.policy.assert_remote(remote)
         return {"root": str(top), "remote": remote}
 
+    def _configure_sparse_checkout(self, worktree: Path) -> None:
+        """Keep generated dependencies out of disposable coding worktrees."""
+        patterns = (
+            "/*",
+            "!/venv/",
+            "!/.venv/",
+            "!/**/node_modules/",
+            "!/**/__pycache__/",
+            "!/**/*.pyc",
+            "!/**/*.pyo",
+        )
+        self.git("sparse-checkout", "set", "--no-cone", *patterns, cwd=worktree, timeout=60)
+        self.git("read-tree", "-mu", "HEAD", cwd=worktree, timeout=180)
+
+    def _rollback_failed_prepare(self, worktree: Path, branch: str, base_sha: str) -> list[str]:
+        """Remove only disposable state created by a failed worktree checkout."""
+        warnings: list[str] = []
+        try:
+            self.git("worktree", "remove", str(worktree), timeout=60)
+        except GitCommandError:
+            try:
+                if worktree.exists():
+                    shutil.rmtree(worktree)
+                self.git("worktree", "prune", timeout=60)
+            except (GitCommandError, OSError) as exc:
+                warnings.append(f"worktree cleanup: {exc}")
+
+        try:
+            existing = self.git("branch", "--list", branch)
+            if existing and self.git("rev-parse", branch) == base_sha:
+                self.git("branch", "-d", branch)
+        except GitCommandError as exc:
+            warnings.append(f"branch cleanup: {exc}")
+        return warnings
+
     def prepare(self, workflow_id: int, target_version: str, title: str, *, fetch: bool = True) -> dict[str, Any]:
         self.verify_repository()
         if fetch:
@@ -79,7 +116,16 @@ class GitWorkspaceManager:
         existing = self.git("branch", "--list", branch)
         if existing:
             branch = f"{branch}-{workflow_id}"
-        self.git("worktree", "add", "-b", branch, str(worktree), base_ref, timeout=180)
+        try:
+            self.git(
+                "worktree", "add", "--quiet", "--no-checkout", "-b", branch,
+                str(worktree), base_ref, timeout=180,
+            )
+            self._configure_sparse_checkout(worktree)
+        except GitCommandError as exc:
+            warnings = self._rollback_failed_prepare(worktree, branch, base_sha)
+            cleanup = f" Cleanup warning: {'; '.join(warnings)}" if warnings else ""
+            raise GitCommandError(f"Unable to create isolated coding worktree. {exc}{cleanup}") from exc
         head_sha = self.git("rev-parse", "HEAD", cwd=worktree)
         return {"branch": branch, "worktree": str(worktree), "base_sha": base_sha, "head_sha": head_sha}
 
