@@ -27,6 +27,12 @@ class CodingWorkerBlocked(RuntimeError):
     pass
 
 
+WORKER_ACTIONS = {
+    "list_files", "read_file", "search", "replace_text", "write_file",
+    "run_check", "complete", "blocker",
+}
+
+
 def _json_object(value: str) -> dict[str, Any]:
     text = str(value or "").strip()
     if text.startswith("```"):
@@ -34,13 +40,38 @@ def _json_object(value: str) -> dict[str, Any]:
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError:
-        start, end = text.find("{"), text.rfind("}")
-        if start < 0 or end <= start:
+        decoder = json.JSONDecoder()
+        candidates: list[dict[str, Any]] = []
+        for match in re.finditer(r"\{", text):
+            try:
+                candidate, _ = decoder.raw_decode(text[match.start():])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(candidate, dict):
+                candidates.append(candidate)
+        if not candidates:
             raise ValueError("Worker response did not contain a JSON object.")
-        parsed = json.loads(text[start:end + 1])
+        actions = [candidate for candidate in candidates if candidate.get("action")]
+        parsed = (actions or candidates)[-1]
     if not isinstance(parsed, dict):
         raise ValueError("Worker response must be a JSON object.")
     return parsed
+
+
+def _validated_action(value: str) -> dict[str, Any]:
+    action = _json_object(value)
+    name = str(action.get("action") or "").strip()
+    if name not in WORKER_ACTIONS:
+        shown = name or "(missing)"
+        raise ValueError(f"Worker response used an unsupported action: {shown}.")
+    return action
+
+
+def _failure_detail(exc: Exception) -> str:
+    from core.terminal_engine import redact
+
+    message = re.sub(r"\s+", " ", redact(str(exc))).strip()
+    return f"{type(exc).__name__}: {message[:320]}" if message else type(exc).__name__
 
 
 class BrokeredLLMWorker:
@@ -79,7 +110,8 @@ checks during work. Do not claim completion until the acceptance criteria are me
         try:
             from core.model_router import get_llm
             preferred = [str(item) for item in brief.get("preferred_models") or [] if str(item).strip()]
-            client = get_llm("coding", model=preferred[0] if preferred else None)
+            selected_model = preferred[0] if preferred else ""
+            client = get_llm("coding", model=selected_model or None)
         except Exception as exc:
             raise CodingWorkerUnavailable(f"No configured coding model is available: {type(exc).__name__}") from exc
 
@@ -112,19 +144,81 @@ checks during work. Do not claim completion until the acceptance criteria are me
         output: list[str] = []
         max_steps = int(self.policy.data.get("workers", {}).get("llm_tool_steps", 40))
         consecutive_errors = 0
+        escalated = False
+        active_model = selected_model or str(getattr(client, "model", "") or "configured route")
         for step in range(1, max_steps + 1):
             if cancel_check and cancel_check():
                 raise RuntimeError("Coding worker was canceled by the owner.")
-            try:
-                raw = client.complete(messages, system=self.SYSTEM, max_tokens=4000)
-                action = _json_object(raw)
-            except Exception as exc:
+            action: dict[str, Any] | None = None
+            last_error: Exception | None = None
+            for attempt in range(1, 3):
+                raw = ""
+                try:
+                    raw = client.complete(messages, system=self.SYSTEM, max_tokens=4000)
+                    action = _validated_action(raw)
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    rejected = {
+                        "type": "action_rejected", "step": step, "attempt": attempt,
+                        "reason": _failure_detail(exc), "model": active_model,
+                    }
+                    events.append(rejected)
+                    if on_event:
+                        on_event("action_rejected", rejected)
+                    if attempt == 1:
+                        if raw:
+                            messages.append({"role": "assistant", "content": raw[:4000]})
+                        messages.append({
+                            "role": "user",
+                            "content": "Your previous response failed the action contract. Return exactly one "
+                                       "supported JSON action object with no prose or markdown.",
+                        })
+
+            if action is None and not escalated:
+                try:
+                    from core.model_router import get_escalation_llm
+
+                    stronger, stronger_model = get_escalation_llm(active_model)
+                except Exception as exc:
+                    stronger, stronger_model = None, None
+                    last_error = exc
+                if stronger is not None and stronger_model:
+                    previous_model = active_model
+                    client = stronger
+                    active_model = stronger_model
+                    escalated = True
+                    escalation = {
+                        "type": "model_escalated", "step": step,
+                        "from_model": previous_model, "to_model": active_model,
+                        "reason": "action_contract_repair_failed",
+                    }
+                    events.append(escalation)
+                    if on_event:
+                        on_event("model_escalated", escalation)
+                    try:
+                        raw = client.complete(messages, system=self.SYSTEM, max_tokens=4000)
+                        action = _validated_action(raw)
+                    except Exception as exc:
+                        last_error = exc
+                        rejected = {
+                            "type": "action_rejected", "step": step, "attempt": 3,
+                            "reason": _failure_detail(exc), "model": active_model,
+                        }
+                        events.append(rejected)
+                        if on_event:
+                            on_event("action_rejected", rejected)
+
+            if action is None:
+                detail = _failure_detail(last_error or ValueError("No valid action was returned."))
                 if step == 1:
-                    raise CodingWorkerUnavailable(f"Coding model failed before producing a valid action: {type(exc).__name__}") from exc
+                    raise CodingWorkerUnavailable(
+                        f"Coding model action contract failed after repair: {detail}"
+                    ) from last_error
                 consecutive_errors += 1
                 messages.append({"role": "user", "content": "Return one valid JSON action object only."})
                 if consecutive_errors >= 3:
-                    raise RuntimeError("Coding model repeatedly returned malformed actions.") from exc
+                    raise RuntimeError(f"Coding model repeatedly returned malformed actions: {detail}") from last_error
                 continue
             name = str(action.get("action", ""))
             event = {"type": "model_action", "step": step, "action": name}
@@ -632,7 +726,7 @@ class CodingWorkerRouter:
         adapter = "hermes" if order and order[0] == "hermes" else "native"
         return WorkerProfile(slug=slug, name=slug, adapter=adapter)
 
-    def probe(self, slug: str) -> dict[str, Any]:
+    def probe(self, slug: str, *, active: bool = False) -> dict[str, Any]:
         profile = self._profile(slug)
         if profile.adapter in {"codex", "opencode"} and not self.policy.feature_enabled(
             "external_workers"
@@ -707,7 +801,9 @@ class CodingWorkerRouter:
                 "runner": runner_health,
             }
         if profile.adapter in {"native", "model_review"}:
-            status, detail, _ = self._models_route(profile)
+            status, detail, selected_model = self._models_route(profile)
+            if active and profile.adapter == "native" and status == "ready":
+                status, detail = self._active_model_probe(selected_model)
         elif profile.adapter == "codex":
             result = self.codex.probe(profile)
             status, detail = result["status"], result["detail"]
@@ -728,6 +824,33 @@ class CodingWorkerRouter:
             "runner_mode": self.runner_mode,
             "runner": runner_health,
         }
+
+    @staticmethod
+    def _active_model_probe(selected_model: str) -> tuple[str, str]:
+        """Verify that a native model can satisfy the coding action contract."""
+        from core import model_router
+
+        try:
+            config = model_router.load_llm_config()
+            client = (
+                model_router.build_client(selected_model, config)
+                if selected_model else model_router.get_llm("coding")
+            )
+            raw = client.complete(
+                [{
+                    "role": "user",
+                    "content": 'Return {"action":"complete","summary":"ready","evidence":[]} now.',
+                }],
+                system="Return exactly one supported TOBI coding action JSON object and no prose.",
+                max_tokens=160,
+            )
+            action = _validated_action(raw)
+            if action.get("action") != "complete" or not str(action.get("summary") or "").strip():
+                raise ValueError("Model did not complete the coding action handshake.")
+            label = selected_model or str(getattr(client, "model", "configured coding route"))
+            return "ready", f"Structured coding handshake passed with {label}."
+        except Exception as exc:
+            return "unavailable", f"Structured coding handshake failed: {_failure_detail(exc)}"
 
     @staticmethod
     def _models_route(profile: WorkerProfile) -> tuple[str, str, str]:

@@ -440,7 +440,7 @@ def save_worker(slug: str, body: WorkerProfileRequest) -> dict[str, Any]:
 @router.post("/workers/{slug}/probe", dependencies=[Owner])
 def probe_worker(slug: str) -> dict[str, Any]:
     try:
-        return agent.worker.probe(slug)
+        return agent.worker.probe(slug, active=True)
     except Exception as exc:
         raise _error(exc) from exc
 
