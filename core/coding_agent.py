@@ -18,7 +18,7 @@ from core.coding_learning import CodingLearningService
 from core.coding_policy import CodingPolicy, PolicyDenied
 from core.coding_quality import CodingQualityGate
 from core.coding_review import CodingReviewError, CodingReviewer
-from core.coding_queue import sync_queue
+from core.coding_queue import sync_queue, REPO_ROOT
 from core.deployment_manager import DeploymentManager
 from core.development_store import DevelopmentStore, utc_now
 from core.git_workspace import GitCommandError, GitWorkspaceManager
@@ -470,6 +470,89 @@ class CodingAgent:
         next_workflow = self.start_next_queued() if enabled else None
         return {"auto_queue": enabled, "next_workflow": next_workflow}
 
+    # ── owner queue preferences (Queue tab: Next slot + priority order) ──────
+    # Stored as owner_settings strings so no schema change is needed. The QUEUE.md
+    # sync stays canonical for item content/status; these only order planned items.
+    def _queue_prefs(self) -> tuple[list[int], int | None]:
+        from core import owner_flags
+        try:
+            order = [int(x) for x in json.loads(owner_flags.get_str("developer.queue_order", "[]") or "[]")]
+        except (ValueError, TypeError):
+            order = []
+        raw_next = (owner_flags.get_str("developer.queue_next", "") or "").strip()
+        next_id = int(raw_next) if raw_next.isdigit() else None
+        return order, next_id
+
+    def _save_queue_prefs(self, order: list[int], next_id: int | None) -> None:
+        from core import owner_flags
+        owner_flags.set_str("developer.queue_order", json.dumps(list(order)))
+        owner_flags.set_str("developer.queue_next", str(next_id) if next_id else "")
+
+    def queue_state(self) -> dict[str, Any]:
+        """Queue items plus the owner's Next slot + priority order, normalized so
+        stale ids (started/completed/removed items) silently drop out."""
+        from core import owner_flags
+        # sync() returns every QUEUE.md row's upsert result — including rows the
+        # owner removed (status=deleted, preserved by the upsert). Hide those.
+        items = [t for t in self.sync() if t.get("status") != "deleted"]
+        planned = {int(t["queue_id"]) for t in items if t.get("status") == "planned"}
+        order, next_id = self._queue_prefs()
+        if next_id not in planned:
+            next_id = None
+        order = [qid for qid in order if qid in planned and qid != next_id]
+        return {"items": items, "order": order, "next_queue_id": next_id,
+                "auto_queue": owner_flags.get_bool("developer.auto_queue", False)}
+
+    def set_queue_order(self, order: list[int], next_queue_id: int | None) -> dict[str, Any]:
+        planned = {int(t["queue_id"]) for t in self.sync() if t.get("status") == "planned"}
+        if next_queue_id is not None and int(next_queue_id) not in planned:
+            raise KeyError(f"Queue item #{next_queue_id} is not a planned item.")
+        cleaned: list[int] = []
+        for qid in order:
+            qid = int(qid)
+            if qid not in planned:
+                raise KeyError(f"Queue item #{qid} is not a planned item.")
+            if qid != next_queue_id and qid not in cleaned:
+                cleaned.append(qid)
+        self._save_queue_prefs(cleaned, int(next_queue_id) if next_queue_id else None)
+        return self.queue_state()
+
+    def restore_task(self, queue_id: int) -> dict[str, Any]:
+        """Completed → planned (Queue tab 'push back to queue')."""
+        task = self.store.get_task(queue_id=int(queue_id))
+        if not task:
+            raise KeyError(f"Queue item #{queue_id} was not found.")
+        if task["status"] != "completed":
+            raise ValueError(f"Queue item #{queue_id} is {task['status']}, not completed.")
+        self.store.set_task_status(int(queue_id), "planned")
+        return self.queue_state()
+
+    def remove_task(self, queue_id: int) -> dict[str, Any]:
+        """Completed → deleted (hidden from the queue; the QUEUE.md row is untouched
+        and a re-sync never resurrects it because upsert preserves status)."""
+        task = self.store.get_task(queue_id=int(queue_id))
+        if not task:
+            raise KeyError(f"Queue item #{queue_id} was not found.")
+        if task["status"] != "completed":
+            raise ValueError(f"Only completed items can be removed (#{queue_id} is {task['status']}).")
+        self.store.set_task_status(int(queue_id), "deleted")
+        return self.queue_state()
+
+    def plan_markdown(self, queue_id: int) -> dict[str, Any]:
+        """The raw Markdown of the item's plan file for the Plan Detail modal.
+        Path is re-validated (inside the repo, .md only) before reading."""
+        task = self.store.get_task(queue_id=int(queue_id))
+        if not task:
+            raise KeyError(f"Queue item #{queue_id} was not found.")
+        plan_path = (REPO_ROOT / task["plan_path"]).resolve()
+        if not plan_path.is_relative_to(REPO_ROOT) or plan_path.suffix.lower() != ".md":
+            raise ValueError(f"Queue item #{queue_id} has an unsafe plan path.")
+        if not plan_path.is_file():
+            raise KeyError(f"Plan file for #{queue_id} was not found: {task['plan_path']}")
+        markdown = plan_path.read_text(encoding="utf-8", errors="replace")[:400_000]
+        return {"queue_id": int(queue_id), "plan_path": task["plan_path"],
+                "title": task["title"], "markdown": markdown}
+
     def start_next_queued(self) -> dict[str, Any] | None:
         """Start one eligible planned queue item; never skip an active or blocked run."""
         from core import owner_flags
@@ -483,7 +566,21 @@ class CodingAgent:
             }
             if any(item["state"] in active_states for item in self.list_workflows(200)):
                 return None
-            for task in self.sync():
+            # Owner ordering (Queue tab): the Next slot wins, then the priority
+            # list, then remaining items in QUEUE.md file order.
+            tasks = self.sync()
+            order, next_id = self._queue_prefs()
+            file_pos = {int(t["queue_id"]): i for i, t in enumerate(tasks)}
+
+            def _rank(task: dict[str, Any]) -> tuple[int, int]:
+                qid = int(task["queue_id"])
+                if qid == next_id:
+                    return (0, 0)
+                if qid in order:
+                    return (1, order.index(qid))
+                return (2, file_pos[qid])
+
+            for task in sorted(tasks, key=_rank):
                 if task.get("status") != "planned":
                     continue
                 dependencies = json.loads(task.get("dependencies_json") or "[]")
@@ -497,7 +594,21 @@ class CodingAgent:
                 self._event(int(workflow["id"]), "auto_queue_started", {
                     "queue_id": task["queue_id"], "reason": "previous_workflow_completed",
                 })
-                return self.start_background(int(workflow["id"]))
+                started = self.start_background(int(workflow["id"]))
+                # Shift the owner's pointers: promoted Next → priority #1 becomes
+                # the new Next; a started list item just leaves the list. Only
+                # still-planned ids survive the shift (stale ids drop out).
+                qid = int(task["queue_id"])
+                planned_left = [x for x in order
+                                if x != qid and file_pos.get(x) is not None
+                                and tasks[file_pos[x]].get("status") == "planned"]
+                if qid == next_id:
+                    self._save_queue_prefs(planned_left[1:] if planned_left else [],
+                                           planned_left[0] if planned_left else None)
+                else:
+                    self._save_queue_prefs(planned_left,
+                                           next_id if qid != next_id else None)
+                return started
         return None
 
     def _event(self, session_id: int, event_type: str, payload: dict[str, Any], actor: str = "tobi") -> None:

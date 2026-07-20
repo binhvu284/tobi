@@ -211,12 +211,49 @@ def process_settings(body: ProcessSettingsRequest) -> dict[str, Any]:
 
 @router.get("/queue", dependencies=[Owner])
 def queue() -> dict[str, Any]:
-    return {"items": agent.sync()}
+    return agent.queue_state()
 
 
 @router.post("/queue/sync", dependencies=[Owner])
 def queue_sync() -> dict[str, Any]:
-    return {"items": agent.sync()}
+    return agent.queue_state()
+
+
+class QueueOrderRequest(BaseModel):
+    order: list[int] = Field(default_factory=list, max_length=500)
+    next_queue_id: int | None = Field(default=None, gt=0)
+
+
+@router.post("/queue/order", dependencies=[Owner])
+def queue_order(body: QueueOrderRequest) -> dict[str, Any]:
+    try:
+        return agent.set_queue_order(body.order, body.next_queue_id)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/queue/{queue_id}/restore", dependencies=[Owner])
+def queue_restore(queue_id: int) -> dict[str, Any]:
+    try:
+        return agent.restore_task(queue_id)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/queue/{queue_id}/remove", dependencies=[Owner])
+def queue_remove(queue_id: int) -> dict[str, Any]:
+    try:
+        return agent.remove_task(queue_id)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/queue/{queue_id}/plan", dependencies=[Owner])
+def queue_plan(queue_id: int) -> dict[str, Any]:
+    try:
+        return agent.plan_markdown(queue_id)
+    except Exception as exc:
+        raise _error(exc) from exc
 
 
 @router.get("/versions", dependencies=[Owner])

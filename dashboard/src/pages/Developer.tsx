@@ -10,6 +10,7 @@ import LlmLogo, { BRAND_META, brandForModel, brandForProvider } from '../compone
 import ModelMenu from '../components/chat/ModelMenu'
 import DeveloperAgents from '../components/developer/DeveloperAgents'
 import DeveloperProcess from '../components/developer/DeveloperProcess'
+import DeveloperQueue from '../components/developer/DeveloperQueue'
 import DevelopmentGoals, { type GoalCommand } from '../components/developer/DevelopmentGoals'
 import VaultUnlockPanel from '../components/VaultUnlockPanel'
 import { useToast } from '../context/ToastProvider'
@@ -21,7 +22,7 @@ import {
   saveDeveloperWorker, startDeveloperWorkflow, streamDeveloperEvents, switchDeveloperWorker, cleanupDeveloperStorage,
   rejectDeveloperWorkflow, setDeveloperProcessSettings,
   type AvailableModel, type DeveloperAssessment, type DeveloperEvent, type DeveloperOverview, type DeveloperGoal,
-  type DeveloperQueueItem, type DeveloperRelease, type DeveloperStorage, type DeveloperWorkerLogin,
+  type DeveloperQueueItem, type DeveloperQueueState, type DeveloperRelease, type DeveloperStorage, type DeveloperWorkerLogin,
   type DeveloperWorkerModels, type DeveloperWorkerProfile,
   type DeveloperWorkflow, type LlmProvider,
 } from '../api'
@@ -1104,36 +1105,6 @@ function LearningView({ state, busy, onReplay }: {
   </div>
 }
 
-function QueueView({ items, busy, onStart }: { items: DeveloperQueueItem[]; busy: boolean; onStart: (id: number) => void }) {
-  return (
-    <div className="overflow-x-auto border-y border-border">
-      <table className="w-full min-w-[760px] text-left text-sm">
-        <thead className="bg-overlay/5 text-[11px] uppercase text-muted"><tr><th className="px-3 py-3">Item</th><th className="px-3 py-3">State</th><th className="px-3 py-3">Risk</th><th className="px-3 py-3">Time</th><th className="w-28 px-3 py-3 text-right">Action</th></tr></thead>
-        <tbody>
-          {items.map(item => {
-            let deps: number[] = []
-            try { deps = JSON.parse(item.dependencies_json) } catch { /* ignore */ }
-            const canStart = item.status === 'planned'
-            return (
-              <tr key={item.id} className="border-t border-border/70 align-top">
-                <td className="px-3 py-4"><div className="font-medium text-text">#{item.queue_id} {item.title}</div><div className="mt-1 text-xs text-muted">{deps.length ? `After ${deps.map(id => `#${id}`).join(', ')}` : item.plan_path}</div></td>
-                <td className="px-3 py-4"><StateBadge state={item.status} /></td>
-                <td className="px-3 py-4 text-xs text-muted">{label(item.risk)}</td>
-                <td className="px-3 py-4 text-xs text-muted">{item.queue_effort ?? '—'}</td>
-                <td className="px-3 py-4 text-right">
-                  {canStart ? <button disabled={busy} onClick={() => onStart(item.queue_id)} title={`Start queue item ${item.queue_id}`}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-2.5 text-xs font-medium text-background disabled:opacity-40"><Play size={13} /> Start</button>
-                    : <span className="text-xs text-muted">{label(item.status)}</span>}
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
 function VersionsView({ releases }: { releases: DeveloperRelease[] }) {
   if (!releases.length) return <Empty text="No version has been reserved." />
   return <div className="border-t border-border">{releases.map(release => (
@@ -1172,7 +1143,7 @@ export default function Developer() {
   const vaultSession = useVaultSession()
   const [tab, setTab] = useState<Tab>('overview')
   const [overview, setOverview] = useState<DeveloperOverview | null>(null)
-  const [queue, setQueue] = useState<DeveloperQueueItem[]>([])
+  const [queue, setQueue] = useState<DeveloperQueueState>({ items: [], order: [], next_queue_id: null, auto_queue: false })
   const [releases, setReleases] = useState<DeveloperRelease[]>([])
   const [storage, setStorage] = useState<DeveloperStorage | null>(null)
   const [goals, setGoals] = useState<DeveloperGoal[]>([])
@@ -1213,7 +1184,7 @@ export default function Developer() {
         getDeveloperLearning(controller.signal),
       ])
       if (controller.signal.aborted) return
-      setOverview(o); setQueue(q.items); setReleases(v.releases); setStorage(s); setGoals(g.goals)
+      setOverview(o); setQueue(q); setReleases(v.releases); setStorage(s); setGoals(g.goals)
       setWorkers(w.workers); setWorkerModels(w.models ?? []); setWorkerProviders(w.providers ?? [])
       setModelRouting(w.routing ?? { default_model: '', coding: '', coding_review: '' })
       setLearning(learn); setError(null)
@@ -1456,13 +1427,19 @@ export default function Developer() {
                 </section>
               </div>
             </div>}
-            {tab === 'loop' && <DeveloperProcess workflow={active} events={events} workers={workers} queue={queue} busy={busy}
+            {tab === 'loop' && <DeveloperProcess workflow={active} events={events} workers={workers} queue={queue.items} busy={busy}
               autoQueue={autoQueuePending ?? overview?.process?.auto_queue ?? false} autoQueueBusy={autoQueuePending !== null} streamState={streamState} streamIssue={streamIssue}
               onAutoQueue={setAutoQueue} onCommand={command} onApprove={approve} onReject={rejectApproval} />}
             {tab === 'goals' && <DevelopmentGoals goals={goals} workers={workers} busy={busy} onCreate={createGoal} onCommand={goalCommand} />}
             {tab === 'workers' && <DeveloperAgents workers={workers} models={workerModels} providers={workerProviders} routing={modelRouting} busy={busy} onSave={saveWorker} onProbe={probeWorker} onLogin={loginWorker} onModels={loadWorkerModels} />}
             {tab === 'learning' && <LearningView state={learning} busy={busy} onReplay={replayLearning} />}
-            {tab === 'queue' && <QueueView items={queue} busy={busy} onStart={id => act(() => startDeveloperWorkflow(id), `Queue #${id} started`)} />}
+            {tab === 'queue' && <DeveloperQueue state={queue} active={active} busy={busy}
+              autoQueue={autoQueuePending ?? overview?.process?.auto_queue ?? queue.auto_queue}
+              autoQueueBusy={autoQueuePending !== null}
+              onAutoQueue={setAutoQueue}
+              onStart={id => act(() => startDeveloperWorkflow(id), `Queue #${id} started`)}
+              onOpenProcess={() => setTab('loop')}
+              onState={setQueue} />}
             {tab === 'versions' && <VersionsView releases={releases} />}
             {tab === 'storage' && <StorageView storage={storage} busy={busy} onCleanup={master => act(() => cleanupDeveloperStorage(master), 'Developer cleanup completed')} />}
           </main>

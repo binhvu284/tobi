@@ -900,8 +900,25 @@ export type DeveloperGoal = {
 export async function getDeveloperOverview(signal?: AbortSignal): Promise<DeveloperOverview> {
   return vreq('/api/developer/overview', { signal })
 }
-export async function getDeveloperQueue(signal?: AbortSignal): Promise<{ items: DeveloperQueueItem[] }> {
+// Queue tab (#18 UI continuation): items + the owner's Next slot and priority order.
+export type DeveloperQueueState = {
+  items: DeveloperQueueItem[]; order: number[]; next_queue_id: number | null; auto_queue: boolean
+}
+export type DeveloperQueuePlan = { queue_id: number; plan_path: string; title: string; markdown: string }
+export async function getDeveloperQueue(signal?: AbortSignal): Promise<DeveloperQueueState> {
   return vreq('/api/developer/queue', { signal })
+}
+export async function setDeveloperQueueOrder(order: number[], nextQueueId: number | null): Promise<DeveloperQueueState> {
+  return vreq('/api/developer/queue/order', { method: 'POST', body: JSON.stringify({ order, next_queue_id: nextQueueId }) })
+}
+export async function restoreDeveloperQueueItem(queueId: number): Promise<DeveloperQueueState> {
+  return vreq(`/api/developer/queue/${queueId}/restore`, { method: 'POST' })
+}
+export async function removeDeveloperQueueItem(queueId: number): Promise<DeveloperQueueState> {
+  return vreq(`/api/developer/queue/${queueId}/remove`, { method: 'POST' })
+}
+export async function getDeveloperQueuePlan(queueId: number, signal?: AbortSignal): Promise<DeveloperQueuePlan> {
+  return vreq(`/api/developer/queue/${queueId}/plan`, { signal })
 }
 export async function getDeveloperVersions(signal?: AbortSignal): Promise<{ releases: DeveloperRelease[] }> {
   return vreq('/api/developer/versions', { signal })
