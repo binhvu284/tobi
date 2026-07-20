@@ -141,7 +141,16 @@ def build_manifest(message: str, mode: str, history: list[dict], project_context
     if v2_on:
         try:
             from core import brain_retrieval
-            block, chips = brain_retrieval.context_block(message or "", manifest.mode)
+            from core.brain_contracts import ScopeType
+            # #20 review P1: pass the active project scope so project-scoped memories
+            # are eligible alongside global ones (retrieval was defaulting to GLOBAL,
+            # which excluded every project/workflow/connector memory outright).
+            scope_type, scope_key = ScopeType.GLOBAL, None
+            projs = (project_context or {}).get("projects") or []
+            if projs and projs[0].get("id") is not None:
+                scope_type, scope_key = ScopeType.PROJECT, str(projs[0]["id"])
+            block, chips = brain_retrieval.context_block(
+                message or "", manifest.mode, scope_type=scope_type, scope_key=scope_key)
             if block:
                 manifest.add(_item("brain_recall", "Owner memory recall", block, "trusted", 0.88,
                                    {"chips": chips}))

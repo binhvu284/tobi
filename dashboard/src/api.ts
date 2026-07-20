@@ -86,10 +86,18 @@ export type ContextChip = { id: number; name: string }
 export type ChatContextEvent = { projects: ContextChip[]; resources: { name?: string }[]; auto?: boolean }
 export type ChatPlanEvent = { steps: string[]; title?: string }
 export type ChatArtifactEvent = { id: number; kind: string; title: string }
+// #20 review P1: per-memory feedback chip — one per recalled owner memory, so the
+// owner can rate each memory useful/irrelevant/wrong from the Chat turn.
+export type MemoryChip = {
+  memory_id: number; text: string; type: string; scope: string
+  confidence: number; quality: number; hedged: boolean; evidence: string
+}
+export type ChatMemoryChipsEvent = { chips: MemoryChip[] }
 export type ChatTurnMeta = {
   mode?: ChatModeId; legacy_mode?: string | null; capabilities?: ChatCapabilities
   steps?: string[]; tools?: string[]; run_id?: number; artifact_ids?: number[]
   context?: { projects?: ContextChip[]; resources?: { name?: string }[] }
+  memoryChips?: MemoryChip[]
   turn_id?: string
 }
 export type ChatRuntimeMode = 'off' | 'shadow' | 'on'
@@ -166,6 +174,7 @@ export type ChatStreamHandlers = {
   onContext?: (ctx: ChatContextEvent) => void     // auto project context chips
   onPlan?: (plan: ChatPlanEvent) => void          // agent-mode declared plan
   onArtifact?: (artifact: ChatArtifactEvent) => void  // durable artifact produced
+  onMemoryChips?: (event: ChatMemoryChipsEvent) => void  // per-memory feedback chips (#20)
   onTurnStarted?: (event: ChatRuntimeEvent) => void
   onRuntimeEvent?: (event: ChatRuntimeEvent) => void
   onRecoveryRequired?: (event: ChatRuntimeEvent) => void
@@ -247,6 +256,7 @@ export async function streamChatSession(
       else if (event === 'context') { const o = parse(); if (o && Array.isArray(o.projects)) handlers.onContext?.(o as ChatContextEvent) }
       else if (event === 'plan') { const o = parse(); if (o && Array.isArray(o.steps)) handlers.onPlan?.(o as ChatPlanEvent) }
       else if (event === 'artifact') { const o = parse(); if (o && o.id != null) handlers.onArtifact?.(o as ChatArtifactEvent) }
+      else if (event === 'memory_chips') { const o = parse(); if (o && Array.isArray(o.chips)) handlers.onMemoryChips?.(o as ChatMemoryChipsEvent) }
       else if (event === 'turn_started') { const o = parse() as ChatRuntimeEvent; if (o?.turn_id) { handlers.onTurnStarted?.(o); handlers.onRuntimeEvent?.(o) } }
       else if (event === 'recovery_required') { const o = parse() as ChatRuntimeEvent; if (o?.turn_id) { handlers.onRecoveryRequired?.(o); handlers.onRuntimeEvent?.(o) } }
       else if (['context_ready', 'plan_ready', 'step_started', 'step_completed', 'step_failed', 'model_escalated', 'turn_completed'].includes(event)) {

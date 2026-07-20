@@ -39,7 +39,7 @@ import {
 import {
   type ConnectorCatalogItem, SlackLogo, CONNECTOR_CATALOG, connectorMatches, ConnectorGlyph, ConnectorMark,
 } from '../components/chat/connectorCatalog'
-import { ReaderChips, TurnChips } from '../components/chat/ChatChips'
+import { ReaderChips, TurnChips, MemoryChips } from '../components/chat/ChatChips'
 
 export default function Chat() {
   const { toast } = useToast()
@@ -373,6 +373,7 @@ export default function Chat() {
     let modeSeen: ChatModeId | undefined
     let contextSeen: Meta['context']
     let artifactsSeen: ChatArtifactEvent[] = []
+    let memoryChipsSeen: NonNullable<Meta['memoryChips']> = []
     let turnIdSeen: string | undefined
     const pushStep = (phase: string) => {
       if (phase && stepsRef.current[stepsRef.current.length - 1] !== phase) {
@@ -423,6 +424,7 @@ export default function Chat() {
           p.steps.slice(0, 12).forEach((s, i) => pushStep(`${i + 1}. ${s}`))
         },
         onArtifact: (a) => { artifactsSeen = [...artifactsSeen, a] },
+        onMemoryChips: (e) => { memoryChipsSeen = e.chips },
         onTurnStarted: (e) => { turnIdSeen = e.turn_id; setActiveTurnId(e.turn_id) },
         onRuntimeEvent: (e) => setRuntimeEvents(prev => [...prev, e].slice(-80)),
         onRecoveryRequired: (e) => {
@@ -448,6 +450,7 @@ export default function Chat() {
           lastMetaRef.current = {
             elapsedMs: u.latency_ms, tokens: u.completion_tokens, tools: toolsSeen, steps: stepsRef.current,
             mode: modeSeen, context: contextSeen, artifacts: artifactsSeen.length ? artifactsSeen : undefined,
+            memoryChips: memoryChipsSeen.length ? memoryChipsSeen : undefined,
             turn_id: turnIdSeen,
           }
           setMessages(m => { const next = [...m]; const last = next[next.length - 1]; if (last && last.role === 'assistant') next[next.length - 1] = { ...last, meta: { ...last.meta, ...lastMetaRef.current } }; return next })
@@ -1047,6 +1050,8 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
                         {m.content ? <MarkdownView content={m.content} /> : (isLast && busy ? null : <span className="text-sm text-muted">…</span>)}
                         {streaming && isLast && <span className={`ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] bg-accent align-middle ${reduced ? '' : 'chat-caret'}`} />}
                       </div>
+                      {/* #20 review P1: per-memory feedback chips for this turn (empty until meta folds in) */}
+                      <MemoryChips chips={m.meta?.memoryChips} turnRef={m.meta?.turn_id} />
                       {m.created_at && !(streaming && isLast) && (
                         <div className="mt-0.5"><span title={fmtAbsolute(m.created_at)} className="cursor-default text-[10px] text-muted/50">{fmtRelative(m.created_at)}</span></div>
                       )}

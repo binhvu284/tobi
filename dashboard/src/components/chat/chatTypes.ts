@@ -1,5 +1,5 @@
 // Local Chat page types — extracted from pages/Chat.tsx for reuse and testability.
-import type { ChatModeId, ContextChip, ChatArtifactEvent, ChatAttachment } from '../../api'
+import type { ChatModeId, ContextChip, ChatArtifactEvent, ChatAttachment, MemoryChip } from '../../api'
 
 export type TierMark = { tier: number; colorKey: string; roman: string; name: string }
 
@@ -9,6 +9,7 @@ export type Meta = {
   mode?: ChatModeId; run_id?: number; artifact_ids?: number[]
   context?: { projects?: ContextChip[]; resources?: { name?: string }[] }
   artifacts?: ChatArtifactEvent[]
+  memoryChips?: MemoryChip[]   // #20: per-memory feedback chips (owner rates each recalled memory)
   turn_id?: string
 }
 export type Msg = { id?: number; role: string; content: string; model?: string | null; meta?: Meta; thinking?: string | null; feedback?: number | null; created_at?: string }

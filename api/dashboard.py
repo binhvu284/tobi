@@ -5538,6 +5538,15 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                     "sources": [{"source": i.source, "label": i.label, "trust": i.trust,
                                  "tokens": i.token_cost} for i in manifest.items],
                 })
+            # #20 review P1: surface per-memory feedback chips (each carries memory_id,
+            # scope, quality) so the owner can rate every recalled memory useful/
+            # irrelevant/wrong. They live in the brain_recall item metadata; emit them
+            # on the stream and persist onto the turn so they survive a reload.
+            _recall = next((i for i in manifest.items if i.source == "brain_recall"), None)
+            _mem_chips = list((_recall.metadata or {}).get("chips") or []) if _recall else []
+            if _mem_chips:
+                yield f"event: memory_chips\ndata: {json.dumps({'chips': _mem_chips})}\n\n"
+                turn_meta["memory_chips"] = _mem_chips
 
         # ── Deep Research (#16 [D14][D15]): one-message cited-report workflow. Beats the
         # vision path (an explicit command wins over an implicit affordance — images are
