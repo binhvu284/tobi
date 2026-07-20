@@ -158,7 +158,10 @@ def import_command(job_id: int, payload: JobCommandReq):
     try:
         cmd = payload.command
         if cmd in ("run", "resume"):
-            return imp.run_job(job_id)
+            # #20 review P1: drive the dry-run on a background worker and return
+            # immediately — the UI streams progress via /events instead of
+            # blocking on hundreds of sequential LLM calls.
+            return imp.run_job_background(job_id)
         if cmd == "step":
             return imp.step_job(job_id)
         if cmd == "cancel":
@@ -183,10 +186,17 @@ async def import_events(job_id: int):
         raise HTTPException(404, str(e))
 
     async def gen():
+        idle = 0
         while True:
             st = await asyncio.to_thread(imp.job_status, job_id)
             yield f"data: {json.dumps(st, ensure_ascii=False)}\n\n"
             if st["status"] != "dry_run":
+                break
+            # Worker done but still dry_run (e.g. vault locked, or nothing to drive):
+            # stop after a short grace rather than polling forever. A live worker
+            # resets the idle counter each tick.
+            idle = idle + 1 if not st.get("running") else 0
+            if idle >= 2:
                 break
             await asyncio.sleep(1.0)
     return StreamingResponse(gen(), media_type="text/event-stream")

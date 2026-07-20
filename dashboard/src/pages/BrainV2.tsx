@@ -11,7 +11,7 @@ import {
   type V2MigrationStatus, type V2MigrationItem, type V2RecallItem,
   type V2Influence, type V2CleanupProposal,
   v2Stats, v2Profile, v2Memories, v2SetStatus, v2EditMemory, v2Feedback, v2Influence,
-  v2Purge, v2Recall, v2Remember, v2ImportCreate, v2ImportCandidates, v2ImportCommand,
+  v2Purge, v2Recall, v2Remember, v2ImportCreate, v2ImportCandidates, v2ImportCommand, v2ImportStatus,
   v2ImportDecide, v2MigrationCreate, v2MigrationItems, v2MigrationCommand,
   v2MigrationDecide, v2CleanupPreview, v2CleanupApply,
 } from '../api.brainV2'
@@ -318,29 +318,75 @@ function ImportTab() {
     e.preventDefault(); setDragOver(false); loadFile(e.dataTransfer.files?.[0])
   }, [loadFile])
 
+  // #20 review P1: the dry-run runs on a server-side background worker, so we
+  // poll for live progress instead of blocking on the whole run. The active job
+  // id is stashed so a reload / navigate-away re-attaches (browser-level resume).
+  const pollRef = useRef<number | null>(null)
+  const stopPoll = useCallback(() => {
+    if (pollRef.current != null) { window.clearTimeout(pollRef.current); pollRef.current = null }
+  }, [])
+  const watch = useCallback((id: number) => {
+    let idle = 0
+    const tick = async () => {
+      try {
+        const st = await v2ImportStatus(id)
+        setJob(st)
+        if (st.status !== 'dry_run') {          // ready / committed / cancelled / failed
+          stopPoll(); setBusy(false); await refresh(id)
+          localStorage.removeItem('brainImportJob')
+          toast({ kind: st.status === 'failed' ? 'error' : 'success',
+                  title: st.status === 'failed' ? (st.error || 'Import failed')
+                                                : 'Dry-run complete — review the candidates below' })
+          return
+        }
+        idle = st.running ? 0 : idle + 1           // worker stopped but still dry_run (e.g. vault locked)
+        if (idle >= 2) {
+          stopPoll(); setBusy(false); await refresh(id)
+          toast({ kind: 'info', title: 'Import paused — unlock the vault or press Resume' })
+          return
+        }
+        pollRef.current = window.setTimeout(tick, 1000)
+      } catch (e) { stopPoll(); setBusy(false); toast({ kind: 'error', title: errMsg(e) }) }
+    }
+    tick()
+  }, [refresh, stopPoll, toast])
+
   const start = useCallback(async () => {
     setBusy(true)
     try {
       const j = await v2ImportCreate(filename, content)
-      const done = await v2ImportCommand(j.id, 'run')      // dry-run to completion
-      setJob(done)
-      await refresh(j.id)
-      toast({ kind: 'success', title: 'Dry-run complete — review the candidates below' })
-    } catch (e) { toast({ kind: 'error', title: errMsg(e) }) }
-    finally { setBusy(false) }
-  }, [filename, content, refresh, toast])
+      const st = await v2ImportCommand(j.id, 'run')   // returns immediately; worker runs server-side
+      setJob(st)
+      localStorage.setItem('brainImportJob', String(j.id))
+      watch(j.id)
+    } catch (e) { setBusy(false); toast({ kind: 'error', title: errMsg(e) }) }
+  }, [filename, content, watch, toast])
+
+  // Re-attach to an in-progress import after a reload / tab switch.
+  useEffect(() => {
+    const saved = localStorage.getItem('brainImportJob')
+    if (!saved) return
+    const id = Number(saved)
+    v2ImportStatus(id).then(st => {
+      if (st.status === 'dry_run') { setJob(st); setBusy(true); watch(id) }
+      else localStorage.removeItem('brainImportJob')
+    }).catch(() => localStorage.removeItem('brainImportJob'))
+    return stopPoll
+  }, [watch, stopPoll])
 
   const cmd = useCallback(async (command: 'commit' | 'cancel') => {
     if (!job) return
+    stopPoll()
     setBusy(true)
     try {
       const st = await v2ImportCommand(job.id, command)
       setJob(st)
       await refresh(job.id)
+      localStorage.removeItem('brainImportJob')
       toast({ kind: 'success', title: command === 'commit' ? `Committed — ${st.applied ?? 0} applied` : 'Import cancelled' })
     } catch (e) { toast({ kind: 'error', title: errMsg(e) }) }
     finally { setBusy(false) }
-  }, [job, refresh, toast])
+  }, [job, refresh, stopPoll, toast])
 
   const decide = useCallback(async (approve: boolean, payload: { ids?: number[]; outcome?: string }) => {
     if (!job) return
@@ -408,6 +454,23 @@ function ImportTab() {
                 className="rounded-lg border border-border px-2 py-1 text-[11px] text-muted hover:text-text">New import</button>
             </div>
           </div>
+          {job.status === 'dry_run' && (
+            <div className="flex flex-col gap-1.5 rounded-xl border border-border bg-surface/40 p-3">
+              <div className="flex items-center gap-2 text-xs text-muted">
+                {job.running
+                  ? <><Loader2 size={13} className="animate-spin text-accent" /> Extracting memories — chunk {job.next_chunk} / {job.total_chunks}</>
+                  : <>Paused at chunk {job.next_chunk} / {job.total_chunks}</>}
+                <span className="ml-auto font-mono text-text">{Math.round((job.progress || 0) * 100)}%</span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-border/40">
+                <div className="h-full rounded-full bg-accent transition-all duration-500" style={{ width: `${Math.round((job.progress || 0) * 100)}%` }} />
+              </div>
+              {!job.running && (
+                <button onClick={() => { setBusy(true); v2ImportCommand(job.id, 'resume').then(st => { setJob(st); watch(job.id) }).catch(e => { setBusy(false); toast({ kind: 'error', title: errMsg(e) }) }) }}
+                  className="self-start rounded-lg border border-border px-2 py-1 text-[11px] text-muted hover:text-text">Resume</button>
+              )}
+            </div>
+          )}
           {trashCount > 0 && (
             <div className="flex items-center gap-2 rounded-lg border border-border bg-surface/30 px-3 py-1.5 text-[11px] text-muted">
               <Filter size={12} /> {trashCount} low-value {trashCount === 1 ? 'item' : 'items'} auto-filtered (won't be imported).

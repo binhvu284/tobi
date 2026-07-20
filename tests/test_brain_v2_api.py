@@ -87,8 +87,17 @@ r = client.post("/api/brain/v2/import-jobs", json={"filename": "notes.md", "cont
 ok("import created (dry_run)", r.status_code == 200 and r.json()["status"] == "dry_run")
 job = r.json()["id"]
 ok("unknown job → 404", client.get("/api/brain/v2/import-jobs/999").status_code == 404)
+# #20 review P1: run drives a background worker and returns immediately; poll to completion.
 r = client.post(f"/api/brain/v2/import-jobs/{job}/commands", json={"command": "run"})
-ok("run command completes dry-run", r.json()["status"] == "ready", str(r.json()))
+ok("run command returns immediately (background worker)", r.status_code == 200)
+import time as _t
+_js = r.json()
+for _ in range(200):
+    _js = client.get(f"/api/brain/v2/import-jobs/{job}").json()
+    if _js["status"] != "dry_run":
+        break
+    _t.sleep(0.05)
+ok("run command completes dry-run (via worker)", _js["status"] == "ready", str(_js))
 r = client.get(f"/api/brain/v2/import-jobs/{job}/candidates")
 ok("candidates listed with proposals", r.status_code == 200 and len(r.json()) == 2
    and all(x["proposed_outcome"] == "active" for x in r.json()))

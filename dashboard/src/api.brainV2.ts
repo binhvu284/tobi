@@ -36,6 +36,7 @@ export type V2Stats = {
 export type V2JobStatus = {
   id: number; filename: string; status: string
   total_chunks: number; next_chunk: number; progress: number
+  running?: boolean                                   // a background worker is driving the dry-run (#20)
   candidates_by_outcome: Record<string, number>
   extraction_errors: number; error: string | null
   applied?: number; skipped?: number

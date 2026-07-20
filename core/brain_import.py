@@ -20,6 +20,7 @@ import json
 import logging
 import re
 import sqlite3
+import threading
 from dataclasses import replace
 from typing import Callable, Optional
 
@@ -239,6 +240,57 @@ def run_job(job_id: int, conn: Optional[sqlite3.Connection] = None,
         prev_chunk = st["next_chunk"]
 
 
+# ── background worker (#20 review P1) ────────────────────────────────────────
+# The dry-run can be hundreds of sequential LLM calls. Driving it inside the
+# request thread blocks the UI for the whole import and dies if the browser
+# navigates away. Instead a daemon thread drives run_job; every chunk is
+# checkpointed (step_job commits next_chunk), so the SSE /events stream shows
+# live progress and the browser can disconnect/reconnect freely. Each thread
+# opens its OWN connection (run_job(conn=None) → get_connection in-thread), so
+# there is no cross-thread sqlite handle; WAL + busy_timeout handle contention.
+_RUNNERS: dict[int, threading.Thread] = {}
+_RUNNERS_LOCK = threading.Lock()
+
+
+def is_running(job_id: int) -> bool:
+    """True while a background worker is actively driving this job's dry-run."""
+    with _RUNNERS_LOCK:
+        t = _RUNNERS.get(job_id)
+        return bool(t and t.is_alive())
+
+
+def run_job_background(job_id: int) -> dict:
+    """Start (or re-attach to) a background worker and return the CURRENT status
+    immediately — the request never blocks on the whole dry-run. Idempotent: a
+    second call while one is running is a no-op. Jobs already past dry_run just
+    return their status."""
+    st = job_status(job_id)                      # 404 guard + current snapshot
+    if st["status"] != "dry_run":
+        return st                                # ready/committed/cancelled/failed — nothing to drive
+    with _RUNNERS_LOCK:
+        existing = _RUNNERS.get(job_id)
+        if existing and existing.is_alive():
+            return st                            # already running — don't double-drive
+
+        def _worker() -> None:
+            try:
+                run_job(job_id)                  # conn=None → its own connection in this thread
+            except Exception as e:               # never let a worker die silently
+                logging.getLogger("tobi.brain.import").warning("import worker %s failed: %s", job_id, e)
+                try:
+                    _touch(_conn(None), job_id, status="failed", error=f"worker: {str(e)[:200]}")
+                except Exception:
+                    pass
+            finally:
+                with _RUNNERS_LOCK:
+                    _RUNNERS.pop(job_id, None)
+
+        t = threading.Thread(target=_worker, name=f"brain-import-{job_id}", daemon=True)
+        _RUNNERS[job_id] = t
+        t.start()
+    return st
+
+
 def job_status(job_id: int, conn: Optional[sqlite3.Connection] = None) -> dict:
     c = _conn(conn)
     j = _job(c, job_id)
@@ -250,6 +302,7 @@ def job_status(job_id: int, conn: Optional[sqlite3.Connection] = None) -> dict:
     return {"id": job_id, "filename": j["filename"], "status": j["status"],
             "total_chunks": j["total_chunks"], "next_chunk": j["next_chunk"],
             "progress": round(j["next_chunk"] / j["total_chunks"], 3) if j["total_chunks"] else 1.0,
+            "running": is_running(job_id),
             "candidates_by_outcome": by_outcome, "extraction_errors": errors, "error": j["error"]}
 
 
