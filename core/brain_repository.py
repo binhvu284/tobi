@@ -136,6 +136,10 @@ def save(candidate: MemoryCandidate, *, status: Optional[MemoryStatus] = None,
 
     c = _conn(conn)
     stored_text = REDACTED if sensitive else candidate.distilled_text
+    # #20 review P1: behavior_implication is model-generated and may restate the
+    # sensitive fact, so it is encrypted alongside distilled_text (sentinel in the
+    # plaintext column, ciphertext in the vault) for sensitive memories.
+    stored_impl = REDACTED if (sensitive and candidate.behavior_implication) else candidate.behavior_implication
     cur = c.execute(
         "INSERT INTO brain_memory_v2 ("
         " compat_ref, distilled_text, memory_type, behavior_implication, scope_type, scope_key,"
@@ -144,7 +148,7 @@ def save(candidate: MemoryCandidate, *, status: Optional[MemoryStatus] = None,
         " trust, sensitive, status"
         ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
-            compat_ref, stored_text, candidate.memory_type.value, candidate.behavior_implication,
+            compat_ref, stored_text, candidate.memory_type.value, stored_impl,
             candidate.scope_type.value, candidate.scope_key, candidate.authority.value,
             candidate.explicitness.value, candidate.confidence, candidate.durability,
             candidate.actionability, candidate.specificity, candidate.source_strength,
@@ -156,6 +160,8 @@ def save(candidate: MemoryCandidate, *, status: Optional[MemoryStatus] = None,
 
     if sensitive:
         _store_secure(c, memory_id, "distilled_text", candidate.distilled_text)
+        if candidate.behavior_implication:
+            _store_secure(c, memory_id, "behavior_implication", candidate.behavior_implication)
 
     for tag in candidate.tags:
         c.execute("INSERT INTO brain_memory_tags (memory_id, tag) VALUES (?,?)", (memory_id, tag))
@@ -185,7 +191,8 @@ def link(from_id: int, to_id: int, link_type: LinkType,
 
 
 def add_evidence(memory_id: int, excerpt: str = "", source_ref: Optional[str] = None,
-                 trust: Trust = Trust.TRUSTED, conn: Optional[sqlite3.Connection] = None) -> int:
+                 trust: Trust = Trust.TRUSTED, conn: Optional[sqlite3.Connection] = None,
+                 commit: bool = True) -> int:
     """Append an evidence row to an existing memory (dedup/corroboration path).
 
     Honors the memory's sensitivity: evidence attached to a sensitive memory is
@@ -207,7 +214,8 @@ def add_evidence(memory_id: int, excerpt: str = "", source_ref: Optional[str] = 
     )
     if sensitive and excerpt:
         _store_secure(c, memory_id, f"evidence:{cur.lastrowid}", excerpt)
-    c.commit()
+    if commit:
+        c.commit()
     return int(cur.lastrowid)
 
 
@@ -224,14 +232,18 @@ def set_confidence(memory_id: int, confidence: float,
 
 
 def set_status(memory_id: int, status: MemoryStatus,
-               conn: Optional[sqlite3.Connection] = None) -> None:
-    """Update lifecycle status (used by archive/restore/activation review)."""
+               conn: Optional[sqlite3.Connection] = None, commit: bool = True) -> None:
+    """Update lifecycle status (used by archive/restore/activation review).
+
+    ``commit=False`` defers the commit so a caller can apply several changes in a
+    single transaction (used by cleanup/apply for all-or-nothing application)."""
     if not isinstance(status, MemoryStatus):
         raise TypeError("status must be a MemoryStatus")
     c = _conn(conn)
     c.execute("UPDATE brain_memory_v2 SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
               (status.value, memory_id))
-    c.commit()
+    if commit:
+        c.commit()
 
 
 def archive(memory_id: int, conn: Optional[sqlite3.Connection] = None) -> None:
@@ -272,7 +284,14 @@ def edit_fields(memory_id: int, *, distilled_text: Optional[str] = None,
             raise TypeError("memory_type must be a MemoryType")
         sets.append("memory_type=?"); params.append(memory_type.value)
     if behavior_implication is not None:
-        sets.append("behavior_implication=?"); params.append(behavior_implication.strip()[:500])
+        impl = behavior_implication.strip()[:500]
+        if sensitive and impl:
+            if not vault.can_encrypt_payloads():
+                raise vault.VaultLocked("Vault must be unlocked to edit a sensitive memory.")
+            _store_secure(c, memory_id, "behavior_implication", impl)
+            sets.append("behavior_implication=?"); params.append(REDACTED)
+        else:
+            sets.append("behavior_implication=?"); params.append(impl)
     if not sets:
         return
     sets.append("updated_at=CURRENT_TIMESTAMP")
@@ -337,11 +356,14 @@ def read(memory_id: int, *, for_context: bool = False,
         return None  # excluded from LLM context while locked
 
     distilled, redacted = r["distilled_text"], False
+    behavior_impl = r["behavior_implication"] or ""
     if sensitive:
         if unlocked:
             distilled = _reveal_secure(c, memory_id, "distilled_text", fallback=distilled)
+            if behavior_impl:
+                behavior_impl = _reveal_secure(c, memory_id, "behavior_implication", fallback=behavior_impl)
         else:
-            redacted = True
+            redacted = True  # distilled + behavior_implication both stay the sentinel while locked
 
     tags = tuple(row["tag"] for row in c.execute(
         "SELECT tag FROM brain_memory_tags WHERE memory_id=? ORDER BY id", (memory_id,)).fetchall())
@@ -350,7 +372,7 @@ def read(memory_id: int, *, for_context: bool = False,
     return StoredMemory(
         id=r["id"], distilled_text=distilled,
         memory_type=_as(MemoryType, r["memory_type"], MemoryType.FACT),
-        behavior_implication=r["behavior_implication"] or "", tags=tags,
+        behavior_implication=behavior_impl, tags=tags,
         scope_type=_as(ScopeType, r["scope_type"], ScopeType.GLOBAL), scope_key=r["scope_key"],
         authority=_as(Authority, r["authority"], Authority.SOFT),
         explicitness=_as(Explicitness, r["explicitness"], Explicitness.INFERRED),

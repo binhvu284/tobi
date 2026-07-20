@@ -98,6 +98,7 @@ SECRET_TEXT = "Owner's home safe code is SUPER_SECRET_8842"
 SECRET_EV = "he told me the code SUPER_SECRET_8842 on the call"
 secret = MemoryCandidate(
     distilled_text=SECRET_TEXT, memory_type=MemoryType.FACT,
+    behavior_implication="Guard the code SUPER_SECRET_8842 — never speak it aloud",
     authority=Authority.SOFT, explicitness=Explicitness.EXPLICIT, confidence=0.95,
     durability=1, actionability=1, specificity=1, source_strength=1,
     evidence_excerpt=SECRET_EV, source_ref="call:2026-07-17", sensitive=True,
@@ -108,13 +109,16 @@ ok("sensitive save → pending (gate bars sensitive)", repo.read(sid, conn=conn)
 # plaintext columns hold the sentinel, never the secret
 db_distilled = conn.execute("SELECT distilled_text FROM brain_memory_v2 WHERE id=?", (sid,)).fetchone()[0]
 db_excerpt = conn.execute("SELECT excerpt FROM brain_memory_evidence WHERE memory_id=?", (sid,)).fetchone()[0]
+db_impl = conn.execute("SELECT behavior_implication FROM brain_memory_v2 WHERE id=?", (sid,)).fetchone()[0]
 ok("v2 distilled column is redacted sentinel", db_distilled == REDACTED, db_distilled)
 ok("evidence excerpt column is redacted sentinel", db_excerpt == REDACTED, db_excerpt)
+ok("v2 behavior_implication column is redacted sentinel (#20 P1)", db_impl == REDACTED, db_impl)
 
 # secure payloads exist, encrypted; plaintext absent from the ciphertext
 payloads = conn.execute("SELECT field, ciphertext FROM brain_secure_payloads WHERE memory_id=?", (sid,)).fetchall()
 fields = {p[0] for p in payloads}
 ok("secure payload for distilled_text", "distilled_text" in fields)
+ok("secure payload for behavior_implication (#20 P1)", "behavior_implication" in fields)
 ok("secure payload for evidence", any(f.startswith("evidence:") for f in fields))
 ok("plaintext not present in any ciphertext",
    all(b"SUPER_SECRET_8842" not in bytes(p[1]) for p in payloads))
@@ -123,6 +127,7 @@ ok("plaintext not present in any ciphertext",
 def secret_leaks_anywhere() -> bool:
     marker = "SUPER_SECRET_8842"
     for table, col in (("brain_memory_v2", "distilled_text"),
+                       ("brain_memory_v2", "behavior_implication"),
                        ("brain_memory_evidence", "excerpt"),
                        ("brain_memories", "content")):
         try:
@@ -137,6 +142,8 @@ ok("secret does not leak into any plaintext/legacy column", not secret_leaks_any
 # ── unlocked read reveals; context read includes ─────────────────────────────
 sm = repo.read(sid, conn=conn)
 ok("unlocked read reveals distilled_text", sm.distilled_text == SECRET_TEXT and sm.redacted is False)
+ok("unlocked read reveals behavior_implication (#20 P1)",
+   sm.behavior_implication == "Guard the code SUPER_SECRET_8842 — never speak it aloud")
 ok("unlocked read reveals evidence", sm.evidence[0].excerpt == SECRET_EV and sm.evidence[0].redacted is False)
 ok("unlocked context read includes sensitive", repo.read(sid, for_context=True, conn=conn) is not None)
 

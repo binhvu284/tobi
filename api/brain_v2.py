@@ -436,28 +436,57 @@ def cleanup_preview():
     return {"proposals": _cleanup_proposals()}
 
 
+def _action_key(act: dict) -> Optional[tuple]:
+    """Canonical identity of a cleanup action (ignores the human 'reason'), or
+    None if malformed. Used to match a submitted action against the current
+    preview so only server-proposed actions can apply."""
+    try:
+        kind = act.get("action")
+        if kind == "merge" and act.get("keep_id") and act.get("merge_id"):
+            return ("merge", int(act["keep_id"]), int(act["merge_id"]))
+        if kind in ("archive", "revalidate") and act.get("memory_id"):
+            return (kind, int(act["memory_id"]))
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
 @router.post("/cleanup/apply")
 def cleanup_apply(payload: CleanupApplyReq):
-    """Apply only the proposals the owner sent back (spec: no destructive
-    proposal applies without confirmation). merge → archive the extra row with
-    a supersedes-style evidence note; archive/revalidate → status changes only."""
+    """Apply only the proposals the owner sent back (spec: no destructive apply
+    without confirmation).
+
+    Security (#20 review P1): every submitted action must match a proposal in the
+    CURRENT preview — a client cannot archive/merge/pend arbitrary ids by forging
+    actions or replaying a stale set. Application is atomic: one transaction, a
+    single commit, rollback on any failure (no partial application).
+    """
+    allowed = {_action_key(p) for p in _cleanup_proposals()}
+    plan: list[tuple] = []
+    for act in payload.actions:
+        key = _action_key(act)
+        if key is None:
+            raise HTTPException(400, f"malformed cleanup action: {act}")
+        if key not in allowed:
+            raise HTTPException(409, "action does not match the current preview — refresh and retry")
+        plan.append(key)
+
+    c = repo._conn(None)
     applied = 0
     try:
-        for act in payload.actions:
-            kind = act.get("action")
-            if kind == "merge" and act.get("keep_id") and act.get("merge_id"):
-                repo.add_evidence(int(act["keep_id"]),
-                                  excerpt="", source_ref=f"merged-from:{act['merge_id']}")
-                repo.set_status(int(act["merge_id"]), MemoryStatus.ARCHIVED)
-                applied += 1
-            elif kind == "archive" and act.get("memory_id"):
-                repo.set_status(int(act["memory_id"]), MemoryStatus.ARCHIVED)
-                applied += 1
-            elif kind == "revalidate" and act.get("memory_id"):
-                repo.set_status(int(act["memory_id"]), MemoryStatus.PENDING)
-                applied += 1
-            else:
-                raise ValueError(f"unknown cleanup action: {act}")
+        for key in plan:
+            if key[0] == "merge":
+                _, keep_id, merge_id = key
+                repo.add_evidence(keep_id, excerpt="", source_ref=f"merged-from:{merge_id}",
+                                  conn=c, commit=False)
+                repo.set_status(merge_id, MemoryStatus.ARCHIVED, conn=c, commit=False)
+            elif key[0] == "archive":
+                repo.set_status(key[1], MemoryStatus.ARCHIVED, conn=c, commit=False)
+            else:  # revalidate
+                repo.set_status(key[1], MemoryStatus.PENDING, conn=c, commit=False)
+            applied += 1
+        c.commit()
     except Exception as e:
+        c.rollback()
         raise _http(e)
     return {"ok": True, "applied": applied}
