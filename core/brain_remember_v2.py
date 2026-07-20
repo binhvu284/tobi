@@ -265,11 +265,14 @@ def remember_on(content: str, category: str,
     try:
         res = ingest(cand, conn=c)
     except vault.VaultLocked:
-        # Vault down + sensitive content: behave exactly like legacy (which is
-        # what runs today), and say why V2 was skipped.
-        legacy = brain.remember_legacy(content, category)
-        legacy["v2"] = {"skipped": "vault_locked"}
-        return legacy
+        # Sensitive content + locked vault: V2 save() fails closed BEFORE writing
+        # anything. Do NOT fall back to remember_legacy() — that would drop the
+        # secret straight into the unencrypted legacy table, defeating encryption
+        # (#20 review P1). Refuse and tell the owner to unlock the vault. Nothing
+        # is stored in either store.
+        return {"ok": False, "id": None, "category": category, "action": "blocked",
+                "v2": {"skipped": "vault_locked",
+                       "error": "This looks sensitive — unlock the vault to store it."}}
 
     v2_info = {"id": res.memory_id, "outcome": res.outcome,
                "status": res.status.value if res.status else None}

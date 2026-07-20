@@ -154,12 +154,16 @@ leak = any("REMEMBER_SECRET_3327" in str(x[0] or "") for t, col in
            for x in conn.execute(f"SELECT {col} FROM {t}").fetchall())
 ok("on sensitive: plaintext nowhere", not leak)
 
-# on sensitive + locked vault: falls back to legacy exactly, says why
+# on sensitive + locked vault: BLOCKED — never falls back to plaintext legacy
+# (#20 review P1). Nothing is written to either store.
 vault.lock()
+before_legacy, before_v2 = legacy_count(), v2_count()
 r = brain.remember("Owner's medical checkup is on the 12th", "health")
-ok("on locked-vault sensitive: legacy fallback shape",
-   r["ok"] is True and r["action"] == "active" and isinstance(r["id"], int))
+ok("on locked-vault sensitive: blocked, not stored",
+   r["ok"] is False and r["action"] == "blocked" and r["id"] is None)
 ok("on locked-vault sensitive: v2 skip reason", r.get("v2", {}).get("skipped") == "vault_locked")
+ok("on locked-vault sensitive: nothing written to legacy or v2",
+   legacy_count() == before_legacy and v2_count() == before_v2)
 vault.unlock(conn, "master-pass-123456")
 
 # ── rollback: flags off restores the legacy path ─────────────────────────────

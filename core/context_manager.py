@@ -124,8 +124,13 @@ def build_manifest(message: str, mode: str, history: list[dict], project_context
     except Exception:
         pass
     if v2_on:
+        # V2 is authoritative: do NOT fall back to the legacy profile even when the
+        # V2 store is still young/empty. The legacy brain_memories table is
+        # unencrypted and may hold sensitive or already-deleted memories that the
+        # V2 pipeline deliberately excludes — reintroducing them into the LLM
+        # context would defeat both encryption and deletion (#20 review P1). An
+        # empty V2 profile simply contributes no owner_memory block.
         profile = _cached("owner_profile_v2", _stable_profile_v2)
-        profile = profile or _cached("owner_profile", _stable_profile)  # V2 store may be young
     else:
         profile = _cached("owner_profile", _stable_profile)
     if profile:  # guard the empty case: estimate_tokens is max(1, …), so "" would still cost 1
