@@ -552,6 +552,19 @@ def job_brain_decay():
         logger.error(f"Brain decay error: {e}")
 
 
+def job_brain_import_expire():
+    """Purge encrypted payloads of stale uncommitted Brain V2 import jobs past the
+    24h temp-data limit (#20 review P1: the promised cleanup must be automatic,
+    not just an on-demand function)."""
+    try:
+        from core.brain_import import expire_jobs
+        n = expire_jobs()
+        if n:
+            logger.info(f"🧠 Brain import expiry: purged {n} stale job(s)")
+    except Exception as e:
+        logger.error(f"Brain import expiry error: {e}")
+
+
 def job_storage_scan_db():
     """Hourly-ish DB storage snapshot (cheap) — Storage & Usage (#10) [S21]."""
     try:
@@ -640,6 +653,7 @@ def setup_schedules():
     schedule.every().sunday.at("20:00").do(lambda: run_async(job_weekly_reflection()))
     schedule.every(30).minutes.do(job_brain_sweep)
     schedule.every().day.at("04:00").do(job_brain_decay)
+    schedule.every().hour.do(job_brain_import_expire)
     schedule.every(45).minutes.do(job_graph_sync)
     schedule.every().hour.do(job_storage_scan_db)
     schedule.every().day.at("04:30").do(job_storage_scan_fs)
