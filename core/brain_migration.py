@@ -248,10 +248,20 @@ def list_items(run_id: int, group: Optional[str] = None,
     return out
 
 
-def set_decision(item_id: int, approved: bool, conn: Optional[sqlite3.Connection] = None) -> None:
+def set_decision(item_id: int, approved: bool, run_id: Optional[int] = None,
+                 conn: Optional[sqlite3.Connection] = None) -> int:
+    """Individual triage decision. Security (#20 review P1): when ``run_id`` is
+    given the update is scoped to that run, so an item id from another run cannot
+    be decided through this run's endpoint. Returns rows changed (0 = not in run)."""
     c = _conn(conn)
-    c.execute("UPDATE brain_migration_items SET approved=? WHERE id=?", (int(bool(approved)), item_id))
+    if run_id is not None:
+        cur = c.execute("UPDATE brain_migration_items SET approved=? WHERE id=? AND run_id=?",
+                        (int(bool(approved)), item_id, run_id))
+    else:
+        cur = c.execute("UPDATE brain_migration_items SET approved=? WHERE id=?",
+                        (int(bool(approved)), item_id))
     c.commit()
+    return cur.rowcount
 
 
 def bulk_decide(run_id: int, approved: bool, group: Optional[str] = None,

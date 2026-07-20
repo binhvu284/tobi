@@ -167,9 +167,9 @@ def _triage(job_id: int, approved: bool, payload: TriageReq) -> dict:
     imp.job_status(job_id)                        # 404 guard
     n = 0
     if payload.ids:
+        # scope each id to this job — ids from another job change nothing
         for cid in payload.ids:
-            imp.set_decision(cid, approved)
-            n += 1
+            n += imp.set_decision(cid, approved, job_id=job_id)
     else:
         n = imp.bulk_decide(job_id, approved, only_outcome=payload.outcome)
     return {"ok": True, "decided": n, "approved": approved}
@@ -376,9 +376,9 @@ def _mig_triage(run_id: int, approved: bool, payload: MigrationTriageReq) -> dic
     mig.run_status(run_id)
     n = 0
     if payload.ids:
+        # scope each id to this run — ids from another run change nothing
         for iid in payload.ids:
-            mig.set_decision(iid, approved)
-            n += 1
+            n += mig.set_decision(iid, approved, run_id=run_id)
     else:
         n = mig.bulk_decide(run_id, approved, group=payload.group)
     return {"ok": True, "decided": n, "approved": approved}

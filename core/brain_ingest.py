@@ -87,6 +87,12 @@ def candidate_from_dict(raw: dict) -> MemoryCandidate:
             kw[key] = tuple(str(t) for t in value)
         else:
             kw[key] = value
+    # Security (#20 review P1): never trust a model-supplied quality_score. The
+    # score is authoritative only when derived from the six quality dimensions,
+    # so we drop any provided score and let MemoryCandidate recompute it. Without
+    # this, an untrusted import could claim quality_score=100 with every
+    # dimension at zero and auto-activate past the gate.
+    kw.pop("quality_score", None)
     return MemoryCandidate(**kw)
 
 
