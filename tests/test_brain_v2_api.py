@@ -121,8 +121,11 @@ pend = repo.save(MemoryCandidate(distilled_text="Owner might adopt a standing 1:
                                  source_strength=1), status=MemoryStatus.PENDING, conn=conn)
 r = client.post(f"/api/brain/v2/memories/{pend}/status", json={"status": "active"})
 ok("owner review: pending → active", r.json()["status"] == "active")
-r = client.delete(f"/api/brain/v2/memories/{pend}/purge")
-ok("purge deletes permanently", r.json()["ok"] is True
+# purge requires explicit backend confirmation (#20 review P1)
+ok("purge without confirm is rejected",
+   client.delete(f"/api/brain/v2/memories/{pend}/purge").status_code == 400)
+r = client.delete(f"/api/brain/v2/memories/{pend}/purge?confirm=true")
+ok("purge deletes permanently (confirmed)", r.json()["ok"] is True
    and client.get(f"/api/brain/v2/memories/{pend}").status_code == 404)
 
 # ── profile / recall / stats ─────────────────────────────────────────────────

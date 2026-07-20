@@ -116,7 +116,8 @@ export async function v2Influence(id: number): Promise<V2Influence[]> {
   return get(`/api/brain/v2/memories/${id}/influence`)
 }
 export async function v2Purge(id: number): Promise<{ ok: boolean }> {
-  return request(`/api/brain/v2/memories/${id}/purge`, { method: 'DELETE' })
+  // permanent, irreversible — the backend requires explicit confirmation (#20 P1)
+  return request(`/api/brain/v2/memories/${id}/purge?confirm=true`, { method: 'DELETE' })
 }
 export async function v2Recall(query: string, mode: 'chat' | 'agent' = 'chat'): Promise<V2RecallItem[]> {
   return request('/api/brain/v2/recall', { method: 'POST', body: JSON.stringify({ query, mode }) })

@@ -9,11 +9,13 @@ mutations accept an ``Idempotency-Key`` header.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
+import os
 import threading
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -26,7 +28,34 @@ from core import brain_retrieval as ret
 from core.brain_contracts import MemoryStatus, MemoryType
 from core.brain_ingest import text_similarity, MERGE_AT
 
-router = APIRouter(prefix="/api/brain/v2", tags=["brain-v2"])
+
+def _owner_guard(request: Request, x_owner_token: Optional[str] = Header(default=None)) -> None:
+    """Owner authorization for the whole Brain V2 surface (#20 review P1).
+
+    Mission Control is a trusted single-owner surface (see CLAUDE.md), so this is
+    secure-by-default without breaking local use:
+      - No owner token configured  → no-op (local owner-only, unchanged UX).
+      - MC_OWNER_TOKEN / OWNER_TOKEN set (e.g. a public/VPS deployment) → every
+        Brain V2 request must present it via the ``X-Owner-Token`` header or
+        ``Authorization: Bearer <token>``; otherwise 401.
+
+    A header token (not a cookie) is used deliberately: cross-site requests cannot
+    set custom headers, so this also defeats CSRF against these mutating routes.
+    """
+    expected = os.getenv("MC_OWNER_TOKEN") or os.getenv("OWNER_TOKEN")
+    if not expected:
+        return  # trusted single-owner surface — no token configured
+    presented = x_owner_token
+    if not presented:
+        auth = request.headers.get("authorization", "")
+        if auth.lower().startswith("bearer "):
+            presented = auth[7:].strip()
+    if not presented or not hmac.compare_digest(str(presented), str(expected)):
+        raise HTTPException(401, "owner authorization required")
+
+
+router = APIRouter(prefix="/api/brain/v2", tags=["brain-v2"],
+                   dependencies=[Depends(_owner_guard)])
 
 # tiny replay guard for remember (process-lifetime; spec: idempotency keys
 # where replay is possible)
@@ -278,7 +307,12 @@ def memory_edit(memory_id: int, payload: EditReq):
 
 
 @router.delete("/memories/{memory_id}/purge")
-def memory_purge(memory_id: int):
+def memory_purge(memory_id: int, confirm: bool = False):
+    """Permanent, irreversible delete. Requires explicit backend confirmation
+    (#20 review P1): ``?confirm=true`` — the server does not rely on frontend
+    confirmation alone, so a stray/forged DELETE cannot destroy a memory."""
+    if not confirm:
+        raise HTTPException(400, "purge requires confirm=true (permanent, irreversible)")
     if not repo.purge(memory_id):
         raise HTTPException(404, "no such memory")
     return {"ok": True, "purged": memory_id}
