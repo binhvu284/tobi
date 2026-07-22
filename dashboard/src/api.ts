@@ -867,7 +867,7 @@ export type DeveloperQueueItem = {
 export type DeveloperRelease = {
   id: number; version: string; tier?: string | null; source: string; queue_item?: number | null
   commit_sha?: string | null; tag?: string | null; risk?: string | null; status: string
-  created_at: string; released_at?: string | null
+  notes?: string | null; created_at: string; released_at?: string | null
 }
 export type DeveloperOverview = {
   active_workflow: DeveloperWorkflow | null

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Activity, AlertTriangle, BookOpen, CheckCircle2, Circle, Clock3, Code2, ExternalLink,
-  ChevronDown, ChevronUp, GitBranch, KeyRound, ListTree, Loader2, Pause, Play, Plus, Radio, RefreshCw,
+  Activity, AlertTriangle, Archive, BookOpen, CheckCircle2, Circle, Clock3, Code2, Download, ExternalLink,
+  ChevronDown, ChevronUp, GitBranch, Github, HardDrive, KeyRound, ListTree, Loader2, MoreHorizontal, Pause, Play, Plus, Radio, RefreshCw,
   RotateCcw, Save, ScrollText, ShieldCheck, Square, Target,
-  TerminalSquare, TestTube2, WifiOff, Wrench, XCircle,
+  TerminalSquare, TestTube2, Trash2, Upload, WifiOff, Wrench, XCircle,
 } from 'lucide-react'
 import AmbientField from '../components/motion/AmbientField'
 import LlmLogo, { BRAND_META, brandForModel, brandForProvider } from '../components/LlmLogo'
@@ -27,7 +27,7 @@ import {
   type DeveloperWorkflow, type LlmProvider,
 } from '../api'
 
-type Tab = 'overview' | 'goals' | 'loop' | 'workers' | 'learning' | 'queue' | 'versions' | 'storage'
+type Tab = 'overview' | 'goals' | 'loop' | 'workers' | 'data' | 'queue' | 'versions'
 type DeveloperLoadError = { message: string; status?: number; code?: string }
 type DeveloperStreamState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'closed'
 type LiveEventKind = 'stage' | 'tool' | 'worker' | 'checkpoint' | 'success' | 'problem' | 'system'
@@ -1105,15 +1105,106 @@ function LearningView({ state, busy, onReplay }: {
   </div>
 }
 
-function VersionsView({ releases }: { releases: DeveloperRelease[] }) {
-  if (!releases.length) return <Empty text="No version has been reserved." />
-  return <div className="border-t border-border">{releases.map(release => (
-    <div key={release.id} className="grid gap-2 border-b border-border/70 py-4 sm:grid-cols-[120px_1fr_150px] sm:items-center">
-      <div className="font-mono text-sm font-semibold text-text">v{release.version}</div>
-      <div><div className="text-sm text-text">Queue #{release.queue_item ?? '—'}</div><div className="mt-1 text-xs text-muted">{release.commit_sha?.slice(0, 12) ?? 'Commit pending'} · {release.source}</div></div>
-      <div className="sm:text-right"><StateBadge state={release.status} /></div>
+const TOBI_REPOSITORY_URL = 'https://github.com/binhvu284/tobi'
+
+function releaseDate(value?: string | null) {
+  if (!value) return 'Date pending'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+function releaseDescription(release: DeveloperRelease) {
+  if (release.notes?.trim()) return release.notes.trim()
+  if (release.queue_item) return `Mission Control release for queue item #${release.queue_item}.`
+  return `TOBI ${release.tier ? `${label(release.tier)} tier ` : ''}release tracked by Mission Control.`
+}
+
+function VersionActions({ version }: { version: string }) {
+  const actions = [
+    { label: 'Download this version', icon: Download },
+    { label: 'Change to this version', icon: RotateCcw },
+    { label: 'Remove version', icon: Trash2 },
+  ]
+  return <details className="relative shrink-0">
+    <summary title={`Actions for version ${version}`} aria-label={`Actions for version ${version}`} className="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-md text-muted transition-colors hover:bg-overlay/10 hover:text-text [&::-webkit-details-marker]:hidden">
+      <MoreHorizontal size={16} />
+    </summary>
+    <div className="absolute right-0 top-9 z-20 w-60 rounded-md border border-border bg-surface p-1 shadow-2xl">
+      {actions.map(action => {
+        const Icon = action.icon
+        return <button key={action.label} type="button" disabled className="flex h-9 w-full cursor-not-allowed items-center gap-2 rounded px-2 text-left text-xs text-muted opacity-70">
+          <Icon size={13} /><span className="min-w-0 flex-1 truncate">{action.label}</span><span className="rounded border border-border px-1.5 py-0.5 text-[9px] uppercase text-muted">Soon</span>
+        </button>
+      })}
     </div>
-  ))}</div>
+  </details>
+}
+
+function VersionsView({ releases }: { releases: DeveloperRelease[] }) {
+  const current = releases.find(release => release.status === 'released') ?? releases[0] ?? null
+  const currentIndex = current ? releases.findIndex(release => release.id === current.id) : -1
+  const previous = currentIndex >= 0 ? releases.slice(currentIndex + 1)[0] ?? null : null
+  const currentDescription = current ? releaseDescription(current) : 'No TOBI release has been recorded in Mission Control yet.'
+  const changedSummary = current
+    ? previous
+      ? `Advanced from v${previous.version}${current.queue_item ? ` through queue item #${current.queue_item}` : ''}.`
+      : current.queue_item
+        ? `Established by queue item #${current.queue_item}; no earlier release is recorded.`
+        : 'This is the earliest release currently recorded in Mission Control.'
+    : 'Version comparison will appear after the first release is recorded.'
+
+  return <div className="space-y-6">
+    <section className="overflow-hidden rounded-md border border-border bg-surface/45">
+      <div className="flex flex-col gap-5 border-l-2 border-accent px-5 py-5 sm:px-6">
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase text-accent"><GitBranch size={13} /> Current version</div>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <h2 className="font-mono text-2xl font-semibold text-heading">{current ? `v${current.version}` : 'Not recorded'}</h2>
+              {current && <StateBadge state={current.status} />}
+            </div>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">{currentDescription}</p>
+          </div>
+          {current && <div className="shrink-0 text-left text-[11px] text-muted sm:text-right"><div>{releaseDate(current.released_at ?? current.created_at)}</div><div className="mt-1 font-mono">{current.commit_sha?.slice(0, 12) ?? 'Commit pending'}</div></div>}
+        </div>
+        <div className="grid gap-4 border-t border-border/70 pt-4 lg:grid-cols-2">
+          <div><div className="text-[10px] font-semibold uppercase text-muted">Changed from previous</div><p className="mt-1.5 text-xs leading-5 text-text">{changedSummary}</p></div>
+          <div><div className="text-[10px] font-semibold uppercase text-muted">Update recap</div><p className="mt-1.5 text-xs leading-5 text-text">{current ? `${label(current.status)} from ${label(current.source)}${current.tier ? ` for the ${label(current.tier)} tier` : ''}.` : 'Release status, source, and deployment recap will appear here.'}</p></div>
+        </div>
+      </div>
+    </section>
+
+    <div className="grid gap-4 lg:grid-cols-2">
+      <section className="rounded-md border border-border bg-surface/30 p-5">
+        <div className="flex items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-overlay/5 text-text"><Github size={18} /></span><div className="min-w-0"><h2 className="text-sm font-semibold text-text">Source</h2><p className="mt-1 text-xs leading-5 text-muted">Mission Control and the repository should document the same active version.</p></div></div>
+        <a href={TOBI_REPOSITORY_URL} target="_blank" rel="noreferrer" className="mt-5 flex items-center justify-between gap-3 rounded-md border border-border bg-background/55 px-3 py-2.5 text-xs text-text transition-colors hover:border-accent/45 hover:text-accent">
+          <span className="truncate font-mono">github.com/binhvu284/tobi</span><ExternalLink size={13} className="shrink-0" />
+        </a>
+      </section>
+
+      <section className="rounded-md border border-border bg-surface/30 p-5">
+        <div className="flex items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-accent/10 text-accent"><Archive size={18} /></span><div className="min-w-0"><h2 className="text-sm font-semibold text-text">Backup data</h2><p className="mt-1 text-xs leading-5 text-muted">Import or export chats, files, projects, and related TOBI data.</p></div></div>
+        <div className="mt-5 grid grid-cols-2 gap-2">
+          <button type="button" disabled title="Backup import is coming soon" className="inline-flex h-10 cursor-not-allowed items-center justify-center gap-2 rounded-md border border-border text-xs text-muted opacity-70"><Upload size={14} /> Import <span className="text-[9px] uppercase">Soon</span></button>
+          <button type="button" disabled title="Backup export is coming soon" className="inline-flex h-10 cursor-not-allowed items-center justify-center gap-2 rounded-md border border-border text-xs text-muted opacity-70"><Download size={14} /> Export <span className="text-[9px] uppercase">Soon</span></button>
+        </div>
+      </section>
+    </div>
+
+    <section>
+      <div className="flex items-end justify-between gap-4"><div><h2 className="text-sm font-semibold text-text">Version history</h2><p className="mt-1 text-xs text-muted">Recorded TOBI releases, newest first.</p></div><span className="text-[11px] tabular-nums text-muted">{releases.length} {releases.length === 1 ? 'version' : 'versions'}</span></div>
+      {!releases.length ? <div className="mt-3"><Empty text="No version has been reserved." /></div> : <div className="mt-3 space-y-2">{releases.map(release => (
+        <div key={release.id} className="flex min-h-14 items-center gap-3 rounded-md border border-border bg-surface/25 px-3 py-2.5 transition-colors hover:bg-surface/45 sm:px-4">
+          <div className="w-24 shrink-0"><div className="font-mono text-sm font-semibold text-text">v{release.version}</div>{current?.id === release.id && <div className="mt-0.5 text-[9px] font-semibold uppercase text-accent">Current</div>}</div>
+          <p className="min-w-0 flex-1 truncate text-xs text-muted">{releaseDescription(release)}</p>
+          <div className="hidden shrink-0 items-center gap-3 md:flex"><StateBadge state={release.status} /><span className="w-24 text-right text-[10px] text-muted">{releaseDate(release.released_at ?? release.created_at)}</span></div>
+          <VersionActions version={release.version} />
+        </div>
+      ))}</div>}
+    </section>
+  </div>
 }
 
 function StorageView({ storage, busy, onCleanup }: { storage: DeveloperStorage | null; busy: boolean; onCleanup: (master: string) => void }) {
@@ -1136,6 +1227,23 @@ function StorageView({ storage, busy, onCleanup }: { storage: DeveloperStorage |
       </div>
     </section>
   )
+}
+
+function DataLearningView({ storage, learning, busy, onCleanup, onReplay }: {
+  storage: DeveloperStorage | null
+  learning: { records: Array<Record<string, unknown>>; playbooks: Array<Record<string, unknown>> }
+  busy: boolean; onCleanup: (master: string) => void; onReplay: () => void
+}) {
+  return <div className="space-y-10">
+    <div>
+      <div className="mb-4 flex items-start gap-3"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent/10 text-accent"><HardDrive size={16} /></span><div><h2 className="text-sm font-semibold text-text">Storage</h2><p className="mt-1 text-xs text-muted">Developer worktrees, evidence, and retention controls.</p></div></div>
+      <StorageView storage={storage} busy={busy} onCleanup={onCleanup} />
+    </div>
+    <div>
+      <div className="mb-4 flex items-start gap-3"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-success/10 text-success"><BookOpen size={16} /></span><div><h2 className="text-sm font-semibold text-text">Learning</h2><p className="mt-1 text-xs text-muted">Evidence-backed outcomes and reusable development playbooks.</p></div></div>
+      <LearningView state={learning} busy={busy} onReplay={onReplay} />
+    </div>
+  </div>
 }
 
 export default function Developer() {
@@ -1393,8 +1501,8 @@ export default function Developer() {
   const capabilities = useMemo(() => Object.entries(overview?.policy.capabilities ?? {}), [overview])
   const tabs: { id: Tab; label: string }[] = [
     { id: 'overview', label: 'Overview' }, { id: 'goals', label: 'Goals' }, { id: 'loop', label: 'Process' },
-    { id: 'workers', label: 'Agents' }, { id: 'learning', label: 'Learning' }, { id: 'queue', label: 'Queue' },
-    { id: 'versions', label: 'Versions' }, { id: 'storage', label: 'Storage' },
+    { id: 'workers', label: 'Agents' }, { id: 'data', label: 'Storage & Learning' }, { id: 'queue', label: 'Queue' },
+    { id: 'versions', label: 'Version' },
   ]
 
   return (
@@ -1432,7 +1540,7 @@ export default function Developer() {
               onAutoQueue={setAutoQueue} onCommand={command} onApprove={approve} onReject={rejectApproval} />}
             {tab === 'goals' && <DevelopmentGoals goals={goals} workers={workers} busy={busy} onCreate={createGoal} onCommand={goalCommand} />}
             {tab === 'workers' && <DeveloperAgents workers={workers} models={workerModels} providers={workerProviders} routing={modelRouting} busy={busy} onSave={saveWorker} onProbe={probeWorker} onLogin={loginWorker} onModels={loadWorkerModels} />}
-            {tab === 'learning' && <LearningView state={learning} busy={busy} onReplay={replayLearning} />}
+            {tab === 'data' && <DataLearningView storage={storage} learning={learning} busy={busy} onReplay={replayLearning} onCleanup={master => act(() => cleanupDeveloperStorage(master), 'Developer cleanup completed')} />}
             {tab === 'queue' && <DeveloperQueue state={queue} active={active} busy={busy} goals={goals}
               autoQueue={autoQueuePending ?? overview?.process?.auto_queue ?? queue.auto_queue}
               autoQueueBusy={autoQueuePending !== null}
@@ -1441,7 +1549,6 @@ export default function Developer() {
               onOpenProcess={() => setTab('loop')}
               onState={setQueue} />}
             {tab === 'versions' && <VersionsView releases={releases} />}
-            {tab === 'storage' && <StorageView storage={storage} busy={busy} onCleanup={master => act(() => cleanupDeveloperStorage(master), 'Developer cleanup completed')} />}
           </main>
         </>}
     </div>
