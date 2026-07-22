@@ -37,6 +37,13 @@ CREATE TABLE IF NOT EXISTS development_tasks (
     target_version TEXT,
     queue_status TEXT,
     queue_effort TEXT,
+    validation_commands_json TEXT NOT NULL DEFAULT '[]',
+    worker_profile_slug TEXT NOT NULL DEFAULT 'mc-native',
+    reviewer_profile_slug TEXT NOT NULL DEFAULT 'reviewer-default',
+    fallback_profiles_json TEXT NOT NULL DEFAULT '[]',
+    owner_state TEXT NOT NULL DEFAULT 'Draft',
+    legacy_hidden INTEGER NOT NULL DEFAULT 0,
+    status_override INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -67,6 +74,9 @@ CREATE TABLE IF NOT EXISTS coding_sessions (
     updated_at TEXT NOT NULL,
     completed_at TEXT,
     archived_at TEXT,
+    readiness_snapshot_id INTEGER,
+    last_heartbeat_at TEXT,
+    last_output_at TEXT,
     FOREIGN KEY(task_id) REFERENCES development_tasks(id)
 );
 CREATE TABLE IF NOT EXISTS coding_stages (
@@ -185,7 +195,11 @@ CREATE TABLE IF NOT EXISTS development_goals (
     lease_expires_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    completed_at TEXT
+    completed_at TEXT,
+    qualification_percent INTEGER NOT NULL DEFAULT 0,
+    evidence_json TEXT NOT NULL DEFAULT '[]',
+    gaps_json TEXT NOT NULL DEFAULT '[]',
+    last_evaluated_at TEXT
 );
 CREATE TABLE IF NOT EXISTS goal_iterations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -345,6 +359,62 @@ CREATE TABLE IF NOT EXISTS coding_runner_events (
     UNIQUE(job_id,sequence),
     FOREIGN KEY(job_id) REFERENCES coding_runner_jobs(id)
 );
+CREATE TABLE IF NOT EXISTS development_goal_task_links (
+    goal_id INTEGER NOT NULL,
+    task_id INTEGER NOT NULL,
+    relation TEXT NOT NULL DEFAULT 'contributes',
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(goal_id,task_id),
+    FOREIGN KEY(goal_id) REFERENCES development_goals(id),
+    FOREIGN KEY(task_id) REFERENCES development_tasks(id)
+);
+CREATE TABLE IF NOT EXISTS coding_readiness_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    snapshot_hash TEXT NOT NULL,
+    policy_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(task_id) REFERENCES development_tasks(id)
+);
+CREATE TABLE IF NOT EXISTS coding_stage_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    stage_id TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    worker_profile_slug TEXT,
+    started_at TEXT NOT NULL,
+    heartbeat_at TEXT NOT NULL,
+    last_output_at TEXT,
+    completed_at TEXT,
+    error_code TEXT,
+    result_json TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(session_id,stage_id,attempt),
+    FOREIGN KEY(session_id) REFERENCES coding_sessions(id)
+);
+CREATE TABLE IF NOT EXISTS coding_evidence_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER,
+    task_id INTEGER NOT NULL,
+    goal_id INTEGER,
+    criterion_index INTEGER,
+    kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    source TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(session_id) REFERENCES coding_sessions(id),
+    FOREIGN KEY(task_id) REFERENCES development_tasks(id),
+    FOREIGN KEY(goal_id) REFERENCES development_goals(id)
+);
+CREATE TABLE IF NOT EXISTS coding_run_scorecards (
+    session_id INTEGER PRIMARY KEY,
+    payload_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(session_id) REFERENCES coding_sessions(id)
+);
 CREATE INDEX IF NOT EXISTS idx_development_events_session_seq ON development_events(session_id,sequence);
 CREATE INDEX IF NOT EXISTS idx_coding_sessions_state ON coding_sessions(state,updated_at);
 CREATE INDEX IF NOT EXISTS idx_coding_stages_session ON coding_stages(session_id,position);
@@ -356,6 +426,10 @@ CREATE INDEX IF NOT EXISTS idx_learning_signature ON coding_learning_records(sig
 CREATE INDEX IF NOT EXISTS idx_runner_jobs_status ON coding_runner_jobs(status,created_at);
 CREATE INDEX IF NOT EXISTS idx_runner_jobs_workflow ON coding_runner_jobs(workflow_id,id);
 CREATE INDEX IF NOT EXISTS idx_runner_events_job_seq ON coding_runner_events(job_id,sequence);
+CREATE INDEX IF NOT EXISTS idx_goal_task_links_task ON development_goal_task_links(task_id,goal_id);
+CREATE INDEX IF NOT EXISTS idx_readiness_task_created ON coding_readiness_snapshots(task_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_stage_attempts_session ON coding_stage_attempts(session_id,stage_id,attempt);
+CREATE INDEX IF NOT EXISTS idx_evidence_task_goal ON coding_evidence_records(task_id,goal_id,criterion_index);
 """
 
 
@@ -464,6 +538,73 @@ class DevelopmentStore:
                     "INSERT INTO developer_schema_migrations(version,applied_at) VALUES (5,?)",
                     (now,),
                 )
+            migration_6 = conn.execute(
+                "SELECT 1 FROM developer_schema_migrations WHERE version=6"
+            ).fetchone()
+            if not migration_6:
+                task_additions = {
+                    "validation_commands_json": "TEXT NOT NULL DEFAULT '[]'",
+                    "worker_profile_slug": "TEXT NOT NULL DEFAULT 'mc-native'",
+                    "reviewer_profile_slug": "TEXT NOT NULL DEFAULT 'reviewer-default'",
+                    "fallback_profiles_json": "TEXT NOT NULL DEFAULT '[]'",
+                    "owner_state": "TEXT NOT NULL DEFAULT 'Draft'",
+                    "legacy_hidden": "INTEGER NOT NULL DEFAULT 0",
+                }
+                existing = {str(row[1]) for row in conn.execute("PRAGMA table_info(development_tasks)")}
+                for name, declaration in task_additions.items():
+                    if name not in existing:
+                        conn.execute(f"ALTER TABLE development_tasks ADD COLUMN {name} {declaration}")
+                session_v6 = {
+                    "readiness_snapshot_id": "INTEGER",
+                    "last_heartbeat_at": "TEXT",
+                    "last_output_at": "TEXT",
+                }
+                existing = {str(row[1]) for row in conn.execute("PRAGMA table_info(coding_sessions)")}
+                for name, declaration in session_v6.items():
+                    if name not in existing:
+                        conn.execute(f"ALTER TABLE coding_sessions ADD COLUMN {name} {declaration}")
+                goal_v6 = {
+                    "qualification_percent": "INTEGER NOT NULL DEFAULT 0",
+                    "evidence_json": "TEXT NOT NULL DEFAULT '[]'",
+                    "gaps_json": "TEXT NOT NULL DEFAULT '[]'",
+                    "last_evaluated_at": "TEXT",
+                }
+                existing = {str(row[1]) for row in conn.execute("PRAGMA table_info(development_goals)")}
+                for name, declaration in goal_v6.items():
+                    if name not in existing:
+                        conn.execute(f"ALTER TABLE development_goals ADD COLUMN {name} {declaration}")
+                conn.execute(
+                    "UPDATE development_tasks SET legacy_hidden=1 WHERE queue_id>=900000000"
+                )
+                conn.execute(
+                    """INSERT OR IGNORE INTO development_goal_task_links(goal_id,task_id,relation,created_at)
+                       SELECT DISTINCT goal_id,task_id,'legacy_history',?
+                       FROM coding_sessions WHERE goal_id IS NOT NULL""",
+                    (now,),
+                )
+                conn.execute(
+                    """UPDATE development_tasks SET owner_state=CASE
+                         WHEN status='completed' THEN 'Done'
+                         WHEN status IN ('deleted','canceled') THEN 'Canceled'
+                         ELSE 'Ready' END"""
+                )
+                conn.execute(
+                    "INSERT INTO developer_schema_migrations(version,applied_at) VALUES (6,?)",
+                    (now,),
+                )
+            migration_7 = conn.execute(
+                "SELECT 1 FROM developer_schema_migrations WHERE version=7"
+            ).fetchone()
+            if not migration_7:
+                task_columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(development_tasks)")}
+                if "status_override" not in task_columns:
+                    conn.execute(
+                        "ALTER TABLE development_tasks ADD COLUMN status_override INTEGER NOT NULL DEFAULT 0"
+                    )
+                conn.execute(
+                    "INSERT INTO developer_schema_migrations(version,applied_at) VALUES (7,?)",
+                    (now,),
+                )
             conn.commit()
         finally:
             conn.close()
@@ -474,23 +615,43 @@ class DevelopmentStore:
 
     def upsert_task(self, item: dict[str, Any]) -> dict[str, Any]:
         now = utc_now()
+        status = str(item.get("status", "planned"))
+        owner_state = str(item.get("owner_state") or (
+            "Done" if status == "completed" else "Canceled" if status in {"deleted", "canceled"} else "Ready"
+        ))
         conn = self.connect()
         try:
             conn.execute(
                 """INSERT INTO development_tasks
                 (queue_id,title,plan_path,plan_hash,acceptance_criteria_json,dependencies_json,
-                 status,risk,target_version,queue_status,queue_effort,created_at,updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 status,risk,target_version,queue_status,queue_effort,validation_commands_json,
+                 worker_profile_slug,reviewer_profile_slug,fallback_profiles_json,owner_state,
+                  legacy_hidden,status_override,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(queue_id) DO UPDATE SET
                   title=excluded.title,plan_path=excluded.plan_path,plan_hash=excluded.plan_hash,
                   acceptance_criteria_json=excluded.acceptance_criteria_json,
                   dependencies_json=excluded.dependencies_json,queue_status=excluded.queue_status,
-                  queue_effort=excluded.queue_effort,updated_at=excluded.updated_at""",
+                  queue_effort=excluded.queue_effort,risk=excluded.risk,
+                  target_version=COALESCE(development_tasks.target_version,excluded.target_version),
+                  status=CASE WHEN development_tasks.status_override=1
+                                   OR development_tasks.status IN ('approved','running')
+                              THEN development_tasks.status ELSE excluded.status END,
+                  owner_state=CASE WHEN development_tasks.status_override=1
+                                        OR development_tasks.status IN ('approved','running')
+                                   THEN development_tasks.owner_state ELSE excluded.owner_state END,
+                  updated_at=excluded.updated_at""",
                 (
                     int(item["queue_id"]), item["title"], item["plan_path"], item["plan_hash"],
                     _json(item.get("acceptance_criteria", [])), _json(item.get("dependencies", [])),
-                    item.get("status", "planned"), item.get("risk", "medium"), item.get("target_version"),
-                    item.get("queue_status"), item.get("queue_effort"), now, now,
+                    status, item.get("risk", "medium"), item.get("target_version"),
+                    item.get("queue_status"), item.get("queue_effort"),
+                    _json(item.get("validation_commands", [])),
+                    item.get("worker_profile_slug", "mc-native"),
+                    item.get("reviewer_profile_slug", "reviewer-default"),
+                    _json(item.get("fallback_profiles", [])), owner_state,
+                    int(bool(item.get("legacy_hidden", False))),
+                    int(bool(item.get("status_override", False))), now, now,
                 ),
             )
             conn.commit()
@@ -503,17 +664,26 @@ class DevelopmentStore:
         conn = self.connect()
         try:
             return [dict(row) for row in conn.execute(
-                "SELECT * FROM development_tasks WHERE status<>'deleted' ORDER BY queue_id DESC"
+                """SELECT * FROM development_tasks
+                   WHERE status<>'deleted' AND legacy_hidden=0 ORDER BY queue_id DESC"""
             )]
         finally:
             conn.close()
 
-    def set_task_status(self, queue_id: int, status: str) -> dict[str, Any] | None:
+    def set_task_status(
+        self, queue_id: int, status: str, *, override_source: bool = False
+    ) -> dict[str, Any] | None:
+        owner_state = {
+            "completed": "Done", "canceled": "Canceled", "deleted": "Canceled",
+            "failed": "Failed", "blocked": "Needs Action", "paused": "Paused",
+            "approved": "Running", "running": "Running", "planned": "Ready",
+        }.get(status, "Draft")
         conn = self.connect()
         try:
             conn.execute(
-                "UPDATE development_tasks SET status=?,updated_at=? WHERE queue_id=?",
-                (status, utc_now(), queue_id),
+                """UPDATE development_tasks
+                   SET status=?,owner_state=?,status_override=?,updated_at=? WHERE queue_id=?""",
+                (status, owner_state, int(override_source), utc_now(), queue_id),
             )
             conn.commit()
             return self._row(conn.execute(
@@ -535,6 +705,44 @@ class DevelopmentStore:
         finally:
             conn.close()
 
+    def configure_task(
+        self,
+        queue_id: int,
+        *,
+        worker_profile_slug: str,
+        reviewer_profile_slug: str,
+        fallback_profiles: Iterable[str] = (),
+        validation_commands: Iterable[Iterable[str]] = (),
+        owner_state: str | None = None,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        fallbacks = [str(item) for item in fallback_profiles if str(item).strip()]
+        commands = [list(item) for item in validation_commands]
+        conn = self.connect()
+        try:
+            fields = [
+                "worker_profile_slug=?", "reviewer_profile_slug=?",
+                "fallback_profiles_json=?", "validation_commands_json=?", "updated_at=?",
+            ]
+            values: list[Any] = [
+                worker_profile_slug, reviewer_profile_slug, _json(fallbacks), _json(commands), now,
+            ]
+            if owner_state:
+                fields.append("owner_state=?")
+                values.append(owner_state)
+            values.append(queue_id)
+            cur = conn.execute(
+                f"UPDATE development_tasks SET {','.join(fields)} WHERE queue_id=?",
+                values,
+            )
+            if cur.rowcount != 1:
+                raise KeyError(queue_id)
+            conn.commit()
+            row = conn.execute("SELECT * FROM development_tasks WHERE queue_id=?", (queue_id,)).fetchone()
+            return dict(row)
+        finally:
+            conn.close()
+
     def create_session(
         self,
         task_id: int,
@@ -550,6 +758,7 @@ class DevelopmentStore:
         assessment_id: int | None = None,
         current_sprint_id: int | None = None,
         sprint_budget: dict[str, Any] | None = None,
+        readiness_snapshot_id: int | None = None,
     ) -> dict[str, Any]:
         now = utc_now()
         conn = self.connect()
@@ -570,12 +779,13 @@ class DevelopmentStore:
                 """INSERT INTO coding_sessions
                 (task_id,state,stage,policy_hash,goal_id,plan_hash_snapshot,criteria_snapshot_json,
                  validation_commands_json,idempotency_key,worker_profile_slug,reviewer_profile_slug,
-                 assessment_id,current_sprint_id,sprint_budget_json,created_at,updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 assessment_id,current_sprint_id,sprint_budget_json,readiness_snapshot_id,
+                 last_heartbeat_at,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (task_id, "approved", "approved", policy_hash, goal_id, plan_hash_snapshot,
                  _json(list(criteria_snapshot)), _json([list(item) for item in validation_commands]),
                  idempotency_key, worker_profile_slug, reviewer_profile_slug, assessment_id,
-                 current_sprint_id, _json(sprint_budget or {}), now, now),
+                 current_sprint_id, _json(sprint_budget or {}), readiness_snapshot_id, now, now, now),
             )
             conn.commit()
             return dict(conn.execute("SELECT * FROM coding_sessions WHERE id=?", (cur.lastrowid,)).fetchone())
@@ -586,7 +796,8 @@ class DevelopmentStore:
         conn = self.connect()
         try:
             row = conn.execute(
-                """SELECT s.*,t.queue_id,t.title,t.plan_path,t.plan_hash,t.target_version,t.risk
+                """SELECT s.*,t.queue_id,t.title,t.plan_path,t.plan_hash,t.target_version,t.risk,
+                          t.owner_state,t.fallback_profiles_json,t.validation_commands_json AS task_validation_commands_json
                    FROM coding_sessions s JOIN development_tasks t ON t.id=s.task_id WHERE s.id=?""",
                 (session_id,),
             ).fetchone()
@@ -598,7 +809,8 @@ class DevelopmentStore:
         conn = self.connect()
         try:
             rows = conn.execute(
-                """SELECT s.*,t.queue_id,t.title,t.plan_path,t.target_version,t.risk
+                """SELECT s.*,t.queue_id,t.title,t.plan_path,t.target_version,t.risk,t.owner_state,
+                          t.fallback_profiles_json
                    FROM coding_sessions s JOIN development_tasks t ON t.id=s.task_id
                    WHERE s.archived_at IS NULL
                    ORDER BY s.updated_at DESC LIMIT ?""",
@@ -618,6 +830,8 @@ class DevelopmentStore:
             "assessment_id", "current_sprint_id", "sprint_budget_json", "v2_enabled",
             "criteria_snapshot_json",
             "archived_at",
+            "readiness_snapshot_id", "last_heartbeat_at", "last_output_at",
+            "policy_hash", "plan_hash_snapshot", "validation_commands_json",
         }
         changes = {key: value for key, value in fields.items() if key in allowed}
         if not changes:
@@ -918,7 +1132,8 @@ class DevelopmentStore:
     def update_goal(self, goal_id: int, **fields: Any) -> dict[str, Any]:
         allowed = {"status", "iteration_count", "current_session_id", "last_error", "lease_owner",
                    "lease_expires_at", "completed_at", "worker_profile_slug",
-                   "reviewer_profile_slug", "assessment_id", "assessment_json", "budget_json"}
+                   "reviewer_profile_slug", "assessment_id", "assessment_json", "budget_json",
+                   "qualification_percent", "evidence_json", "gaps_json", "last_evaluated_at"}
         changes = {key: value for key, value in fields.items() if key in allowed}
         if not changes:
             goal = self.get_goal(goal_id)
@@ -936,6 +1151,269 @@ class DevelopmentStore:
         finally:
             conn.close()
         return self.get_goal(goal_id) or {}
+
+    def link_goal_task(self, goal_id: int, task_id: int, relation: str = "contributes") -> dict[str, Any]:
+        now = utc_now()
+        conn = self.connect()
+        try:
+            conn.execute(
+                """INSERT INTO development_goal_task_links(goal_id,task_id,relation,created_at)
+                   VALUES (?,?,?,?) ON CONFLICT(goal_id,task_id) DO UPDATE SET relation=excluded.relation""",
+                (goal_id, task_id, relation, now),
+            )
+            conn.commit()
+            row = conn.execute(
+                """SELECT l.*,t.queue_id,t.title,t.status,t.owner_state
+                   FROM development_goal_task_links l JOIN development_tasks t ON t.id=l.task_id
+                   WHERE l.goal_id=? AND l.task_id=?""",
+                (goal_id, task_id),
+            ).fetchone()
+            return dict(row)
+        finally:
+            conn.close()
+
+    def unlink_goal_task(self, goal_id: int, task_id: int) -> None:
+        conn = self.connect()
+        try:
+            conn.execute(
+                "DELETE FROM development_goal_task_links WHERE goal_id=? AND task_id=?",
+                (goal_id, task_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def list_goal_task_links(
+        self, *, goal_id: int | None = None, task_id: int | None = None
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if goal_id is not None:
+            clauses.append("l.goal_id=?")
+            params.append(goal_id)
+        if task_id is not None:
+            clauses.append("l.task_id=?")
+            params.append(task_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        conn = self.connect()
+        try:
+            rows = conn.execute(
+                f"""SELECT l.*,t.queue_id,t.title,t.status,t.owner_state,t.legacy_hidden,
+                           g.title AS goal_title,g.status AS goal_status,
+                           g.qualification_percent
+                    FROM development_goal_task_links l
+                    JOIN development_tasks t ON t.id=l.task_id
+                    JOIN development_goals g ON g.id=l.goal_id
+                    {where} ORDER BY l.created_at,l.goal_id,l.task_id""",
+                params,
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def save_readiness(
+        self, task_id: int, status: str, payload: dict[str, Any], policy_hash: str
+    ) -> dict[str, Any]:
+        encoded = _json(payload)
+        digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        now = utc_now()
+        conn = self.connect()
+        try:
+            cur = conn.execute(
+                """INSERT INTO coding_readiness_snapshots
+                   (task_id,status,payload_json,snapshot_hash,policy_hash,created_at)
+                   VALUES (?,?,?,?,?,?)""",
+                (task_id, status, encoded, digest, policy_hash, now),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT * FROM coding_readiness_snapshots WHERE id=?", (cur.lastrowid,)
+            ).fetchone()
+            result = dict(row)
+            result["payload"] = json.loads(result.pop("payload_json"))
+            return result
+        finally:
+            conn.close()
+
+    def get_readiness(self, readiness_id: int) -> dict[str, Any] | None:
+        conn = self.connect()
+        try:
+            row = conn.execute(
+                "SELECT * FROM coding_readiness_snapshots WHERE id=?", (readiness_id,)
+            ).fetchone()
+            if not row:
+                return None
+            result = dict(row)
+            result["payload"] = json.loads(result.pop("payload_json"))
+            return result
+        finally:
+            conn.close()
+
+    def start_stage_attempt(
+        self, session_id: int, stage_id: str, attempt: int, worker_profile_slug: str | None = None
+    ) -> dict[str, Any]:
+        now = utc_now()
+        conn = self.connect()
+        try:
+            conn.execute(
+                """INSERT INTO coding_stage_attempts
+                   (session_id,stage_id,attempt,status,worker_profile_slug,started_at,heartbeat_at)
+                   VALUES (?,?,?,?,?,?,?)
+                   ON CONFLICT(session_id,stage_id,attempt) DO UPDATE SET
+                     status='running',worker_profile_slug=excluded.worker_profile_slug,
+                     heartbeat_at=excluded.heartbeat_at,completed_at=NULL,error_code=NULL""",
+                (session_id, stage_id, attempt, "running", worker_profile_slug, now, now),
+            )
+            conn.execute(
+                "UPDATE coding_sessions SET last_heartbeat_at=?,updated_at=? WHERE id=?",
+                (now, now, session_id),
+            )
+            conn.commit()
+            row = conn.execute(
+                """SELECT * FROM coding_stage_attempts
+                   WHERE session_id=? AND stage_id=? AND attempt=?""",
+                (session_id, stage_id, attempt),
+            ).fetchone()
+            return dict(row)
+        finally:
+            conn.close()
+
+    def heartbeat_stage_attempt(
+        self, session_id: int, stage_id: str, *, output: bool = False
+    ) -> None:
+        now = utc_now()
+        conn = self.connect()
+        try:
+            output_sql = ",last_output_at=?" if output else ""
+            params: list[Any] = [now]
+            if output:
+                params.append(now)
+            params.extend([session_id, stage_id])
+            conn.execute(
+                f"""UPDATE coding_stage_attempts SET heartbeat_at=?{output_sql}
+                    WHERE id=(SELECT id FROM coding_stage_attempts
+                              WHERE session_id=? AND stage_id=? ORDER BY attempt DESC LIMIT 1)""",
+                params,
+            )
+            if output:
+                conn.execute(
+                    """UPDATE coding_sessions SET last_heartbeat_at=?,last_output_at=?,updated_at=?
+                       WHERE id=?""",
+                    (now, now, now, session_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE coding_sessions SET last_heartbeat_at=?,updated_at=? WHERE id=?",
+                    (now, now, session_id),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def finish_stage_attempt(
+        self,
+        session_id: int,
+        stage_id: str,
+        *,
+        status: str,
+        error_code: str | None = None,
+        result: dict[str, Any] | None = None,
+    ) -> None:
+        now = utc_now()
+        conn = self.connect()
+        try:
+            conn.execute(
+                """UPDATE coding_stage_attempts
+                   SET status=?,error_code=?,result_json=?,heartbeat_at=?,completed_at=?
+                   WHERE id=(SELECT id FROM coding_stage_attempts
+                             WHERE session_id=? AND stage_id=? ORDER BY attempt DESC LIMIT 1)""",
+                (status, error_code, _json(result or {}), now, now, session_id, stage_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def add_evidence(
+        self,
+        *,
+        task_id: int,
+        kind: str,
+        status: str,
+        source: str,
+        payload: dict[str, Any],
+        session_id: int | None = None,
+        goal_id: int | None = None,
+        criterion_index: int | None = None,
+    ) -> dict[str, Any]:
+        conn = self.connect()
+        try:
+            cur = conn.execute(
+                """INSERT INTO coding_evidence_records
+                   (session_id,task_id,goal_id,criterion_index,kind,status,source,payload_json,created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (session_id, task_id, goal_id, criterion_index, kind, status, source,
+                 _json(payload), utc_now()),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM coding_evidence_records WHERE id=?", (cur.lastrowid,)).fetchone()
+            result = dict(row)
+            result["payload"] = json.loads(result.pop("payload_json"))
+            return result
+        finally:
+            conn.close()
+
+    def list_evidence(
+        self, *, session_id: int | None = None, task_id: int | None = None, goal_id: int | None = None
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        for column, value in (("session_id", session_id), ("task_id", task_id), ("goal_id", goal_id)):
+            if value is not None:
+                clauses.append(f"{column}=?")
+                params.append(value)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        conn = self.connect()
+        try:
+            rows = conn.execute(
+                f"SELECT * FROM coding_evidence_records {where} ORDER BY created_at,id", params
+            ).fetchall()
+            result = []
+            for row in rows:
+                item = dict(row)
+                item["payload"] = json.loads(item.pop("payload_json"))
+                result.append(item)
+            return result
+        finally:
+            conn.close()
+
+    def save_scorecard(self, session_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        now = utc_now()
+        conn = self.connect()
+        try:
+            conn.execute(
+                """INSERT INTO coding_run_scorecards(session_id,payload_json,updated_at)
+                   VALUES (?,?,?) ON CONFLICT(session_id) DO UPDATE SET
+                     payload_json=excluded.payload_json,updated_at=excluded.updated_at""",
+                (session_id, _json(payload), now),
+            )
+            conn.commit()
+            return {"session_id": session_id, "payload": payload, "updated_at": now}
+        finally:
+            conn.close()
+
+    def get_scorecard(self, session_id: int) -> dict[str, Any] | None:
+        conn = self.connect()
+        try:
+            row = conn.execute(
+                "SELECT * FROM coding_run_scorecards WHERE session_id=?", (session_id,)
+            ).fetchone()
+            if not row:
+                return None
+            result = dict(row)
+            result["payload"] = json.loads(result.pop("payload_json"))
+            return result
+        finally:
+            conn.close()
 
     def claim_goal(self, owner: str, lease_seconds: int = 120) -> dict[str, Any] | None:
         now = datetime.now(timezone.utc)

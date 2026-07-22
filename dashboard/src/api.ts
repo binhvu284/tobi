@@ -815,6 +815,8 @@ export type DeveloperWorkflow = {
   checkpoints?: DeveloperCheckpoint[]; worker_session?: DeveloperWorkerSession | null
   sprint?: DeveloperSprint | null; assessment?: { id: number; payload: DeveloperAssessment } | null
   pull_request?: { number?: number | null; url?: string | null; draft?: number; ci_state?: string | null } | null
+  owner_state?: string; readiness?: { id: number; status: string; payload: DeveloperReadiness } | null
+  evidence?: Array<Record<string, unknown>>; scorecard?: { payload: DeveloperScorecard } | null
 }
 export type DeveloperCheckpoint = {
   id: number; session_id: number; worker_session_id?: number | null; sequence: number
@@ -863,6 +865,8 @@ export type DeveloperQueueItem = {
   id: number; queue_id: number; title: string; plan_path: string; plan_hash: string
   status: string; risk: string; target_version?: string | null; queue_status?: string | null
   queue_effort?: string | null; dependencies_json: string; acceptance_criteria_json?: string
+  owner_state?: string; worker_profile_slug?: string; reviewer_profile_slug?: string
+  fallback_profiles_json?: string; validation_commands_json?: string
 }
 export type DeveloperRelease = {
   id: number; version: string; tier?: string | null; source: string; queue_item?: number | null
@@ -895,6 +899,23 @@ export type DeveloperGoal = {
   preferred_models_json: string; status: string; max_iterations: number; iteration_count: number
   worker_profile_slug?: string; reviewer_profile_slug?: string; assessment_json?: string; budget_json?: string
   current_session_id?: number | null; last_error?: string | null; created_at: string; updated_at: string
+  qualification_percent?: number; evidence_json?: string; gaps_json?: string
+  evidence?: Array<Record<string, unknown>>; gaps?: string[]
+  items?: Array<{ task_id: number; queue_id: number; title: string; status: string; owner_state?: string }>
+}
+export type DeveloperReadinessIssue = { code: string; message: string; field?: string | null; recoverable: boolean }
+export type DeveloperReadiness = {
+  readiness_id: number; queue_id: number; ready: boolean; status: 'ready' | 'blocked'
+  selected_agent: string; reviewer: string; fallback_agents: string[]
+  validation_commands: string[][]; blockers: DeveloperReadinessIssue[]; warnings: DeveloperReadinessIssue[]
+  alternatives: Array<{ slug: string; name: string; adapter: string; model?: string; detail?: string }>
+  protected_paths: string[]; policy_hash: string; plan_hash: string; assessment: DeveloperAssessment
+}
+export type DeveloperScorecard = {
+  session_id: number; queue_id: number; state: string; stage: string; duration_seconds?: number | null
+  agent: string; reviewer: string; attempts: number; retries: number; tool_failures: number
+  checks: Array<Record<string, unknown>>; evidence: Array<Record<string, unknown>>; outcome: string
+  error_code?: string | null; generated_at: string
 }
 
 export async function getDeveloperOverview(signal?: AbortSignal): Promise<DeveloperOverview> {
@@ -902,7 +923,7 @@ export async function getDeveloperOverview(signal?: AbortSignal): Promise<Develo
 }
 // Queue tab (#18 UI continuation): items + the owner's Next slot and priority order.
 export type DeveloperQueueState = {
-  items: DeveloperQueueItem[]; order: number[]; next_queue_id: number | null; auto_queue: boolean
+  items: DeveloperQueueItem[]; order: number[]; next_queue_id: number | null; auto_queue: boolean; queue_hash: string
 }
 export type DeveloperQueuePlan = { queue_id: number; plan_path: string; title: string; markdown: string }
 export async function getDeveloperQueue(signal?: AbortSignal): Promise<DeveloperQueueState> {
@@ -920,6 +941,24 @@ export async function removeDeveloperQueueItem(queueId: number): Promise<Develop
 export async function getDeveloperQueuePlan(queueId: number, signal?: AbortSignal): Promise<DeveloperQueuePlan> {
   return vreq(`/api/developer/queue/${queueId}/plan`, { signal })
 }
+export async function createDeveloperQueueItem(input: {
+  title: string; objective: string; acceptance_criteria: string[]; dependencies?: number[]
+  effort?: string; risk?: 'low' | 'medium' | 'high' | 'critical'; goal_ids?: number[]
+  expected_queue_hash: string; plan_markdown?: string | null
+}): Promise<{ item: DeveloperQueueItem; queue_id: number; queue_hash: string }> {
+  return vreq('/api/developer/queue/items', { method: 'POST', body: JSON.stringify(input) })
+}
+export async function preflightDeveloperQueueItem(queueId: number, input: {
+  selected_agent?: string; reviewer?: string; fallback_agents?: string[]
+  validation_commands?: string[][]; protected_paths_approved?: boolean; active_probe?: boolean
+} = {}): Promise<DeveloperReadiness> {
+  return vreq(`/api/developer/queue/${queueId}/preflight`, { method: 'POST', body: JSON.stringify(input) })
+}
+export async function getDeveloperWork(signal?: AbortSignal): Promise<{
+  items: DeveloperQueueItem[]; goals: DeveloperGoal[]; links: Array<Record<string, unknown>>
+}> {
+  return vreq('/api/developer/work', { signal })
+}
 export async function getDeveloperVersions(signal?: AbortSignal): Promise<{ releases: DeveloperRelease[] }> {
   return vreq('/api/developer/versions', { signal })
 }
@@ -936,22 +975,26 @@ export async function assessDeveloperGoal(input: {
 }
 export async function createDeveloperGoal(input: {
   title: string; objective: string; acceptance_criteria: string[]
-  autonomy: 'sandbox' | 'pr' | 'merge_deploy'; preferred_models: string[]; max_iterations?: number
-  worker_profile_slug?: string; reviewer_profile_slug?: string
 }): Promise<DeveloperGoal> {
   return vreq('/api/developer/goals', { method: 'POST', body: JSON.stringify(input) })
 }
 export async function commandDeveloperGoal(
-  goalId: number, command: 'pause' | 'resume' | 'reattempt' | 'cancel' | 'delete' | 'approve_scope',
+  goalId: number, command: 'evaluate' | 'archive' | 'delete' | 'cancel',
 ): Promise<DeveloperGoal> {
   return vreq(`/api/developer/goals/${goalId}/commands`, {
     method: 'POST', body: JSON.stringify({ command, idempotency_key: crypto.randomUUID() }),
   })
 }
-export async function startDeveloperWorkflow(queueId: number): Promise<DeveloperWorkflow> {
+export async function startDeveloperWorkflow(queueId: number, readinessId?: number): Promise<DeveloperWorkflow> {
   return vreq('/api/developer/workflows', {
-    method: 'POST', body: JSON.stringify({ queue_id: queueId, idempotency_key: crypto.randomUUID(), start: true }),
+    method: 'POST', body: JSON.stringify({ queue_id: queueId, readiness_id: readinessId, idempotency_key: crypto.randomUUID(), start: true }),
   })
+}
+export async function getDeveloperHistory(signal?: AbortSignal): Promise<{ workflows: DeveloperWorkflow[] }> {
+  return vreq('/api/developer/workflows/history', { signal })
+}
+export async function getDeveloperScorecard(workflowId: number): Promise<DeveloperScorecard> {
+  return vreq(`/api/developer/workflows/${workflowId}/scorecard`)
 }
 export async function commandDeveloperWorkflow(
   workflowId: number, command: 'pause' | 'resume' | 'cancel' | 'retry' | 'remove',

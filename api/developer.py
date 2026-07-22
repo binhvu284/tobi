@@ -20,6 +20,7 @@ from core.coding_contracts import WorkerProfile
 from core.coding_learning import CodingLearningService
 from core.coding_loop import CodingLoopService
 from core.coding_policy import PolicyDenied
+from core.coding_queue_authoring import create_queue_item
 from core.coding_workers import _platform_cli_command
 
 
@@ -75,6 +76,7 @@ class WorkflowCreate(BaseModel):
     queue_id: int = Field(gt=0)
     idempotency_key: str = Field(min_length=8, max_length=200)
     start: bool = True
+    readiness_id: int | None = Field(default=None, gt=0)
 
 
 class WorkflowCommand(BaseModel):
@@ -118,7 +120,7 @@ class GoalCreate(BaseModel):
 
 
 class GoalCommand(BaseModel):
-    command: Literal["pause", "resume", "reattempt", "cancel", "delete", "approve_scope"]
+    command: Literal["evaluate", "archive", "delete", "pause", "resume", "reattempt", "cancel", "approve_scope"]
     idempotency_key: str = Field(min_length=8, max_length=200)
 
 
@@ -146,6 +148,31 @@ class WorkerSwitchRequest(BaseModel):
 
 class ReplayRequest(BaseModel):
     playbook_slug: str | None = Field(default=None, max_length=120)
+
+
+class QueueItemCreateRequest(BaseModel):
+    title: str = Field(min_length=3, max_length=240)
+    objective: str = Field(min_length=10, max_length=20_000)
+    acceptance_criteria: list[str] = Field(min_length=1, max_length=50)
+    dependencies: list[int] = Field(default_factory=list, max_length=50)
+    effort: str = Field(default="1-2 focus days -> same", max_length=120)
+    risk: Literal["low", "medium", "high", "critical"] = "medium"
+    goal_ids: list[int] = Field(default_factory=list, max_length=50)
+    expected_queue_hash: str = Field(min_length=64, max_length=64)
+    plan_markdown: str | None = Field(default=None, max_length=400_000)
+
+
+class QueuePreflightRequest(BaseModel):
+    selected_agent: str | None = Field(default=None, min_length=2, max_length=80)
+    reviewer: str | None = Field(default=None, min_length=2, max_length=80)
+    fallback_agents: list[str] | None = Field(default=None, max_length=20)
+    validation_commands: list[list[str]] | None = Field(default=None, max_length=20)
+    protected_paths_approved: bool = False
+    active_probe: bool = True
+
+
+class GoalLinkRequest(BaseModel):
+    queue_id: int = Field(gt=0)
 
 
 def _idempotent_command(key: str, target_type: str, target_id: int, command: str, execute) -> dict[str, Any]:
@@ -212,6 +239,52 @@ def process_settings(body: ProcessSettingsRequest) -> dict[str, Any]:
 @router.get("/queue", dependencies=[Owner])
 def queue() -> dict[str, Any]:
     return agent.queue_state()
+
+
+@router.get("/work", dependencies=[Owner])
+def work() -> dict[str, Any]:
+    try:
+        return agent.work_state()
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/queue/items", dependencies=[Owner], status_code=201)
+def queue_item_create(body: QueueItemCreateRequest) -> dict[str, Any]:
+    try:
+        created = create_queue_item(
+            title=body.title,
+            objective=body.objective,
+            acceptance_criteria=body.acceptance_criteria,
+            dependencies=body.dependencies,
+            effort=body.effort,
+            risk=body.risk,
+            goal_ids=body.goal_ids,
+            expected_queue_hash=body.expected_queue_hash,
+            plan_markdown=body.plan_markdown,
+        )
+        agent.sync()
+        for goal_id in body.goal_ids:
+            agent.link_goal(goal_id, int(created["queue_id"]))
+        return {"item": agent.store.get_task(queue_id=int(created["queue_id"])), **created}
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/queue/{queue_id}/preflight", dependencies=[Owner])
+def queue_preflight(queue_id: int, body: QueuePreflightRequest) -> dict[str, Any]:
+    try:
+        return agent.preflight(
+            queue_id,
+            selected_agent=body.selected_agent,
+            reviewer=body.reviewer,
+            fallback_agents=body.fallback_agents,
+            validation_commands=body.validation_commands,
+            protected_paths_approved=body.protected_paths_approved,
+            active_probe=body.active_probe,
+        )
+    except Exception as exc:
+        raise _error(exc) from exc
 
 
 @router.post("/queue/sync", dependencies=[Owner])
@@ -281,8 +354,9 @@ def workflows(limit: int = Query(50, ge=1, le=200)) -> dict[str, Any]:
 
 @router.get("/goals", dependencies=[Owner])
 def goals(limit: int = Query(100, ge=1, le=500)) -> dict[str, Any]:
-    return {"goals": agent.store.list_goals(limit), "loop": {
-        "enabled": get_loop().enabled(), "owner": get_loop().owner,
+    state = agent.work_state()
+    return {"goals": state["goals"], "loop": {
+        "enabled": False, "owner": "queue-runtime", "detail": "Goals are evidence outcomes and never execute.",
     }}
 
 
@@ -315,15 +389,6 @@ def create_goal(body: GoalCreate) -> dict[str, Any]:
             worker_profile_slug=body.worker_profile_slug,
             reviewer_profile_slug=body.reviewer_profile_slug,
         )
-        if goal["status"] == "queued":
-            try:
-                start_loop()
-            except Exception as exc:
-                goal = agent.store.update_goal(
-                    int(goal["id"]),
-                    status="awaiting_config",
-                    last_error=f"loop_start_failed:{type(exc).__name__}",
-                )
         return goal
     except Exception as exc:
         raise _error(exc) from exc
@@ -334,18 +399,39 @@ def get_goal(goal_id: int) -> dict[str, Any]:
     goal = agent.store.get_goal(goal_id)
     if not goal:
         raise HTTPException(status_code=404, detail="Development goal was not found.")
-    workflow = agent.get_workflow(int(goal["current_session_id"])) if goal.get("current_session_id") else None
-    return {"goal": goal, "workflow": workflow}
+    goal["items"] = agent.store.list_goal_task_links(goal_id=goal_id)
+    goal["evidence"] = json.loads(goal.get("evidence_json") or "[]")
+    goal["gaps"] = json.loads(goal.get("gaps_json") or "[]")
+    return {"goal": goal, "workflow": None}
+
+
+@router.post("/goals/{goal_id}/evaluate", dependencies=[Owner])
+def evaluate_goal(goal_id: int) -> dict[str, Any]:
+    try:
+        return agent.evaluate_goal(goal_id)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/goals/{goal_id}/items", dependencies=[Owner])
+def link_goal_item(goal_id: int, body: GoalLinkRequest) -> dict[str, Any]:
+    try:
+        return agent.link_goal(goal_id, body.queue_id)
+    except Exception as exc:
+        raise _error(exc) from exc
 
 
 @router.post("/goals/{goal_id}/commands", dependencies=[Owner])
 def goal_command(goal_id: int, body: GoalCommand) -> dict[str, Any]:
     try:
         def execute() -> dict[str, Any]:
-            result = get_loop().command(goal_id, body.command)
-            if body.command in {"resume", "reattempt", "approve_scope"}:
-                start_loop()
-            return result
+            if body.command == "evaluate":
+                return agent.evaluate_goal(goal_id)
+            if body.command in {"delete", "archive", "cancel"}:
+                return agent.store.update_goal(goal_id, status="deleted")
+            raise RuntimeError(
+                "Goals do not execute. Create or link a Queue item, then start it from Work."
+            )
         return _idempotent_command(
             body.idempotency_key, "goal", goal_id, body.command,
             execute,
@@ -360,8 +446,26 @@ def create_workflow(body: WorkflowCreate) -> dict[str, Any]:
         storage_state = agent.storage()
         if storage_state["blocked_new_workflows"]:
             raise PolicyDenied("Developer storage is above the warning threshold; clean eligible retained work first.")
-        workflow = agent.create_workflow(body.queue_id, idempotency_key=body.idempotency_key)
+        workflow = agent.create_workflow(
+            body.queue_id, idempotency_key=body.idempotency_key, readiness_id=body.readiness_id,
+        )
         return agent.start_background(int(workflow["id"])) if body.start else workflow
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/workflows/history", dependencies=[Owner])
+def workflow_history(
+    limit: int = Query(100, ge=1, le=200),
+    status: str | None = Query(None),
+    worker: str | None = Query(None),
+    queue_id: int | None = Query(None, gt=0),
+    goal_id: int | None = Query(None, gt=0),
+) -> dict[str, Any]:
+    try:
+        return {"workflows": agent.run_history(
+            limit=limit, status=status, agent=worker, queue_id=queue_id, goal_id=goal_id,
+        )}
     except Exception as exc:
         raise _error(exc) from exc
 
@@ -370,6 +474,14 @@ def create_workflow(body: WorkflowCreate) -> dict[str, Any]:
 def get_workflow(workflow_id: int) -> dict[str, Any]:
     try:
         return agent.get_workflow(workflow_id)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/workflows/{workflow_id}/scorecard", dependencies=[Owner])
+def workflow_scorecard(workflow_id: int) -> dict[str, Any]:
+    try:
+        return agent.run_scorecard(workflow_id)
     except Exception as exc:
         raise _error(exc) from exc
 

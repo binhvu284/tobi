@@ -111,6 +111,9 @@
   },
   "limits": {
     "one_active_worker": true,
+    "heartbeat_seconds": 5,
+    "lost_worker_seconds": 30,
+    "no_output_warning_seconds": 90,
     "worker_timeout_seconds": 1800,
     "worker_output_bytes": 2097152,
     "command_timeout_seconds": 900,

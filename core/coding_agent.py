@@ -14,6 +14,7 @@ from typing import Any
 
 from core.coding_assessment import CodingTaskAssessor
 from core.coding_contracts import SprintBudget, WorkerProfile, build_handoff
+from core.coding_completion import ACTIVE_STATES, CodingCompletionService
 from core.coding_learning import CodingLearningService
 from core.coding_policy import CodingPolicy, PolicyDenied
 from core.coding_quality import CodingQualityGate
@@ -86,6 +87,9 @@ class CodingAgent:
         self.github = GitHubCodingService(self.policy)
         self.releases = ReleaseManager(self.store)
         self.deployments = DeploymentManager(self.policy, self.store)
+        self.completion = CodingCompletionService(
+            store=self.store, policy=self.policy, worker=self.worker, assessor=self.assessor,
+        )
         self._threads: dict[int, threading.Thread] = {}
         self._thread_lock = threading.Lock()
         self._auto_queue_lock = threading.Lock()
@@ -95,20 +99,100 @@ class CodingAgent:
         self.queue = sync_queue(self.store)
         return self.queue
 
-    def create_workflow(self, queue_id: int, *, idempotency_key: str | None = None) -> dict[str, Any]:
+    def work_state(self) -> dict[str, Any]:
+        self.sync()
+        return self.completion.work_state()
+
+    def preflight(
+        self,
+        queue_id: int,
+        *,
+        selected_agent: str | None = None,
+        reviewer: str | None = None,
+        fallback_agents: list[str] | None = None,
+        validation_commands: list[list[str]] | None = None,
+        protected_paths_approved: bool = False,
+        active_probe: bool = True,
+    ) -> dict[str, Any]:
         self.sync()
         task = self.store.get_task(queue_id=queue_id)
         if not task:
             raise KeyError(f"Queue item #{queue_id} was not found.")
-        dependencies = json.loads(task["dependencies_json"] or "[]")
-        for dependency in dependencies:
-            dep = self.store.get_task(queue_id=int(dependency))
-            if not dep or dep["status"] != "completed":
-                raise RuntimeError(f"Queue item #{dependency} must be completed first.")
+        if any(value is not None for value in (
+            selected_agent, reviewer, fallback_agents, validation_commands,
+        )):
+            self.store.configure_task(
+                queue_id,
+                worker_profile_slug=str(selected_agent or task.get("worker_profile_slug") or "mc-native"),
+                reviewer_profile_slug=str(reviewer or task.get("reviewer_profile_slug") or "reviewer-default"),
+                fallback_profiles=(
+                    fallback_agents if fallback_agents is not None
+                    else json.loads(task.get("fallback_profiles_json") or "[]")
+                ),
+                validation_commands=(
+                    validation_commands if validation_commands is not None
+                    else json.loads(task.get("validation_commands_json") or "[]")
+                ),
+                owner_state="Ready",
+            )
+        return self.completion.preflight(
+            queue_id,
+            selected_agent=selected_agent,
+            reviewer=reviewer,
+            fallback_agents=fallback_agents,
+            validation_commands=validation_commands,
+            protected_paths_approved=protected_paths_approved,
+            active_probe=active_probe,
+        )
+
+    def evaluate_goal(self, goal_id: int) -> dict[str, Any]:
+        return self.completion.evaluate_goal(goal_id)
+
+    def link_goal(self, goal_id: int, queue_id: int) -> dict[str, Any]:
+        goal = self.store.get_goal(goal_id)
+        task = self.store.get_task(queue_id=queue_id)
+        if not goal:
+            raise KeyError(goal_id)
+        if not task or bool(task.get("legacy_hidden")):
+            raise KeyError(queue_id)
+        return self.store.link_goal_task(goal_id, int(task["id"]))
+
+    def run_history(self, **filters: Any) -> list[dict[str, Any]]:
+        return self.completion.history(**filters)
+
+    def run_scorecard(self, session_id: int) -> dict[str, Any]:
+        return self.completion.build_scorecard(session_id)
+
+    def create_workflow(
+        self,
+        queue_id: int,
+        *,
+        idempotency_key: str | None = None,
+        readiness_id: int | None = None,
+    ) -> dict[str, Any]:
+        self.sync()
+        task = self.store.get_task(queue_id=queue_id)
+        if not task:
+            raise KeyError(f"Queue item #{queue_id} was not found.")
+        readiness = self.store.get_readiness(readiness_id) if readiness_id else None
+        if readiness:
+            payload = readiness.get("payload") or {}
+            if int(readiness["task_id"]) != int(task["id"]):
+                raise RuntimeError("Readiness snapshot belongs to another Queue item.")
+            if readiness["status"] != "ready" or not payload.get("ready"):
+                raise RuntimeError("Readiness blockers must be resolved before Start.")
+            if readiness["policy_hash"] != self.policy.hash or payload.get("plan_hash") != task.get("plan_hash"):
+                raise RuntimeError("Readiness snapshot is stale. Run preflight again.")
+        else:
+            payload = self.completion.preflight(queue_id)
+            readiness_id = int(payload["readiness_id"])
+            if not payload["ready"]:
+                detail = "; ".join(item["message"] for item in payload["blockers"][:4])
+                raise RuntimeError(f"Queue item is not ready: {detail}")
         target_version = task.get("target_version") or self._next_version(queue_id)
         conn = self.store.connect()
         try:
-            conn.execute("UPDATE development_tasks SET status='approved',target_version=?,updated_at=? WHERE id=?",
+            conn.execute("UPDATE development_tasks SET status='approved',owner_state='Running',status_override=0,target_version=?,updated_at=? WHERE id=?",
                          (target_version, utc_now(), task["id"]))
             conn.commit()
         finally:
@@ -117,13 +201,18 @@ class CodingAgent:
             int(task["id"]), self.policy.hash, idempotency_key or str(uuid.uuid4()),
             plan_hash_snapshot=task["plan_hash"],
             criteria_snapshot=json.loads(task.get("acceptance_criteria_json") or "[]"),
+            validation_commands=payload.get("validation_commands") or self.policy.mandatory_checks(),
+            worker_profile_slug=str(payload.get("selected_agent") or task.get("worker_profile_slug") or "mc-native"),
+            reviewer_profile_slug=str(payload.get("reviewer") or task.get("reviewer_profile_slug") or "reviewer-default"),
             sprint_budget=self.assessor._budget(str(task.get("risk") or "medium")).to_dict(),
+            readiness_snapshot_id=readiness_id,
         )
         self.store.add_stages(int(session["id"]), STAGES)
         self.releases.reserve(target_version, queue_id, risk=task.get("risk") or "medium")
         self.store.append_event(int(session["id"]), "workflow_approved", {
             "queue_id": queue_id, "plan_path": task["plan_path"], "plan_hash": task["plan_hash"],
             "policy_hash": self.policy.hash, "target_version": target_version,
+            "readiness_id": readiness_id,
         }, actor="owner")
         return self.get_workflow(int(session["id"]))
 
@@ -140,215 +229,93 @@ class CodingAgent:
         worker_profile_slug: str = "mc-native",
         reviewer_profile_slug: str = "reviewer-default",
     ) -> dict[str, Any]:
-        commands = validation_commands or []
-        for command in commands:
-            self.policy.assert_command(command)
-        worker_profile = self.store.get_worker_profile(worker_profile_slug)
-        if not worker_profile or not bool(worker_profile["enabled"]):
-            raise ValueError(f"Worker profile is unavailable: {worker_profile_slug}")
-        reviewer_profile = self.store.get_worker_profile(reviewer_profile_slug)
-        if (
-            not reviewer_profile
-            or not bool(reviewer_profile["enabled"])
-            or reviewer_profile["adapter"] != "model_review"
-        ):
-            raise ValueError(f"Reviewer profile is unavailable: {reviewer_profile_slug}")
-        assessment = self.assessor.assess(
-            title=title,
-            objective=objective,
-            acceptance_criteria=acceptance_criteria,
-            validation_commands=commands,
-        )
-        assessment_row = self.store.create_assessment(assessment.to_dict())
-        initial_status = "awaiting_scope_approval" if assessment.owner_review_required else "queued"
-        configured_max = int(self.policy.data.get("loop", {}).get("max_goal_iterations", 12))
         goal = self.store.create_goal(
             title=title,
             objective=objective,
             acceptance_criteria=acceptance_criteria,
-            validation_commands=commands,
-            autonomy=autonomy,
-            preferred_models=preferred_models or [],
-            max_iterations=max_iterations or configured_max,
-            worker_profile_slug=worker_profile_slug,
-            reviewer_profile_slug=reviewer_profile_slug,
-            assessment_id=int(assessment_row["id"]),
-            assessment=assessment.to_dict(),
-            budget=assessment.sprints[0].budget.to_dict(),
-            status=initial_status,
+            validation_commands=[],
+            autonomy="sandbox",
+            preferred_models=[],
+            max_iterations=1,
+            worker_profile_slug="",
+            reviewer_profile_slug="",
+            assessment=None,
+            budget=None,
+            status="active",
         )
-        goal_id = int(goal["id"])
-        self.store.attach_assessment(int(assessment_row["id"]), goal_id)
-        self.store.create_sprints(goal_id, [sprint.to_dict() for sprint in assessment.sprints])
-        payload = {
-            "title": goal["title"], "objective": goal["objective"],
-            "acceptance": json.loads(goal["acceptance_criteria_json"]),
-            "validation": json.loads(goal["validation_commands_json"]),
-        }
-        digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-        self.store.upsert_task({
-            "queue_id": 900_000_000 + goal_id,
-            "title": goal["title"],
-            "plan_path": f"developer-goal:{goal_id}",
-            "plan_hash": digest,
-            "acceptance_criteria": payload["acceptance"],
-            "dependencies": [],
-            "status": "planned",
-            "risk": "high",
-            "target_version": f"3.0.{goal_id}",
-            "queue_status": "Goal loop",
-            "queue_effort": "continuous",
-        })
-        return self.store.get_goal(goal_id) or goal
+        return self.completion.evaluate_goal(int(goal["id"]))
 
     def create_goal_workflow(self, goal_id: int) -> dict[str, Any]:
-        goal = self.store.get_goal(goal_id)
-        if not goal:
+        if not self.store.get_goal(goal_id):
             raise KeyError(goal_id)
-        task = self.store.get_task(queue_id=900_000_000 + goal_id)
-        if not task:
-            raise RuntimeError("Goal task mirror is missing.")
-        sprint = self.store.next_sprint(goal_id)
-        if not sprint:
-            raise RuntimeError("Development goal has no pending sprint.")
-        criteria = json.loads(sprint["acceptance_criteria_json"] or "[]")
-        commands = json.loads(goal["validation_commands_json"] or "[]")
-        iteration = int(goal["iteration_count"] or 0) + 1
-        session = self.store.create_session(
-            int(task["id"]), self.policy.hash, f"goal-{goal_id}-iteration-{iteration}",
-            goal_id=goal_id,
-            plan_hash_snapshot=task["plan_hash"],
-            criteria_snapshot=criteria,
-            validation_commands=commands,
-            worker_profile_slug=str(goal.get("worker_profile_slug") or "mc-native"),
-            reviewer_profile_slug=str(goal.get("reviewer_profile_slug") or "reviewer-default"),
-            assessment_id=int(goal["assessment_id"]) if goal.get("assessment_id") else None,
-            current_sprint_id=int(sprint["id"]),
-            sprint_budget=json.loads(sprint["budget_json"] or "{}"),
+        raise RuntimeError(
+            "Goals describe outcomes and never execute. Link the Goal to a Ready Queue item, then start that item."
         )
-        self.store.add_stages(int(session["id"]), STAGES)
-        self.store.update_sprint(int(sprint["id"]), status="active", session_id=int(session["id"]))
-        if goal["autonomy"] != "sandbox":
-            self.releases.reserve(task["target_version"], int(task["queue_id"]), risk="high")
-        self.store.update_goal(goal_id, iteration_count=iteration, current_session_id=session["id"], status="running")
-        self.store.add_goal_iteration(goal_id, int(session["id"]), iteration)
-        self._event(int(session["id"]), "goal_iteration_started", {
-            "goal_id": goal_id, "iteration": iteration, "objective": goal["objective"],
-            "plan_hash": task["plan_hash"], "sprint": int(sprint["sequence"]),
-        })
-        return self.get_workflow(int(session["id"]))
 
     def restart_stale_workflow(self, session_id: int, *, background: bool = True) -> dict[str, Any]:
-        previous = self.get_workflow(session_id)
-        error_code = str(previous.get("error_code") or "")
+        session = self.get_workflow(session_id)
+        error_code = str(session.get("error_code") or "")
         if error_code not in STALE_SNAPSHOT_ERRORS:
             raise RuntimeError("Only a workflow with a stale policy or plan snapshot can be restarted.")
-        if previous["state"] not in {"paused", "blocked", "failed", "canceled"}:
-            raise RuntimeError(f"Workflow cannot restart from state {previous['state']}.")
+        if session["state"] not in {"paused", "blocked", "failed"}:
+            raise RuntimeError(f"Workflow cannot restart from state {session['state']}.")
 
-        task = self.store.get_task(task_id=int(previous["task_id"]))
+        task = self.store.get_task(task_id=int(session["task_id"]))
         if not task:
             raise RuntimeError("The development task for this workflow no longer exists.")
+        prior_readiness = session.get("readiness") or {}
+        prior_payload = prior_readiness.get("payload") or {}
+        readiness = self.preflight(
+            int(task["queue_id"]),
+            selected_agent=str(session.get("worker_profile_slug") or "mc-native"),
+            reviewer=str(session.get("reviewer_profile_slug") or "reviewer-default"),
+            fallback_agents=json.loads(task.get("fallback_profiles_json") or "[]"),
+            validation_commands=json.loads(task.get("validation_commands_json") or "[]"),
+            protected_paths_approved=bool(prior_payload.get("protected_paths")),
+        )
+        if not readiness["ready"]:
+            detail = "; ".join(item["message"] for item in readiness["blockers"][:4])
+            raise RuntimeError(f"Updated workflow is not ready: {detail}")
 
-        sprint = (
-            self.store.get_sprint(int(previous["current_sprint_id"]))
-            if previous.get("current_sprint_id") else None
-        )
-        criteria = (
-            json.loads(sprint["acceptance_criteria_json"] or "[]")
-            if sprint else json.loads(task.get("acceptance_criteria_json") or "[]")
-        )
-        validation_commands = json.loads(previous.get("validation_commands_json") or "[]")
-        replacement = self.store.create_session(
-            int(task["id"]),
-            self.policy.hash,
-            f"restart-{session_id}-{uuid.uuid4()}",
-            goal_id=int(previous["goal_id"]) if previous.get("goal_id") else None,
-            plan_hash_snapshot=task["plan_hash"],
-            criteria_snapshot=criteria,
-            validation_commands=validation_commands,
-            worker_profile_slug=str(previous.get("worker_profile_slug") or "mc-native"),
-            reviewer_profile_slug=str(previous.get("reviewer_profile_slug") or "reviewer-default"),
-            assessment_id=int(previous["assessment_id"]) if previous.get("assessment_id") else None,
-            current_sprint_id=int(previous["current_sprint_id"]) if previous.get("current_sprint_id") else None,
-            sprint_budget=json.loads(previous.get("sprint_budget_json") or "{}"),
-        )
-        replacement_id = int(replacement["id"])
-        self.store.add_stages(replacement_id, STAGES)
-
-        transferred_worktree = bool(previous.get("worktree"))
-        if transferred_worktree:
-            self.store.update_session(
-                replacement_id,
-                branch=previous.get("branch"),
-                worktree=previous.get("worktree"),
-                base_sha=previous.get("base_sha"),
-                head_sha=previous.get("head_sha"),
-                stage="prepare",
-                progress=5,
+        criteria = json.loads(task.get("acceptance_criteria_json") or "[]")
+        conn = self.store.connect()
+        try:
+            reset_nodes = (
+                "('code','validate','review','commit','scan','push','pull_request','merge_deploy','health')"
+                if session.get("worktree") else
+                "('prepare','index','code','validate','review','commit','scan','push','pull_request','merge_deploy','health')"
             )
-            self.store.update_stage(
-                replacement_id,
-                "prepare",
-                status="completed",
-                attempts=1,
-                result_json={
-                    "restarted_from_workflow": session_id,
-                    "worktree_transferred": True,
-                    "reason": error_code,
-                },
-                started_at=utc_now(),
-                completed_at=utc_now(),
+            conn.execute(
+                f"""UPDATE coding_stages SET status='pending',started_at=NULL,completed_at=NULL,result_json=NULL
+                    WHERE session_id=? AND node_id IN {reset_nodes}""",
+                (session_id,),
             )
-
-        self.worker.cancel(session_id)
+            conn.commit()
+        finally:
+            conn.close()
         self.store.update_session(
             session_id,
-            state="canceled",
-            worktree=None if transferred_worktree else previous.get("worktree"),
-            cancel_requested=1,
-            blocker=f"Replaced by workflow {replacement_id} after {error_code}.",
-            completed_at=utc_now(),
+            state="paused" if session.get("worktree") else "approved",
+            stage="code" if session.get("worktree") else "approved",
+            progress=18 if session.get("worktree") else 0,
+            policy_hash=self.policy.hash,
+            plan_hash_snapshot=task["plan_hash"],
+            criteria_snapshot_json=json.dumps(criteria, separators=(",", ":")),
+            validation_commands_json=json.dumps(readiness["validation_commands"], separators=(",", ":")),
+            readiness_snapshot_id=int(readiness["readiness_id"]),
+            blocker=None,
+            error_code=None,
+            cancel_requested=0,
+            completed_at=None,
         )
-        self._event(
-            session_id,
-            "workflow_replaced",
-            {"replacement_workflow_id": replacement_id, "reason": error_code},
-            actor="owner",
-        )
-        self._event(
-            replacement_id,
-            "workflow_restarted",
-            {
-                "previous_workflow_id": session_id,
-                "reason": error_code,
-                "policy_hash": self.policy.hash,
-                "plan_hash": task["plan_hash"],
-                "worktree_transferred": transferred_worktree,
-            },
-            actor="owner",
-        )
-
-        if previous.get("goal_id"):
-            goal_id = int(previous["goal_id"])
-            goal = self.store.get_goal(goal_id)
-            if not goal:
-                raise RuntimeError("The development goal for this workflow no longer exists.")
-            if sprint:
-                self.store.update_sprint(int(sprint["id"]), status="active", session_id=replacement_id)
-            iteration = int(goal.get("iteration_count") or 0)
-            if iteration:
-                self.store.rebind_goal_iteration(goal_id, iteration, replacement_id)
-            self.store.update_goal(
-                goal_id,
-                current_session_id=replacement_id,
-                status="running",
-                last_error=None,
-                lease_owner=None,
-                lease_expires_at=None,
-            )
-
-        return self.start_background(replacement_id) if background else self.run_to_gate(replacement_id)
+        self._event(session_id, "workflow_restarted", {
+            "same_run": True,
+            "reason": error_code,
+            "policy_hash": self.policy.hash,
+            "plan_hash": task["plan_hash"],
+            "worktree_preserved": bool(session.get("worktree")),
+        }, actor="owner")
+        return self.start_background(session_id) if background else self.run_to_gate(session_id)
 
     @staticmethod
     def _next_version(queue_id: int) -> str:
@@ -363,6 +330,12 @@ class CodingAgent:
         session["worker_session"] = self.store.latest_worker_session(session_id)
         session["sprint"] = self.store.get_sprint(int(session["current_sprint_id"])) if session.get("current_sprint_id") else None
         session["assessment"] = self.store.get_assessment(int(session["assessment_id"])) if session.get("assessment_id") else None
+        session["readiness"] = (
+            self.store.get_readiness(int(session["readiness_snapshot_id"]))
+            if session.get("readiness_snapshot_id") else None
+        )
+        session["evidence"] = self.store.list_evidence(session_id=session_id)
+        session["scorecard"] = self.store.get_scorecard(session_id)
         conn = self.store.connect()
         try:
             pr = conn.execute("SELECT * FROM coding_pull_requests WHERE task_id=?", (session["task_id"],)).fetchone()
@@ -500,8 +473,10 @@ class CodingAgent:
         if next_id not in planned:
             next_id = None
         order = [qid for qid in order if qid in planned and qid != next_id]
+        from core.coding_queue_authoring import queue_hash
         return {"items": items, "order": order, "next_queue_id": next_id,
-                "auto_queue": owner_flags.get_bool("developer.auto_queue", False)}
+                "auto_queue": owner_flags.get_bool("developer.auto_queue", False),
+                "queue_hash": queue_hash()}
 
     def set_queue_order(self, order: list[int], next_queue_id: int | None) -> dict[str, Any]:
         planned = {int(t["queue_id"]) for t in self.sync() if t.get("status") == "planned"}
@@ -524,7 +499,7 @@ class CodingAgent:
             raise KeyError(f"Queue item #{queue_id} was not found.")
         if task["status"] != "completed":
             raise ValueError(f"Queue item #{queue_id} is {task['status']}, not completed.")
-        self.store.set_task_status(int(queue_id), "planned")
+        self.store.set_task_status(int(queue_id), "planned", override_source=True)
         return self.queue_state()
 
     def remove_task(self, queue_id: int) -> dict[str, Any]:
@@ -535,7 +510,7 @@ class CodingAgent:
             raise KeyError(f"Queue item #{queue_id} was not found.")
         if task["status"] != "completed":
             raise ValueError(f"Only completed items can be removed (#{queue_id} is {task['status']}).")
-        self.store.set_task_status(int(queue_id), "deleted")
+        self.store.set_task_status(int(queue_id), "deleted", override_source=True)
         return self.queue_state()
 
     def plan_markdown(self, queue_id: int) -> dict[str, Any]:
@@ -590,7 +565,22 @@ class CodingAgent:
                     for queue_id in dependencies
                 ):
                     continue
-                workflow = self.create_workflow(int(task["queue_id"]))
+                readiness = self.preflight(int(task["queue_id"]), active_probe=False)
+                if not readiness["ready"]:
+                    codes = {str(item.get("code") or "") for item in readiness.get("blockers") or []}
+                    system_blockers = {
+                        "run_active", "plan_changed", "agent_disabled", "agent_unhealthy",
+                        "reviewer_unavailable", "reviewer_unhealthy", "check_denied",
+                    }
+                    if codes & system_blockers:
+                        owner_flags.set_bool("developer.auto_queue", False)
+                        return None
+                    # Scope, dependency, protected-path, or item-specific blockers do not
+                    # prevent an independent Ready item later in the owner-prioritized queue.
+                    continue
+                workflow = self.create_workflow(
+                    int(task["queue_id"]), readiness_id=int(readiness["readiness_id"])
+                )
                 self._event(int(workflow["id"]), "auto_queue_started", {
                     "queue_id": task["queue_id"], "reason": "previous_workflow_completed",
                 })
@@ -613,6 +603,13 @@ class CodingAgent:
 
     def _event(self, session_id: int, event_type: str, payload: dict[str, Any], actor: str = "tobi") -> None:
         self.store.append_event(session_id, event_type, _safe(payload), actor=actor)
+        current = self.store.get_session(session_id)
+        if current and current.get("stage"):
+            self.store.heartbeat_stage_attempt(
+                session_id,
+                str(current["stage"]),
+                output=event_type.startswith("worker_") and event_type != "worker_heartbeat",
+            )
 
     def _artifact(self, session_id: int, evidence_type: str, value: Any) -> dict[str, Any]:
         root = self.policy.repo_path("artifact_root") / str(session_id)
@@ -703,11 +700,20 @@ class CodingAgent:
         self.store.update_stage(session_id, node_id, status="running", attempts=attempts, started_at=utc_now())
         self.store.update_session(session_id, state=state, stage=node_id, progress=progress,
                                   blocker=None, error_code=None)
+        session = self.store.get_session(session_id) or {}
+        self.store.start_stage_attempt(
+            session_id, node_id, attempts, str(session.get("worker_profile_slug") or "") or None
+        )
+        self._set_task_owner_state(int(session.get("task_id") or 0), "Running")
         self._event(session_id, "stage_started", {"stage": node_id, "attempt": attempts})
 
     def _stage_complete(self, session_id: int, node_id: str, result: dict[str, Any] | None = None) -> None:
         safe_result = _safe(result or {})
         self.store.update_stage(session_id, node_id, status="completed", result_json=safe_result, completed_at=utc_now())
+        self.store.finish_stage_attempt(session_id, node_id, status="completed", result=safe_result)
+        session = self.store.get_session(session_id)
+        if session:
+            self.completion.record_stage_evidence(session, node_id, safe_result)
         self._event(session_id, "stage_completed", {"stage": node_id, "result": safe_result})
 
     def _pause(self, session_id: int, stage: str, blocker: str, code: str) -> dict[str, Any]:
@@ -715,7 +721,12 @@ class CodingAgent:
         current = next((item for item in self.store.list_stages(session_id) if item["node_id"] == stage), None)
         if current and current["status"] != "completed":
             self.store.update_stage(session_id, stage, status="paused", result_json={"error_code": code})
+            self.store.finish_stage_attempt(
+                session_id, stage, status="paused", error_code=code, result={"blocker": blocker}
+            )
         self.store.update_session(session_id, state="paused", stage=stage, blocker=blocker, error_code=code)
+        session = self.store.get_session(session_id) or {}
+        self._set_task_owner_state(int(session.get("task_id") or 0), "Paused")
         self._event(session_id, "workflow_paused", {"stage": stage, "error_code": code, "action": blocker})
         self._checkpoint(session_id, status="paused", next_action=blocker)
         self._record_learning(
@@ -727,14 +738,76 @@ class CodingAgent:
     def _block(self, session_id: int, stage: str, blocker: str, code: str) -> dict[str, Any]:
         blocker = str(_safe(blocker))
         self.store.update_stage(session_id, stage, status="failed", result_json={"error_code": code})
+        self.store.finish_stage_attempt(
+            session_id, stage, status="failed", error_code=code, result={"blocker": blocker}
+        )
         self.store.update_session(session_id, state="blocked", stage=stage, blocker=blocker, error_code=code)
+        session = self.store.get_session(session_id) or {}
+        self._set_task_owner_state(int(session.get("task_id") or 0), "Needs Action")
         self._event(session_id, "workflow_blocked", {"stage": stage, "error_code": code, "action": blocker})
         self._checkpoint(session_id, status="blocked", next_action=blocker)
         self._record_learning(
             session_id, outcome="blocked", stage=stage, error_code=code,
             evidence={"blocker": blocker},
         )
+        self.completion.build_scorecard(session_id)
         return self.get_workflow(session_id)
+
+    def _set_task_owner_state(self, task_id: int, owner_state: str) -> None:
+        if task_id <= 0:
+            return
+        conn = self.store.connect()
+        try:
+            conn.execute(
+                "UPDATE development_tasks SET owner_state=?,updated_at=? WHERE id=?",
+                (owner_state, utc_now(), task_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _run_worker_with_heartbeat(
+        self, session_id: int, brief: dict[str, Any], worker_event
+    ) -> dict[str, Any]:
+        stop = threading.Event()
+        started_at = utc_now()
+        heartbeat_seconds = max(1, self.policy.limit("heartbeat_seconds", 5))
+        warning_seconds = max(heartbeat_seconds, self.policy.limit("no_output_warning_seconds", 90))
+
+        def pulse() -> None:
+            warned = False
+            while not stop.wait(heartbeat_seconds):
+                current = self.store.get_session(session_id) or {}
+                if current.get("state") not in ACTIVE_STATES:
+                    return
+                self._event(session_id, "worker_heartbeat", {"stage": "code"})
+                last_output = str(current.get("last_output_at") or "")
+                stage = next(
+                    (item for item in self.store.list_stages(session_id) if item["node_id"] == "code"), {}
+                )
+                stage_started = str(stage.get("started_at") or started_at)
+                reference = last_output if last_output > stage_started else stage_started
+                try:
+                    silent_for = (datetime.now(timezone.utc) - datetime.fromisoformat(reference)).total_seconds()
+                except ValueError:
+                    silent_for = 0
+                if silent_for >= warning_seconds and not warned:
+                    warned = True
+                    self._event(session_id, "worker_no_output_warning", {
+                        "stage": "code", "silent_seconds": round(silent_for),
+                        "message": "Agent is alive but has not produced output within the health window.",
+                    })
+
+        monitor = threading.Thread(target=pulse, name=f"coding-heartbeat-{session_id}", daemon=True)
+        monitor.start()
+        try:
+            return self.worker.run(
+                session_id, "code", str(brief["worktree"]), brief, on_event=worker_event,
+                cancel_check=lambda: bool((self.store.get_session(session_id) or {}).get("cancel_requested")),
+            )
+        finally:
+            stop.set()
+            monitor.join(timeout=heartbeat_seconds + 1)
 
     def run_to_gate(self, session_id: int) -> dict[str, Any]:
         lease_seconds = max(
@@ -818,10 +891,7 @@ class CodingAgent:
                     )
 
                 try:
-                    result = self.worker.run(
-                        session_id, "code", session["worktree"], brief, on_event=worker_event,
-                        cancel_check=lambda: bool((self.store.get_session(session_id) or {}).get("cancel_requested")),
-                    )
+                    result = self._run_worker_with_heartbeat(session_id, brief, worker_event)
                 except CodingWorkerUnavailable as exc:
                     current = self.store.get_session(session_id) or {}
                     if current.get("state") == "canceled":
@@ -1116,7 +1186,12 @@ class CodingAgent:
             self.store.update_session(session_id, state="canceled", stage=session["stage"],
                                       blocker="Recoverable worktree retained for policy retention period.",
                                       completed_at=utc_now())
+            self.store.finish_stage_attempt(
+                session_id, str(session["stage"]), status="canceled", error_code="owner_canceled"
+            )
+            self._set_task_owner_state(int(session["task_id"]), "Canceled")
             self._event(session_id, "workflow_canceled", {"worktree_retained": bool(session.get("worktree"))}, actor="owner")
+            self.completion.build_scorecard(session_id)
             return self.get_workflow(session_id)
         if command == "remove":
             if session["state"] not in {"completed", "canceled", "failed", "rolled_back"}:
@@ -1150,6 +1225,7 @@ class CodingAgent:
                 conn.close()
             self.store.update_session(session_id, state="approved" if not session.get("worktree") else "paused",
                                       blocker=None, error_code=None, cancel_requested=0)
+            self._set_task_owner_state(int(session["task_id"]), "Running")
             self._event(session_id, f"workflow_{command}d", {"stage": session["stage"]}, actor="owner")
             return self.start_background(session_id) if background else self.run_to_gate(session_id)
         raise ValueError(f"Unknown workflow command: {command}")
@@ -1343,13 +1419,19 @@ class CodingAgent:
             session_id, outcome="completed", stage="health",
             evidence={"version": session["target_version"], "sha": release["commit_sha"]},
         )
+        for link in self.store.list_goal_task_links(task_id=int(session["task_id"])):
+            self.completion.evaluate_goal(int(link["goal_id"]))
+        self.completion.build_scorecard(session_id)
         self.start_next_queued()
         return self.get_workflow(session_id)
 
     def _mark_task_completed(self, task_id: int) -> None:
         conn = self.store.connect()
         try:
-            conn.execute("UPDATE development_tasks SET status='completed',updated_at=? WHERE id=?", (utc_now(), task_id))
+            conn.execute(
+                "UPDATE development_tasks SET status='completed',owner_state='Done',updated_at=? WHERE id=?",
+                (utc_now(), task_id),
+            )
             conn.commit()
         finally:
             conn.close()

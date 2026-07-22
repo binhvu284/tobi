@@ -17,7 +17,7 @@ import { useToast } from '../context/ToastProvider'
 import { useVaultSession } from '../hooks/useVaultSession'
 import {
   approveDeveloperWorkflow, assessDeveloperGoal, commandDeveloperGoal, commandDeveloperWorkflow, createDeveloperGoal,
-  getDeveloperLearning, getDeveloperOverview, getDeveloperQueue, getDeveloperStorage, getDeveloperVersions,
+  getDeveloperHistory, getDeveloperLearning, getDeveloperOverview, getDeveloperQueue, getDeveloperStorage, getDeveloperVersions,
   getDeveloperGoals, getDeveloperWorkerLogin, getDeveloperWorkerModels, getDeveloperWorkers, probeDeveloperWorker, replayDeveloperLearning,
   saveDeveloperWorker, startDeveloperWorkflow, streamDeveloperEvents, switchDeveloperWorker, cleanupDeveloperStorage,
   rejectDeveloperWorkflow, setDeveloperProcessSettings,
@@ -27,7 +27,7 @@ import {
   type DeveloperWorkflow, type LlmProvider,
 } from '../api'
 
-type Tab = 'overview' | 'goals' | 'loop' | 'workers' | 'data' | 'queue' | 'versions'
+type Tab = 'overview' | 'work' | 'loop' | 'workers' | 'history' | 'system'
 type DeveloperLoadError = { message: string; status?: number; code?: string }
 type DeveloperStreamState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'closed'
 type LiveEventKind = 'stage' | 'tool' | 'worker' | 'checkpoint' | 'success' | 'problem' | 'system'
@@ -1246,12 +1246,40 @@ function DataLearningView({ storage, learning, busy, onCleanup, onReplay }: {
   </div>
 }
 
+function HistoryView({ workflows }: { workflows: DeveloperWorkflow[] }) {
+  const [query, setQuery] = useState('')
+  const [status, setStatus] = useState('all')
+  const filtered = workflows.filter(workflow => {
+    const haystack = `#${workflow.queue_id} ${workflow.title} ${workflow.worker_profile_slug ?? ''}`.toLowerCase()
+    return haystack.includes(query.trim().toLowerCase()) && (status === 'all' || workflow.state === status)
+  })
+  return <section className="overflow-hidden rounded-md border border-border bg-surface/35">
+    <header className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div><h2 className="text-sm font-semibold text-text">Run history</h2><p className="mt-1 text-xs text-muted">Replay outcomes, checkpoints, evidence, and recovery state.</p></div>
+      <div className="flex gap-2"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search item or agent" className="h-8 w-52 rounded-md border border-border bg-background px-2.5 text-xs text-text outline-none focus:border-accent" /><select value={status} onChange={event => setStatus(event.target.value)} className="h-8 rounded-md border border-border bg-background px-2 text-xs text-text"><option value="all">All states</option><option value="completed">Done</option><option value="blocked">Needs action</option><option value="failed">Failed</option><option value="canceled">Canceled</option></select></div>
+    </header>
+    <div className="divide-y divide-border/70">{filtered.length ? filtered.map(workflow => <details key={workflow.id} className="group">
+      <summary className="grid cursor-pointer list-none gap-2 px-4 py-3 hover:bg-overlay/5 sm:grid-cols-[minmax(0,1fr)_120px_140px_90px] sm:items-center"><div className="min-w-0"><div className="truncate text-xs font-medium text-text">#{workflow.queue_id} {workflow.title}</div><div className="mt-1 text-[10px] text-muted">Run #{workflow.id} · {new Date(workflow.created_at).toLocaleString()}</div></div><span className={`w-fit rounded border px-1.5 py-0.5 text-[10px] ${tone(workflow.state)}`}>{label(workflow.state)}</span><span className="truncate text-[11px] text-muted">{workflow.worker_profile_slug || 'unassigned'}</span><span className="text-right text-[11px] text-muted">{Math.round((workflow.progress || 0) * 100)}%</span></summary>
+      <div className="grid gap-3 border-t border-border/60 bg-background/35 px-4 py-4 sm:grid-cols-3"><div><div className="text-[10px] uppercase text-muted">Outcome</div><div className="mt-1 text-xs text-text">{workflow.scorecard?.payload?.outcome || workflow.state}</div></div><div><div className="text-[10px] uppercase text-muted">Evidence</div><div className="mt-1 text-xs text-text">{workflow.evidence?.length ?? 0} records</div></div><div><div className="text-[10px] uppercase text-muted">Recovery</div><div className="mt-1 text-xs text-text">{workflow.blocker || 'No owner action recorded'}</div></div></div>
+    </details>) : <Empty text="No runs match these filters." />}</div>
+  </section>
+}
+
+function SystemView({ storage, learning, releases, busy, onCleanup, onReplay }: {
+  storage: DeveloperStorage | null; learning: { records: Array<Record<string, unknown>>; playbooks: Array<Record<string, unknown>> }
+  releases: DeveloperRelease[]; busy: boolean; onCleanup: (master: string) => void; onReplay: () => void
+}) {
+  const [view, setView] = useState<'storage' | 'learning' | 'version'>('storage')
+  return <div className="space-y-4"><div className="inline-flex rounded-md border border-border bg-surface/60 p-1">{(['storage', 'learning', 'version'] as const).map(item => <button key={item} onClick={() => setView(item)} className={`h-8 rounded px-3 text-xs font-medium ${view === item ? 'bg-accent text-background' : 'text-muted hover:text-text'}`}>{label(item)}</button>)}</div>{view === 'storage' && <StorageView storage={storage} busy={busy} onCleanup={onCleanup} />}{view === 'learning' && <LearningView state={learning} busy={busy} onReplay={onReplay} />}{view === 'version' && <VersionsView releases={releases} />}</div>
+}
+
 export default function Developer() {
   const { toast } = useToast()
   const vaultSession = useVaultSession()
   const [tab, setTab] = useState<Tab>('overview')
+  const [queueGoalDraft, setQueueGoalDraft] = useState<{ goalId: number; requestId: number } | null>(null)
   const [overview, setOverview] = useState<DeveloperOverview | null>(null)
-  const [queue, setQueue] = useState<DeveloperQueueState>({ items: [], order: [], next_queue_id: null, auto_queue: false })
+  const [queue, setQueue] = useState<DeveloperQueueState>({ items: [], order: [], next_queue_id: null, auto_queue: false, queue_hash: '' })
   const [releases, setReleases] = useState<DeveloperRelease[]>([])
   const [storage, setStorage] = useState<DeveloperStorage | null>(null)
   const [goals, setGoals] = useState<DeveloperGoal[]>([])
@@ -1261,6 +1289,7 @@ export default function Developer() {
   const [modelRouting, setModelRouting] = useState({ default_model: '', coding: '', coding_review: '' })
   const [learning, setLearning] = useState<{ records: Array<Record<string, unknown>>; playbooks: Array<Record<string, unknown>> }>({ records: [], playbooks: [] })
   const [events, setEvents] = useState<DeveloperEvent[]>([])
+  const [history, setHistory] = useState<DeveloperWorkflow[]>([])
   const [streamState, setStreamState] = useState<DeveloperStreamState>('idle')
   const [streamIssue, setStreamIssue] = useState<string | null>(null)
   const [lastSignalAt, setLastSignalAt] = useState<number | null>(null)
@@ -1285,17 +1314,17 @@ export default function Developer() {
       controller.abort()
     }, LOAD_TIMEOUT_MS)
     try {
-      const [o, q, v, s, g, w, learn] = await Promise.all([
+      const [o, q, v, s, g, w, learn, historyResult] = await Promise.all([
         getDeveloperOverview(controller.signal), getDeveloperQueue(controller.signal),
         getDeveloperVersions(controller.signal), getDeveloperStorage(controller.signal),
         getDeveloperGoals(controller.signal), getDeveloperWorkers(false, controller.signal),
-        getDeveloperLearning(controller.signal),
+        getDeveloperLearning(controller.signal), getDeveloperHistory(controller.signal),
       ])
       if (controller.signal.aborted) return
       setOverview(o); setQueue(q); setReleases(v.releases); setStorage(s); setGoals(g.goals)
       setWorkers(w.workers); setWorkerModels(w.models ?? []); setWorkerProviders(w.providers ?? [])
       setModelRouting(w.routing ?? { default_model: '', coding: '', coding_review: '' })
-      setLearning(learn); setError(null)
+      setLearning(learn); setHistory(historyResult.workflows); setError(null)
     } catch (err) {
       if (controller.signal.aborted && !timedOut) return
       const apiError = err as { message?: string; status?: number; code?: string }
@@ -1334,7 +1363,7 @@ export default function Developer() {
     localStorage.setItem('tobi.developer.header.collapsed', String(collapsed))
   }
 
-  const active = overview?.active_workflow ?? overview?.workflows[0] ?? null
+  const active = overview?.active_workflow ?? null
   const activeIsTerminal = active ? TERMINAL_STATES.has(active.state) : false
   useEffect(() => {
     if (!active?.id) {
@@ -1500,9 +1529,8 @@ export default function Developer() {
 
   const capabilities = useMemo(() => Object.entries(overview?.policy.capabilities ?? {}), [overview])
   const tabs: { id: Tab; label: string }[] = [
-    { id: 'overview', label: 'Overview' }, { id: 'goals', label: 'Goals' }, { id: 'loop', label: 'Process' },
-    { id: 'workers', label: 'Agents' }, { id: 'data', label: 'Storage & Learning' }, { id: 'queue', label: 'Queue' },
-    { id: 'versions', label: 'Version' },
+    { id: 'overview', label: 'Overview' }, { id: 'work', label: 'Work' }, { id: 'loop', label: 'Process' },
+    { id: 'workers', label: 'Agents' }, { id: 'history', label: 'History' }, { id: 'system', label: 'System' },
   ]
 
   return (
@@ -1523,7 +1551,7 @@ export default function Developer() {
           {active && tab === 'overview' && <WorkflowHeader workflow={active} busy={busy} onCommand={command} onApprove={approve} />}
           <main className="px-4 py-6 sm:px-6">
             {tab === 'overview' && <div className="space-y-8">
-              {!active && <div className="grid w-full gap-3 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.8fr)]"><section className="relative overflow-hidden rounded-lg border border-accent/25 bg-surface/70 px-5 py-6 shadow-[0_20px_60px_rgb(0_0_0/0.12)] sm:px-6"><div className="absolute inset-y-0 left-0 w-1 bg-accent" /><div className="flex items-start justify-between gap-5"><div><div className="text-[10px] font-semibold uppercase text-accent">Development runtime</div><h2 className="mt-2 text-lg font-semibold text-text">Ready for a controlled run</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted">Select a queue item or create a goal. Mission Control will isolate the work, preserve checkpoints, and keep owner gates visible.</p></div><button onClick={() => setTab('goals')} className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md bg-accent px-3 text-xs font-medium text-background"><Plus size={14} /> New goal</button></div><div className="mt-6 h-2 overflow-hidden rounded-full bg-background/70"><div className="h-full w-0 rounded-full bg-accent" /></div><div className="mt-2 text-[11px] text-muted">Idle - waiting for a goal</div></section><section className="rounded-lg border border-border bg-surface/60 px-5 py-5"><div className="flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-md bg-success/10 text-success"><CheckCircle2 size={18} /></div><div><div className="text-[10px] font-semibold uppercase text-muted">Owner action</div><p className="mt-1.5 text-sm leading-6 text-text">No action is required. Start when the next goal is ready.</p></div></div></section></div>}
+              {!active && <div className="grid w-full gap-3 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.8fr)]"><section className="relative overflow-hidden rounded-lg border border-accent/25 bg-surface/70 px-5 py-6 shadow-[0_20px_60px_rgb(0_0_0/0.12)] sm:px-6"><div className="absolute inset-y-0 left-0 w-1 bg-accent" /><div className="flex items-start justify-between gap-5"><div><div className="text-[10px] font-semibold uppercase text-accent">Development runtime</div><h2 className="mt-2 text-lg font-semibold text-text">Choose verified work to begin</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted">Create an outcome Goal, link a Queue item, review readiness, then start one durable run.</p></div><button onClick={() => setTab('work')} className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md bg-accent px-3 text-xs font-medium text-background"><Target size={14} /> Open work</button></div><div className="mt-6 h-2 overflow-hidden rounded-full bg-background/70" /><div className="mt-2 text-[11px] text-muted">Idle · no active run</div></section><section className="rounded-lg border border-border bg-surface/60 px-5 py-5"><div className="flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-md bg-success/10 text-success"><CheckCircle2 size={18} /></div><div><div className="text-[10px] font-semibold uppercase text-muted">Owner action</div><p className="mt-1.5 text-sm leading-6 text-text">Select a Ready Queue item. Start remains locked until strict preflight passes.</p></div></div></section></div>}
               <div className="grid gap-4 lg:grid-cols-2">
                 <section className="overflow-hidden rounded-md border border-border bg-surface/35">
                   <header className="flex h-11 items-center gap-2 border-b border-border px-4"><ListTree size={14} className="text-accent" /><h2 className="text-xs font-semibold text-text">Runtime gate checklist</h2></header>
@@ -1538,17 +1566,12 @@ export default function Developer() {
             {tab === 'loop' && <DeveloperProcess workflow={active} events={events} workers={workers} queue={queue.items} busy={busy}
               autoQueue={autoQueuePending ?? overview?.process?.auto_queue ?? false} autoQueueBusy={autoQueuePending !== null} streamState={streamState} streamIssue={streamIssue}
               onAutoQueue={setAutoQueue} onCommand={command} onApprove={approve} onReject={rejectApproval} />}
-            {tab === 'goals' && <DevelopmentGoals goals={goals} workers={workers} busy={busy} onCreate={createGoal} onCommand={goalCommand} />}
+            {tab === 'work' && <div className="space-y-8"><DevelopmentGoals goals={goals} busy={busy} onCreate={createGoal} onCommand={goalCommand} onCreateItem={goalId => setQueueGoalDraft({ goalId, requestId: Date.now() })} /><DeveloperQueue state={queue} active={active} busy={busy} goals={goals} createForGoalId={queueGoalDraft?.goalId} createRequestId={queueGoalDraft?.requestId}
+              autoQueue={autoQueuePending ?? overview?.process?.auto_queue ?? queue.auto_queue} autoQueueBusy={autoQueuePending !== null} onAutoQueue={setAutoQueue}
+              onStart={(id, readinessId) => { void act(() => startDeveloperWorkflow(id, readinessId), `Queue #${id} started`) }} onOpenProcess={() => setTab('loop')} onState={setQueue} /></div>}
             {tab === 'workers' && <DeveloperAgents workers={workers} models={workerModels} providers={workerProviders} routing={modelRouting} busy={busy} onSave={saveWorker} onProbe={probeWorker} onLogin={loginWorker} onModels={loadWorkerModels} />}
-            {tab === 'data' && <DataLearningView storage={storage} learning={learning} busy={busy} onReplay={replayLearning} onCleanup={master => act(() => cleanupDeveloperStorage(master), 'Developer cleanup completed')} />}
-            {tab === 'queue' && <DeveloperQueue state={queue} active={active} busy={busy} goals={goals}
-              autoQueue={autoQueuePending ?? overview?.process?.auto_queue ?? queue.auto_queue}
-              autoQueueBusy={autoQueuePending !== null}
-              onAutoQueue={setAutoQueue}
-              onStart={id => act(() => startDeveloperWorkflow(id), `Queue #${id} started`)}
-              onOpenProcess={() => setTab('loop')}
-              onState={setQueue} />}
-            {tab === 'versions' && <VersionsView releases={releases} />}
+            {tab === 'history' && <HistoryView workflows={history} />}
+            {tab === 'system' && <SystemView storage={storage} learning={learning} releases={releases} busy={busy} onReplay={replayLearning} onCleanup={master => act(() => cleanupDeveloperStorage(master), 'Developer cleanup completed')} />}
           </main>
         </>}
     </div>

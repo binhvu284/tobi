@@ -12,9 +12,10 @@ import {
   Trash2, Upload, X,
 } from 'lucide-react'
 import {
-  getDeveloperQueuePlan, removeDeveloperQueueItem, restoreDeveloperQueueItem,
+  createDeveloperQueueItem, getDeveloperQueue, getDeveloperQueuePlan, preflightDeveloperQueueItem,
+  removeDeveloperQueueItem, restoreDeveloperQueueItem,
   setDeveloperQueueOrder, type DeveloperGoal, type DeveloperQueueItem,
-  type DeveloperQueuePlan, type DeveloperQueueState, type DeveloperWorkflow,
+  type DeveloperQueuePlan, type DeveloperQueueState, type DeveloperReadiness, type DeveloperWorkflow,
 } from '../../api'
 import { useToast } from '../../context/ToastProvider'
 import MarkdownView from '../chat/MarkdownView'
@@ -26,15 +27,6 @@ function label(value: string) {
 
 function deps(item: DeveloperQueueItem): number[] {
   try { return JSON.parse(item.dependencies_json) as number[] } catch { return [] }
-}
-
-/** Marks a surface that is a design preview, not a wired-up feature. */
-function DevChip({ className = '' }: { className?: string }) {
-  return (
-    <span className={`inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-warning ${className}`}>
-      Developing
-    </span>
-  )
 }
 
 /** One-line item card used in the Next slot and the priority list. */
@@ -70,15 +62,17 @@ function ItemCard({ item, badge, draggable, busy, prominent, onDragStart, onDrag
   )
 }
 
-export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBusy, goals, onAutoQueue, onStart, onOpenProcess, onState }: {
+export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBusy, goals, createForGoalId, createRequestId, onAutoQueue, onStart, onOpenProcess, onState }: {
   state: DeveloperQueueState
   active: DeveloperWorkflow | null
   busy: boolean
   autoQueue: boolean
   autoQueueBusy: boolean
   goals: DeveloperGoal[]
+  createForGoalId?: number | null
+  createRequestId?: number
   onAutoQueue: (enabled: boolean) => void
-  onStart: (queueId: number) => void
+  onStart: (queueId: number, readinessId: number) => void
   onOpenProcess: () => void
   onState: (next: DeveloperQueueState) => void
 }) {
@@ -89,7 +83,14 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
   const [completedOpen, setCompletedOpen] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [planFor, setPlanFor] = useState<DeveloperQueueItem | null>(null)
+  const [preflightFor, setPreflightFor] = useState<DeveloperQueueItem | null>(null)
+  const [readiness, setReadiness] = useState<DeveloperReadiness | null>(null)
+  const [preflightBusy, setPreflightBusy] = useState(false)
   const suppressClick = useRef(false)
+
+  useEffect(() => {
+    if (createRequestId && createForGoalId != null) setAddOpen(true)
+  }, [createRequestId, createForGoalId])
 
   const byId = useMemo(() => new Map(state.items.map(item => [item.queue_id, item])), [state.items])
   const nextItem = state.next_queue_id != null ? byId.get(state.next_queue_id) ?? null : null
@@ -164,6 +165,26 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
     setPlanFor(item)
   }
 
+  const reviewStart = async (item: DeveloperQueueItem, options: { protected_paths_approved?: boolean; selected_agent?: string } = {}) => {
+    setPreflightFor(item); setPreflightBusy(true)
+    try { setReadiness(await preflightDeveloperQueueItem(item.queue_id, options)) }
+    catch (err) {
+      setReadiness(null)
+      toast({ kind: 'error', title: 'Readiness check failed', detail: err instanceof Error ? err.message : String(err) })
+    } finally { setPreflightBusy(false) }
+  }
+
+  const createItem = async (input: { title: string; objective: string; acceptance_criteria: string[]; goal_ids: number[]; plan_markdown?: string | null }) => {
+    try {
+      await createDeveloperQueueItem({ ...input, expected_queue_hash: state.queue_hash })
+      onState(await getDeveloperQueue())
+      setAddOpen(false)
+      toast({ kind: 'success', title: 'Queue item created', detail: 'The plan and QUEUE.md were updated together.' })
+    } catch (err) {
+      toast({ kind: 'error', title: 'Queue item was not created', detail: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
   // ── restore / remove (Completed modal) ─────────────────────────────────────
   const [rowBusy, setRowBusy] = useState<number | null>(null)
   const [confirmRemove, setConfirmRemove] = useState<number | null>(null)
@@ -225,7 +246,7 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted">Idle — no development item is running.</p>
             {startTarget && (
-              <button disabled={busy} onClick={() => onStart(startTarget.queue_id)}
+              <button disabled={busy} onClick={() => void reviewStart(startTarget)}
                 className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3.5 text-sm font-semibold text-background shadow-sm transition-[filter] hover:brightness-110 disabled:opacity-40">
                 {busy ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />} Start #{startTarget.queue_id} now
               </button>
@@ -248,7 +269,7 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
           <ItemCard item={nextItem} draggable busy={busy} prominent
             badge={<span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">Next</span>}
             onDragStart={dragStart(nextItem.queue_id)} onDragEnd={dragEnd}
-            onOpen={() => openPlan(nextItem)} onStart={() => onStart(nextItem.queue_id)} />
+            onOpen={() => openPlan(nextItem)} onStart={() => void reviewStart(nextItem)} />
         ) : (
           <p className="py-1 text-xs text-muted">Drag an item here to stage it. {autoQueue ? 'Auto mode will promote it when the main thread frees up.' : 'Turn Auto on to promote it automatically.'}</p>
         )}
@@ -266,7 +287,7 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
           <div className="flex items-center gap-2">
             <button onClick={() => setAddOpen(true)} title="Add a new queue item"
               className="inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent/10 px-2 py-1 text-[11px] font-medium text-accent transition-colors hover:bg-accent/20">
-              <Plus size={13} /> Add item <DevChip />
+              <Plus size={13} /> Add item
             </button>
             <button onClick={() => setCompletedOpen(true)}
               className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted hover:text-text">
@@ -289,7 +310,7 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
                 <ItemCard item={item} draggable busy={busy}
                   badge={<span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-overlay/10 text-[10px] font-semibold text-muted">{index + 1}</span>}
                   onDragStart={dragStart(item.queue_id)} onDragEnd={dragEnd}
-                  onOpen={() => openPlan(item)} onStart={() => onStart(item.queue_id)} />
+                  onOpen={() => openPlan(item)} onStart={() => void reviewStart(item)} />
               </div>
             ))}
             {/* tail affordance: drop after the last card */}
@@ -302,10 +323,14 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
         items={completed} rowBusy={rowBusy} confirmRemove={confirmRemove}
         onOpenPlan={item => setPlanFor(item)} onRestore={restore}
         onAskRemove={setConfirmRemove} onRemove={remove} />
-      <AddItemModal open={addOpen} goals={goals} onClose={() => setAddOpen(false)}
-        onSubmit={() => {
-          setAddOpen(false)
-          toast({ kind: 'info', title: 'Add item is still in development', detail: 'This preview does not create a queue item yet.' })
+      <AddItemModal open={addOpen} goals={goals} initialGoalId={createForGoalId} onClose={() => setAddOpen(false)} onSubmit={createItem} />
+      <ReadinessModal item={preflightFor} report={readiness} busy={preflightBusy}
+        onClose={() => { setPreflightFor(null); setReadiness(null) }}
+        onRefresh={options => preflightFor && reviewStart(preflightFor, options)}
+        onStart={() => {
+          if (!preflightFor || !readiness?.ready) return
+          onStart(preflightFor.queue_id, readiness.readiness_id)
+          setPreflightFor(null); setReadiness(null)
         }} />
       <PlanModal item={planFor} onClose={() => setPlanFor(null)} />
     </div>
@@ -381,21 +406,24 @@ function CompletedModal({ open, onClose, items, rowBusy, confirmRemove, onOpenPl
   )
 }
 
-// ── 5. Add Item modal (design preview — not wired to the backend yet) ────────
-function AddItemModal({ open, goals, onClose, onSubmit }: {
-  open: boolean; goals: DeveloperGoal[]; onClose: () => void; onSubmit: () => void
+// Add one canonical Queue item and plan in a single conflict-checked operation.
+function AddItemModal({ open, goals, initialGoalId, onClose, onSubmit }: {
+  open: boolean; goals: DeveloperGoal[]; initialGoalId?: number | null; onClose: () => void
+  onSubmit: (input: { title: string; objective: string; acceptance_criteria: string[]; goal_ids: number[]; plan_markdown?: string | null }) => void
 }) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [criteria, setCriteria] = useState('')
   const [selGoals, setSelGoals] = useState<number[]>([])
   const [planMode, setPlanMode] = useState<'tobi' | 'upload' | null>(null)
   const [planFile, setPlanFile] = useState<string | null>(null)
+  const [planMarkdown, setPlanMarkdown] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!open) return
-    setName(''); setDescription(''); setSelGoals([]); setPlanMode(null); setPlanFile(null)
-  }, [open])
+    setName(''); setDescription(''); setCriteria(''); setSelGoals(initialGoalId == null ? [] : [initialGoalId]); setPlanMode(null); setPlanFile(null); setPlanMarkdown(null)
+  }, [open, initialGoalId])
 
   const toggleGoal = (id: number) =>
     setSelGoals(current => (current.includes(id) ? current.filter(x => x !== id) : [...current, id]))
@@ -413,16 +441,16 @@ function AddItemModal({ open, goals, onClose, onSubmit }: {
             className="flex max-h-[88vh] w-full max-w-lg flex-col rounded-lg border border-border bg-surface shadow-2xl">
             <header className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
               <div>
-                <div className="flex items-center gap-2"><h2 className="font-semibold text-text">Add queue item</h2><DevChip /></div>
+                <div className="flex items-center gap-2"><h2 className="font-semibold text-text">Add queue item</h2></div>
                 <p className="mt-0.5 text-xs text-muted">Describe the work, pick goals, and choose how the plan is created.</p>
               </div>
               <button onClick={onClose} title="Close" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-overlay/10 hover:text-text"><X size={17} /></button>
             </header>
 
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
-              <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] leading-5 text-warning/90">
+              <div className="flex items-start gap-2 rounded-md border border-accent/25 bg-accent/5 px-3 py-2 text-[11px] leading-5 text-accent/90">
                 <Sparkles size={13} className="mt-0.5 shrink-0" />
-                <span>This flow is a design preview. Submitting won’t create a real item yet — the backend wiring is still in development.</span>
+                <span>Mission Control writes the plan and Queue row together. A stale Queue is rejected instead of overwritten.</span>
               </div>
 
               <label className="block">
@@ -434,6 +462,12 @@ function AddItemModal({ open, goals, onClose, onSubmit }: {
                 <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted">Description</span>
                 <textarea value={description} onChange={event => setDescription(event.target.value)} rows={3}
                   placeholder="What should this item accomplish, and how will you know it’s done?" className={`${inputClass} resize-y`} />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted">Acceptance criteria · one per line</span>
+                <textarea value={criteria} onChange={event => setCriteria(event.target.value)} rows={3}
+                  placeholder={'The idle state is visible\nA disabled agent cannot start a run'} className={`${inputClass} resize-y`} />
               </label>
 
               <div>
@@ -468,7 +502,7 @@ function AddItemModal({ open, goals, onClose, onSubmit }: {
                     <Upload size={14} /> Upload .md file
                   </button>
                   <input ref={fileRef} type="file" accept=".md,.markdown,text/markdown" className="hidden"
-                    onChange={event => { const file = event.target.files?.[0]; if (file) { setPlanMode('upload'); setPlanFile(file.name) } }} />
+                    onChange={event => { const file = event.target.files?.[0]; if (file) { setPlanMode('upload'); setPlanFile(file.name); void file.text().then(setPlanMarkdown) } }} />
                 </div>
                 {planMode === 'tobi' && <p className="mt-1.5 text-[11px] text-accent/80">TOBI will draft the plan from the name, description, and selected goals.</p>}
                 {planMode === 'upload' && planFile && <p className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] text-muted"><FileText size={11} /> {planFile}</p>}
@@ -476,11 +510,12 @@ function AddItemModal({ open, goals, onClose, onSubmit }: {
             </div>
 
             <footer className="flex items-center justify-between gap-3 border-t border-border px-5 py-3">
-              <span className="text-[11px] text-muted">Preview only — no item is created.</span>
+              <span className="text-[11px] text-muted">Creates one Draft item. Preflight is still required.</span>
               <div className="flex items-center gap-2">
                 <button onClick={onClose} className="inline-flex h-8 items-center rounded-md border border-border px-3 text-xs text-text hover:bg-overlay/5">Cancel</button>
-                <button onClick={onSubmit}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-semibold text-background transition-[filter] hover:brightness-110">
+                <button disabled={name.trim().length < 3 || description.trim().length < 10 || !criteria.trim()}
+                  onClick={() => onSubmit({ title: name, objective: description, acceptance_criteria: criteria.split('\n').map(item => item.trim()).filter(Boolean), goal_ids: selGoals, plan_markdown: planMarkdown })}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-semibold text-background transition-[filter] hover:brightness-110 disabled:opacity-40">
                   <Plus size={13} /> Create item
                 </button>
               </div>
@@ -494,6 +529,33 @@ function AddItemModal({ open, goals, onClose, onSubmit }: {
 }
 
 // ── 6. Plan Detail modal ─────────────────────────────────────────────────────
+function ReadinessModal({ item, report, busy, onClose, onRefresh, onStart }: {
+  item: DeveloperQueueItem | null; report: DeveloperReadiness | null; busy: boolean
+  onClose: () => void
+  onRefresh: (options: { protected_paths_approved?: boolean; selected_agent?: string }) => void
+  onStart: () => void
+}) {
+  return createPortal(
+    <AnimatePresence>{item && <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-3 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
+      <motion.section role="dialog" aria-modal="true" onClick={event => event.stopPropagation()} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} className="w-full max-w-2xl overflow-hidden rounded-lg border border-border bg-surface shadow-2xl">
+        <header className="flex items-start justify-between gap-3 border-b border-border px-5 py-4"><div><div className="text-[10px] font-semibold uppercase text-accent">Strict readiness</div><h2 className="mt-1 text-sm font-semibold text-text">#{item.queue_id} {item.title}</h2><p className="mt-1 text-xs text-muted">No run is created until every blocking gate passes.</p></div><button onClick={onClose} title="Close" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-overlay/10 hover:text-text"><X size={17} /></button></header>
+        <div className="max-h-[65vh] space-y-4 overflow-y-auto px-5 py-4">
+          {busy && <div className="flex items-center gap-2 py-8 text-sm text-muted"><Loader2 size={15} className="animate-spin" /> Checking plan, policy, agents, dependencies, and validation...</div>}
+          {!busy && report && <>
+            <div className={`flex items-center gap-3 rounded-md border px-3 py-3 ${report.ready ? 'border-success/30 bg-success/5' : 'border-warning/30 bg-warning/5'}`}><span className={`flex h-8 w-8 items-center justify-center rounded-md ${report.ready ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>{report.ready ? <CheckCircle2 size={16} /> : <Target size={16} />}</span><div><div className="text-xs font-semibold text-text">{report.ready ? 'Ready to start one durable run' : `${report.blockers.length} blocker${report.blockers.length === 1 ? '' : 's'} must be resolved`}</div><div className="mt-0.5 text-[11px] text-muted">{report.selected_agent} · reviewer {report.reviewer}</div></div></div>
+            {report.blockers.length > 0 && <div className="space-y-2">{report.blockers.map(issue => <div key={`${issue.code}-${issue.message}`} className="rounded-md border border-danger/25 bg-danger/5 px-3 py-2"><div className="text-[10px] font-semibold uppercase text-danger">{label(issue.code)}</div><div className="mt-1 text-xs leading-5 text-text">{issue.message}</div></div>)}</div>}
+            {report.blockers.some(issue => issue.code === 'protected_scope_approval') && <button onClick={() => onRefresh({ protected_paths_approved: true })} className="inline-flex h-8 items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 text-xs font-medium text-warning"><CheckCircle2 size={13} /> Acknowledge protected scope</button>}
+            {!report.ready && report.alternatives.length > 0 && <div><div className="mb-2 text-[10px] font-semibold uppercase text-muted">Healthy agent alternatives</div><div className="flex flex-wrap gap-2">{report.alternatives.map(agent => <button key={agent.slug} onClick={() => onRefresh({ selected_agent: agent.slug })} className="rounded-md border border-border px-3 py-2 text-left hover:border-accent/40"><div className="text-xs font-medium text-text">{agent.name}</div><div className="mt-0.5 text-[10px] text-muted">{agent.adapter}{agent.model ? ` · ${agent.model}` : ''}</div></button>)}</div></div>}
+            {report.warnings.length > 0 && <details><summary className="cursor-pointer text-xs text-warning">{report.warnings.length} warning{report.warnings.length === 1 ? '' : 's'}</summary><div className="mt-2 space-y-1">{report.warnings.map(issue => <p key={issue.code + issue.message} className="text-[11px] text-muted">{issue.message}</p>)}</div></details>}
+          </>}
+        </div>
+        <footer className="flex items-center justify-between border-t border-border px-5 py-3"><span className="text-[11px] text-muted">Bound to the current plan and policy hash.</span><div className="flex gap-2"><button onClick={onClose} className="h-8 rounded-md border border-border px-3 text-xs text-text">Cancel</button><button disabled={!report?.ready || busy} onClick={onStart} className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-xs font-semibold text-background disabled:opacity-40"><Play size={13} /> Start run</button></div></footer>
+      </motion.section>
+    </motion.div>}</AnimatePresence>,
+    document.body,
+  )
+}
+
 function PlanModal({ item, onClose }: { item: DeveloperQueueItem | null; onClose: () => void }) {
   const [plan, setPlan] = useState<DeveloperQueuePlan | null>(null)
   const [error, setError] = useState<string | null>(null)

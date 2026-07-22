@@ -25,7 +25,6 @@ os.environ["DB_PATH"] = str(TMP / "v2.db")
 from core.coding_agent import CodingAgent, STAGES  # noqa: E402
 from core.coding_contracts import SprintBudget, WorkerProfile  # noqa: E402
 from core.coding_learning import CodingLearningService  # noqa: E402
-from core.coding_loop import CodingLoopService  # noqa: E402
 from core.coding_policy import CodingPolicy  # noqa: E402
 from core.coding_runner import IsolatedProcessRunner, QueuedProcessRunner  # noqa: E402
 from core.coding_runner_service import CodingRunnerService  # noqa: E402
@@ -82,7 +81,7 @@ with store.connect() as conn:
     versions = [row[0] for row in conn.execute(
         "SELECT version FROM developer_schema_migrations ORDER BY version"
     )]
-ok("v2 schema migration is additive", versions == [1, 2, 3, 4, 5], str(versions))
+ok("v2 schema migration is additive", versions == [1, 2, 3, 4, 5, 6, 7], str(versions))
 
 legacy_store = DevelopmentStore(TMP / "legacy_profile.db")
 with legacy_store.connect() as conn:
@@ -154,12 +153,24 @@ goal = agent.create_goal(
     acceptance_criteria=["migration is additive", "auth remains secure", "tests pass", "UI reports state"],
     worker_profile_slug="mc-native",
 )
-ok("high-impact goal is not auto-started", goal["status"] == "awaiting_scope_approval", goal["status"])
-ok("goal stores its bounded sprint contracts", len(store.list_sprints(int(goal["id"]))) == 2)
-approved = CodingLoopService(agent).command(int(goal["id"]), "approve_scope")
-ok("owner can release the assessed scope gate", approved["status"] == "queued")
+ok("goal is a non-executable outcome record", goal["status"] == "active", goal["status"])
+ok("goal does not create coding sprints", len(store.list_sprints(int(goal["id"]))) == 0)
+ok("goal does not create a synthetic Queue task", store.get_task(queue_id=900_000_000 + int(goal["id"])) is None)
 
-task = store.get_task(queue_id=900_000_000 + int(goal["id"]))
+task = store.upsert_task({
+    "queue_id": 22,
+    "title": "Coding Agent V2 checkpoint",
+    "plan_path": "docs/coding-agent-v2.md",
+    "plan_hash": "checkpoint-plan",
+    "acceptance_criteria": ["checkpoint remains durable"],
+    "dependencies": [],
+    "status": "planned",
+    "risk": "medium",
+    "target_version": "3.22.0",
+})
+store.link_goal_task(int(goal["id"]), int(task["id"]))
+evaluated = agent.evaluate_goal(int(goal["id"]))
+ok("goal qualification requires criterion evidence", evaluated["qualification_percent"] == 0)
 session = store.create_session(
     int(task["id"]), policy.hash, "v2-checkpoint-session",
     goal_id=int(goal["id"]), worker_profile_slug="mc-native",

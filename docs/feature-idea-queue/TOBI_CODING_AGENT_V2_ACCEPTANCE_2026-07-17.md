@@ -1,7 +1,7 @@
 # TOBI Coding Agent V2 Acceptance - 2026-07-17
 
 > Queue: #22
-> Result: Development gate closed. Queue #20 may continue after integrating the closure commit.
+> Result: Historical V1 acceptance evidence. Superseded as the current closure gate by [TOBI_CODING_AGENT_V2_COMPLETION_ACCEPTANCE_2026-07-22.md](TOBI_CODING_AGENT_V2_COMPLETION_ACCEPTANCE_2026-07-22.md).
 
 ## Acceptance Graph
 

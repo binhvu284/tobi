@@ -123,6 +123,7 @@ owner_flags.set_bool("developer.auto_queue", True)
 started: list[int] = []
 agent.list_workflows = lambda limit=200: []                       # no active run
 agent.create_workflow = lambda qid, **kw: (started.append(int(qid)) or {"id": 1, "queue_id": qid})
+agent.preflight = lambda qid, **kw: {"ready": True, "readiness_id": int(qid), "blockers": []}
 agent.start_background = lambda wid: {"id": wid, "started": True}
 agent._event = lambda *args, **kw: None
 

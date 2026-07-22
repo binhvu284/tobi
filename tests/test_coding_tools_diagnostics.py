@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from core.coding_policy import PolicyDenied  # noqa: E402
 from core.coding_tools import CodingToolBroker, resolve_runtime_command  # noqa: E402
 
 
@@ -88,6 +89,27 @@ class CodingToolDiagnosticTests(unittest.TestCase):
         self.assertFalse(result["snapshot_saved"])
         self.assertLessEqual(len(result["findings"]), 20)
         self.assertIn("tool_performance", [kind for kind, _ in observed])
+
+    def test_guarded_command_rejects_shells_and_mutating_git(self) -> None:
+        broker = CodingToolBroker(FakePolicy(self.root), self.worktree)
+        with self.assertRaises(PolicyDenied):
+            broker.run_command(["powershell", "-Command", "Get-ChildItem"])
+        with self.assertRaises(PolicyDenied):
+            broker.run_command(["git", "commit", "-m", "unsafe"])
+
+    def test_guarded_dependency_install_requires_worktree_target(self) -> None:
+        broker = CodingToolBroker(FakePolicy(self.root), self.worktree)
+        with self.assertRaises(PolicyDenied):
+            broker.run_command(["python", "-m", "pip", "install", "requests"])
+
+    def test_guarded_command_uses_no_shell_and_bounds_timeout(self) -> None:
+        broker = CodingToolBroker(FakePolicy(self.root), self.worktree)
+        completed = subprocess.CompletedProcess([], 0, stdout="ok\n", stderr="")
+        with patch("core.coding_tools.subprocess.run", return_value=completed) as run:
+            result = broker.run_command(["python", "-c", "print('ok')"], timeout_seconds=30)
+        self.assertTrue(result["ok"])
+        self.assertFalse(run.call_args.kwargs["shell"])
+        self.assertEqual(run.call_args.kwargs["timeout"], 30)
 
 
 if __name__ == "__main__":

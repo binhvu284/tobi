@@ -57,7 +57,8 @@ auto.sync = lambda: [
 ]
 auto.store = type("Store", (), {"get_task": lambda self, queue_id: {"status": "planned"}})()
 started: list[int] = []
-auto.create_workflow = lambda queue_id: {"id": queue_id, "queue_id": queue_id}
+auto.preflight = lambda queue_id, **kwargs: {"ready": True, "readiness_id": queue_id, "blockers": []}
+auto.create_workflow = lambda queue_id, **kwargs: {"id": queue_id, "queue_id": queue_id}
 auto._event = lambda workflow_id, event_type, payload: None
 auto.start_background = lambda workflow_id: started.append(workflow_id) or {"id": workflow_id}
 original_get_bool = owner_flags.get_bool

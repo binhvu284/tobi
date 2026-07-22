@@ -24,7 +24,6 @@ os.environ["DB_PATH"] = str(TMP / "production.db")
 os.environ["TOBI_CODING_WORKERS"] = "llm"
 
 from core.coding_agent import CodingAgent  # noqa: E402
-from core.coding_loop import CodingLoopService  # noqa: E402
 from core.coding_policy import CodingPolicy, PolicyDenied  # noqa: E402
 from core.coding_tools import CodingToolBroker  # noqa: E402
 from core.deployment_manager import DeploymentManager, DeploymentError  # noqa: E402
@@ -113,29 +112,8 @@ ok("untracked secrets block pre-commit scan", bool(manager.scan_secrets(worktree
 (worktree / "new_secret.txt").unlink()
 
 
-class FakeWorker:
-    def run(self, workflow_id, stage_id, worktree, brief, **kwargs):
-        target = Path(worktree) / "goal_result.txt"
-        target.write_text("goal standard met\n", encoding="utf-8")
-        callback = kwargs.get("on_event")
-        if callback:
-            callback("complete", {"summary": "goal result written"})
-        return {"ok": True, "exit_code": 0, "events": [{"type": "complete"}],
-                "output": "complete", "worker": "fake"}
-
-    def cancel(self, workflow_id):
-        return True
-
-
-class FakeReviewer:
-    def review(self, **kwargs):
-        return {"qualified": True, "score": 1.0, "unmet": [], "risks": [], "summary": "accepted"}
-
-
-# A persisted sandbox goal executes to a deterministic local qualification gate.
+# Goals persist outcomes but never create executable sessions or synthetic Queue IDs.
 agent = CodingAgent(policy=policy, store=store)
-agent.worker = FakeWorker()
-agent.reviewer = FakeReviewer()
 goal = agent.create_goal(
     title="Production loop goal",
     objective="Create a durable proof file and satisfy every configured validation command.",
@@ -143,26 +121,14 @@ goal = agent.create_goal(
     autonomy="sandbox",
     max_iterations=3,
 )
-loop = CodingLoopService(agent)
-result = loop.tick()
-ok("continuous goal reaches local qualification", bool(result and result["status"] == "qualified_local"), str(result))
-qualified_workflow = agent.get_workflow(int(result["current_session_id"]))
-ok("qualified goal stops before GitHub", qualified_workflow["error_code"] == "autonomy_boundary")
-ok("goal iteration evidence is persisted", int(result["iteration_count"]) == 1)
+ok("goal remains a non-executable outcome", goal["status"] == "active")
+ok("goal creates no synthetic Queue task", store.get_task(queue_id=900_000_000 + int(goal["id"])) is None)
+ok("goal creates no coding session", store.list_sessions(10) == [])
 
-# Goal and command claims are database-backed and idempotent.
-second = agent.create_goal(
-    title="Lease test goal", objective="Remain queued while database lease ownership is verified.",
-    acceptance_criteria=["only one owner claims the goal"], autonomy="sandbox",
-)
-if second["status"] == "awaiting_scope_approval":
-    second = loop.command(int(second["id"]), "approve_scope")
-claimed = store.claim_goal("owner-a", 120)
-ok("first loop owner claims queued goal", bool(claimed and claimed["id"] == second["id"]))
-ok("second loop owner cannot steal live lease", store.claim_goal("owner-b", 120) is None)
-command = store.begin_command("production-command-key", "goal", int(second["id"]), "pause")
-store.finish_command("production-command-key", {"status": "paused"})
-replayed = store.begin_command("production-command-key", "goal", int(second["id"]), "pause")
+# Owner commands remain database-backed and idempotent.
+command = store.begin_command("production-command-key", "goal", int(goal["id"]), "evaluate")
+store.finish_command("production-command-key", {"status": "active"})
+replayed = store.begin_command("production-command-key", "goal", int(goal["id"]), "evaluate")
 ok("command response is idempotently replayable", not replayed["_claimed"] and replayed["status"] == "completed")
 
 # Deployment applies the exact merged SHA and health reports that same revision.

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shutil
 import subprocess
@@ -66,11 +67,32 @@ try:
     agent = CodingAgent(policy=policy, store=store)
     agent.start_background = lambda workflow_id: agent.get_workflow(workflow_id)  # type: ignore[method-assign]
 
+    class ReadyWorker:
+        def probe(self, slug, active=False):
+            return {"slug": slug, "name": slug, "adapter": "native", "model": "test",
+                    "health_status": "ready", "health_detail": "ready"}
+
+    class OneSprintAssessment:
+        def to_dict(self):
+            return {"route": "direct", "risk": "medium", "score": 90, "sprints": [{"sequence": 1}]}
+
+    class OneSprintAssessor:
+        def assess(self, **kwargs):
+            return OneSprintAssessment()
+
+    agent.worker = ReadyWorker()
+    agent.completion.worker = agent.worker
+    agent.completion.assessor = OneSprintAssessor()
+    (repo / "docs").mkdir()
+    plan_path = repo / "docs" / "theme.md"
+    plan_path.write_text("# Theme recovery\n\n- Must remain durable.\n", encoding="utf-8")
+    plan_hash = hashlib.sha256(plan_path.read_bytes()).hexdigest()
+
     task = store.upsert_task({
         "queue_id": 13,
         "title": "Theme v2 recovery",
         "plan_path": "docs/theme.md",
-        "plan_hash": "current-plan",
+        "plan_hash": plan_hash,
         "acceptance_criteria": ["replacement workflow is durable"],
         "dependencies": [],
         "status": "approved",
@@ -81,7 +103,7 @@ try:
         int(task["id"]),
         "stale-policy",
         "stale-queue-workflow",
-        plan_hash_snapshot="current-plan",
+        plan_hash_snapshot=plan_hash,
         criteria_snapshot=["replacement workflow is durable"],
     )
     stale_id = int(stale["id"])
@@ -97,14 +119,12 @@ try:
 
     replacement = agent.command(stale_id, "retry")
     replacement_id = int(replacement["id"])
-    check("stale retry creates a new workflow", replacement_id != stale_id)
-    check("replacement uses the active policy", replacement["policy_hash"] == policy.hash)
-    check("replacement snapshots the current plan", replacement["plan_hash_snapshot"] == "current-plan")
-    old = agent.get_workflow(stale_id)
-    check("stale workflow is retained as canceled history", old["state"] == "canceled")
-    check("replacement link is persisted", any(
-        event["event_type"] == "workflow_replaced"
-        and event["payload"]["replacement_workflow_id"] == replacement_id
+    check("stale retry preserves the same workflow", replacement_id == stale_id)
+    check("same run uses the active policy", replacement["policy_hash"] == policy.hash)
+    check("same run snapshots the current plan", replacement["plan_hash_snapshot"] == plan_hash)
+    check("same-run restart is persisted", any(
+        event["event_type"] == "workflow_restarted"
+        and event["payload"]["same_run"] is True
         for event in store.list_events(stale_id)
     ))
 
@@ -115,52 +135,9 @@ try:
         acceptance_criteria=["the goal points to a new workflow"],
     )
     goal_id = int(goal["id"])
-    goal_task = store.get_task(queue_id=900_000_000 + goal_id)
-    sprint = store.next_sprint(goal_id)
-    assert goal_task and sprint
-    goal_session = store.create_session(
-        int(goal_task["id"]),
-        "stale-policy",
-        "stale-goal-workflow",
-        goal_id=goal_id,
-        plan_hash_snapshot=goal_task["plan_hash"],
-        criteria_snapshot=json.loads(sprint["acceptance_criteria_json"]),
-        worker_profile_slug="mc-native",
-        reviewer_profile_slug="reviewer-default",
-        current_sprint_id=int(sprint["id"]),
-        sprint_budget=json.loads(sprint["budget_json"]),
-    )
-    goal_session_id = int(goal_session["id"])
-    store.add_stages(goal_session_id, STAGES)
-    store.update_session(
-        goal_session_id,
-        state="paused",
-        stage="prepare",
-        error_code="policy_changed",
-        blocker="Policy changed.",
-    )
-    store.update_sprint(int(sprint["id"]), status="active", session_id=goal_session_id)
-    store.update_goal(
-        goal_id,
-        status="awaiting_config",
-        iteration_count=1,
-        current_session_id=goal_session_id,
-        last_error="policy_changed",
-    )
-    store.add_goal_iteration(goal_id, goal_session_id, 1)
-
-    resumed = CodingLoopService(agent).command(goal_id, "resume")
-    resumed_id = int(resumed["current_session_id"])
-    check("goal resume binds a replacement workflow", resumed_id != goal_session_id)
-    check("goal returns to running after replacement", resumed["status"] == "running")
-    rebound_sprint = store.get_sprint(int(sprint["id"]))
-    check("active sprint follows the replacement", int(rebound_sprint["session_id"]) == resumed_id)
-    with store.connect() as conn:
-        iteration = conn.execute(
-            "SELECT session_id,state FROM goal_iterations WHERE goal_id=? AND iteration=1",
-            (goal_id,),
-        ).fetchone()
-    check("goal iteration follows the replacement", int(iteration["session_id"]) == resumed_id)
+    check("Goal recovery never creates a synthetic task", store.get_task(queue_id=900_000_000 + goal_id) is None)
+    evaluated = CodingLoopService(agent).command(goal_id, "evaluate")
+    check("Goal command re-evaluates evidence without running", evaluated["status"] == "active")
 
     command = store.begin_command("failed-command-key", "workflow", stale_id, "retry")
     check("new command is claimed", command["_claimed"])

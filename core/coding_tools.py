@@ -184,6 +184,63 @@ class CodingToolBroker:
         self._emit("tool_check", {key: value for key, value in result.items() if key != "output"})
         return result
 
+    def run_command(self, argv: Sequence[str], timeout_seconds: int | None = None) -> dict[str, Any]:
+        """Run one policy-approved command in the worktree without a shell."""
+        command = [str(part) for part in argv]
+        if not command or len(command) > 64 or any(len(part) > 2_000 for part in command):
+            raise CodingToolError("Command arguments are missing or exceed the guarded-shell limit.")
+        self.policy.assert_command(command)
+        executable = Path(command[0]).name.lower().removesuffix(".exe")
+        lowered = [part.lower() for part in command[1:]]
+        if executable in {"powershell", "pwsh", "bash"}:
+            raise PolicyDenied("Shell wrappers are not available to coding workers.")
+        if executable == "git":
+            operation = lowered[0] if lowered else ""
+            if operation not in {"status", "diff", "show", "log", "rev-parse", "ls-files", "grep"}:
+                raise PolicyDenied("Coding workers have read-only Git command access.")
+        if executable in {"npm", "npx"}:
+            if any(part in {"-g", "--global"} for part in lowered):
+                raise PolicyDenied("Global package installation is not allowed.")
+            if lowered and lowered[0] in {"install", "i", "add", "ci"} and "--ignore-scripts" not in lowered:
+                raise PolicyDenied("Project-local npm installs require --ignore-scripts.")
+        if executable in {"python", "python3", Path(sys.executable).name.lower().removesuffix(".exe")}:
+            rendered = " ".join(lowered)
+            if "-m pip" in rendered and " install " in f" {rendered} ":
+                try:
+                    target_flag = lowered.index("--target")
+                    target = (self.worktree / command[target_flag + 2]).resolve()
+                except (ValueError, IndexError):
+                    raise PolicyDenied(
+                        "Python dependency installation requires --target inside the worktree."
+                    )
+                if not target.is_relative_to(self.worktree):
+                    raise PolicyDenied("Python dependency target escaped the worktree.")
+        timeout = min(
+            max(1, int(timeout_seconds or self.policy.limit("command_timeout_seconds", 900))),
+            self.policy.limit("command_timeout_seconds", 900),
+        )
+        completed = subprocess.run(
+            resolve_runtime_command(command),
+            cwd=str(self.worktree),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            shell=False,
+        )
+        output = (completed.stdout + completed.stderr).encode("utf-8", errors="replace")[-self.max_output_bytes:]
+        result = {
+            "argv": command,
+            "ok": completed.returncode == 0,
+            "exit_code": completed.returncode,
+            "output": output.decode("utf-8", errors="replace"),
+        }
+        self._emit("tool_command", {
+            "argv": command, "ok": result["ok"], "exit_code": completed.returncode,
+        })
+        return result
+
     def inspect_performance(self) -> dict[str, Any]:
         """Run the trusted quick analyzer against this worktree without persisting a snapshot."""
         trusted_root = Path(__file__).resolve().parents[1]
@@ -259,6 +316,11 @@ print(json.dumps(doctor.analyze("quick"), ensure_ascii=True, default=str))
             )
         if name == "run_check":
             return self.run_check(int(action.get("index", -1)))
+        if name == "run_command":
+            argv = action.get("argv")
+            if not isinstance(argv, list):
+                raise CodingToolError("run_command requires an argv array.")
+            return self.run_command(argv, int(action.get("timeout_seconds") or 0) or None)
         if name == "inspect_performance":
             return self.inspect_performance()
         raise CodingToolError(f"Unsupported coding tool action: {name or 'missing'}")

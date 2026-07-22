@@ -1,4 +1,4 @@
-"""Durable single-owner development goal loop for always-on VPS operation."""
+"""Compatibility daemon for the canonical Queue-item development runtime."""
 from __future__ import annotations
 
 import json
@@ -75,31 +75,10 @@ class CodingLoopService:
             self._stop.wait(self.poll_seconds)
 
     def tick(self) -> dict[str, Any] | None:
-        goal = self.store.claim_goal(self.owner, self.lease_seconds)
-        if not goal:
-            self._current_goal = None
-            return None
-        goal_id = int(goal["id"])
-        self._current_goal = goal_id
-        heartbeat_stop = threading.Event()
-        heartbeat = threading.Thread(
-            target=self._maintain_goal_lease,
-            args=(goal_id, heartbeat_stop),
-            daemon=True,
-            name=f"tobi-development-goal-{goal_id}-lease",
-        )
-        heartbeat.start()
-        try:
-            return self._advance(goal)
-        except Exception as exc:
-            updated = self.store.update_goal(
-                goal_id, status="blocked", last_error=f"{type(exc).__name__}: {str(exc)[:1000]}",
-            )
-            return updated
-        finally:
-            heartbeat_stop.set()
-            heartbeat.join(timeout=2.0)
-            self.store.renew_goal_lease(goal_id, self.owner, self.lease_seconds)
+        # Goals are evidence outcomes and are never claimed or executed. Auto mode
+        # advances only canonical Queue items through CodingAgent.start_next_queued().
+        self._current_goal = None
+        return self.agent.start_next_queued()
 
     def _maintain_goal_lease(self, goal_id: int, stop: threading.Event) -> None:
         interval = max(5.0, self.lease_seconds / 3)
@@ -183,60 +162,14 @@ class CodingLoopService:
         goal = self.store.get_goal(goal_id)
         if not goal:
             raise KeyError(goal_id)
-        if command == "reattempt":
-            if goal["status"] not in {
-                "paused", "blocked", "awaiting_config", "canceled", "completed", "qualified_local",
-            }:
-                raise RuntimeError(f"Goal cannot be re-attempted from {goal['status']}.")
-            return self.agent.create_goal(
-                title=str(goal["title"]),
-                objective=str(goal["objective"]),
-                acceptance_criteria=json.loads(goal["acceptance_criteria_json"]),
-                validation_commands=json.loads(goal["validation_commands_json"]),
-                autonomy=str(goal["autonomy"]),
-                preferred_models=json.loads(goal["preferred_models_json"]),
-                max_iterations=int(goal["max_iterations"]),
-                worker_profile_slug=str(goal.get("worker_profile_slug") or "mc-native"),
-                reviewer_profile_slug=str(goal.get("reviewer_profile_slug") or "reviewer-default"),
-            )
-        if command == "delete":
-            if goal["status"] in {"queued", "running", "retrying", "awaiting_approval"}:
-                raise RuntimeError("Pause or cancel an active goal before deleting it.")
-            deleted = self.store.update_goal(
-                goal_id,
-                status="deleted",
-                lease_owner=None,
-                lease_expires_at=None,
+        if command == "evaluate":
+            return self.agent.evaluate_goal(goal_id)
+        if command in {"delete", "archive", "cancel"}:
+            return self.store.update_goal(
+                goal_id, status="deleted", lease_owner=None, lease_expires_at=None,
                 completed_at=goal.get("completed_at") or utc_now(),
             )
-            self.store.set_task_status(900_000_000 + goal_id, "deleted")
-            return deleted
-        if command == "pause":
-            if goal.get("current_session_id"):
-                self.agent.command(int(goal["current_session_id"]), "pause")
-            return self.store.update_goal(goal_id, status="paused", lease_owner=None, lease_expires_at=None)
-        if command == "cancel":
-            if goal.get("current_session_id"):
-                self.agent.command(int(goal["current_session_id"]), "cancel")
-            return self.store.update_goal(goal_id, status="canceled", completed_at=utc_now(),
-                                          lease_owner=None, lease_expires_at=None)
-        if command == "resume":
-            if goal["status"] not in {"paused", "blocked", "awaiting_config"}:
-                raise RuntimeError(f"Goal cannot resume from {goal['status']}.")
-            if goal.get("current_session_id"):
-                workflow = self.agent.get_workflow(int(goal["current_session_id"]))
-                if workflow.get("error_code") in STALE_SNAPSHOT_ERRORS:
-                    self.agent.restart_stale_workflow(int(workflow["id"]), background=True)
-                    return self.store.get_goal(goal_id) or goal
-            return self.store.update_goal(goal_id, status="retrying", last_error=None,
-                                          lease_owner=None, lease_expires_at=None)
-        if command == "approve_scope":
-            if goal["status"] != "awaiting_scope_approval":
-                raise RuntimeError(f"Goal does not require scope approval from {goal['status']}.")
-            return self.store.update_goal(
-                goal_id, status="queued", last_error=None, lease_owner=None, lease_expires_at=None
-            )
-        raise ValueError("Goal command must be pause, resume, reattempt, cancel, delete, or approve_scope.")
+        raise RuntimeError("Goals never execute. Link this outcome to a canonical Queue item.")
 
 
 _loop: CodingLoopService | None = None

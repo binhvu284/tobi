@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shutil
 import subprocess
@@ -79,7 +80,7 @@ ok("developer schema migration is recorded", migration[0] == 1)
 conn = store.connect()
 versions = [row[0] for row in conn.execute("SELECT version FROM developer_schema_migrations ORDER BY version")]
 conn.close()
-ok("production schema migrations are recorded", versions == [1, 2, 3, 4, 5], str(versions))
+ok("production schema migrations are recorded", versions == [1, 2, 3, 4, 5, 6, 7], str(versions))
 
 # Policy boundaries.
 ok("policy hash is stable", policy.hash == CodingPolicy(policy_data, repo_root=repo).hash)
@@ -109,8 +110,30 @@ ok("item 18 targets Agent 3.0.0", item18["target_version"] == "3.0.0", str(item1
 
 # Store: additive schema, idempotency, one worker, events, one-use re-auth.
 agent = CodingAgent(policy=policy, store=store)
-workflow = agent.create_workflow(18, idempotency_key="acceptance-item18")
-same = agent.create_workflow(18, idempotency_key="acceptance-item18")
+test_task = store.upsert_task({
+    "queue_id": 180,
+    "title": "Acceptance workflow",
+    "plan_path": "README.md",
+    "plan_hash": hashlib.sha256((repo / "README.md").read_bytes()).hexdigest(),
+    "acceptance_criteria": ["workflow keeps durable state"],
+    "dependencies": [],
+    "status": "planned",
+    "risk": "medium",
+    "target_version": "3.18.0",
+})
+readiness_payload = {
+    "ready": True,
+    "selected_agent": "mc-native",
+    "reviewer": "reviewer-default",
+    "fallback_agents": [],
+    "validation_commands": policy.mandatory_checks(),
+    "plan_hash": test_task["plan_hash"],
+}
+readiness = store.save_readiness(
+    int(test_task["id"]), "ready", readiness_payload, policy.hash
+)
+workflow = agent.create_workflow(180, idempotency_key="acceptance-item180", readiness_id=int(readiness["id"]))
+same = agent.create_workflow(180, idempotency_key="acceptance-item180", readiness_id=int(readiness["id"]))
 ok("workflow creation is idempotent", workflow["id"] == same["id"])
 ok("workflow has full stage DAG", len(workflow["stages"]) == 11, str(len(workflow["stages"])))
 
@@ -135,8 +158,12 @@ except PermissionError:
     ok("re-auth challenge cannot replay", True)
 
 try:
-    task20 = store.get_task(queue_id=20)
-    store.create_session(task20["id"], policy.hash, "parallel-worker")
+    other_task = store.upsert_task({
+        "queue_id": 181, "title": "Parallel guard", "plan_path": "README.md",
+        "plan_hash": test_task["plan_hash"], "acceptance_criteria": ["one active run"],
+        "dependencies": [], "status": "planned", "risk": "low",
+    })
+    store.create_session(other_task["id"], policy.hash, "parallel-worker")
     raise AssertionError("parallel active worker was allowed")
 except RuntimeError:
     ok("one-active-worker invariant is enforced", True)
@@ -147,10 +174,10 @@ ok("workflow pauses when Hermes is unavailable", result["state"] == "paused", re
 ok("worker failure is typed", result["error_code"] == "worker_unavailable", str(result["error_code"]))
 ok("isolated worktree is retained", bool(result["worktree"]) and Path(result["worktree"]).is_dir())
 ok("deployment checkout remains on main", git("branch", "--show-current", cwd=repo) == "main")
-ok("worktree branch uses target version", str(result["branch"]).startswith("v3.0.0/"), str(result["branch"]))
+ok("worktree branch uses target version", str(result["branch"]).startswith("v3.18.0/"), str(result["branch"]))
 
-task20 = store.get_task(queue_id=20)
-other = store.create_session(task20["id"], policy.hash, "active-after-pause")
+other_task = store.get_task(queue_id=181)
+other = store.create_session(other_task["id"], policy.hash, "active-after-pause")
 try:
     agent.command(workflow["id"], "resume")
     raise AssertionError("paused workflow resumed beside another active workflow")
@@ -159,7 +186,7 @@ except RuntimeError:
 store.update_session(other["id"], state="canceled", completed_at="2026-01-01T00:00:00+00:00")
 
 try:
-    agent.releases.reserve("3.0.0", 20, risk="medium")
+    agent.releases.reserve("3.18.0", 181, risk="medium")
     raise AssertionError("reserved version was reused")
 except RuntimeError:
     ok("reserved semantic version cannot move to another queue item", True)
@@ -218,33 +245,18 @@ goals_response = client.get("/api/developer/goals")
 ok("goal list exposes the persisted goal", goals_response.status_code == 200 and any(
     int(item["id"]) == goal_id for item in goals_response.json()["goals"]
 ))
-command_body = {"command": "pause", "idempotency_key": "coding-agent-goal-pause-contract"}
-pause_response = client.post(f"/api/developer/goals/{goal_id}/commands", json=command_body)
+command_body = {"command": "evaluate", "idempotency_key": "coding-agent-goal-evaluate-contract"}
+evaluate_response = client.post(f"/api/developer/goals/{goal_id}/commands", json=command_body)
 replay_response = client.post(f"/api/developer/goals/{goal_id}/commands", json=command_body)
-ok("goal pause command is accepted", pause_response.status_code == 200 and pause_response.json()["status"] == "paused")
-ok("goal command replay is idempotent", replay_response.status_code == 200 and replay_response.json() == pause_response.json())
-reattempt_response = client.post(f"/api/developer/goals/{goal_id}/commands", json={
-    "command": "reattempt", "idempotency_key": "coding-agent-goal-reattempt-contract",
-})
-ok("goal re-attempt creates a complete new goal", (
-    reattempt_response.status_code == 200
-    and int(reattempt_response.json()["id"]) != goal_id
-    and store.get_task(queue_id=900_000_000 + int(reattempt_response.json()["id"])) is not None
-), reattempt_response.text[:200])
-retry_goal_id = int(reattempt_response.json()["id"])
-retry_pause = client.post(f"/api/developer/goals/{retry_goal_id}/commands", json={
-    "command": "pause", "idempotency_key": "coding-agent-retry-pause-contract",
-})
-ok("re-attempted goal can be paused", retry_pause.status_code == 200 and retry_pause.json()["status"] == "paused")
-delete_response = client.post(f"/api/developer/goals/{retry_goal_id}/commands", json={
+ok("goal evidence evaluation is accepted", evaluate_response.status_code == 200 and evaluate_response.json()["status"] == "active")
+ok("goal command replay is idempotent", replay_response.status_code == 200 and replay_response.json() == evaluate_response.json())
+ok("goal API creates no synthetic Queue mirror", store.get_task(queue_id=900_000_000 + goal_id) is None)
+delete_response = client.post(f"/api/developer/goals/{goal_id}/commands", json={
     "command": "delete", "idempotency_key": "coding-agent-goal-delete-contract",
 })
 ok("goal delete is a recoverable soft delete", delete_response.status_code == 200 and delete_response.json()["status"] == "deleted")
 visible_goal_ids = {int(item["id"]) for item in client.get("/api/developer/goals").json()["goals"]}
-ok("soft-deleted goal is hidden from owner goal list", retry_goal_id not in visible_goal_ids)
-ok("soft-deleted goal mirror is hidden from development queue", all(
-    int(item["queue_id"]) != 900_000_000 + retry_goal_id for item in store.list_tasks()
-))
+ok("soft-deleted goal is hidden from owner goal list", goal_id not in visible_goal_ids)
 native_models = client.get("/api/developer/workers/mc-native/models")
 ok("Mission Control agent uses the shared Models-page catalog", (
     native_models.status_code == 200

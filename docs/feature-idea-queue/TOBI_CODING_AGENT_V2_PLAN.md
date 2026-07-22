@@ -221,3 +221,30 @@ Detailed evidence: [TOBI_CODING_AGENT_V2_ACCEPTANCE_2026-07-17.md](TOBI_CODING_A
 ## 12. Parallel Work Warning
 
 Queue #20 may continue after integrating the #22 closure commit. The remaining VPS soak should run against a deployed acceptance environment and must not mutate the same checkout used by an active #20 coding session. Queue #21 remains sequenced after #20.
+
+## 13. Completion Pass - 2026-07-22
+
+The July 22 completion pass reopens #22 because the earlier V1 acceptance proved isolated adapters and runner recovery, but did not prove the owner's canonical Goal-to-Queue workflow.
+
+Implemented:
+
+- Goals store outcomes, criteria, qualification, evidence, gaps, and Queue links; they no longer execute or create synthetic `900000000+` work.
+- Queue items are the only executable source and use strict persisted readiness checks before run creation.
+- Workflow retries retain the same run, worktree, logs, checkpoint, completed effects, and stage identity while incrementing attempts.
+- Stage attempts, heartbeats, evidence records, scorecards, and terminal outcomes are persisted additively.
+- A guarded worktree shell extends the typed worker tools without allowing shell wrappers or host-global package changes.
+- Developer now exposes Overview, Work, Process, Agents, History, and System around one canonical work/run API.
+- Queue authoring uses locked, hash-checked file updates and rejects stale external edits with `409 Conflict`.
+
+Automated gate:
+
+- focused Coding Agent and Developer suites: pass;
+- Python compilation: pass;
+- dashboard TypeScript and production build: pass;
+- `git diff --check`: pass.
+
+Closure gate:
+
+- #22 remains In Progress until all ten live runs and owner browser acceptance in [TOBI_CODING_AGENT_V2_COMPLETION_ACCEPTANCE_2026-07-22.md](TOBI_CODING_AGENT_V2_COMPLETION_ACCEPTANCE_2026-07-22.md) pass.
+- #21 remains blocked until that gate closes.
+- The 24-hour and 72-hour VPS soaks remain deployment gates and do not block #21 after local closure.

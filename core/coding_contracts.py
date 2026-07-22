@@ -9,6 +9,9 @@ from typing import Any
 ADAPTERS = {"native", "codex", "opencode", "hermes", "model_review"}
 AUTH_MODES = {"inherited", "native_login", "vault_env"}
 SECRET_ENV_SUFFIXES = ("_KEY", "_TOKEN", "_SECRET", "_PASSWORD", "_CREDENTIAL")
+OWNER_STATES = {
+    "Draft", "Ready", "Running", "Needs Action", "Paused", "Done", "Failed", "Canceled",
+}
 
 
 @dataclass(frozen=True)
@@ -143,6 +146,76 @@ class TaskAssessment:
             "sprints": [sprint.to_dict() for sprint in self.sprints],
             "owner_review_required": self.owner_review_required,
         }
+
+
+@dataclass(frozen=True)
+class ReadinessIssue:
+    code: str
+    message: str
+    field: str | None = None
+    recoverable: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ReadinessReport:
+    queue_id: int
+    ready: bool
+    selected_agent: str
+    reviewer: str
+    fallback_agents: list[str]
+    validation_commands: list[list[str]]
+    blockers: list[ReadinessIssue] = field(default_factory=list)
+    warnings: list[ReadinessIssue] = field(default_factory=list)
+    alternatives: list[dict[str, Any]] = field(default_factory=list)
+    protected_paths: list[str] = field(default_factory=list)
+    policy_hash: str = ""
+    plan_hash: str = ""
+    assessment: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.ready and self.blockers:
+            raise ValueError("A ready report cannot contain blockers.")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "queue_id": self.queue_id,
+            "ready": self.ready,
+            "status": "ready" if self.ready else "blocked",
+            "selected_agent": self.selected_agent,
+            "reviewer": self.reviewer,
+            "fallback_agents": list(self.fallback_agents),
+            "validation_commands": [list(command) for command in self.validation_commands],
+            "blockers": [item.to_dict() for item in self.blockers],
+            "warnings": [item.to_dict() for item in self.warnings],
+            "alternatives": list(self.alternatives),
+            "protected_paths": list(self.protected_paths),
+            "policy_hash": self.policy_hash,
+            "plan_hash": self.plan_hash,
+            "assessment": dict(self.assessment),
+        }
+
+
+def owner_state_for(runtime_state: str) -> str:
+    state = str(runtime_state or "").lower()
+    if state in {"completed", "qualified", "qualified_local"}:
+        return "Done"
+    if state in {"canceled", "rolled_back", "deleted"}:
+        return "Canceled"
+    if state == "failed":
+        return "Failed"
+    if state in {"blocked", "awaiting_special_approval", "awaiting_merge_deploy_approval"}:
+        return "Needs Action"
+    if state == "paused":
+        return "Paused"
+    if state in {
+        "approved", "preparing", "coding", "validating", "reviewing", "pushed", "merging",
+        "deploying",
+    }:
+        return "Running"
+    return "Ready" if state in {"planned", "queued"} else "Draft"
 
 
 def build_handoff(

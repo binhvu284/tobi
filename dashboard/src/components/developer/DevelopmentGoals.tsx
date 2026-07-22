@@ -1,254 +1,203 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  MoreHorizontal, Pause, Play, Plus, RotateCcw, ShieldCheck, Square,
-  Target, TestTube2, Trash2, X, Loader2,
+  Archive, ChevronDown, CircleAlert, FilePlus2, MoreHorizontal,
+  Plus, RefreshCw, Target, Trash2, X,
 } from 'lucide-react'
-import { assessDeveloperGoal, type DeveloperAssessment, type DeveloperGoal, type DeveloperWorkerProfile } from '../../api'
+import type { DeveloperGoal } from '../../api'
 
-export type GoalCommand = 'pause' | 'resume' | 'reattempt' | 'cancel' | 'delete' | 'approve_scope'
+export type GoalCommand = 'evaluate' | 'archive' | 'delete' | 'cancel'
 
-const FINAL_STATES = new Set(['completed', 'qualified_local', 'canceled'])
-const ACTIVE_STATES = new Set(['queued', 'running', 'retrying', 'awaiting_approval'])
+type GoalCreateInput = {
+  title: string
+  objective: string
+  acceptance_criteria: string[]
+}
 
 function label(value: string) {
   return value.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase())
 }
 
-function GoalStatus({ status }: { status: string }) {
-  const color = status === 'running' || status === 'retrying'
-    ? 'border-accent/30 bg-accent/10 text-accent'
-    : status === 'completed' || status === 'qualified_local'
-      ? 'border-success/30 bg-success/10 text-success'
-      : status === 'blocked' || status === 'paused' || status.startsWith('awaiting_')
-        ? 'border-warning/30 bg-warning/10 text-warning'
-        : status === 'canceled'
-          ? 'border-border bg-overlay/5 text-muted'
-          : 'border-border bg-overlay/5 text-text'
-  return <span className={`inline-flex rounded border px-2 py-0.5 text-[10px] font-medium ${color}`}>{label(status)}</span>
+function parseList(raw?: string): string[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.map(String) : []
+  } catch {
+    return []
+  }
 }
 
-function GoalMenu({ goal, busy, onCommand }: {
-  goal: DeveloperGoal; busy: boolean
+function GoalStatus({ status }: { status: string }) {
+  const tone = status === 'qualified' || status === 'completed' || status === 'qualified_local'
+    ? 'border-success/30 bg-success/10 text-success'
+    : status === 'archived' || status === 'canceled'
+      ? 'border-border bg-overlay/5 text-muted'
+      : 'border-accent/30 bg-accent/10 text-accent'
+  return <span className={`inline-flex rounded border px-2 py-0.5 text-[10px] font-medium ${tone}`}>{label(status)}</span>
+}
+
+function GoalActions({ goal, busy, onCommand }: {
+  goal: DeveloperGoal
+  busy: boolean
   onCommand: (id: number, command: GoalCommand) => Promise<boolean>
 }) {
   const [open, setOpen] = useState(false)
-  const [position, setPosition] = useState({ top: 0, left: 0, opensUp: false })
-  const triggerRef = useRef<HTMLButtonElement | null>(null)
-  const menuRef = useRef<HTMLDivElement | null>(null)
-
-  const resumable = ['paused', 'blocked', 'awaiting_config'].includes(goal.status)
-  const reattemptable = ['paused', 'blocked', 'awaiting_config', 'canceled', 'completed', 'qualified_local'].includes(goal.status)
-  const cancellable = !FINAL_STATES.has(goal.status) && goal.status !== 'canceled'
-  const deletable = !ACTIVE_STATES.has(goal.status) && goal.status !== 'awaiting_scope_approval'
-  const action = async (command: GoalCommand) => {
-    if (command === 'delete' && !window.confirm(`Delete "${goal.title}" from Development goals? Its audit history remains stored.`)) return
-    setOpen(false)
-    await onCommand(goal.id, command)
-  }
-  const items: Array<{ command: GoalCommand; label: string; icon: typeof Play; danger?: boolean }> = []
-  if (goal.status === 'awaiting_scope_approval') items.push({ command: 'approve_scope', label: 'Approve scope', icon: ShieldCheck })
-  if (resumable) items.push({ command: 'resume', label: 'Resume', icon: Play })
-  if (reattemptable) items.push({ command: 'reattempt', label: 'Re-attempt as new goal', icon: RotateCcw })
-  if (ACTIVE_STATES.has(goal.status)) items.push({ command: 'pause', label: 'Pause', icon: Pause })
-  if (cancellable) items.push({ command: 'cancel', label: 'Cancel', icon: Square, danger: true })
-  if (deletable) items.push({ command: 'delete', label: 'Delete', icon: Trash2, danger: true })
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [position, setPosition] = useState({ top: 0, left: 0 })
 
   useEffect(() => {
     if (!open) return
-    const closeOutside = (event: MouseEvent) => {
+    const close = (event: MouseEvent) => {
       const target = event.target as Node
       if (!triggerRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false)
     }
-    const closeOnViewportChange = () => setOpen(false)
-    document.addEventListener('mousedown', closeOutside)
-    window.addEventListener('resize', closeOnViewportChange)
-    window.addEventListener('scroll', closeOnViewportChange, true)
-    return () => {
-      document.removeEventListener('mousedown', closeOutside)
-      window.removeEventListener('resize', closeOnViewportChange)
-      window.removeEventListener('scroll', closeOnViewportChange, true)
-    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
   }, [open])
 
-  const toggleMenu = () => {
-    if (open) { setOpen(false); return }
+  const toggle = () => {
+    if (open) return setOpen(false)
     const rect = triggerRef.current?.getBoundingClientRect()
     if (!rect) return
-    const menuWidth = 208
-    const menuHeight = items.length * 36 + 8
-    const opensUp = rect.bottom + 4 + menuHeight > window.innerHeight && rect.top > menuHeight + 12
     setPosition({
-      top: opensUp ? Math.max(8, rect.top - menuHeight - 4) : Math.min(window.innerHeight - menuHeight - 8, rect.bottom + 4),
-      left: Math.max(8, Math.min(window.innerWidth - menuWidth - 8, rect.right - menuWidth)),
-      opensUp,
+      top: Math.min(window.innerHeight - 126, rect.bottom + 4),
+      left: Math.max(8, rect.right - 192),
     })
     setOpen(true)
   }
 
+  const run = async (command: GoalCommand) => {
+    if (command === 'delete' && !window.confirm(`Delete goal "${goal.title}"? Historical run evidence remains stored.`)) return
+    setOpen(false)
+    await onCommand(goal.id, command)
+  }
+
   return (
-    <div className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        title="Goal actions"
-        aria-label={`Actions for ${goal.title}`}
-        onClick={toggleMenu}
-        disabled={busy}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-overlay/10 hover:text-text disabled:opacity-40"
-      >
-        <MoreHorizontal size={17} />
+    <>
+      <button ref={triggerRef} type="button" title="Goal actions" onClick={toggle} disabled={busy}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-overlay/10 hover:text-text disabled:opacity-40">
+        <MoreHorizontal size={16} />
       </button>
-      {createPortal(<AnimatePresence>
-        {open && (
-          <motion.div
-            ref={menuRef}
-            initial={{ opacity: 0, y: position.opensUp ? 4 : -4, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: position.opensUp ? 4 : -4, scale: 0.98 }}
-            transition={{ duration: 0.12 }}
-            style={{ top: position.top, left: position.left }}
-            className="fixed z-[100] w-52 rounded-md border border-border bg-surface p-1 shadow-2xl"
-          >
-            {items.map(item => {
-              const Icon = item.icon
-              return (
-                <button
-                  key={item.command}
-                  type="button"
-                  onClick={() => void action(item.command)}
-                  className={`flex h-9 w-full items-center gap-2 rounded px-2 text-left text-xs hover:bg-overlay/10 ${item.danger ? 'text-danger' : 'text-text'}`}
-                >
-                  <Icon size={14} /> {item.label}
-                </button>
-              )
-            })}
-          </motion.div>
-        )}
-      </AnimatePresence>, document.body)}
-    </div>
+      {createPortal(<AnimatePresence>{open && (
+        <motion.div ref={menuRef} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+          style={position} className="fixed z-[100] w-48 rounded-md border border-border bg-surface p-1 shadow-2xl">
+          <button type="button" onClick={() => void run('evaluate')} className="flex h-9 w-full items-center gap-2 rounded px-2 text-xs text-text hover:bg-overlay/10"><RefreshCw size={14} /> Re-evaluate evidence</button>
+          {goal.status !== 'archived' && <button type="button" onClick={() => void run('archive')} className="flex h-9 w-full items-center gap-2 rounded px-2 text-xs text-text hover:bg-overlay/10"><Archive size={14} /> Archive goal</button>}
+          <button type="button" onClick={() => void run('delete')} className="flex h-9 w-full items-center gap-2 rounded px-2 text-xs text-danger hover:bg-danger/10"><Trash2 size={14} /> Delete goal</button>
+        </motion.div>
+      )}</AnimatePresence>, document.body)}
+    </>
   )
 }
 
-function GoalDialog({ workers, busy, open, onClose, onCreate }: {
-  workers: DeveloperWorkerProfile[]; busy: boolean; open: boolean; onClose: () => void
-  onCreate: (input: {
-    title: string; objective: string; acceptance_criteria: string[]
-    autonomy: 'sandbox' | 'pr' | 'merge_deploy'; preferred_models: string[]
-    worker_profile_slug: string; reviewer_profile_slug: string
-  }) => Promise<boolean>
+function GoalDialog({ open, busy, onClose, onCreate }: {
+  open: boolean
+  busy: boolean
+  onClose: () => void
+  onCreate: (input: GoalCreateInput) => Promise<boolean>
 }) {
   const [title, setTitle] = useState('')
   const [objective, setObjective] = useState('')
   const [criteria, setCriteria] = useState('')
-  const [assessment, setAssessment] = useState<DeveloperAssessment | null>(null)
-  const [assessing, setAssessing] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const codingAgents = workers.filter(item => item.enabled && item.adapter !== 'model_review' && item.adapter !== 'hermes')
-  const reviewers = workers.filter(item => item.enabled && item.adapter === 'model_review')
-  const [agent, setAgent] = useState('mc-native')
-  const [reviewer, setReviewer] = useState('reviewer-default')
-  const [autonomy, setAutonomy] = useState<'sandbox' | 'pr' | 'merge_deploy'>('sandbox')
 
-  useEffect(() => {
-    if (!codingAgents.some(item => item.slug === agent)) setAgent(codingAgents[0]?.slug ?? '')
-    if (!reviewers.some(item => item.slug === reviewer)) setReviewer(reviewers[0]?.slug ?? '')
-  }, [workers, agent, reviewer])
   useEffect(() => {
     if (!open) return
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && !submitting) onClose() }
+    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape' && !busy) onClose() }
     document.addEventListener('keydown', escape)
     return () => document.removeEventListener('keydown', escape)
-  }, [open, submitting, onClose])
+  }, [open, busy, onClose])
 
-  const values = () => ({
-    title: title.trim(),
-    objective: objective.trim(),
-    acceptance_criteria: criteria.split('\n').map(item => item.trim()).filter(Boolean),
-  })
-  const assess = async () => {
-    setAssessing(true); setError(null)
-    try { setAssessment(await assessDeveloperGoal(values())) }
-    catch (err) { setError(err instanceof Error ? err.message : String(err)) }
-    finally { setAssessing(false) }
-  }
+  const acceptance = criteria.split('\n').map(item => item.trim()).filter(Boolean)
+  const valid = title.trim().length >= 3 && objective.trim().length >= 10 && acceptance.length > 0
   const submit = async () => {
-    if (!assessment || !agent || !reviewer) return
-    setSubmitting(true); setError(null)
-    try {
-      const saved = await onCreate({ ...values(), autonomy, preferred_models: [], worker_profile_slug: agent, reviewer_profile_slug: reviewer })
-      if (saved) {
-        setTitle(''); setObjective(''); setCriteria(''); setAssessment(null); onClose()
-      } else setError('The goal was not saved. Your draft remains available.')
-    } finally { setSubmitting(false) }
+    if (!valid) return
+    setError(null)
+    const saved = await onCreate({ title: title.trim(), objective: objective.trim(), acceptance_criteria: acceptance })
+    if (!saved) return setError('The goal was not saved. Your draft is still available.')
+    setTitle(''); setObjective(''); setCriteria(''); onClose()
   }
-  const valid = title.trim().length >= 3 && objective.trim().length >= 10 && criteria.trim().length > 0
 
-  return (
-    <AnimatePresence>
-      {open && (
-        <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-3 backdrop-blur-sm"
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-          <motion.section
-            role="dialog" aria-modal="true" aria-labelledby="new-goal-title"
-            initial={{ opacity: 0, y: 12, scale: 0.985 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8, scale: 0.985 }}
-            transition={{ duration: 0.16 }}
-            className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-lg border border-border bg-surface shadow-2xl"
-          >
-            <header className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-surface/95 px-5 py-4 backdrop-blur">
-              <div><h2 id="new-goal-title" className="font-semibold text-text">New development goal</h2><p className="mt-0.5 text-xs text-muted">Scope it first, then queue bounded implementation sprints.</p></div>
-              <button onClick={onClose} disabled={submitting} title="Close" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-overlay/10 hover:text-text"><X size={17} /></button>
-            </header>
-            <div className="space-y-5 px-5 py-5">
-              <label className="block"><span className="mb-1.5 block text-xs text-muted">Goal title</span><input autoFocus value={title} onChange={event => { setTitle(event.target.value); setAssessment(null) }} placeholder="Improve Agent runtime reliability" className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text outline-none focus:border-accent" /></label>
-              <label className="block"><span className="mb-1.5 block text-xs text-muted">Objective</span><textarea value={objective} onChange={event => { setObjective(event.target.value); setAssessment(null) }} rows={3} placeholder="Describe the outcome, scope, and boundaries." className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm text-text outline-none focus:border-accent" /></label>
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(240px,0.8fr)]">
-                <label><span className="mb-1.5 block text-xs text-muted">Acceptance criteria, one per line</span><textarea value={criteria} onChange={event => { setCriteria(event.target.value); setAssessment(null) }} rows={7} placeholder={'Focused tests pass\nNo Chat regression\nRecovery survives restart'} className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm text-text outline-none focus:border-accent" /></label>
-                <div className="space-y-3">
-                  <label className="block"><span className="mb-1.5 block text-xs text-muted">Autonomy</span><select value={autonomy} onChange={event => setAutonomy(event.target.value as typeof autonomy)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text"><option value="sandbox">Local sandbox only</option><option value="pr">Create draft pull request</option><option value="merge_deploy">Owner-gated merge and deploy</option></select></label>
-                  <label className="block"><span className="mb-1.5 block text-xs text-muted">Development agent</span><select value={agent} onChange={event => setAgent(event.target.value)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text">{codingAgents.map(item => <option key={item.slug} value={item.slug}>{item.name} - {label(item.health_status)}</option>)}</select></label>
-                  <label className="block"><span className="mb-1.5 block text-xs text-muted">Independent reviewer</span><select value={reviewer} onChange={event => setReviewer(event.target.value)} className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text">{reviewers.map(item => <option key={item.slug} value={item.slug}>{item.name}</option>)}</select></label>
-                </div>
-              </div>
-              {assessment && <div className="border-y border-border py-4"><div className="flex flex-wrap items-center gap-2"><GoalStatus status={assessment.route} /><GoalStatus status={assessment.risk} /><span className="text-xs text-muted">Capability {assessment.score}/100 - {assessment.sprints.length} sprint{assessment.sprints.length === 1 ? '' : 's'}</span></div><div className="mt-3 grid gap-3 sm:grid-cols-2">{assessment.sprints.map(sprint => <div key={sprint.sequence} className="border-l-2 border-accent/40 pl-3"><div className="text-sm text-text">{sprint.title}</div><div className="mt-1 text-[11px] text-muted">{sprint.budget.max_files} files - {sprint.budget.max_changed_lines} lines - {sprint.budget.max_minutes} min</div></div>)}</div></div>}
-              {error && <div className="border-l-2 border-danger pl-3 text-xs text-danger">{error}</div>}
-            </div>
-            <footer className="sticky bottom-0 flex flex-wrap justify-end gap-2 border-t border-border bg-surface/95 px-5 py-4 backdrop-blur">
-              {assessment ? <><button onClick={() => setAssessment(null)} disabled={submitting} className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm text-text"><RotateCcw size={14} /> Reassess</button><button onClick={() => void submit()} disabled={busy || submitting || !agent || !reviewer} className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background disabled:opacity-40">{submitting ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} Save and queue</button></> : <button onClick={() => void assess()} disabled={busy || assessing || !valid} className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background disabled:opacity-40">{assessing ? <Loader2 size={15} className="animate-spin" /> : <TestTube2 size={15} />} Assess scope</button>}
-            </footer>
-          </motion.section>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  )
+  return <AnimatePresence>{open && (
+    <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-3 backdrop-blur-sm"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      <motion.section role="dialog" aria-modal="true" aria-labelledby="new-goal-title"
+        initial={{ opacity: 0, y: 10, scale: 0.99 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6, scale: 0.99 }}
+        className="w-full max-w-2xl rounded-lg border border-border bg-surface shadow-2xl">
+        <header className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div><h2 id="new-goal-title" className="font-semibold text-text">New outcome goal</h2><p className="mt-0.5 text-xs text-muted">Define success first. Link executable Queue items after saving.</p></div>
+          <button type="button" title="Close" onClick={onClose} disabled={busy} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-overlay/10 hover:text-text"><X size={17} /></button>
+        </header>
+        <div className="space-y-4 px-5 py-5">
+          <label className="block"><span className="mb-1.5 block text-xs text-muted">Goal title</span><input autoFocus value={title} onChange={event => setTitle(event.target.value)} placeholder="Coding runs recover safely after restart" className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm text-text outline-none focus:border-accent" /></label>
+          <label className="block"><span className="mb-1.5 block text-xs text-muted">Desired outcome</span><textarea value={objective} onChange={event => setObjective(event.target.value)} rows={3} placeholder="Describe the owner-visible outcome and important boundaries." className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm text-text outline-none focus:border-accent" /></label>
+          <label className="block"><span className="mb-1.5 block text-xs text-muted">Acceptance criteria, one per line</span><textarea value={criteria} onChange={event => setCriteria(event.target.value)} rows={6} placeholder={'A paused run resumes with the same run ID\nCompleted writes are not duplicated\nRecovery evidence is visible in History'} className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm text-text outline-none focus:border-accent" /></label>
+          <div className="flex items-start gap-2 border-l-2 border-accent/50 pl-3 text-xs text-muted"><CircleAlert size={14} className="mt-0.5 shrink-0 text-accent" /> Goals do not run agents. Create or link bounded Queue items to produce evidence for these criteria.</div>
+          {error && <div className="border-l-2 border-danger pl-3 text-xs text-danger">{error}</div>}
+        </div>
+        <footer className="flex justify-end gap-2 border-t border-border px-5 py-4">
+          <button type="button" onClick={onClose} disabled={busy} className="h-9 rounded-md border border-border px-3 text-sm text-text hover:bg-overlay/10">Cancel</button>
+          <button type="button" onClick={() => void submit()} disabled={busy || !valid} className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background disabled:opacity-40"><Plus size={15} /> Save goal</button>
+        </footer>
+      </motion.section>
+    </motion.div>
+  )}</AnimatePresence>
 }
 
-export default function DevelopmentGoals({ goals, workers, busy, onCreate, onCommand }: {
-  goals: DeveloperGoal[]; workers: DeveloperWorkerProfile[]; busy: boolean
-  onCreate: Parameters<typeof GoalDialog>[0]['onCreate']
+export default function DevelopmentGoals({ goals, busy, onCreate, onCommand, onCreateItem }: {
+  goals: DeveloperGoal[]
+  busy: boolean
+  onCreate: (input: GoalCreateInput) => Promise<boolean>
   onCommand: (id: number, command: GoalCommand) => Promise<boolean>
+  onCreateItem: (goalId: number) => void
 }) {
   const [dialogOpen, setDialogOpen] = useState(false)
-  return (
-    <div className="mx-auto max-w-6xl pb-8">
-      <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div><div className="flex items-center gap-2"><Target size={17} className="text-accent" /><h2 className="text-base font-semibold text-text">Development goals</h2></div><p className="mt-1 text-xs text-muted">Each goal is assessed, split into bounded sprints, and kept resumable.</p></div>
-        <button onClick={() => setDialogOpen(true)} className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background hover:brightness-110"><Plus size={15} /> New goal</button>
-      </header>
-      {!goals.length ? <div className="border-y border-border py-14 text-center"><Target size={22} className="mx-auto text-muted" /><div className="mt-3 text-sm text-text">No development goals yet</div><button onClick={() => setDialogOpen(true)} className="mt-3 text-xs text-accent hover:underline">Create the first goal</button></div> : (
-        <div className="overflow-x-auto rounded-md border border-border">
-          <table className="w-full min-w-[760px] border-collapse text-left">
-            <thead className="bg-overlay/5 text-[10px] font-medium uppercase text-muted"><tr><th className="px-4 py-3">Goal</th><th className="px-3 py-3">Agent</th><th className="px-3 py-3">Progress</th><th className="px-3 py-3">Status</th><th className="w-24 px-3 py-3 text-right">Actions</th></tr></thead>
-            <tbody>{goals.map(goal => {
-              const live = ['running', 'retrying'].includes(goal.status)
-              return <tr key={goal.id} className="border-t border-border/70 bg-surface/30 hover:bg-overlay/5"><td className="max-w-md px-4 py-3.5"><div className={`truncate text-sm font-medium ${live ? 'developer-goal-live' : 'text-text'}`}>{goal.title}</div><div className="mt-1 line-clamp-1 text-[11px] text-muted">{goal.objective}</div>{goal.last_error && <div className="mt-1 text-[10px] text-warning">{label(goal.last_error)}</div>}</td><td className="px-3 py-3.5 text-xs text-muted">{workers.find(item => item.slug === goal.worker_profile_slug)?.name ?? goal.worker_profile_slug ?? 'MC Native'}</td><td className="px-3 py-3.5"><div className="text-xs tabular-nums text-text">{goal.iteration_count}/{goal.max_iterations}</div><div className="mt-1 h-1 w-20 overflow-hidden rounded bg-overlay/10"><div className={`h-full rounded bg-accent ${live ? 'developer-progress-live' : ''}`} style={{ width: `${Math.max(4, Math.min(100, goal.iteration_count / Math.max(1, goal.max_iterations) * 100))}%` }} /></div></td><td className="px-3 py-3.5"><GoalStatus status={goal.status} /></td><td className="px-3 py-3.5"><div className="flex justify-end gap-1">{live && <button title="Pause goal" aria-label={`Pause ${goal.title}`} disabled={busy} onClick={() => void onCommand(goal.id, 'pause')} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-warning hover:bg-warning/10 disabled:opacity-40"><Pause size={14} /></button>}<GoalMenu goal={goal} busy={busy} onCommand={onCommand} /></div></td></tr>
-            })}</tbody>
-          </table>
-        </div>
-      )}
-      <GoalDialog workers={workers} busy={busy} open={dialogOpen} onClose={() => setDialogOpen(false)} onCreate={onCreate} />
-    </div>
-  )
+  const ordered = useMemo(() => [...goals].sort((a, b) => (b.updated_at ?? '').localeCompare(a.updated_at ?? '')), [goals])
+
+  return <section className="mx-auto max-w-7xl">
+    <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div><div className="flex items-center gap-2"><Target size={17} className="text-accent" /><h2 className="text-base font-semibold text-text">Outcome goals</h2></div><p className="mt-1 text-xs text-muted">Desired outcomes, qualification evidence, and the Queue items responsible for delivery.</p></div>
+      <button type="button" onClick={() => setDialogOpen(true)} className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background hover:brightness-110"><Plus size={15} /> New goal</button>
+    </header>
+
+    {!ordered.length ? <div className="rounded-md border border-dashed border-border py-12 text-center"><Target size={22} className="mx-auto text-muted" /><p className="mt-3 text-sm text-text">No outcome goals yet</p><p className="mt-1 text-xs text-muted">Create a goal, then break it into bounded Queue items.</p><button type="button" onClick={() => setDialogOpen(true)} className="mt-4 text-xs font-medium text-accent hover:underline">Create the first goal</button></div> : (
+      <div className="space-y-2">{ordered.map(goal => {
+        const criteria = parseList(goal.acceptance_criteria_json)
+        const evidence = goal.evidence ?? []
+        const percent = Math.max(0, Math.min(100, Number(goal.qualification_percent ?? 0)))
+        return <details key={goal.id} className="group rounded-md border border-border bg-surface/30 open:bg-surface/60">
+          <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3.5">
+            <ChevronDown size={15} className="shrink-0 text-muted transition-transform group-open:rotate-180" />
+            <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="truncate text-sm font-medium text-text">{goal.title}</span><GoalStatus status={goal.status} /></div><p className="mt-1 line-clamp-1 text-[11px] text-muted">{goal.objective}</p></div>
+            <div className="hidden w-40 sm:block"><div className="flex justify-between text-[10px] text-muted"><span>Qualified</span><span className="tabular-nums text-text">{percent}%</span></div><div className="mt-1 h-1 overflow-hidden rounded bg-overlay/10"><div className="h-full rounded bg-success transition-[width]" style={{ width: `${percent}%` }} /></div></div>
+            <div className="hidden min-w-24 text-right text-[11px] text-muted md:block">{goal.items?.length ?? 0} linked item{goal.items?.length === 1 ? '' : 's'}</div>
+            <GoalActions goal={goal} busy={busy} onCommand={onCommand} />
+          </summary>
+          <div className="grid border-t border-border lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="px-4 py-4 lg:border-r lg:border-border">
+              <div className="mb-3 flex items-center justify-between"><h3 className="text-[10px] font-semibold uppercase text-muted">Evidence matrix</h3><button type="button" onClick={() => void onCommand(goal.id, 'evaluate')} disabled={busy} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-text hover:bg-overlay/10 disabled:opacity-40"><RefreshCw size={13} /> Evaluate</button></div>
+              <div className="space-y-2">{criteria.map((criterion, index) => {
+                const row = evidence.find(item => Number(item.index) === index || String(item.criterion) === criterion)
+                const passed = String(row?.status ?? '') === 'passed'
+                return <div key={`${goal.id}-${index}`} className="grid gap-2 rounded border border-border/70 px-3 py-2.5 sm:grid-cols-[20px_minmax(0,1fr)_auto]">
+                  <span className={`mt-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border text-[9px] ${passed ? 'border-success bg-success/15 text-success' : 'border-border text-muted'}`}>{passed ? '✓' : index + 1}</span>
+                  <div><p className="text-xs text-text">{criterion}</p>{row?.status ? <p className="mt-1 text-[10px] text-muted">{label(String(row.status))}</p> : null}</div>
+                  <span className={`text-[10px] font-medium ${passed ? 'text-success' : 'text-warning'}`}>{passed ? 'Proven' : 'Needs evidence'}</span>
+                </div>
+              })}</div>
+              {!criteria.length && <p className="text-xs text-muted">No acceptance criteria were stored for this legacy goal.</p>}
+            </div>
+            <aside className="px-4 py-4"><div className="mb-3 flex items-center justify-between"><h3 className="text-[10px] font-semibold uppercase text-muted">Linked work</h3><button type="button" onClick={() => onCreateItem(goal.id)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-text hover:bg-overlay/10"><FilePlus2 size={13} /> Create item</button></div>
+              <div className="space-y-2">{goal.items?.map(item => <div key={item.task_id} className="flex items-center justify-between gap-3 border-l-2 border-accent/40 pl-3"><div className="min-w-0"><p className="truncate text-xs text-text">#{item.queue_id} {item.title}</p><p className="mt-0.5 text-[10px] text-muted">{label(item.owner_state ?? item.status)}</p></div></div>)}{!goal.items?.length && <p className="text-xs text-muted">No Queue items linked yet.</p>}</div>
+              {!!goal.gaps?.length && <div className="mt-4 border-t border-border pt-3"><h4 className="text-[10px] font-semibold uppercase text-warning">Open gaps</h4>{goal.gaps.map(gap => <p key={gap} className="mt-1.5 text-[10px] leading-4 text-muted">{gap}</p>)}</div>}
+            </aside>
+          </div>
+        </details>
+      })}</div>
+    )}
+    <GoalDialog open={dialogOpen} busy={busy} onClose={() => setDialogOpen(false)} onCreate={onCreate} />
+  </section>
 }
