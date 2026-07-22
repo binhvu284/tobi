@@ -119,10 +119,24 @@ def _tool_catalog() -> tuple[set, set]:
 
 _WORKFLOW_TOOLS = ("create_task_from_conversation", "save_note", "summarize_repo")
 
+# Durable milestone store. Simple Automation asks a permanent question — "has each
+# packaged workflow ever run successfully?" — but the raw evidence (tobi_actions
+# receipts) is ephemeral: it is pruned by storage cleanup, reset on a DB migration,
+# and each summarize_repo receipt needs a live GitHub read to even be earned. Gating
+# the tier on those live rows made it regress every time the log was cleared (the
+# recurring "Simple Automation dropped to partial" bug). We LATCH instead: the first
+# time a workflow earns a real 'executed' receipt we record it here, and it stays
+# proven forever regardless of what later happens to tobi_actions. The bar is
+# unchanged — a workflow still has to genuinely run once before it can be latched.
+_MILESTONE_SCHEMA = """CREATE TABLE IF NOT EXISTS awakening_milestones (
+    id        TEXT PRIMARY KEY,
+    proven_at TEXT NOT NULL
+)"""
 
-def _workflow_receipts(conn) -> set:
-    """Workflow tools with at least one SUCCESSFUL execution receipt in tobi_actions —
-    so Simple Automation is gated on real, logged use, not on tool registration."""
+
+def _live_workflow_receipts(conn) -> set:
+    """Workflow tools with at least one SUCCESSFUL execution receipt in tobi_actions
+    right now — the live, prunable signal that feeds the durable latch below."""
     try:
         rows = conn.execute(
             "SELECT DISTINCT tool FROM tobi_actions WHERE status='executed' AND tool IN (?,?,?)",
@@ -131,6 +145,58 @@ def _workflow_receipts(conn) -> set:
         return {str(r[0]) for r in rows}
     except Exception:
         return set()
+
+
+def _read_latched(conn) -> set:
+    """Durably-latched workflow milestones, read via a plain SELECT on the caller's
+    connection (no writes/DDL here, so the caller's transaction is untouched). If the
+    table doesn't exist yet the SELECT fails and we simply report none latched."""
+    keys = tuple(f"workflow:{t}" for t in _WORKFLOW_TOOLS)
+    try:
+        rows = conn.execute(
+            "SELECT id FROM awakening_milestones WHERE id IN (?,?,?)", keys
+        ).fetchall()
+        return {str(r[0]).split("workflow:", 1)[1] for r in rows}
+    except Exception:
+        return set()
+
+
+def _latch_workflows(tools: set) -> None:
+    """Record newly-proven workflows permanently. Runs on a DEDICATED connection so the
+    durable write is fully isolated from any read-path caller, and never raises."""
+    if not tools:
+        return
+    try:
+        from core.database import get_connection
+        writer = get_connection()
+        try:
+            writer.execute(_MILESTONE_SCHEMA)
+            now = datetime.now(timezone.utc).isoformat()
+            for tool in tools:
+                writer.execute(
+                    "INSERT OR IGNORE INTO awakening_milestones (id, proven_at) VALUES (?, ?)",
+                    (f"workflow:{tool}", now),
+                )
+            writer.commit()
+        finally:
+            writer.close()
+    except Exception:
+        pass
+
+
+def _workflow_receipts(conn) -> set:
+    """Proven workflows = live receipts UNION durably-latched milestones.
+
+    Latching is what makes Simple Automation stop regressing: any workflow seen with
+    a genuine 'executed' receipt is recorded permanently, so once earned it can never
+    be un-proven by an action-log prune, a Chat-storage cleanup, or a DB reset/migration.
+    The bar is unchanged — a workflow must still genuinely run once — and if the durable
+    store is unavailable this falls back to the live receipts (today's behavior), never a
+    false positive."""
+    live = _live_workflow_receipts(conn)
+    latched = _read_latched(conn)
+    _latch_workflows(live - latched)          # persist anything newly proven (rare)
+    return (live | latched) & set(_WORKFLOW_TOOLS)
 
 
 def _connector_test_fresh(value: object) -> bool:
