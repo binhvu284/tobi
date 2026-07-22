@@ -1,20 +1,24 @@
 // Queue tab (#18 UI continuation): Main Thread → Next slot → drag-ordered
 // priority list, with Completed and Plan Detail modals. Ordering persists via
 // POST /api/developer/queue/order; auto mode promotes Next → Main server-side.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+// The Auto switch is the shared AutoQueueToggle, so it stays in lockstep with
+// the same control on the Process tab (both write developer.auto_queue).
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Archive, ArrowUpFromLine, CheckCircle2, ChevronRight, FileText, GripVertical,
-  Loader2, Play, RotateCcw, Search, Trash2, X, Zap,
+  Loader2, Maximize2, Minimize2, Play, Plus, RotateCcw, Search, Sparkles, Target,
+  Trash2, Upload, X,
 } from 'lucide-react'
 import {
   getDeveloperQueuePlan, removeDeveloperQueueItem, restoreDeveloperQueueItem,
-  setDeveloperQueueOrder, type DeveloperQueueItem, type DeveloperQueuePlan,
-  type DeveloperQueueState, type DeveloperWorkflow,
+  setDeveloperQueueOrder, type DeveloperGoal, type DeveloperQueueItem,
+  type DeveloperQueuePlan, type DeveloperQueueState, type DeveloperWorkflow,
 } from '../../api'
 import { useToast } from '../../context/ToastProvider'
 import MarkdownView from '../chat/MarkdownView'
+import AutoQueueToggle from './AutoQueueToggle'
 
 function label(value: string) {
   return value.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase())
@@ -24,9 +28,18 @@ function deps(item: DeveloperQueueItem): number[] {
   try { return JSON.parse(item.dependencies_json) as number[] } catch { return [] }
 }
 
+/** Marks a surface that is a design preview, not a wired-up feature. */
+function DevChip({ className = '' }: { className?: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-warning ${className}`}>
+      Developing
+    </span>
+  )
+}
+
 /** One-line item card used in the Next slot and the priority list. */
-function ItemCard({ item, badge, draggable, busy, onDragStart, onDragEnd, onOpen, onStart }: {
-  item: DeveloperQueueItem; badge: React.ReactNode; draggable: boolean; busy: boolean
+function ItemCard({ item, badge, draggable, busy, prominent, onDragStart, onDragEnd, onOpen, onStart }: {
+  item: DeveloperQueueItem; badge: ReactNode; draggable: boolean; busy: boolean; prominent?: boolean
   onDragStart?: (event: React.DragEvent) => void; onDragEnd?: () => void
   onOpen: () => void; onStart?: () => void
 }) {
@@ -47,20 +60,23 @@ function ItemCard({ item, badge, draggable, busy, onDragStart, onDragEnd, onOpen
       {onStart && (
         <button disabled={busy} title={`Start #${item.queue_id} now`}
           onClick={event => { event.stopPropagation(); onStart() }}
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted opacity-0 transition-opacity hover:bg-accent/15 hover:text-accent group-hover:opacity-100 disabled:opacity-30">
-          <Play size={13} />
+          className={prominent
+            ? 'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[11px] font-semibold text-background shadow-sm transition-[filter] hover:brightness-110 disabled:opacity-40'
+            : 'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-accent/40 bg-accent/10 px-2 text-[11px] font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-40'}>
+          <Play size={12} /><span className="hidden sm:inline">Start{prominent ? ' now' : ''}</span>
         </button>
       )}
     </div>
   )
 }
 
-export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBusy, onAutoQueue, onStart, onOpenProcess, onState }: {
+export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBusy, goals, onAutoQueue, onStart, onOpenProcess, onState }: {
   state: DeveloperQueueState
   active: DeveloperWorkflow | null
   busy: boolean
   autoQueue: boolean
   autoQueueBusy: boolean
+  goals: DeveloperGoal[]
   onAutoQueue: (enabled: boolean) => void
   onStart: (queueId: number) => void
   onOpenProcess: () => void
@@ -71,6 +87,7 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
   const [draggingId, setDraggingId] = useState<number | null>(null)
   const [overSlot, setOverSlot] = useState<'next' | number | null>(null)
   const [completedOpen, setCompletedOpen] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
   const [planFor, setPlanFor] = useState<DeveloperQueueItem | null>(null)
   const suppressClick = useRef(false)
 
@@ -129,6 +146,9 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
     void persist(order, id)
   }
 
+  // Drop into the priority list at `index`. Used by each row (precise position)
+  // and by the section itself (drop anywhere / into an empty list = append),
+  // which is what lets a lone Next item be dragged back into the list.
   const dropOnList = (index: number) => (event: React.DragEvent) => {
     event.preventDefault(); event.stopPropagation(); setOverSlot(null)
     const id = draggedId(event)
@@ -169,6 +189,7 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
 
   const mainItem = active ? byId.get(active.queue_id) : null
   const startTarget = nextItem ?? priorityList[0] ?? null
+  const dragging = draggingId != null
 
   return (
     <div className="space-y-4">
@@ -205,8 +226,8 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
             <p className="text-sm text-muted">Idle — no development item is running.</p>
             {startTarget && (
               <button disabled={busy} onClick={() => onStart(startTarget.queue_id)}
-                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-medium text-background disabled:opacity-40">
-                {busy ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />} Start #{startTarget.queue_id}
+                className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3.5 text-sm font-semibold text-background shadow-sm transition-[filter] hover:brightness-110 disabled:opacity-40">
+                {busy ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />} Start #{startTarget.queue_id} now
               </button>
             )}
           </div>
@@ -221,13 +242,10 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
         className={`rounded-lg border border-dashed px-4 py-3 transition-colors ${overSlot === 'next' ? 'border-accent bg-accent/5' : 'border-border bg-surface/40'}`}>
         <div className="mb-2 flex items-center justify-between">
           <div className="text-[10px] font-semibold uppercase tracking-wide text-muted">Next item</div>
-          <button disabled={autoQueueBusy} onClick={() => onAutoQueue(!autoQueue)} title="When on, the Next item starts automatically once the main thread is free"
-            className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors disabled:opacity-50 ${autoQueue ? 'border-success/40 bg-success/10 text-success' : 'border-border text-muted hover:text-text'}`}>
-            {autoQueueBusy ? <Loader2 size={10} className="animate-spin" /> : <Zap size={10} />} Auto {autoQueue ? 'on' : 'off'}
-          </button>
+          <AutoQueueToggle enabled={autoQueue} busy={autoQueueBusy} onChange={onAutoQueue} />
         </div>
         {nextItem ? (
-          <ItemCard item={nextItem} draggable busy={busy}
+          <ItemCard item={nextItem} draggable busy={busy} prominent
             badge={<span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">Next</span>}
             onDragStart={dragStart(nextItem.queue_id)} onDragEnd={dragEnd}
             onOpen={() => openPlan(nextItem)} onStart={() => onStart(nextItem.queue_id)} />
@@ -237,21 +255,34 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
       </section>
 
       {/* ── 3. Priority list ───────────────────────────────────────────────── */}
-      <section>
-        <div className="mb-2 flex items-center justify-between">
+      {/* The whole section is a drop target so an item can always be dragged
+          back in — including into an empty list or the gaps between rows. Rows
+          stop propagation so they still control precise insertion position. */}
+      <section
+        onDragOver={dragging ? (event => { event.preventDefault(); setOverSlot(priorityList.length) }) : undefined}
+        onDrop={dragging ? dropOnList(priorityList.length) : undefined}>
+        <div className="mb-2 flex items-center justify-between gap-2">
           <div className="text-[10px] font-semibold uppercase tracking-wide text-muted">Priority queue · {priorityList.length}</div>
-          <button onClick={() => setCompletedOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted hover:text-text">
-            <Archive size={12} /> Completed · {completed.length}
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setAddOpen(true)} title="Add a new queue item"
+              className="inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-accent/10 px-2 py-1 text-[11px] font-medium text-accent transition-colors hover:bg-accent/20">
+              <Plus size={13} /> Add item <DevChip />
+            </button>
+            <button onClick={() => setCompletedOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted hover:text-text">
+              <Archive size={12} /> Completed · {completed.length}
+            </button>
+          </div>
         </div>
         {priorityList.length === 0 ? (
-          <p className="rounded-lg border border-border bg-surface/40 px-4 py-6 text-center text-xs text-muted">Every planned item is staged or running.</p>
+          <p className={`rounded-lg border border-dashed px-4 py-6 text-center text-xs transition-colors ${dragging ? 'border-accent bg-accent/5 text-accent' : 'border-border bg-surface/40 text-muted'}`}>
+            {dragging ? 'Drop here to move it back into the queue' : 'Every planned item is staged or running.'}
+          </p>
         ) : (
           <div className="space-y-1.5">
             {priorityList.map((item, index) => (
               <div key={item.queue_id}
-                onDragOver={event => { event.preventDefault(); setOverSlot(index) }}
+                onDragOver={event => { event.preventDefault(); event.stopPropagation(); setOverSlot(index) }}
                 onDragLeave={() => setOverSlot(current => (current === index ? null : current))}
                 onDrop={dropOnList(index)}
                 className={`rounded-md transition-shadow ${overSlot === index ? 'ring-1 ring-accent/60' : ''} ${draggingId === item.queue_id ? 'opacity-40' : ''}`}>
@@ -261,11 +292,8 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
                   onOpen={() => openPlan(item)} onStart={() => onStart(item.queue_id)} />
               </div>
             ))}
-            {/* tail drop zone: drop after the last card */}
-            <div onDragOver={event => { event.preventDefault(); setOverSlot(priorityList.length) }}
-              onDragLeave={() => setOverSlot(current => (current === priorityList.length ? null : current))}
-              onDrop={dropOnList(priorityList.length)}
-              className={`h-6 rounded-md border border-dashed transition-colors ${overSlot === priorityList.length ? 'border-accent bg-accent/5' : 'border-transparent'}`} />
+            {/* tail affordance: drop after the last card */}
+            <div className={`h-6 rounded-md border border-dashed transition-colors ${overSlot === priorityList.length && dragging ? 'border-accent bg-accent/5' : 'border-transparent'}`} />
           </div>
         )}
       </section>
@@ -274,6 +302,11 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
         items={completed} rowBusy={rowBusy} confirmRemove={confirmRemove}
         onOpenPlan={item => setPlanFor(item)} onRestore={restore}
         onAskRemove={setConfirmRemove} onRemove={remove} />
+      <AddItemModal open={addOpen} goals={goals} onClose={() => setAddOpen(false)}
+        onSubmit={() => {
+          setAddOpen(false)
+          toast({ kind: 'info', title: 'Add item is still in development', detail: 'This preview does not create a queue item yet.' })
+        }} />
       <PlanModal item={planFor} onClose={() => setPlanFor(null)} />
     </div>
   )
@@ -348,12 +381,125 @@ function CompletedModal({ open, onClose, items, rowBusy, confirmRemove, onOpenPl
   )
 }
 
-// ── 5. Plan Detail modal ─────────────────────────────────────────────────────
+// ── 5. Add Item modal (design preview — not wired to the backend yet) ────────
+function AddItemModal({ open, goals, onClose, onSubmit }: {
+  open: boolean; goals: DeveloperGoal[]; onClose: () => void; onSubmit: () => void
+}) {
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [selGoals, setSelGoals] = useState<number[]>([])
+  const [planMode, setPlanMode] = useState<'tobi' | 'upload' | null>(null)
+  const [planFile, setPlanFile] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    setName(''); setDescription(''); setSelGoals([]); setPlanMode(null); setPlanFile(null)
+  }, [open])
+
+  const toggleGoal = (id: number) =>
+    setSelGoals(current => (current.includes(id) ? current.filter(x => x !== id) : [...current, id]))
+
+  const inputClass = 'w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-text outline-none transition-colors placeholder:text-muted/70 focus:border-accent'
+
+  return createPortal(
+    <AnimatePresence>
+      {open && (
+        <motion.div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-3 backdrop-blur-sm"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
+          <motion.section role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}
+            initial={{ opacity: 0, y: 12, scale: 0.985 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8, scale: 0.985 }}
+            transition={{ duration: 0.16 }}
+            className="flex max-h-[88vh] w-full max-w-lg flex-col rounded-lg border border-border bg-surface shadow-2xl">
+            <header className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
+              <div>
+                <div className="flex items-center gap-2"><h2 className="font-semibold text-text">Add queue item</h2><DevChip /></div>
+                <p className="mt-0.5 text-xs text-muted">Describe the work, pick goals, and choose how the plan is created.</p>
+              </div>
+              <button onClick={onClose} title="Close" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-overlay/10 hover:text-text"><X size={17} /></button>
+            </header>
+
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+              <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-[11px] leading-5 text-warning/90">
+                <Sparkles size={13} className="mt-0.5 shrink-0" />
+                <span>This flow is a design preview. Submitting won’t create a real item yet — the backend wiring is still in development.</span>
+              </div>
+
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted">Item name</span>
+                <input value={name} onChange={event => setName(event.target.value)} placeholder="e.g. Queue drag-and-drop polish" className={inputClass} autoFocus />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted">Description</span>
+                <textarea value={description} onChange={event => setDescription(event.target.value)} rows={3}
+                  placeholder="What should this item accomplish, and how will you know it’s done?" className={`${inputClass} resize-y`} />
+              </label>
+
+              <div>
+                <span className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted"><Target size={12} /> Goals</span>
+                {goals.length === 0 ? (
+                  <p className="rounded-md border border-dashed border-border px-3 py-2.5 text-xs text-muted">No development goals yet — create one on the Goals tab, then link it here.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {goals.map(goal => {
+                      const on = selGoals.includes(goal.id)
+                      return (
+                        <button key={goal.id} type="button" onClick={() => toggleGoal(goal.id)}
+                          className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] transition-colors ${on ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:border-accent/40 hover:text-text'}`}>
+                          {on ? <CheckCircle2 size={11} className="shrink-0" /> : <Target size={11} className="shrink-0" />}
+                          <span className="truncate">{goal.title}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-muted">Plan</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => { setPlanMode('tobi'); setPlanFile(null) }}
+                    className={`inline-flex items-center justify-center gap-1.5 rounded-md border px-3 py-2.5 text-xs font-medium transition-colors ${planMode === 'tobi' ? 'border-accent bg-accent/10 text-accent' : 'border-border text-text hover:border-accent/40'}`}>
+                    <Sparkles size={14} /> Plan by TOBI
+                  </button>
+                  <button type="button" onClick={() => fileRef.current?.click()}
+                    className={`inline-flex items-center justify-center gap-1.5 rounded-md border px-3 py-2.5 text-xs font-medium transition-colors ${planMode === 'upload' ? 'border-accent bg-accent/10 text-accent' : 'border-border text-text hover:border-accent/40'}`}>
+                    <Upload size={14} /> Upload .md file
+                  </button>
+                  <input ref={fileRef} type="file" accept=".md,.markdown,text/markdown" className="hidden"
+                    onChange={event => { const file = event.target.files?.[0]; if (file) { setPlanMode('upload'); setPlanFile(file.name) } }} />
+                </div>
+                {planMode === 'tobi' && <p className="mt-1.5 text-[11px] text-accent/80">TOBI will draft the plan from the name, description, and selected goals.</p>}
+                {planMode === 'upload' && planFile && <p className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] text-muted"><FileText size={11} /> {planFile}</p>}
+              </div>
+            </div>
+
+            <footer className="flex items-center justify-between gap-3 border-t border-border px-5 py-3">
+              <span className="text-[11px] text-muted">Preview only — no item is created.</span>
+              <div className="flex items-center gap-2">
+                <button onClick={onClose} className="inline-flex h-8 items-center rounded-md border border-border px-3 text-xs text-text hover:bg-overlay/5">Cancel</button>
+                <button onClick={onSubmit}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-semibold text-background transition-[filter] hover:brightness-110">
+                  <Plus size={13} /> Create item
+                </button>
+              </div>
+            </footer>
+          </motion.section>
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body,
+  )
+}
+
+// ── 6. Plan Detail modal ─────────────────────────────────────────────────────
 function PlanModal({ item, onClose }: { item: DeveloperQueueItem | null; onClose: () => void }) {
   const [plan, setPlan] = useState<DeveloperQueuePlan | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [maximized, setMaximized] = useState(false)
   useEffect(() => {
-    setPlan(null); setError(null)
+    setPlan(null); setError(null); setMaximized(false)
     if (!item) return
     const controller = new AbortController()
     getDeveloperQueuePlan(item.queue_id, controller.signal)
@@ -369,13 +515,19 @@ function PlanModal({ item, onClose }: { item: DeveloperQueueItem | null; onClose
           <motion.section role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}
             initial={{ opacity: 0, y: 12, scale: 0.985 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8, scale: 0.985 }}
             transition={{ duration: 0.16 }}
-            className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded-lg border border-border bg-surface shadow-2xl">
+            className={`flex flex-col rounded-lg border border-border bg-surface shadow-2xl transition-[width,height,max-width,max-height] ${maximized ? 'h-[95vh] max-h-[95vh] w-full max-w-[97vw]' : 'max-h-[90vh] w-full max-w-4xl'}`}>
             <header className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
               <div className="min-w-0">
                 <h2 className="truncate font-semibold text-text">#{item.queue_id} {item.title}</h2>
                 <p className="mt-0.5 truncate font-mono text-[11px] text-muted">{plan?.plan_path ?? item.plan_path}</p>
               </div>
-              <button onClick={onClose} title="Close" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-overlay/10 hover:text-text"><X size={17} /></button>
+              <div className="flex shrink-0 items-center gap-1">
+                <button onClick={() => setMaximized(current => !current)} title={maximized ? 'Exit full screen' : 'Full screen'}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-overlay/10 hover:text-text">
+                  {maximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                </button>
+                <button onClick={onClose} title="Close" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-overlay/10 hover:text-text"><X size={17} /></button>
+              </div>
             </header>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               {error ? (

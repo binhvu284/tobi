@@ -1433,7 +1433,7 @@ export default function Developer() {
             {tab === 'goals' && <DevelopmentGoals goals={goals} workers={workers} busy={busy} onCreate={createGoal} onCommand={goalCommand} />}
             {tab === 'workers' && <DeveloperAgents workers={workers} models={workerModels} providers={workerProviders} routing={modelRouting} busy={busy} onSave={saveWorker} onProbe={probeWorker} onLogin={loginWorker} onModels={loadWorkerModels} />}
             {tab === 'learning' && <LearningView state={learning} busy={busy} onReplay={replayLearning} />}
-            {tab === 'queue' && <DeveloperQueue state={queue} active={active} busy={busy}
+            {tab === 'queue' && <DeveloperQueue state={queue} active={active} busy={busy} goals={goals}
               autoQueue={autoQueuePending ?? overview?.process?.auto_queue ?? queue.auto_queue}
               autoQueueBusy={autoQueuePending !== null}
               onAutoQueue={setAutoQueue}
