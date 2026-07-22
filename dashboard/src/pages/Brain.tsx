@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Brain as BrainIcon, Search, Plus, Upload, Sparkles, Inbox, Filter,
@@ -7,6 +6,7 @@ import {
   FileText, MessagesSquare, Pencil, Wand2, CircleDot,
   CheckSquare, Square, Trash2, ListChecks, Loader2,
   ArrowDownUp, Sparkle, CalendarClock, TrendingUp, ArrowDownAZ, Check,
+  ChevronDown, MessageSquare,
 } from 'lucide-react'
 import {
   type Memory, type MemoryCategory, type BrainStats,
@@ -163,9 +163,6 @@ export default function Brain() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Link to="/brain" className="flex items-center gap-1.5 rounded-lg border border-purple/40 bg-purple/10 px-2.5 py-1.5 text-xs font-medium text-purple hover:bg-purple/20">
-            <Sparkle size={13} /> Brain V2
-          </Link>
           <button onClick={() => setShowReview(true)} className="relative flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted hover:text-text">
             <Inbox size={13} /> Review
             {!!(stats && (stats.pending + stats.conflicts)) && <span className="rounded-full bg-warning px-1.5 text-[10px] font-bold text-bg">{stats.pending + stats.conflicts}</span>}
@@ -176,7 +173,7 @@ export default function Brain() {
             className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${selectMode ? 'border-accent/50 bg-accent/15 text-accent' : 'border-border text-muted hover:text-text'}`}>
             <ListChecks size={13} /> {selectMode ? 'Done' : 'Select'}
           </button>
-          <button onClick={() => setModal('new')} className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent/20"><Plus size={13} /> Add</button>
+          <AddMemoryMenu onManual={() => setModal('new')} />
         </div>
       </div>
 
@@ -317,6 +314,60 @@ export default function Brain() {
 }
 
 // ── Sort menu ─────────────────────────────────────────────────────────────────
+function AddMemoryMenu({ onManual }: { onManual: () => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const closeOutside = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false)
+    }
+    const closeEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', closeOutside)
+    document.addEventListener('keydown', closeEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeOutside)
+      document.removeEventListener('keydown', closeEscape)
+    }
+  }, [open])
+
+  const addManually = () => { setOpen(false); onManual() }
+
+  return (
+    <div ref={ref} className="relative flex">
+      <button onClick={addManually}
+        className="flex items-center gap-1.5 rounded-l-lg border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent/20">
+        <Plus size={13} /> Add
+      </button>
+      <button onClick={() => setOpen(value => !value)} aria-label="More ways to add memory"
+        aria-haspopup="menu" aria-expanded={open}
+        className="flex items-center rounded-r-lg border border-l-0 border-accent/40 bg-accent/10 px-1.5 text-accent hover:bg-accent/20">
+        <ChevronDown size={13} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div role="menu" initial={{ opacity: 0, y: -5, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -5, scale: 0.98 }}
+            transition={{ duration: 0.14 }}
+            className="absolute right-0 top-full z-50 mt-1.5 w-52 overflow-hidden rounded-lg border border-border bg-surface p-1 shadow-xl">
+            <button role="menuitem" onClick={addManually}
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs text-text hover:bg-bg/70">
+              <Plus size={14} className="text-accent" /> Add item manually
+            </button>
+            <button role="menuitem" disabled
+              className="flex w-full cursor-not-allowed items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs text-muted opacity-60">
+              <MessageSquare size={14} />
+              <span className="flex-1">Tell TOBI</span>
+              <span className="rounded border border-border px-1 py-0.5 text-[9px] uppercase">Soon</span>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
 const SORT_OPTIONS = [
   { id: 'default',    label: 'Default',         desc: 'By importance',              Icon: Sparkle },
   { id: 'latest',     label: 'Latest First',    desc: 'Most recent activity',       Icon: CalendarClock },

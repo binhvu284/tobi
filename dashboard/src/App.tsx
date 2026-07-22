@@ -20,7 +20,6 @@ import Models from './pages/Models'
 import Integrations from './pages/Integrations'
 import Mcp from './pages/Mcp'
 import Brain from './pages/Brain'
-import BrainV2 from './pages/BrainV2'
 import Chat from './pages/Chat'
 import Inbox from './pages/Inbox'
 import Actions from './pages/Actions'
@@ -44,9 +43,9 @@ function RouteSet({ location }: { location?: string }) {
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/inbox" element={<Inbox />} />
-      <Route path="/brain" element={<BrainV2 />} />
-      <Route path="/brain/legacy" element={<Brain />} />
-      {/* old bookmark compat: /brain/v2 is now the default /brain */}
+      <Route path="/brain" element={<Brain />} />
+      <Route path="/brain/legacy" element={<Navigate to="/brain" replace />} />
+      {/* Old Brain bookmarks now use the stable page backed by Brain V2. */}
       <Route path="/brain/v2" element={<Navigate to="/brain" replace />} />
       <Route path="/chat" element={<Chat />} />
       <Route path="/chat/:sessionId" element={<Chat />} />

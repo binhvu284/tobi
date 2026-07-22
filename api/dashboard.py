@@ -22,6 +22,8 @@ from core.database import (
 )
 from core.release_manager import current_developer_version
 from core import brain
+from core import brain_v2_compat
+from core import owner_flags
 from core import graph_engine as graph
 from core import vault
 from core import integrations_registry as registry
@@ -4019,6 +4021,23 @@ async def google_disconnect(x_vault_session: str | None = Header(None, alias="X-
 
 # ── Brain: long-term owner memory (auto-learn + import + chat) ──────────────────
 
+def _brain_backend():
+    """Return the legacy contract implementation selected by the Brain rollout flag."""
+    if owner_flags.brain_v2_mode() == "on":
+        brain_v2_compat.ensure_ready()
+        return brain_v2_compat
+    return brain
+
+
+def _brain_call(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except vault.VaultLocked as exc:
+        raise HTTPException(status_code=423, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 class BrainMemoryCreate(BaseModel):
     content: str
     category: str = "identity"
@@ -4068,7 +4087,8 @@ class BrainChatReq(BaseModel):
 
 @app.get("/api/brain/stats")
 def brain_stats():
-    return brain.stats()
+    backend = _brain_backend()
+    return _brain_call(backend.stats)
 
 
 @app.get("/api/brain/categories")
@@ -4108,18 +4128,23 @@ def brain_patch_category(cat_id: str, payload: BrainCategoryPatchRequest):
 @app.get("/api/brain/memories")
 def brain_list(category: str | None = None, source: str | None = None,
                status: str = "active", q: str | None = None, stale: bool | None = None):
-    return {"items": brain.list_memories(category=category, source=source, status=status, q=q, stale=stale)}
+    backend = _brain_backend()
+    return {"items": _brain_call(backend.list_memories, category=category, source=source,
+                                  status=status, q=q, stale=stale)}
 
 
 @app.post("/api/brain/memories")
 def brain_create(payload: BrainMemoryCreate):
-    mid = brain.add_memory(payload.content, payload.category, payload.confidence, payload.source, status="active")
-    return brain.get_memory(mid)
+    backend = _brain_backend()
+    mid = _brain_call(backend.add_memory, payload.content, payload.category,
+                      payload.confidence, payload.source, status="active")
+    return _brain_call(backend.get_memory, mid)
 
 
 @app.get("/api/brain/memories/{mid}")
 def brain_get(mid: int):
-    m = brain.get_memory(mid)
+    backend = _brain_backend()
+    m = _brain_call(backend.get_memory, mid)
     if not m:
         raise HTTPException(status_code=404, detail="Memory not found")
     return m
@@ -4127,7 +4152,9 @@ def brain_get(mid: int):
 
 @app.patch("/api/brain/memories/{mid}")
 def brain_patch(mid: int, payload: BrainMemoryPatch):
-    m = brain.update_memory(mid, payload.content, payload.category, payload.confidence)
+    backend = _brain_backend()
+    m = _brain_call(backend.update_memory, mid, payload.content,
+                    payload.category, payload.confidence)
     if not m:
         raise HTTPException(status_code=404, detail="Memory not found")
     return m
@@ -4135,13 +4162,15 @@ def brain_patch(mid: int, payload: BrainMemoryPatch):
 
 @app.delete("/api/brain/memories/{mid}")
 def brain_delete(mid: int):
-    brain.delete_memory(mid)
+    backend = _brain_backend()
+    _brain_call(backend.delete_memory, mid)
     return {"ok": True}
 
 
 @app.post("/api/brain/memories/{mid}/confirm")
 def brain_confirm(mid: int):
-    m = brain.confirm_memory(mid)
+    backend = _brain_backend()
+    m = _brain_call(backend.confirm_memory, mid)
     if not m:
         raise HTTPException(status_code=404, detail="Memory not found")
     return m
@@ -4149,70 +4178,83 @@ def brain_confirm(mid: int):
 
 @app.get("/api/brain/memories/{mid}/versions")
 def brain_versions(mid: int):
-    return {"versions": brain.list_versions(mid)}
+    backend = _brain_backend()
+    return {"versions": _brain_call(backend.list_versions, mid)}
 
 
 @app.post("/api/brain/search")
 def brain_search(payload: BrainSearchReq):
-    return {"items": brain.semantic_search(payload.query, k=payload.k)}
+    backend = _brain_backend()
+    return {"items": _brain_call(backend.semantic_search, payload.query, k=payload.k)}
 
 
 @app.get("/api/brain/pending")
 def brain_pending():
-    return {"items": brain.list_pending()}
+    backend = _brain_backend()
+    return {"items": _brain_call(backend.list_pending)}
 
 
 @app.post("/api/brain/pending/{mid}/accept")
 def brain_pending_accept(mid: int):
-    return brain.accept_pending(mid) or {"ok": False}
+    backend = _brain_backend()
+    return _brain_call(backend.accept_pending, mid) or {"ok": False}
 
 
 @app.post("/api/brain/pending/{mid}/reject")
 def brain_pending_reject(mid: int):
-    brain.reject_pending(mid)
+    backend = _brain_backend()
+    _brain_call(backend.reject_pending, mid)
     return {"ok": True}
 
 
 @app.get("/api/brain/conflicts")
 def brain_conflicts():
-    return {"items": brain.list_conflicts()}
+    backend = _brain_backend()
+    return {"items": _brain_call(backend.list_conflicts)}
 
 
 @app.post("/api/brain/conflicts/{cid}/resolve")
 def brain_conflict_resolve(cid: int, payload: BrainResolveReq):
-    brain.resolve_conflict(cid, payload.decision)
+    backend = _brain_backend()
+    _brain_call(backend.resolve_conflict, cid, payload.decision)
     return {"ok": True}
 
 
 @app.post("/api/brain/import")
 def brain_import(payload: BrainImportReq):
-    items = brain.parse_import(payload.filename, payload.content)
+    backend = _brain_backend()
+    items = _brain_call(backend.parse_import, payload.filename, payload.content)
     return {"items": items}
 
 
 @app.post("/api/brain/import/commit")
 def brain_import_commit(payload: BrainImportCommitReq):
-    return brain.commit_import(payload.filename, payload.source_type, payload.items)
+    backend = _brain_backend()
+    return _brain_call(backend.commit_import, payload.filename, payload.source_type, payload.items)
 
 
 @app.get("/api/brain/duplicates")
 def brain_duplicates():
-    return {"groups": brain.find_duplicates()}
+    backend = _brain_backend()
+    return {"groups": _brain_call(backend.find_duplicates)}
 
 
 @app.post("/api/brain/duplicates/merge")
 def brain_merge(payload: BrainMergeReq):
-    return brain.merge_group(payload.ids, payload.keep_id)
+    backend = _brain_backend()
+    return _brain_call(backend.merge_group, payload.ids, payload.keep_id)
 
 
 @app.get("/api/brain/narrative")
 def brain_narrative_get():
-    return brain.get_narrative() or {"content": None}
+    backend = _brain_backend()
+    return _brain_call(backend.get_narrative) or {"content": None}
 
 
 @app.post("/api/brain/narrative")
 def brain_narrative_make():
-    n = brain.synthesize_narrative()
+    backend = _brain_backend()
+    n = _brain_call(backend.synthesize_narrative)
     if not n:
         raise HTTPException(status_code=503, detail="Could not synthesize (no memories or LLM unavailable)")
     return n

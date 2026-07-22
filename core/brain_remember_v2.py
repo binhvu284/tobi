@@ -278,6 +278,8 @@ def remember_on(content: str, category: str,
                "status": res.status.value if res.status else None}
 
     if cand.sensitive:
+        from core import brain_v2_compat
+        brain_v2_compat.record_change(res.memory_id, "create", "owner", mirror=False)
         return {"ok": True, "id": None, "category": category,
                 "action": _ACTION_MAP.get(res.outcome, "pending"), "v2": v2_info}
 
@@ -289,6 +291,8 @@ def remember_on(content: str, category: str,
             brain._confirm_raise(conn2, target.compat_ref)
             conn2.commit()
             conn2.close()
+            from core import brain_v2_compat
+            brain_v2_compat.record_change(res.memory_id, "merge", "auto", mirror=False)
             return {"ok": True, "id": target.compat_ref, "category": category,
                     "action": "merged", "v2": v2_info}
         # merge target predates compat linking — create the legacy row now
@@ -297,6 +301,8 @@ def remember_on(content: str, category: str,
         c.execute("UPDATE brain_memory_v2 SET compat_ref=? WHERE id=? AND compat_ref IS NULL",
                   (legacy_id, res.memory_id))
         c.commit()
+        from core import brain_v2_compat
+        brain_v2_compat.record_change(res.memory_id, "merge", "auto", mirror=False)
         return {"ok": True, "id": legacy_id, "category": category,
                 "action": "merged", "v2": v2_info}
 
@@ -305,5 +311,7 @@ def remember_on(content: str, category: str,
                                  source="remember", status=legacy_status)
     c.execute("UPDATE brain_memory_v2 SET compat_ref=? WHERE id=?", (legacy_id, res.memory_id))
     c.commit()
+    from core import brain_v2_compat
+    brain_v2_compat.record_change(res.memory_id, "create", "owner", mirror=False)
     return {"ok": True, "id": legacy_id, "category": category,
             "action": _ACTION_MAP.get(res.outcome, "pending"), "v2": v2_info}

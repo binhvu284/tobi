@@ -720,6 +720,39 @@ def _ensure_brain_schema(conn: sqlite3.Connection) -> None:
         created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Brain V2 legacy-UI compatibility. The current Brain page keeps its proven
+    -- interaction contract while these tables retain V2-native history and
+    -- conflict decisions. Legacy rows are rollback mirrors, never the authority.
+    CREATE TABLE IF NOT EXISTS brain_memory_v2_versions (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        memory_id           INTEGER NOT NULL REFERENCES brain_memory_v2(id) ON DELETE CASCADE,
+        content             TEXT,
+        category            TEXT,
+        confidence          REAL,
+        change_kind         TEXT,
+        changed_by          TEXT,
+        legacy_version_ref  INTEGER,
+        created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(memory_id, legacy_version_ref)
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_memory_v2_conflict_resolutions (
+        link_id      INTEGER PRIMARY KEY REFERENCES brain_memory_links(id) ON DELETE CASCADE,
+        decision     TEXT NOT NULL,
+        resolved_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS brain_v2_cutover_state (
+        id                INTEGER PRIMARY KEY CHECK (id = 1),
+        status            TEXT NOT NULL DEFAULT 'pending',
+        migrated_count    INTEGER NOT NULL DEFAULT 0,
+        skipped_sensitive INTEGER NOT NULL DEFAULT 0,
+        last_error        TEXT,
+        started_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+        completed_at      DATETIME,
+        updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- Brain V2 (#20 / T02): vault-encrypted sensitive fields. The plaintext columns
     -- above hold a redaction placeholder for sensitive memories; the real bytes live
     -- here, AES-GCM-encrypted via vault.encrypt_payload (bound to `purpose` as AAD).
@@ -918,6 +951,18 @@ def _ensure_brain_schema(conn: sqlite3.Connection) -> None:
     # Psychology was unlocked by owner command — set is_locked=0 so UI reflects the override.
     _ensure_column(conn, "brain_categories", "is_locked", "INTEGER DEFAULT 0")
     conn.execute("UPDATE brain_categories SET is_locked=0 WHERE id='psychology'")
+
+    # Existing installations predate the compatibility fields above. Keep the
+    # migration additive and idempotent so rollback data remains readable.
+    _ensure_column(conn, "brain_memory_v2", "last_confirmed_at", "DATETIME")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_brain_memory_v2_compat_ref "
+        "ON brain_memory_v2(compat_ref) WHERE compat_ref IS NOT NULL"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_brain_memory_v2_status_updated "
+        "ON brain_memory_v2(status, updated_at DESC)"
+    )
 
 
 def _ensure_graph_schema(conn: sqlite3.Connection) -> None:

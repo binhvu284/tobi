@@ -37,6 +37,14 @@ CATEGORY_IDS = ["identity", "preferences", "psychology", "relationships",
                 "goals", "work", "habits", "health"]
 
 
+def _v2_enabled() -> bool:
+    try:
+        from core import owner_flags
+        return owner_flags.brain_v2_mode() == "on"
+    except Exception:
+        return False
+
+
 # ── llm helper (guarded) ─────────────────────────────────────────────────────
 def _llm(prompt: str, system: Optional[str] = None, max_tokens: int = 800,
          task_type: str = "simple") -> Optional[str]:
@@ -374,6 +382,9 @@ def _confirm_raise(conn, mid: int, by: float = 0.05) -> None:
 # ── hybrid routing (the heart of auto-learn / import) ────────────────────────
 def route_candidate(content: str, category: str, confidence: float, source: str) -> dict:
     """Apply the hybrid rule. Returns {action, memory_id?}."""
+    if _v2_enabled():
+        from core import brain_v2_compat
+        return brain_v2_compat.route_candidate(content, category, confidence, source)
     content = (content or "").strip()
     if not content:
         return {"action": "skipped"}
@@ -1069,6 +1080,9 @@ def merge_group(ids: list[int], keep_id: Optional[int] = None) -> dict:
 
 # ── retrieval / chat / narrative ─────────────────────────────────────────────
 def retrieve(query: str, k: int = 6) -> list[dict]:
+    if _v2_enabled():
+        from core import brain_v2_compat
+        return brain_v2_compat.retrieve(query, k=k)
     return semantic_search(query, k=k)
 
 
@@ -1078,6 +1092,9 @@ def profile_rows(max_per_cat: int = 4) -> list[tuple[str, str]]:
     Returned as whole rows so callers (e.g. the stable-profile builder) can trim by WHOLE
     memory rather than slicing a joined string (splitting on '; ' would corrupt any memory
     that itself contains '; ')."""
+    if _v2_enabled():
+        from core import brain_v2_compat
+        return brain_v2_compat.profile_rows(max_per_cat)
     conn = get_connection()
     try:
         rows = conn.execute(
@@ -1396,6 +1413,9 @@ def remember(content: str, category: Optional[str] = None) -> dict:
 
 # ── stats ────────────────────────────────────────────────────────────────────
 def stats() -> dict:
+    if _v2_enabled():
+        from core import brain_v2_compat
+        return brain_v2_compat.stats()
     conn = get_connection()
     total = conn.execute("SELECT COUNT(*) FROM brain_memories WHERE status='active' AND deleted_at IS NULL").fetchone()[0]
     by_cat = {r["category"]: r["c"] for r in conn.execute(

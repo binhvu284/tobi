@@ -1,67 +1,103 @@
-# Brain Memory V2 — Operations & Rollback (#20)
+# Brain Memory V2 - Operations and Rollback (#20)
 
-The typed, quality-gated owner-memory system. Everything below is additive to the
-legacy Brain: legacy `brain_memories` rows and `/api/brain/*` behavior are never
-modified by V2.
+Brain V2 is the typed, quality-gated owner-memory backend. The owner-facing
+Mission Control Brain page keeps the proven legacy UI and its `/api/brain/*`
+contract; when V2 is enabled, those routes translate to the V2 repository.
+Legacy rows remain as rollback mirrors for non-sensitive memories.
 
-## Flags (owner_settings — Settings page or `PATCH /api/owner/settings`)
+## Owner Flags
+
+Flags live in `owner_settings` and are managed through the existing owner
+settings API.
 
 | Flag | Values | Effect |
 |---|---|---|
-| `brain.v2_shadow` | `0`/`1` (default 0) | Remember runs legacy exactly as today AND writes a V2 copy alongside (`compat_ref` links the rows). Zero behavior change; builds real V2 data for evaluation. |
-| `brain.v2_enabled` | `0`/`1` (default 0) | V2 authoritative: Remember routes through the quality gates (legacy compat row still written), and Chat/Agent context uses the V2 stable profile + ranked recall. Wins over shadow. |
+| `brain.v2_shadow` | `0`/`1` (fresh-install default `0`) | Legacy remains authoritative while Remember also evaluates/writes V2 best-effort data. |
+| `brain.v2_enabled` | `0`/`1` (fresh-install default `0`) | V2 becomes authoritative for the Brain page, Remember, automatic sweep routing, Chat/Agent profile context, retrieval, and MCP/conductor recall. This flag wins over shadow. |
 
-**Rollback = turn the flag off.** `brain.v2_enabled=0` restores the legacy
-context/remember path byte-for-byte (verified by `tests/test_brain_remember_v2.py`
-and `tests/test_brain_retrieval.py`). No data is lost either way — V2 rows stay
-in their tables and resume when re-enabled.
+Fresh installations stay flag-dark per the approved rollout plan. The current
+owner instance completed cutover on 2026-07-22 and runs with
+`brain.v2_enabled=1`, `brain.v2_shadow=0`.
 
-## Staged rollout (spec T13)
+## Owner Surface
 
-1. **Shadow** (`brain.v2_shadow=1`): run days-to-weeks. Watch `/brain/v2` Overview:
-   pending queue growth, conflict count, and whether shadow rows look sane.
-2. **Curate before flipping on**: the stable profile is built from ACTIVE
-   memories — review the Library first (archive junk, approve good pending rows).
-   Whatever is active goes into every turn's context.
-3. **Chat on** (`brain.v2_enabled=1`): V2 profile + recall enter chat context.
-   Verify tone/behavior for a few days; the `brain_recall` context item carries
-   owner-visible chips.
-4. **Agent surfaces** inherit the same flag (mode budgets: chat 6/1,200 tokens,
-   agent 10/2,400).
+- Mission Control -> Brain (`/brain`) uses the established Brain UI.
+- Old `/brain/legacy` and `/brain/v2` bookmarks redirect to `/brain`.
+- The Add control keeps manual entry as its default action and exposes a small
+  dropdown with `Add item manually` plus disabled `Tell TOBI (Soon)`.
+- The existing Browse, Search, Review, Edit, Confirm, Delete, Import,
+  Duplicate Cleaner, Narrative, and Ask Brain workflows keep their response
+  shapes while V2 is authoritative.
+- The advanced `/api/brain/v2/*` job and diagnostic APIs remain available for
+  native import, migration, feedback, influence, cleanup, and operations.
 
-## Sensitive memory & the vault
+## Compatibility Cutover
 
-- Sensitive V2 memories exist only AES-GCM-encrypted (`brain_secure_payloads`);
-  the plaintext column holds `[sensitive:redacted]`.
-- Locked vault ⇒ sensitive memories are redacted in the UI and **excluded from
-  LLM context entirely**; imports/migrations wait or fail closed (HTTP 423).
-- Owner **purge** permanently deletes a memory + its encrypted payload
-  (SQLite `secure_delete`); archive is the reversible alternative.
+`core.brain_v2_compat.ensure_ready()` is additive and idempotent:
+
+1. Reconcile linked V2 lifecycle states to the accepted legacy state once.
+2. Migrate active/pending legacy rows without an existing `compat_ref`.
+3. Copy owner-visible version history into V2 compatibility history.
+4. Keep non-sensitive legacy rows synchronized as rollback mirrors.
+5. Keep V2 authoritative after cutover; legacy writes made during rollback are
+   reconciled when V2 is enabled again.
+
+The cutover ledger is stored in `brain_v2_cutover_state`. Compatibility history
+and conflict decisions are stored in `brain_memory_v2_versions` and
+`brain_memory_v2_conflict_resolutions`.
+
+## Sensitive Memory and Vault
+
+- Sensitive canonical text, behavior implications, and evidence are AES-GCM
+  encrypted in `brain_secure_payloads`.
+- Plaintext columns and compatibility history use `[sensitive:redacted]`.
+- Converting an existing memory to sensitive scrubs the live legacy mirror and
+  both compatibility-history stores.
+- A locked vault redacts sensitive UI reads, excludes them from LLM context,
+  and maps blocked legacy-page writes to HTTP 423.
+- Archive is reversible. Owner-confirmed V2 purge permanently deletes the
+  selected memory and its protected payload; external backups may retain bytes.
+
+## Rollback
+
+Set `brain.v2_enabled=0` and `brain.v2_shadow=0` to restore the legacy Brain
+backend. V2 rows remain intact. Re-enable `brain.v2_enabled=1` to reconcile any
+accepted active/pending legacy writes and return to V2.
+
+The live 2026-07-22 exercise verified:
+
+| Check | Result |
+|---|---:|
+| Active legacy memories | 63 |
+| Active V2 memories | 63 |
+| Missing active/pending legacy links | 0 |
+| Linked lifecycle mismatches | 0 |
+| Rollback active count | 63 |
+| Restored backend | `brain_v2` |
+
+Pre-cutover backup:
+`tobi/.tobi/backups/brain-v2-cutover-20260722-175640.db` (local/ignored).
+
+## Verification
+
+- New compatibility suite: `tests/test_brain_v2_legacy_compat.py` - 27 checks.
+- Brain contracts/schema/repository/ingest/golden/remember/import/migration/
+  retrieval/feedback/API/acceptance suites - 430 checks.
+- Context/conductor adjacency suites - 44 checks.
+- Total focused backend checks in the completion run: 501.
+- Acceptance gates: precision 100%, active trash 0%, corrections 100%,
+  security failures 0, cached context p95 about 140 ms, memory tokens 33.7%
+  below legacy, retrieval proxy 100%.
+- Dashboard `tsc && vite build` passes.
+- Automated visual attachment was blocked by the local browser controller's
+  bracket-path startup error; owner click-through remains the visual check.
 
 ## Maintenance
 
-- **Import temp data**: encrypted uploads are purged on commit/cancel; call
-  `brain_import.expire_jobs()` (or any future scheduler hook) to enforce the
-  24-hour TTL on abandoned jobs.
-- **Cleanup center** (`/brain/v2` Overview): deterministic merge/archive/
-  revalidate recommendations; nothing applies without per-proposal confirmation.
-- **Acceptance gates**: `python tests/test_brain_acceptance.py` measures the spec
-  release thresholds (precision, trash rate, correction accuracy, injection=0,
-  p95 ≤300 ms, token increase ≤20%, retrieval proxy). Run before any flag
-  promotion. Latest run: precision 100%, trash 0%, corrections 100%, failures 0,
-  p95 ≈139 ms, memory tokens −33.7% vs legacy.
-- **Test suites** (plain python, isolated temp DBs): `test_brain_contracts`,
-  `_v2_schema`, `_repository`, `test_vault_payload`, `_ingest`, `_golden`,
-  `_remember_v2`, `_import`, `_migration`, `_retrieval`, `_feedback`,
-  `_v2_api`, `_acceptance`.
-
-## Surfaces
-
-- **UI**: Mission Control → Brain → **Brain V2** (`/brain/v2`): Overview /
-  Library / Import / Migration / Ask Brain.
-- **API**: `/api/brain/v2/*` (see `api/brain_v2.py`) — legacy `/api/brain/*`
-  untouched.
-- **Known limitation**: T06 migration maps legacy categories deterministically
-  (no model inference, per spec) — e.g. legacy "identity" rules migrate as
-  `identity` type. Retype/curate via the Library; the pending queue exists for
-  exactly this.
+- Native V2 import uploads are encrypted and purged on commit/cancel; run
+  `brain_import.expire_jobs()` to enforce the 24-hour abandoned-job TTL.
+- Run `tests/test_brain_acceptance.py` before changing the rollout flag or
+  retrieval weights.
+- Keep all Brain V2 schema DDL centralized in `core/database.py`.
+- Do not remove legacy tables or rollback mirrors without a separate approved
+  deletion plan and a verified database backup.
