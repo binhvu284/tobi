@@ -109,6 +109,19 @@ ok("month uses the older baseline honestly", month[0]["growth"] == 500
    and month[0]["baseline_date"] == d35)
 alltime = RK.github_trending_entries(conn, "all", now=NOW)
 ok("all-time ranks by total stars", [e["repo"] for e in alltime] == ["r/new", "r/hot"])
+d3 = (NOW - timedelta(days=3)).date().isoformat()
+N.ingest_github_snapshots(conn, [
+    CT.GitHubSnapshot(repo="r/young", snapshot_date=d3, stars=100),
+    CT.GitHubSnapshot(repo="r/young", snapshot_date=today, stars=180),
+])
+conn.commit()
+young = [e for e in RK.github_trending_entries(conn, "week", now=NOW) if e["repo"] == "r/young"][0]
+ok("window not spanned but 2 days exist → measured growth since the earliest date",
+   young == {"repo": "r/young", "stars": 180, "growth": 80, "baseline_date": d3, "status": "ok"},
+   str(young))
+still_new = [e for e in RK.github_trending_entries(conn, "week", now=NOW) if e["repo"] == "r/new"][0]
+ok("a single snapshot day still reports collecting — never stars-as-growth",
+   still_new["status"] == "collecting" and "growth" not in still_new)
 try:
     RK.github_trending_entries(conn, "fortnight")
     ok("unknown window refused", False)

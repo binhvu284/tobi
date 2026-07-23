@@ -112,8 +112,11 @@ def build_model_snapshot(conn: sqlite3.Connection, now: datetime | None = None) 
 def github_trending_entries(conn: sqlite3.Connection, window: str,
                             now: datetime | None = None) -> list[dict]:
     """``week``/``month``: newest snapshot minus the nearest snapshot AT OR BEFORE the
-    boundary; not enough history → ``collecting`` (with stars, but NO growth field —
-    current stars are never presented as growth). ``all``: total stars."""
+    boundary. When the window isn't spanned yet but an EARLIER day exists, fall back
+    to the earliest persisted snapshot — real measured growth over a shorter span,
+    honestly labeled via ``baseline_date`` (the UI renders "since <date>"). Only a
+    single snapshot day → ``collecting`` with NO growth field: current stars are
+    never presented as growth. ``all``: total stars."""
     if window not in ("week", "month", "all"):
         raise ValueError(f"unknown window {window!r}")
     _ensure_once(conn)
@@ -132,6 +135,11 @@ def github_trending_entries(conn: sqlite3.Connection, window: str,
         base = conn.execute("SELECT snapshot_date, stars FROM news_github_snapshots"
                             " WHERE repo=? AND snapshot_date <= ? ORDER BY snapshot_date DESC LIMIT 1",
                             (repo, boundary)).fetchone()
+        if base is None:                                # window not spanned → earliest real reading
+            earliest = conn.execute("SELECT snapshot_date, stars FROM news_github_snapshots"
+                                    " WHERE repo=? ORDER BY snapshot_date ASC LIMIT 1", (repo,)).fetchone()
+            if earliest and earliest[0] < latest[0]:
+                base = earliest                          # measured, shorter span — labeled below
         if base is None:
             collecting.append({"repo": repo, "stars": int(latest[1]), "status": "collecting"})
         else:

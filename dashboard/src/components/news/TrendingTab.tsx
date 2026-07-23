@@ -1,19 +1,26 @@
-// News V2 Trending tab (#23, N09): GitHub growth table → Tool Discovery → Source
-// Explore (plan §8). The acceptance gate is honesty: growth renders ONLY when the
-// backend computed it from persisted star snapshots — repos without a valid baseline
-// show a "Collecting history" chip and never a number. Top-3 rows reuse the Home
-// rank ladder (theme-token classes, no hardcoded colors).
+// News V2 Trending tab (#23, N09 + owner QA rounds).
+// 1. GitHub growth table — growth ONLY from persisted snapshots, calm collecting state.
+// 2. Tool Discovery — SHOPPING UX (owner direction): one product card (visual tile,
+//    badges, description, like/dislike/favorite/note through the N06 contract) with
+//    an "Explore next tool" cycle that refreshes only this section.
+// 3. Source Explore — compact source filter in the header, exactly 3 news cards
+//    (quality over quantity), "Explore more" pages this section only.
+// Visual tiles are deterministic decorative gradients until the media pipeline fills
+// news_media_cache — never a fake screenshot presented as content.
 import { useCallback, useEffect, useState } from 'react'
 import {
-  AlertTriangle, ChevronRight, ExternalLink, Github, Hourglass, Loader2, RefreshCw, Star,
-  TrendingUp, Wrench,
+  AlertTriangle, ChevronRight, ExternalLink, Github, Hourglass, Loader2, RefreshCw,
+  Sparkles, Star, StickyNote, ThumbsDown, ThumbsUp, TrendingUp, Undo2, Wrench,
 } from 'lucide-react'
 import {
   getNewsV2Feed, getNewsV2TrendingGithub, getNewsV2TrendingSources, getNewsV2TrendingTools,
-  type NewsV2GithubEntry, type NewsV2ItemEntry,
+  patchNewsV2Interaction, postNewsV2Event, putNewsV2Note,
+  type NewsV2GithubEntry, type NewsV2Interaction, type NewsV2ItemEntry,
 } from '../../api'
+import { useToast } from '../../context/ToastProvider'
 import SourceLogo from '../SourceLogo'
 import SourceIconGroup from './SourceIconGroup'
+import { DEFAULT_INTERACTION, cleanExcerpt } from './NewsCard'
 
 type Window = 'week' | 'month' | 'all'
 
@@ -41,21 +48,44 @@ function rankTone(rank: number) {
   return { row: '', badge: 'border border-border text-muted' }
 }
 
+/** Deterministic decorative tile (per-item gradient + source badge). Renders the real
+ *  cached media when a validated media_key exists; otherwise a labeled visual — never
+ *  a fabricated screenshot. */
+function VisualTile({ name, source, mediaKey, className }: {
+  name: string; source: string; mediaKey?: string | null; className?: string
+}) {
+  const hue = [...name].reduce((acc, ch) => (acc * 31 + ch.charCodeAt(0)) % 360, 7)
+  if (mediaKey) {
+    return (
+      <div className={`overflow-hidden bg-background/50 ${className ?? ''}`}>
+        <img src={`/api/explore/v2/media/${mediaKey}`} alt="" loading="lazy"
+          className="h-full w-full object-cover"
+          onError={event => { event.currentTarget.style.display = 'none' }} />
+      </div>
+    )
+  }
+  return (
+    <div className={`relative flex items-center justify-center overflow-hidden ${className ?? ''}`}
+      style={{ background: `linear-gradient(135deg, hsl(${hue} 40% 30%), hsl(${(hue + 45) % 360} 50% 14%))` }}>
+      <span className="select-none text-3xl font-bold text-white/25">{(name.trim()[0] || '?').toUpperCase()}</span>
+      <span className="absolute bottom-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-black/30">
+        <SourceLogo name={source} size={12} variant="inline" />
+      </span>
+    </div>
+  )
+}
+
 export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
   const [window_, setWindow] = useState<Window>('week')
   const [github, setGithub] = useState<NewsV2GithubEntry[]>([])
-  const [tools, setTools] = useState<NewsV2ItemEntry[]>([])
-  const [sources, setSources] = useState<{ source: string; items: number; latest_observed: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async (win: Window) => {
     setLoading(true)
     try {
-      const [gh, tl, src] = await Promise.all([
-        getNewsV2TrendingGithub(win), getNewsV2TrendingTools(), getNewsV2TrendingSources(),
-      ])
-      setGithub(gh.entries); setTools(tl.entries); setSources(src.sources)
+      const gh = await getNewsV2TrendingGithub(win)
+      setGithub(gh.entries)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -95,13 +125,14 @@ export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
           <p className="px-4 py-8 text-center text-xs text-muted">No repository snapshots yet — run a Trending refresh to start collecting star history.</p>
         ) : (
           <>
-          {github.every(entry => entry.growth === undefined) && (
+          {window_ !== 'all' && github.every(entry => entry.growth === undefined) && (
             <p className="flex items-center gap-1.5 border-b border-border/60 bg-surface/30 px-4 py-1.5 text-[11px] text-muted">
               <Hourglass size={11} className="shrink-0" />
-              Collecting star history — {window_ === 'all' ? 'all-time' : window_ === 'week' ? 'weekly' : 'monthly'} growth appears once daily snapshots span the window. Growth is never estimated.
+              History collection started today — the first measured growth numbers appear with tomorrow's snapshot (real deltas, never estimated).
             </p>
           )}
-          <div className="divide-y divide-border/60">
+          {/* ~10 rows tall, scroll inside (owner request) */}
+          <div className="max-h-[520px] divide-y divide-border/60 overflow-y-auto">
             {github.map((entry, index) => {
               const tone = rankTone(index + 1)
               return (
@@ -114,14 +145,16 @@ export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
                       <p className="mt-0.5 truncate text-[11px] leading-4 text-muted" title={entry.description}>{entry.description}</p>
                     )}
                   </div>
-                  {entry.growth !== undefined ? (
-                    <span title={`vs snapshot from ${entry.baseline_date}`}
-                      className="inline-flex w-16 shrink-0 items-center justify-end gap-1 text-xs font-semibold text-success">
-                      <TrendingUp size={12} /> +{fmtStars(entry.growth)}
-                    </span>
-                  ) : (
-                    <span title="No persisted star history for this window yet — growth is never estimated"
-                      className="w-16 shrink-0 text-right text-xs text-muted/50">—</span>
+                  {window_ !== 'all' && (
+                    entry.growth !== undefined ? (
+                      <span title={`measured since the ${entry.baseline_date} snapshot`}
+                        className="inline-flex w-16 shrink-0 items-center justify-end gap-1 text-xs font-semibold text-success">
+                        <TrendingUp size={12} /> {entry.growth >= 0 ? '+' : ''}{fmtStars(entry.growth)}
+                      </span>
+                    ) : (
+                      <span title="Only one snapshot day so far — growth is never estimated"
+                        className="w-16 shrink-0 text-right text-xs text-muted/50">—</span>
+                    )
                   )}
                   <span className="inline-flex w-16 shrink-0 items-center justify-end gap-1 text-xs text-muted"><Star size={11} /> {fmtStars(entry.stars)}</span>
                 </div>
@@ -132,118 +165,305 @@ export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
         )}
       </section>
 
-      {/* ── 2. Tool Discovery: one featured + alternatives ─────────────────────── */}
-      <section className="overflow-hidden rounded-lg border border-border bg-surface/40">
-        <header className="flex h-11 items-center gap-2 border-b border-border px-4"><Wrench size={14} className="text-accent" /><h2 className="text-xs font-semibold text-text">Tool Discovery</h2><SourceIconGroup sources={['hackernews']} size={16} /></header>
-        {tools.length === 0 ? (
-          <p className="px-4 py-8 text-center text-xs text-muted">No tool candidates yet — Show&nbsp;HN posts and repos land here after a refresh.</p>
-        ) : (
-          <div className="p-4">
-            <FeaturedTool tool={tools[0]} />
-            {tools.length > 1 && (
-              <div className="mt-3 divide-y divide-border/50 border-t border-border/70">
-                {tools.slice(1, 6).map(tool => (
-                  <div key={tool.item_id} className="flex items-center gap-2.5 py-2">
-                    <SourceLogo name={tool.source} size={12} variant="inline" />
-                    <div className="min-w-0 flex-1">
-                      <a href={tool.url} target="_blank" rel="noreferrer" className="block truncate text-sm text-text hover:text-accent">{tool.title}</a>
-                      {tool.excerpt && (
-                        <p className="mt-0.5 truncate text-[11px] leading-4 text-muted" title={tool.excerpt}>{tool.excerpt}</p>
-                      )}
-                    </div>
-                    <span className="shrink-0 text-[11px] text-muted">{tool.engagement ? `▲ ${tool.engagement}` : tool.source}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </section>
-
-      {/* ── 3. Source Explore: canonical-store projection ──────────────────────── */}
-      <SourceExplore sources={sources} />
+      <ToolDiscovery reloadKey={reloadKey} />
+      <SourceExplore reloadKey={reloadKey} />
     </div>
   )
 }
 
-function FeaturedTool({ tool }: { tool: NewsV2ItemEntry }) {
-  return (
-    <div className="rounded-md border border-accent/25 bg-accent/[0.05] p-3.5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-[9px] font-semibold uppercase tracking-wide text-accent">Featured</div>
-          <a href={tool.url} target="_blank" rel="noreferrer" className="mt-1 block truncate text-sm font-semibold text-text hover:text-accent">{tool.title}</a>
-          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted">
-            <SourceLogo name={tool.source} size={11} variant="inline" /> {tool.source}
-            {tool.engagement ? <span>· ▲ {tool.engagement}</span> : null}
-          </div>
-        </div>
-        <a href={tool.url} target="_blank" rel="noreferrer" title="Open"
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border text-muted hover:text-accent"><ExternalLink size={14} /></a>
-      </div>
-      {tool.excerpt && <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted">{tool.excerpt}</p>}
-    </div>
-  )
-}
+// ── 2. Tool Discovery: shopping UX — one product at a time ───────────────────────────
+function ToolDiscovery({ reloadKey }: { reloadKey: number }) {
+  const { toast } = useToast()
+  const [tools, setTools] = useState<NewsV2ItemEntry[]>([])
+  const [index, setIndex] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [overrides, setOverrides] = useState<Record<number, NewsV2Interaction>>({})
+  const [undoUntil, setUndoUntil] = useState<number | null>(null)
+  const [, setTick] = useState(0)
+  const [noteOpen, setNoteOpen] = useState(false)
+  const [draft, setDraft] = useState('')
 
-function SourceExplore({ sources }: { sources: { source: string; items: number; latest_observed: string }[] }) {
-  const [selected, setSelected] = useState<string | null>(null)
-  const [items, setItems] = useState<NewsV2ItemEntry[]>([])
-  const [busy, setBusy] = useState(false)
-
-  const openSource = async (source: string) => {
-    if (selected === source) { setSelected(null); return }
-    setSelected(source); setBusy(true); setItems([])
+  const load = useCallback(async () => {
+    setLoading(true)
     try {
-      const page = await getNewsV2Feed({ mode: 'latest', source, limit: 15 })
-      setItems(page.entries)
-    } catch { setItems([]) } finally { setBusy(false) }
+      const res = await getNewsV2TrendingTools()
+      setTools(res.entries)
+      setIndex(0)
+    } catch { setTools([]) } finally { setLoading(false) }
+  }, [])
+  useEffect(() => { void load() }, [load, reloadKey])
+
+  const tool = tools.length ? tools[index % tools.length] : null
+  const ix = tool ? (overrides[tool.item_id] ?? tool.interaction ?? DEFAULT_INTERACTION) : DEFAULT_INTERACTION
+
+  const next = () => {
+    setNoteOpen(false); setUndoUntil(null)
+    if (index + 1 >= tools.length) void load()          // cycled through → refresh section
+    else setIndex(current => current + 1)
   }
 
-  if (!sources.length) return null
+  const mutate = async (action: 'like' | 'dislike' | 'undo' | 'favorite' | 'unfavorite') => {
+    if (!tool || busy) return
+    setBusy(action)
+    try {
+      const state = await patchNewsV2Interaction(tool.item_id, action, ix.version)
+      setOverrides(current => ({ ...current, [tool.item_id]: state }))
+      if (action === 'dislike') setUndoUntil(Date.now() + 10_000)
+      if (action === 'undo') setUndoUntil(null)
+    } catch (err) {
+      toast({ kind: 'error', title: 'Action failed', detail: err instanceof Error ? err.message : String(err) })
+    } finally { setBusy(null) }
+  }
+
+  useEffect(() => {                                     // dislike undo countdown → auto-next
+    if (!undoUntil) return
+    const timer = window.setInterval(() => {
+      if (Date.now() >= undoUntil) { window.clearInterval(timer); next() }
+      else setTick(k => k + 1)
+    }, 250)
+    return () => window.clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [undoUntil])
+
+  const saveNote = async (clear: boolean) => {
+    if (!tool || busy) return
+    setBusy('note')
+    try {
+      const text = clear ? null : (draft.trim() || null)
+      const state = await putNewsV2Note(tool.item_id, text, ix.version)
+      setOverrides(current => ({ ...current, [tool.item_id]: state }))
+      setNoteOpen(false)
+      toast({ kind: 'success', title: text ? 'Note saved' : 'Note cleared' })
+    } catch (err) {
+      toast({ kind: 'error', title: 'Note not saved', detail: err instanceof Error ? err.message : String(err) })
+    } finally { setBusy(null) }
+  }
+
+  const recordOpen = () => {
+    if (!tool) return
+    void postNewsV2Event(tool.item_id, { type: 'open' })
+      .then(state => setOverrides(current => ({ ...current, [tool.item_id]: state })))
+      .catch(() => {})
+  }
+
   return (
     <section className="overflow-hidden rounded-lg border border-border bg-surface/40">
       <header className="flex h-11 items-center gap-2 border-b border-border px-4">
-        <SourceIconGroup sources={sources.map(src => src.source)} size={16} />
-        <h2 className="text-xs font-semibold text-text">Source Explore</h2>
-        <p className="ml-auto hidden text-[11px] text-muted sm:block">Browse everything collected, per source</p>
+        <Wrench size={14} className="text-accent" /><h2 className="text-xs font-semibold text-text">Tool Discovery</h2>
+        <SourceIconGroup sources={['hackernews']} size={16} />
+        <p className="ml-auto hidden text-[11px] text-muted sm:block">One tool at a time — like it, save it, or move on</p>
       </header>
-      <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
-        {sources.map(src => (
-          <button key={src.source} onClick={() => void openSource(src.source)}
-            className={`flex items-center gap-3 rounded-lg border p-3 text-left transition-colors ${selected === src.source ? 'border-accent bg-accent/[0.06]' : 'border-border hover:border-accent/40'}`}>
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-background">
-              <SourceLogo name={src.source} size={16} variant="inline" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium text-text">{src.source}</span>
-              <span className="block text-[11px] text-muted">{src.items} items · latest {ago(src.latest_observed)}</span>
-            </span>
-            <ChevronRight size={14} className={`shrink-0 transition-transform ${selected === src.source ? 'rotate-90 text-accent' : 'text-muted'}`} />
-          </button>
-        ))}
-      </div>
-      {selected && (
-        <div className="border-t border-border/70 px-4 py-3">
-          {busy ? (
-            <div className="flex items-center gap-2 py-4 text-xs text-muted"><Loader2 size={13} className="animate-spin" /> Loading {selected}…</div>
-          ) : items.length === 0 ? (
-            <p className="py-4 text-center text-xs text-muted">No canonical items from {selected} in the current snapshot.</p>
-          ) : (
-            <div className="divide-y divide-border/50">
-              {items.map(item => (
-                <div key={item.item_id} className="flex items-center gap-2.5 py-2">
-                  <div className="min-w-0 flex-1">
-                    <a href={item.url} target="_blank" rel="noreferrer" className="block truncate text-sm text-text hover:text-accent">{item.title}</a>
-                    {item.excerpt && (
-                      <p className="mt-0.5 truncate text-[11px] leading-4 text-muted" title={item.excerpt}>{item.excerpt}</p>
-                    )}
-                  </div>
-                  <span className="shrink-0 text-[11px] text-muted">{ago(item.published_at ?? item.first_seen_at)}</span>
-                </div>
-              ))}
+      {loading ? (
+        <div className="p-4"><div className="h-48 animate-pulse rounded-md bg-overlay/10" /></div>
+      ) : !tool ? (
+        <p className="px-4 py-8 text-center text-xs text-muted">No tool candidates yet — Show&nbsp;HN posts and repos land here after a refresh.</p>
+      ) : (
+        <div className="p-4">
+          <div className="grid gap-4 md:grid-cols-[230px,1fr]">
+            <div>
+              <VisualTile name={tool.title} source={tool.source} mediaKey={tool.media_key}
+                className="aspect-video rounded-lg border border-border md:aspect-[4/3]" />
+              <a href={tool.url} target="_blank" rel="noreferrer" onClick={recordOpen}
+                className="mt-2.5 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-border text-xs font-semibold text-text transition-colors hover:border-accent/50 hover:text-accent">
+                <ExternalLink size={13} /> Open
+              </a>
             </div>
-          )}
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent">Tool</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-[10px] text-muted">
+                  <SourceLogo name={tool.source} size={10} variant="inline" /> {tool.source}
+                </span>
+                {typeof tool.engagement === 'number' && tool.engagement > 0 && (
+                  <span className="rounded-full border border-border px-2 py-0.5 text-[10px] text-muted">▲ {tool.engagement}</span>
+                )}
+                <span className="ml-auto text-[10px] text-muted">{ago(tool.published_at ?? tool.first_seen_at)}</span>
+              </div>
+              <h3 className="mt-2 text-base font-semibold leading-snug text-text">
+                <a href={tool.url} target="_blank" rel="noreferrer" onClick={recordOpen} className="hover:text-accent">{tool.title}</a>
+              </h3>
+              {cleanExcerpt(tool.excerpt) && (
+                <p className="mt-2 line-clamp-4 text-xs leading-5 text-muted">{cleanExcerpt(tool.excerpt)}</p>
+              )}
+              {undoUntil && ix.reaction === 'dislike' ? (
+                <div className="mt-3 flex items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2">
+                  <span className="min-w-0 flex-1 text-xs text-text">Not for you — showing the next tool shortly.</span>
+                  <button onClick={() => void mutate('undo')} disabled={busy !== null}
+                    className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-medium text-text hover:border-accent/50 disabled:opacity-50">
+                    {busy === 'undo' ? <Loader2 size={12} className="animate-spin" /> : <Undo2 size={12} />}
+                    Undo ({Math.max(0, Math.ceil((undoUntil - Date.now()) / 1000))}s)
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                  <ProductAction label="Like" active={ix.reaction === 'like'} busy={busy === 'like'}
+                    onClick={() => void mutate('like')} icon={<ThumbsUp size={13} className={ix.reaction === 'like' ? 'fill-current' : ''} />} />
+                  <ProductAction label="Dislike" active={false} busy={busy === 'dislike'}
+                    onClick={() => void mutate('dislike')} icon={<ThumbsDown size={13} />} />
+                  <ProductAction label={ix.favorite === 1 ? 'Saved' : 'Favorite'} active={ix.favorite === 1}
+                    busy={busy === 'favorite' || busy === 'unfavorite'}
+                    onClick={() => void mutate(ix.favorite === 1 ? 'unfavorite' : 'favorite')}
+                    icon={<Star size={13} className={ix.favorite === 1 ? 'fill-current' : ''} />} />
+                  <ProductAction label="Note" active={Boolean((ix.note ?? '').trim())} busy={false}
+                    onClick={() => { setDraft(ix.note ?? ''); setNoteOpen(open => !open) }}
+                    icon={<StickyNote size={13} />} />
+                  {(ix.favorite === 1 || (ix.note ?? '').trim()) && (
+                    <span title="Favorites and notes never expire" className="ml-1 inline-flex items-center gap-1 text-[10px] text-accent/80"><Sparkles size={10} /> kept forever</span>
+                  )}
+                </div>
+              )}
+              {noteOpen && (
+                <div className="mt-3 rounded-md border border-border bg-background/60 p-2.5">
+                  <textarea value={draft} onChange={event => setDraft(event.target.value)} rows={2}
+                    placeholder="Private note about this tool"
+                    className="w-full resize-y rounded-md border border-border bg-background px-2.5 py-2 text-xs text-text outline-none focus:border-accent" />
+                  <div className="mt-2 flex items-center justify-end gap-2">
+                    {(ix.note ?? '').trim() && (
+                      <button onClick={() => void saveNote(true)} disabled={busy !== null}
+                        className="inline-flex h-7 items-center rounded-md px-2.5 text-[11px] text-muted hover:text-danger disabled:opacity-50">Clear</button>
+                    )}
+                    <button onClick={() => setNoteOpen(false)} disabled={busy !== null}
+                      className="inline-flex h-7 items-center rounded-md border border-border px-2.5 text-[11px] text-text disabled:opacity-50">Cancel</button>
+                    <button onClick={() => void saveNote(false)} disabled={busy !== null}
+                      className="inline-flex h-7 items-center gap-1.5 rounded-md bg-accent px-3 text-[11px] font-semibold text-background disabled:opacity-50">
+                      {busy === 'note' ? <Loader2 size={11} className="animate-spin" /> : null} Save
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="mt-4 flex justify-center">
+            <button onClick={next} disabled={loading}
+              className="inline-flex h-9 items-center gap-2 rounded-full bg-accent px-5 text-xs font-semibold text-background transition-transform hover:scale-[1.02] disabled:opacity-50">
+              {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+              Explore next tool
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function ProductAction({ label, icon, active, busy, onClick }: {
+  label: string; icon: React.ReactNode; active: boolean; busy: boolean; onClick: () => void
+}) {
+  return (
+    <button onClick={onClick} disabled={busy}
+      className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-[11px] font-medium transition-colors disabled:opacity-50 ${
+        active ? 'border-accent/50 bg-accent/10 text-accent' : 'border-border text-muted hover:border-accent/30 hover:text-text'}`}>
+      {busy ? <Loader2 size={12} className="animate-spin" /> : icon} {label}
+    </button>
+  )
+}
+
+// ── 3. Source Explore: compact header filter + exactly 3 quality cards ───────────────
+const EXPLORE_CARDS = 3
+
+function SourceExplore({ reloadKey }: { reloadKey: number }) {
+  const [sources, setSources] = useState<{ source: string; items: number; latest_observed: string }[]>([])
+  const [selected, setSelected] = useState('')          // '' = all sources
+  const [items, setItems] = useState<NewsV2ItemEntry[]>([])
+  const [cursor, setCursor] = useState<string | null>(null)
+  const [offset, setOffset] = useState(0)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    void getNewsV2TrendingSources().then(res => setSources(res.sources)).catch(() => {})
+  }, [reloadKey])
+
+  const loadItems = useCallback(async (source: string) => {
+    setBusy(true)
+    try {
+      const page = await getNewsV2Feed({ mode: 'latest', source: source || undefined, limit: 15 })
+      setItems(page.entries)
+      setCursor(page.next_cursor)
+      setOffset(0)
+    } catch { setItems([]) } finally { setBusy(false) }
+  }, [])
+  useEffect(() => { void loadItems(selected) }, [loadItems, selected, reloadKey])
+
+  const exploreMore = async () => {
+    if (busy) return
+    if (offset + EXPLORE_CARDS < items.length) { setOffset(offset + EXPLORE_CARDS); return }
+    if (cursor) {                                       // deeper into the pinned snapshot
+      setBusy(true)
+      try {
+        const page = await getNewsV2Feed({ mode: 'latest', source: selected || undefined, cursor, limit: 15 })
+        const known = new Set(items.map(item => item.item_id))
+        const merged = [...items, ...page.entries.filter(item => !known.has(item.item_id))]
+        setItems(merged)
+        setCursor(page.next_cursor)
+        setOffset(current => (current + EXPLORE_CARDS < merged.length ? current + EXPLORE_CARDS : 0))
+      } catch { /* keep current cards */ } finally { setBusy(false) }
+      return
+    }
+    setOffset(0)                                        // exhausted → wrap to the start
+  }
+
+  const visible = items.slice(offset, offset + EXPLORE_CARDS)
+  if (!sources.length) return null
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-border bg-surface/40">
+      <header className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
+        <h2 className="text-xs font-semibold text-text">Source Explore</h2>
+        <div className="ml-auto flex items-center gap-1.5">
+          <button onClick={() => setSelected('')} title="All sources"
+            className={`inline-flex h-7 items-center rounded-full border px-2.5 text-[11px] font-medium transition-colors ${selected === '' ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:text-text'}`}>
+            All
+          </button>
+          {sources.map(src => (
+            <button key={src.source} onClick={() => setSelected(src.source === selected ? '' : src.source)}
+              title={`${src.source} · ${src.items} items · latest ${ago(src.latest_observed)}`}
+              className={`flex h-7 w-7 items-center justify-center rounded-full border transition-all ${selected === src.source ? 'border-accent bg-accent/10 ring-1 ring-accent/40' : 'border-border hover:border-accent/40'}`}>
+              <SourceLogo name={src.source} size={13} variant="inline" />
+            </button>
+          ))}
+        </div>
+      </header>
+      {busy && visible.length === 0 ? (
+        <div className="grid gap-3 p-4 sm:grid-cols-3">{[0, 1, 2].map(i => (
+          <div key={i} className="h-52 animate-pulse rounded-lg bg-overlay/10" />))}
+        </div>
+      ) : visible.length === 0 ? (
+        <p className="px-4 py-8 text-center text-xs text-muted">No canonical items {selected ? `from ${selected}` : ''} yet — run a refresh first.</p>
+      ) : (
+        <div className="p-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            {visible.map(item => (
+              <article key={item.item_id} className="overflow-hidden rounded-lg border border-border bg-surface/60 transition-colors hover:border-accent/30">
+                <VisualTile name={item.title} source={item.source} mediaKey={item.media_key}
+                  className="aspect-video" />
+                <div className="p-3">
+                  <div className="flex items-center gap-1.5 text-[10px] text-muted">
+                    <SourceLogo name={item.source} size={11} variant="inline" />
+                    <span className="font-medium text-text/75">{item.source}</span>
+                    <span className="ml-auto">{ago(item.published_at ?? item.first_seen_at)}</span>
+                  </div>
+                  <h3 className="mt-1.5 line-clamp-2 text-[13px] font-semibold leading-snug text-text">
+                    <a href={item.url} target="_blank" rel="noreferrer" className="hover:text-accent">{item.title}</a>
+                  </h3>
+                  {cleanExcerpt(item.excerpt) && (
+                    <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted">{cleanExcerpt(item.excerpt)}</p>
+                  )}
+                  <a href={item.url} target="_blank" rel="noreferrer"
+                    className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-muted transition-colors hover:text-accent">
+                    <ExternalLink size={11} /> Open
+                  </a>
+                </div>
+              </article>
+            ))}
+          </div>
+          <div className="mt-4 flex justify-center">
+            <button onClick={() => void exploreMore()} disabled={busy}
+              className="inline-flex h-9 items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-5 text-xs font-semibold text-accent transition-colors hover:bg-accent/20 disabled:opacity-50">
+              {busy ? <Loader2 size={13} className="animate-spin" /> : <ChevronRight size={13} />}
+              Explore more
+            </button>
+          </div>
         </div>
       )}
     </section>

@@ -38,7 +38,7 @@ function domainOf(url?: string): string | null {
 
 /** Display cleanup only (stored evidence untouched): bare URLs in source excerpts
  *  are dead weight as text — the real link lives behind Open. */
-function cleanExcerpt(text?: string | null): string {
+export function cleanExcerpt(text?: string | null): string {
   return (text ?? '').replace(/https?:\/\/\S+/g, '').replace(/\s{2,}/g, ' ').trim()
 }
 
