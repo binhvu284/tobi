@@ -380,6 +380,8 @@ def fake_arena(url, headers=None, timeout=8.0):
                      "leaderboard_publish_date": "2026-07-21"}},
             {"row": {"model_name": "Claude Fable 5 (Low)", "score": 0.080, "category": "overall",
                      "leaderboard_publish_date": "2026-07-21"}},   # variant merges, best kept
+            {"row": {"model_name": "GPT 5.6 Sol xHigh Codex Harness", "score": 0.101,
+                     "category": "overall", "leaderboard_publish_date": "2026-07-21"}},
         ]}
     return {"rows": []}                                 # webdev board down → others survive
 
@@ -391,8 +393,45 @@ agentic = {m.model_id: m.value for m in arena.metrics if m.metric == "agentic"}
 ok("lmarena: newest publish date only, per-board metrics, one board down survives",
    arena.ok and elo == {"gpt-5.4": 1499.0, "claude-fable-5": 1504.0}
    and not any(m.metric == "webdev" for m in arena.metrics))
-ok("lmarena: effort variants merge onto the base model keeping the best score",
-   agentic == {"claude-fable-5": 0.127})
+ok("lmarena: effort/harness variants merge onto the base model keeping the best score",
+   agentic == {"claude-fable-5": 0.127, "gpt-5.6-sol": 0.101})
+base.http_get_json = _real_http
+
+# ── LLM Stats (official Data API, owner-referenced) ──────────────────────────────────
+from core.news.sources.llmstats import LLMStatsAdapter  # noqa: E402
+
+
+def fake_llmstats(url, headers=None, timeout=8.0):
+    assert headers and headers.get("Authorization") == "Bearer ze_test"
+    if url.endswith("/models"):
+        return {"data": [
+            {"slug": "openai/gpt-5.6-sol",
+             "category_scores": {"Overall": 92.1, "Coding": 88.4, "Math": 90.0}},
+            {"slug": "no-scores-model"},
+        ]}
+    return {"updates": [
+        {"slug": "kimi-k3", "name": "Kimi K3", "released_at": "2026-07-20T00:00:00Z"},
+    ]}
+
+
+_saved_ls = os.environ.pop("LLMSTATS_API_KEY", None)
+no_ls_key = LLMStatsAdapter().run()
+ok("llmstats without a key fails with an actionable error",
+   not no_ls_key.ok and "LLMSTATS_API_KEY" in (no_ls_key.error or ""))
+os.environ["LLMSTATS_API_KEY"] = "ze_test"
+base.http_get_json = fake_llmstats
+ls = LLMStatsAdapter().run()
+cats = {(m.category, m.value) for m in ls.metrics}
+ok("llmstats emits every category score as evidence with canonical ids",
+   ls.ok and cats == {("overall", 92.1), ("coding", 88.4), ("math", 90.0)}
+   and all(m.model_id == "gpt-5.6-sol" for m in ls.metrics))
+ok("llmstats updates become sourced release evidence",
+   len(ls.releases) == 1 and ls.releases[0].model_id == "kimi-k3"
+   and ls.releases[0].source_url.startswith("https://llm-stats.com/models/"))
+if _saved_ls is None:
+    os.environ.pop("LLMSTATS_API_KEY", None)
+else:
+    os.environ["LLMSTATS_API_KEY"] = _saved_ls
 base.http_get_json = _real_http
 
 print(f"\nALL {PASS} CHECKS PASSED")

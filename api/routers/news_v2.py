@@ -103,7 +103,7 @@ def _enrich(conn, entries: list[dict]) -> list[dict]:
 def v2_home():
     conn = _conn()
     try:
-        top = repository.read_snapshot_page(conn, kind="models:top", limit=15)
+        top = repository.read_snapshot_page(conn, kind="models:top", limit=20)
         releases = [dict(zip(("id", "model_id", "title", "source_url", "released_at", "observed_at"), r))
                     for r in conn.execute(
                         "SELECT id, model_id, title, source_url, released_at, observed_at"
@@ -118,7 +118,7 @@ def v2_home():
                             "updated_at": job[2]} if job else None)
         freshness = {r[0]: r[1] for r in conn.execute(
             "SELECT kind, MAX(created_at) FROM news_rank_snapshots GROUP BY kind")}
-        return {"top10": top["entries"][:10], "snapshot_id": top["snapshot_id"],
+        return {"top": top["entries"][:20], "snapshot_id": top["snapshot_id"],
                 "releases": releases, "source_health": health, "freshness": freshness}
     finally:
         conn.close()

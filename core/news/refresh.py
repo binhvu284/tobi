@@ -20,6 +20,7 @@ from core.news.contracts import REFRESHABLE_TABS, Schedule, Tab
 from core.news.sources.artificial_analysis import ArtificialAnalysisAdapter
 from core.news.sources.github_trending import GitHubTrendingAdapter
 from core.news.sources.hackernews import HackerNewsAdapter
+from core.news.sources.llmstats import LLMStatsAdapter
 from core.news.sources.lmarena import LMArenaAdapter
 from core.news.sources.openrouter import OpenRouterAdapter
 from core.news.sources.rss import RSSAdapter
@@ -32,7 +33,7 @@ _INTERVALS = {Schedule.DAILY.value: timedelta(days=1),
 # Tab → adapter classes. HN serves feed articles AND trending tool candidates; the
 # normalizer's canonical ingest dedupes overlap. Tests patch this registry.
 _TAB_SOURCES: dict = {
-    Tab.HOME.value: (OpenRouterAdapter, ArtificialAnalysisAdapter, LMArenaAdapter),
+    Tab.HOME.value: (OpenRouterAdapter, ArtificialAnalysisAdapter, LMArenaAdapter, LLMStatsAdapter),
     Tab.TRENDING.value: (GitHubTrendingAdapter, HackerNewsAdapter),
     Tab.FEED.value: (HackerNewsAdapter, RSSAdapter),
 }

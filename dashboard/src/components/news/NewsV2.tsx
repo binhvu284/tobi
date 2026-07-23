@@ -203,7 +203,8 @@ export default function NewsV2() {
 
 /** Sources & schedules (plan §4/§7 settings surface): per-source on/off toggles —
  *  honored by the refresh engine, a disabled source never enters a job — plus the
- *  per-tab Daily/Weekly/Monthly schedule. Already-collected items always stay. */
+ *  per-tab Daily/Weekly/Monthly schedule. Every change SAVES IMMEDIATELY
+ *  (optimistic, reverted on failure) — no Save button to forget. */
 function SourcesSettingsModal({ open, onClose, settings, onSaved }: {
   open: boolean; onClose: () => void; settings: NewsV2Settings
   onSaved: (patch: { enabled_sources: string[]; schedules: Record<string, string> }) => void
@@ -218,24 +219,39 @@ function SourcesSettingsModal({ open, onClose, settings, onSaved }: {
     setEnabled(Object.fromEntries(settings.known_sources.map(name =>
       [name, allOn || settings.enabled_sources.includes(name)])))
     setSchedules({ ...settings.schedules })
-  }, [open, settings])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   const tabsUsing = (source: string) =>
     Object.entries(settings.tab_sources).filter(([, names]) => names.includes(source)).map(([t]) => t)
 
-  const save = async () => {
+  const persist = async (patch: { enabled_sources?: string[]; schedules?: Record<string, string> },
+                         revert: () => void) => {
     setSaving(true)
     try {
-      const on = settings.known_sources.filter(name => enabled[name])
-      // every source on → store the default "all" ([]) so future sources join automatically
-      const enabled_sources = on.length === settings.known_sources.length ? [] : on
-      const result = await patchNewsV2Settings({ enabled_sources, schedules })
+      const result = await patchNewsV2Settings(patch)
       onSaved({ enabled_sources: result.enabled_sources, schedules: result.schedules })
-      toast({ kind: 'success', title: 'Sources updated' })
-      onClose()
     } catch (err) {
-      toast({ kind: 'error', title: 'Settings not saved', detail: err instanceof Error ? err.message : String(err) })
+      revert()
+      toast({ kind: 'error', title: 'Setting not saved', detail: err instanceof Error ? err.message : String(err) })
     } finally { setSaving(false) }
+  }
+
+  const toggleSource = (name: string) => {
+    const previous = { ...enabled }
+    const next = { ...enabled, [name]: !enabled[name] }
+    setEnabled(next)
+    const on = settings.known_sources.filter(source => next[source])
+    // every source on → store the default "all" ([]) so future sources join automatically
+    void persist({ enabled_sources: on.length === settings.known_sources.length ? [] : on },
+      () => setEnabled(previous))
+  }
+
+  const changeSchedule = (tabName: string, value: string) => {
+    const previous = { ...schedules }
+    const next = { ...schedules, [tabName]: value }
+    setSchedules(next)
+    void persist({ schedules: next }, () => setSchedules(previous))
   }
 
   return createPortal(
@@ -249,8 +265,11 @@ function SourcesSettingsModal({ open, onClose, settings, onSaved }: {
             className="mt-6 w-full max-w-lg overflow-hidden rounded-lg border border-border bg-surface shadow-2xl">
             <header className="flex items-center justify-between border-b border-border px-5 py-4">
               <div><h2 className="font-semibold text-text">Sources & schedules</h2>
-                <p className="mt-0.5 text-xs text-muted">A disabled source is skipped by every future refresh — collected items stay.</p></div>
-              <button onClick={onClose} title="Close" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-overlay/10 hover:text-text"><X size={17} /></button>
+                <p className="mt-0.5 text-xs text-muted">Changes save instantly. A disabled source is skipped by every future refresh — collected items stay.</p></div>
+              <div className="flex shrink-0 items-center gap-2">
+                {saving && <Loader2 size={14} className="animate-spin text-accent" />}
+                <button onClick={onClose} title="Close" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-overlay/10 hover:text-text"><X size={17} /></button>
+              </div>
             </header>
             <div className="max-h-[60vh] overflow-y-auto px-5 py-4">
               <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted">Connected sources</h3>
@@ -264,10 +283,14 @@ function SourcesSettingsModal({ open, onClose, settings, onSaved }: {
                       <div className="text-sm font-medium text-text">{name}</div>
                       <div className="text-[11px] text-muted">feeds: {tabsUsing(name).join(', ') || '—'}</div>
                     </div>
-                    <button onClick={() => setEnabled(current => ({ ...current, [name]: !current[name] }))}
+                    <button onClick={() => toggleSource(name)} disabled={saving}
                       role="switch" aria-checked={enabled[name] ?? false} title={enabled[name] ? 'On — click to disable' : 'Off — click to enable'}
-                      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${enabled[name] ? 'bg-accent' : 'bg-overlay/25'}`}>
-                      <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-background shadow transition-all ${enabled[name] ? 'left-[18px]' : 'left-0.5'}`} />
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors duration-200 disabled:opacity-60 ${
+                        enabled[name] ? 'border-accent bg-accent' : 'border-border bg-overlay/15'}`}>
+                      <span className={`inline-flex h-[18px] w-[18px] transform items-center justify-center rounded-full bg-background shadow-md transition-transform duration-200 ${
+                        enabled[name] ? 'translate-x-[22px]' : 'translate-x-[3px]'}`}>
+                        {enabled[name] && <Check size={11} className="text-accent" />}
+                      </span>
                     </button>
                   </div>
                 ))}
@@ -277,21 +300,18 @@ function SourcesSettingsModal({ open, onClose, settings, onSaved }: {
                 {Object.keys(schedules).map(tabName => (
                   <div key={tabName} className="flex items-center justify-between gap-3 rounded-md border border-border bg-background/40 px-3 py-2">
                     <span className="text-sm capitalize text-text">{tabName}</span>
-                    <select value={schedules[tabName]} onChange={event => setSchedules(current => ({ ...current, [tabName]: event.target.value }))}
-                      className="h-8 rounded-md border border-border bg-background px-2 text-xs capitalize text-text outline-none focus:border-accent">
+                    <select value={schedules[tabName]} disabled={saving}
+                      onChange={event => changeSchedule(tabName, event.target.value)}
+                      className="h-8 rounded-md border border-border bg-background px-2 text-xs capitalize text-text outline-none focus:border-accent disabled:opacity-60">
                       {settings.schedule_options.map(option => <option key={option} value={option}>{option}</option>)}
                     </select>
                   </div>
                 ))}
               </div>
             </div>
-            <footer className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
-              <button onClick={onClose} disabled={saving}
-                className="inline-flex h-8 items-center rounded-md border border-border px-3 text-xs text-text disabled:opacity-50">Cancel</button>
-              <button onClick={() => void save()} disabled={saving}
-                className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-4 text-xs font-semibold text-background disabled:opacity-50">
-                {saving ? <Loader2 size={12} className="animate-spin" /> : null} Save
-              </button>
+            <footer className="flex items-center justify-end border-t border-border px-5 py-3">
+              <button onClick={onClose}
+                className="inline-flex h-8 items-center rounded-md border border-border px-4 text-xs font-medium text-text hover:border-accent/40">Close</button>
             </footer>
           </motion.section>
         </motion.div>
@@ -438,14 +458,14 @@ function HomeTab({ home, loading, error, onRetry, sources }: {
       </section>
     )
   }
-  const top10 = home?.top10 ?? []
+  const top = home?.top ?? []
   const releases = home?.releases ?? []
   return (
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-2">
         <section className="overflow-hidden rounded-lg border border-border bg-surface/40">
           <header className="flex h-11 items-center justify-between border-b border-border px-4">
-            <div className="flex items-center gap-2"><Trophy size={14} className="text-accent" /><h2 className="text-xs font-semibold text-text">Model Strength · Top 10</h2></div>
+            <div className="flex items-center gap-2"><Trophy size={14} className="text-accent" /><h2 className="text-xs font-semibold text-text">LLM · Top 20</h2></div>
             <div className="flex items-center gap-2.5">
               <SourceIconGroup sources={sources} />
               <button onClick={() => setExplorerOpen(true)}
@@ -454,12 +474,13 @@ function HomeTab({ home, loading, error, onRetry, sources }: {
               </button>
             </div>
           </header>
-          {top10.length === 0 ? (
+          {top.length === 0 ? (
             <p className="px-4 py-10 text-center text-xs text-muted">No model snapshot yet — run a Home refresh once model sources have been collected.</p>
           ) : (
-            <div className="divide-y divide-border/60">
-              {top10.map((entry, index) => <RankRow key={entry.model_id} entry={entry} rank={index + 1}
-                maxScore={top10[0]?.score || 100} />)}
+            /* Top 20 ranked, ~10 rows visible, scroll inside (owner request) */
+            <div className="max-h-[560px] divide-y divide-border/60 overflow-y-auto">
+              {top.map((entry, index) => <RankRow key={entry.model_id} entry={entry} rank={index + 1}
+                maxScore={top[0]?.score || 100} />)}
             </div>
           )}
         </section>

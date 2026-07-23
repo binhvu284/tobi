@@ -767,7 +767,7 @@ export type NewsV2SourceHealth = {
   state: string; sources: Record<string, { state?: string; error?: string }>; updated_at: string
 } | null
 export type NewsV2Home = {
-  top10: NewsV2RankEntry[]; snapshot_id: number | null; releases: NewsV2Release[]
+  top: NewsV2RankEntry[]; snapshot_id: number | null; releases: NewsV2Release[]
   source_health: Record<string, NewsV2SourceHealth>; freshness: Record<string, string>
 }
 export type NewsV2ModelMetric = {

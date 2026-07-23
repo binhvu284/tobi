@@ -316,7 +316,7 @@ refresh._TAB_SOURCES.update(_orig_sources)
 settings = client.get(f"{V2}/settings").json()
 ok("settings expose per-tab source attribution",
    settings["tab_sources"].get("trending") == ["github", "hackernews"]
-   and settings["tab_sources"].get("home") == ["openrouter", "artificialanalysis", "lmarena"])
+   and settings["tab_sources"].get("home") == ["openrouter", "artificialanalysis", "lmarena", "llmstats"])
 ok("unknown source name in PATCH → 422",
    client.patch(f"{V2}/settings", json={"enabled_sources": ["notreal"]}).status_code == 422)
 ok("PATCH accepts a known source subset",

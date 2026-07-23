@@ -11,7 +11,7 @@ import {
   SiYcombinator, SiGithub, SiProducthunt, SiReddit, SiX, SiRss,
   SiGooglenews, SiOpenrouter, type IconType,
 } from '@icons-pack/react-simple-icons'
-import { Newspaper, Globe } from 'lucide-react'
+import { BarChart3, Globe, LineChart, Newspaper, Swords } from 'lucide-react'
 import tavilySvg from '@lobehub/icons-static-svg/icons/tavily-color.svg?raw'
 
 type Mark =
@@ -31,6 +31,14 @@ const MARKS: Record<string, Mark> = {
   tavily:      { kind: 'raw',    svg: tavilySvg,      color: '#6C5CE7' },
   newsdata:    { kind: 'lucide', Icon: Newspaper,     color: '#22a3e0' },
   gdelt:       { kind: 'lucide', Icon: Globe,         color: '#2ecc71' },
+  // News V2 (#23) sources
+  artificialanalysis: { kind: 'lucide', Icon: BarChart3,  color: '#E8467C' },
+  lmarena:            { kind: 'lucide', Icon: Swords,     color: '#F59E0B' },
+  llmstats:           { kind: 'lucide', Icon: LineChart,  color: '#10B981' },
+  theverge:           { kind: 'lucide', Icon: Newspaper,  color: '#5200FF' },
+  arstechnica:        { kind: 'lucide', Icon: Newspaper,  color: '#FF4E00' },
+  venturebeat:        { kind: 'lucide', Icon: Newspaper,  color: '#D71920' },
+  mittechreview:      { kind: 'lucide', Icon: Newspaper,  color: '#00B08B' },
 }
 
 export const SOURCE_META: Record<string, { label: string; color: string }> = {
@@ -45,6 +53,13 @@ export const SOURCE_META: Record<string, { label: string; color: string }> = {
   tavily: { label: 'Tavily', color: '#6C5CE7' },
   newsdata: { label: 'NewsData.io', color: '#22a3e0' },
   gdelt: { label: 'GDELT', color: '#2ecc71' },
+  artificialanalysis: { label: 'Artificial Analysis', color: '#E8467C' },
+  lmarena: { label: 'LMArena', color: '#F59E0B' },
+  llmstats: { label: 'LLM Stats', color: '#10B981' },
+  theverge: { label: 'The Verge', color: '#5200FF' },
+  arstechnica: { label: 'Ars Technica', color: '#FF4E00' },
+  venturebeat: { label: 'VentureBeat', color: '#D71920' },
+  mittechreview: { label: 'MIT Technology Review', color: '#00B08B' },
 }
 
 export function sourceMeta(name?: string | null) {

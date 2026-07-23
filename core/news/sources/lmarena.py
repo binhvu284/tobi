@@ -17,6 +17,18 @@ from core.news.contracts import ModelMetric, TrustClass, canonical_model_id
 from core.news.sources import base
 
 _PAREN = re.compile(r"\s*\([^)]*\)")
+# Effort/harness decorations appended to board names ("xHigh", "Thinking",
+# "Codex Harness") — stripped iteratively so variants merge onto the base model.
+_VARIANT = re.compile(r"(?i)[\s_-]+(thinking|x?high|low|medium|codex[\s_-]?harness|harness)$")
+
+
+def _base_name(raw: str) -> str:
+    name = _PAREN.sub("", raw).strip()
+    while True:
+        stripped = _VARIANT.sub("", name)
+        if stripped == name:
+            return name
+        name = stripped
 
 _ROWS = ("https://datasets-server.huggingface.co/rows"
          "?dataset=lmarena-ai%2Fleaderboard-dataset&config={config}&split=latest"
@@ -62,10 +74,9 @@ class LMArenaAdapter(base.Adapter):
             for row in rows:
                 if str(row.get("leaderboard_publish_date") or "") != newest:
                     continue
-                # "(High)"/"(xHigh)" effort variants merge onto the base model —
-                # the board's best configuration represents the model's strength
-                name = _PAREN.sub("", str(row["model_name"])).strip()
-                model_id = canonical_model_id(name)
+                # effort/harness variants merge onto the base model — the board's
+                # best configuration represents the model's strength
+                model_id = canonical_model_id(_base_name(str(row["model_name"])))
                 try:
                     value = float(row["rating"] if row.get("rating") is not None else row["score"])
                 except (TypeError, ValueError):

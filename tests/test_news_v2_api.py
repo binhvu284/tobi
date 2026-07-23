@@ -105,11 +105,11 @@ conn.close()
 
 # ── 3. reads: home / models / trending / feed ────────────────────────────────────────
 home = client.get(f"{V2}/home").json()
-ok("home serves Top 10 + releases + freshness from snapshots",
-   home["top10"] and home["releases"][0]["title"] == "Alpha One launch"
+ok("home serves the LLM Top list + releases + freshness from snapshots",
+   home["top"] and len(home["top"]) <= 20 and home["releases"][0]["title"] == "Alpha One launch"
    and "models:top" in home["freshness"])
-ok("home top10 entries are attributed", all(
-    e["sources"] and e["formula_version"] for e in home["top10"]))
+ok("home top entries are attributed", all(
+    e["sources"] and e["formula_version"] for e in home["top"]))
 
 models = client.get(f"{V2}/models", params={"limit": 15}).json()
 ok("model explorer pages with a keyset cursor", len(models["models"]) == 15

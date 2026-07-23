@@ -41,7 +41,9 @@ TOOLS_CAP = 200
 
 _METRIC_FAMILY = {
     "intelligence": "intelligence", "reasoning": "intelligence", "composite": "intelligence",
-    "coding": "coding", "webdev": "coding", "agentic": "agentic", "elo": "arena", "arena": "arena",
+    "overall": "intelligence", "math": "intelligence", "knowledge": "intelligence",
+    "coding": "coding", "code": "coding", "webdev": "coding",
+    "agentic": "agentic", "agent": "agentic", "elo": "arena", "arena": "arena",
     "speed": "speed", "latency": "speed",
     "price_in": "cost", "price_out": "cost", "price_blended": "cost", "context": "context",
 }

@@ -277,8 +277,10 @@ REGISTRY: list[dict] = [
     {
         "id": "explore", "label": "Explore (News) sources", "category": "tools", "required": False,
         "icon": "newspaper", "available": True,
-        "blurb": "API keys for the Explore → News page (#9). Free sources (OpenRouter, HN, GDELT, RSS, Reddit) work without keys — add these to light up more.",
+        "blurb": "API keys for the News page (V1 #9 + V2 #23). Free sources (OpenRouter, HN, LMArena, GDELT, RSS, Reddit) work without keys — add these to light up more. Artificial Analysis and LLM Stats power the V2 Model Strength benchmarks.",
         "fields": [
+            {"name": "ARTIFICIALANALYSIS_API_KEY", "label": "Artificial Analysis key (Model Strength)", "type": "api_key", "help_url": "https://artificialanalysis.ai/data-api"},
+            {"name": "LLMSTATS_API_KEY", "label": "LLM Stats key (Model Strength)", "type": "api_key", "help_url": "https://llm-stats.com/developer"},
             {"name": "NEWSDATA_API_KEY", "label": "NewsData.io key", "type": "api_key", "help_url": "https://newsdata.io/register"},
             {"name": "GNEWS_API_KEY", "label": "GNews key", "type": "api_key", "help_url": "https://gnews.io/register"},
             {"name": "PRODUCTHUNT_API_TOKEN", "label": "Product Hunt token", "type": "api_key", "help_url": "https://api.producthunt.com/v2/docs"},
