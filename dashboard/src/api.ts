@@ -831,6 +831,17 @@ export async function getNewsV2RefreshJob(jobId: number): Promise<NewsV2RefreshJ
 export async function postNewsV2RefreshCommand(jobId: number, command: 'cancel' | 'retry_failed'): Promise<NewsV2RefreshJob> {
   return request(`/api/explore/v2/refresh/${jobId}/commands`, { method: 'POST', body: JSON.stringify({ command }) })
 }
+export type NewsV2Settings = {
+  schedules: Record<string, string>; enabled_sources: string[]
+  context_classes: Record<string, boolean>; schedule_options: string[]
+  known_sources: string[]; tab_sources: Record<string, string[]>
+}
+export async function getNewsV2Settings(): Promise<NewsV2Settings> { return get('/api/explore/v2/settings') }
+export async function patchNewsV2Settings(patch: {
+  schedules?: Record<string, string>; enabled_sources?: string[]; context_classes?: Record<string, boolean>
+}): Promise<{ schedules: Record<string, string>; enabled_sources: string[]; context_classes: Record<string, boolean> }> {
+  return request('/api/explore/v2/settings', { method: 'PATCH', body: JSON.stringify(patch) })
+}
 // Mutations (N06 contract): every write carries an Idempotency-Key (replays return
 // current state, replayed:true) and the optimistic interaction version (stale → 409).
 export type NewsV2InteractionState = NewsV2Interaction & { item_id: number; replayed: boolean }

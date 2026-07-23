@@ -311,6 +311,26 @@ ok("a success inside the window breaks the streak", telemetry.failing_sources(co
 
 refresh._TAB_SOURCES.clear()
 refresh._TAB_SOURCES.update(_orig_sources)
+
+# ── 7. SOURCE CONFIGURATION: enabled_sources is honored, sections attributable ───────
+settings = client.get(f"{V2}/settings").json()
+ok("settings expose per-tab source attribution",
+   settings["tab_sources"].get("trending") == ["github", "hackernews"]
+   and settings["tab_sources"].get("home") == ["openrouter"])
+ok("unknown source name in PATCH → 422",
+   client.patch(f"{V2}/settings", json={"enabled_sources": ["notreal"]}).status_code == 422)
+ok("PATCH accepts a known source subset",
+   client.patch(f"{V2}/settings", json={"enabled_sources": ["hackernews"]}).status_code == 200)
+job = refresh.request_refresh("trending")
+trending_job = refresh.get_job(job["job_id"])
+ok("disabled source never enters a job's checkpoints",
+   set(trending_job["checkpoints"]) == {"hackernews"})
+refresh.cancel_job(job["job_id"])
+ok("restoring the default re-enables every source",
+   client.patch(f"{V2}/settings", json={"enabled_sources": []}).status_code == 200
+   and set(refresh.get_job(refresh.request_refresh("trending")["job_id"])["checkpoints"])
+   == {"github", "hackernews"})
+refresh.cancel_job(refresh.request_refresh("trending")["job_id"])
 conn.close()
 
 print(f"\nALL {PASS} CHECKS PASSED")

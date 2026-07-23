@@ -361,7 +361,10 @@ def v2_get_settings():
                 "context_classes": dict(settings.context_classes),
                 "schedule_options": [s.value for s in Schedule],
                 "known_sources": sorted({cls().name for classes in refresh._TAB_SOURCES.values()
-                                         for cls in classes})}
+                                         for cls in classes}),
+                # which registered sources feed each tab — the UI's section attribution
+                "tab_sources": {tab: [cls().name for cls in classes]
+                                for tab, classes in refresh._TAB_SOURCES.items()}}
     finally:
         conn.close()
 
@@ -371,6 +374,11 @@ def v2_patch_settings(req: SettingsReq):
     conn = _conn()
     try:
         current = repository.get_settings(conn)
+        if req.enabled_sources is not None:
+            known = {cls().name for classes in refresh._TAB_SOURCES.values() for cls in classes}
+            unknown = sorted(set(req.enabled_sources) - known)
+            if unknown:
+                raise HTTPException(status_code=422, detail=f"unknown sources: {', '.join(unknown)}")
         try:
             merged = NewsSettings(
                 schedules=req.schedules if req.schedules is not None else dict(current.schedules),

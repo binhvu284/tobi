@@ -5,7 +5,7 @@
 // rank ladder (theme-token classes, no hardcoded colors).
 import { useCallback, useEffect, useState } from 'react'
 import {
-  AlertTriangle, ExternalLink, Github, Hourglass, Loader2, RefreshCw, Star,
+  AlertTriangle, ChevronRight, ExternalLink, Github, Hourglass, Loader2, RefreshCw, Star,
   TrendingUp, Wrench,
 } from 'lucide-react'
 import {
@@ -13,6 +13,7 @@ import {
   type NewsV2GithubEntry, type NewsV2ItemEntry,
 } from '../../api'
 import SourceLogo from '../SourceLogo'
+import SourceIconGroup from './SourceIconGroup'
 
 type Window = 'week' | 'month' | 'all'
 
@@ -78,7 +79,7 @@ export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
       {/* ── 1. GitHub growth (snapshots only — collecting until history exists) ── */}
       <section className="overflow-hidden rounded-lg border border-border bg-surface/40">
         <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
-          <div className="flex items-center gap-2"><Github size={14} className="text-accent" /><h2 className="text-xs font-semibold text-text">GitHub · AI repositories</h2></div>
+          <div className="flex items-center gap-2"><Github size={14} className="text-accent" /><h2 className="text-xs font-semibold text-text">GitHub · AI repositories</h2><SourceIconGroup sources={['github']} size={16} /></div>
           <div className="flex overflow-hidden rounded-md border border-border">
             {(['week', 'month', 'all'] as Window[]).map(win => (
               <button key={win} onClick={() => setWindow(win)}
@@ -133,7 +134,7 @@ export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
 
       {/* ── 2. Tool Discovery: one featured + alternatives ─────────────────────── */}
       <section className="overflow-hidden rounded-lg border border-border bg-surface/40">
-        <header className="flex h-11 items-center gap-2 border-b border-border px-4"><Wrench size={14} className="text-accent" /><h2 className="text-xs font-semibold text-text">Tool Discovery</h2></header>
+        <header className="flex h-11 items-center gap-2 border-b border-border px-4"><Wrench size={14} className="text-accent" /><h2 className="text-xs font-semibold text-text">Tool Discovery</h2><SourceIconGroup sources={['hackernews']} size={16} /></header>
         {tools.length === 0 ? (
           <p className="px-4 py-8 text-center text-xs text-muted">No tool candidates yet — Show&nbsp;HN posts and repos land here after a refresh.</p>
         ) : (
@@ -202,15 +203,23 @@ function SourceExplore({ sources }: { sources: { source: string; items: number; 
   if (!sources.length) return null
   return (
     <section className="overflow-hidden rounded-lg border border-border bg-surface/40">
-      <header className="flex h-11 items-center gap-2 border-b border-border px-4"><SourceLogo name={selected ?? sources[0]?.source} size={13} variant="inline" /><h2 className="text-xs font-semibold text-text">Source Explore</h2></header>
-      <div className="flex flex-wrap gap-2 p-4">
+      <header className="flex h-11 items-center gap-2 border-b border-border px-4">
+        <SourceIconGroup sources={sources.map(src => src.source)} size={16} />
+        <h2 className="text-xs font-semibold text-text">Source Explore</h2>
+        <p className="ml-auto hidden text-[11px] text-muted sm:block">Browse everything collected, per source</p>
+      </header>
+      <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
         {sources.map(src => (
           <button key={src.source} onClick={() => void openSource(src.source)}
-            title={`latest ${ago(src.latest_observed)}`}
-            className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs transition-colors ${selected === src.source ? 'border-accent bg-accent/10 text-accent' : 'border-border text-text hover:border-accent/40'}`}>
-            <SourceLogo name={src.source} size={12} variant="inline" />
-            {src.source}
-            <span className="rounded-full bg-overlay/10 px-1.5 text-[10px] text-muted">{src.items}</span>
+            className={`flex items-center gap-3 rounded-lg border p-3 text-left transition-colors ${selected === src.source ? 'border-accent bg-accent/[0.06]' : 'border-border hover:border-accent/40'}`}>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-background">
+              <SourceLogo name={src.source} size={16} variant="inline" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium text-text">{src.source}</span>
+              <span className="block text-[11px] text-muted">{src.items} items · latest {ago(src.latest_observed)}</span>
+            </span>
+            <ChevronRight size={14} className={`shrink-0 transition-transform ${selected === src.source ? 'rotate-90 text-accent' : 'text-muted'}`} />
           </button>
         ))}
       </div>

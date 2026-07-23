@@ -35,8 +35,25 @@ _TAB_SOURCES: dict = {
 }
 
 
-def _adapters_for(tab: str) -> list:
-    return [cls() for cls in _TAB_SOURCES.get(tab, ())]
+def _adapters_for(tab: str, conn: sqlite3.Connection | None = None) -> list:
+    """Adapters for a tab, honoring the owner's enabled-sources setting: an empty
+    ``enabled_sources`` means all sources on (the default); otherwise only listed
+    sources run. Disabled sources never enter a job's checkpoints."""
+    adapters = [cls() for cls in _TAB_SOURCES.get(tab, ())]
+    try:
+        from core.news import repository
+        own = conn is None
+        conn = conn or _conn()
+        try:
+            enabled = repository.get_settings(conn).enabled_sources
+        finally:
+            if own:
+                conn.close()
+        if enabled:
+            adapters = [a for a in adapters if a.name in enabled]
+    except Exception:
+        pass                                             # settings unavailable → default all-on
+    return adapters
 
 
 def _conn() -> sqlite3.Connection:
@@ -99,7 +116,7 @@ def request_refresh(tab: str, now: datetime | None = None) -> dict:
                 conn.commit()
                 return {"job_id": job_id, "joined": False, "resumed": True}
             return {"job_id": job_id, "joined": True, "resumed": False}
-        checkpoints = {a.name: {"state": "pending", "fetched": 0} for a in _adapters_for(tab_v)}
+        checkpoints = {a.name: {"state": "pending", "fetched": 0} for a in _adapters_for(tab_v, conn)}
         cur = conn.execute(
             "INSERT INTO news_refresh_jobs (tab, state, attempts, checkpoints_json, created_at, updated_at)"
             " VALUES (?,?,0,?,?,?)", (tab_v, "pending", json.dumps(checkpoints), now_iso, now_iso))
@@ -132,7 +149,7 @@ def run_job(job_id: int, owner: str | None = None, now: datetime | None = None) 
 
         job = _row(conn, job_id)
         checkpoints = job["checkpoints"]
-        adapters = {a.name: a for a in _adapters_for(job["tab"])}
+        adapters = {a.name: a for a in _adapters_for(job["tab"], conn)}
         totals = dict(job["metrics"]) or {"items_new": 0, "evidence_new": 0, "evidence_updated": 0,
                                           "metrics": 0, "releases": 0, "snapshots": 0}
         for source, cp in checkpoints.items():

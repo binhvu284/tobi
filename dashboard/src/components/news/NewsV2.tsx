@@ -9,15 +9,18 @@ import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity, AlertTriangle, Ban, Check, CircleDashed, ExternalLink, Loader2, Maximize2,
-  Newspaper, RefreshCw, Rss, Search, Star, TrendingUp, Trophy, X,
+  Newspaper, RefreshCw, Rss, Search, Settings2, Star, TrendingUp, Trophy, X,
 } from 'lucide-react'
 import {
-  getNewsV2Home, getNewsV2Models, getNewsV2RefreshJob, postNewsV2Refresh, postNewsV2RefreshCommand,
+  getNewsV2Home, getNewsV2Models, getNewsV2RefreshJob, getNewsV2Settings, patchNewsV2Settings,
+  postNewsV2Refresh, postNewsV2RefreshCommand,
   type NewsV2Home, type NewsV2ModelMetric, type NewsV2RankEntry, type NewsV2RefreshJob,
-  type NewsV2Release,
+  type NewsV2Release, type NewsV2Settings,
 } from '../../api'
 import { useToast } from '../../context/ToastProvider'
 import LlmLogo from '../LlmLogo'
+import SourceLogo from '../SourceLogo'
+import SourceIconGroup from './SourceIconGroup'
 import TrendingTab from './TrendingTab'
 import FeedTab from './FeedTab'
 import FavoritesTab from './FavoritesTab'
@@ -54,6 +57,9 @@ export default function NewsV2() {
   const pollTimer = useRef<number | null>(null)
 
   const [job, setJob] = useState<NewsV2RefreshJob | null>(null)   // live progress panel
+  const [settings, setSettings] = useState<NewsV2Settings | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  useEffect(() => { void getNewsV2Settings().then(setSettings).catch(() => {}) }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -148,6 +154,10 @@ export default function NewsV2() {
                 <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} /> {refreshing ? 'Refreshing…' : 'Refresh'}
               </button>
             )}
+            <button onClick={() => setSettingsOpen(true)} title="Sources & schedules"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border text-muted hover:border-accent/40 hover:text-text">
+              <Settings2 size={15} />
+            </button>
           </div>
         </div>
         <nav aria-label="News sections" className="flex overflow-x-auto px-2 sm:px-4">
@@ -167,12 +177,119 @@ export default function NewsV2() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
-        {tab === 'home' && <HomeTab home={home} loading={loading} error={error} onRetry={load} />}
+        {tab === 'home' && <HomeTab home={home} loading={loading} error={error} onRetry={load}
+          sources={settings?.tab_sources?.home ?? []} />}
         {tab === 'trending' && <TrendingTab reloadKey={reloadKey} />}
         {tab === 'feed' && <FeedTab reloadKey={reloadKey} />}
         {tab === 'favorites' && <FavoritesTab />}
       </main>
+
+      {settings && (
+        <SourcesSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)}
+          settings={settings}
+          onSaved={patch => setSettings(current => current ? { ...current, ...patch } : current)} />
+      )}
     </div>
+  )
+}
+
+/** Sources & schedules (plan §4/§7 settings surface): per-source on/off toggles —
+ *  honored by the refresh engine, a disabled source never enters a job — plus the
+ *  per-tab Daily/Weekly/Monthly schedule. Already-collected items always stay. */
+function SourcesSettingsModal({ open, onClose, settings, onSaved }: {
+  open: boolean; onClose: () => void; settings: NewsV2Settings
+  onSaved: (patch: { enabled_sources: string[]; schedules: Record<string, string> }) => void
+}) {
+  const { toast } = useToast()
+  const [enabled, setEnabled] = useState<Record<string, boolean>>({})
+  const [schedules, setSchedules] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    const allOn = settings.enabled_sources.length === 0
+    setEnabled(Object.fromEntries(settings.known_sources.map(name =>
+      [name, allOn || settings.enabled_sources.includes(name)])))
+    setSchedules({ ...settings.schedules })
+  }, [open, settings])
+
+  const tabsUsing = (source: string) =>
+    Object.entries(settings.tab_sources).filter(([, names]) => names.includes(source)).map(([t]) => t)
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const on = settings.known_sources.filter(name => enabled[name])
+      // every source on → store the default "all" ([]) so future sources join automatically
+      const enabled_sources = on.length === settings.known_sources.length ? [] : on
+      const result = await patchNewsV2Settings({ enabled_sources, schedules })
+      onSaved({ enabled_sources: result.enabled_sources, schedules: result.schedules })
+      toast({ kind: 'success', title: 'Sources updated' })
+      onClose()
+    } catch (err) {
+      toast({ kind: 'error', title: 'Settings not saved', detail: err instanceof Error ? err.message : String(err) })
+    } finally { setSaving(false) }
+  }
+
+  return createPortal(
+    <AnimatePresence>
+      {open && (
+        <motion.div className="fixed inset-0 z-50 flex items-start justify-center bg-background/85 p-4 backdrop-blur-sm sm:p-8"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
+          <motion.section role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}
+            initial={{ opacity: 0, y: 14, scale: 0.99 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.99 }}
+            transition={{ duration: 0.16 }}
+            className="mt-6 w-full max-w-lg overflow-hidden rounded-lg border border-border bg-surface shadow-2xl">
+            <header className="flex items-center justify-between border-b border-border px-5 py-4">
+              <div><h2 className="font-semibold text-text">Sources & schedules</h2>
+                <p className="mt-0.5 text-xs text-muted">A disabled source is skipped by every future refresh — collected items stay.</p></div>
+              <button onClick={onClose} title="Close" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-overlay/10 hover:text-text"><X size={17} /></button>
+            </header>
+            <div className="max-h-[60vh] overflow-y-auto px-5 py-4">
+              <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted">Connected sources</h3>
+              <div className="mt-2 space-y-2">
+                {settings.known_sources.map(name => (
+                  <div key={name} className="flex items-center gap-3 rounded-md border border-border bg-background/40 px-3 py-2.5">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-background">
+                      <SourceLogo name={name} size={14} variant="inline" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-text">{name}</div>
+                      <div className="text-[11px] text-muted">feeds: {tabsUsing(name).join(', ') || '—'}</div>
+                    </div>
+                    <button onClick={() => setEnabled(current => ({ ...current, [name]: !current[name] }))}
+                      role="switch" aria-checked={enabled[name] ?? false} title={enabled[name] ? 'On — click to disable' : 'Off — click to enable'}
+                      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${enabled[name] ? 'bg-accent' : 'bg-overlay/25'}`}>
+                      <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-background shadow transition-all ${enabled[name] ? 'left-[18px]' : 'left-0.5'}`} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <h3 className="mt-5 text-[10px] font-semibold uppercase tracking-wide text-muted">Refresh schedules</h3>
+              <div className="mt-2 space-y-2">
+                {Object.keys(schedules).map(tabName => (
+                  <div key={tabName} className="flex items-center justify-between gap-3 rounded-md border border-border bg-background/40 px-3 py-2">
+                    <span className="text-sm capitalize text-text">{tabName}</span>
+                    <select value={schedules[tabName]} onChange={event => setSchedules(current => ({ ...current, [tabName]: event.target.value }))}
+                      className="h-8 rounded-md border border-border bg-background px-2 text-xs capitalize text-text outline-none focus:border-accent">
+                      {settings.schedule_options.map(option => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <footer className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+              <button onClick={onClose} disabled={saving}
+                className="inline-flex h-8 items-center rounded-md border border-border px-3 text-xs text-text disabled:opacity-50">Cancel</button>
+              <button onClick={() => void save()} disabled={saving}
+                className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-4 text-xs font-semibold text-background disabled:opacity-50">
+                {saving ? <Loader2 size={12} className="animate-spin" /> : null} Save
+              </button>
+            </footer>
+          </motion.section>
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body,
   )
 }
 
@@ -252,8 +369,9 @@ function RefreshProgress({ job, running, onCancel, onRetry, onDismiss }: {
 }
 
 // ── Home (N08): Model Strength Top 10 + Latest Releases, always sourced + timed ──────
-function HomeTab({ home, loading, error, onRetry }: {
+function HomeTab({ home, loading, error, onRetry, sources }: {
   home: NewsV2Home | null; loading: boolean; error: string | null; onRetry: () => void
+  sources: string[]
 }) {
   const [explorerOpen, setExplorerOpen] = useState(false)
   if (loading && !home) {
@@ -279,10 +397,13 @@ function HomeTab({ home, loading, error, onRetry }: {
         <section className="overflow-hidden rounded-lg border border-border bg-surface/40">
           <header className="flex h-11 items-center justify-between border-b border-border px-4">
             <div className="flex items-center gap-2"><Trophy size={14} className="text-accent" /><h2 className="text-xs font-semibold text-text">Model Strength · Top 10</h2></div>
-            <button onClick={() => setExplorerOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted hover:text-accent">
-              <Maximize2 size={11} /> Explore models
-            </button>
+            <div className="flex items-center gap-2.5">
+              <SourceIconGroup sources={sources} />
+              <button onClick={() => setExplorerOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted hover:text-accent">
+                <Maximize2 size={11} /> Explore models
+              </button>
+            </div>
           </header>
           {top10.length === 0 ? (
             <p className="px-4 py-10 text-center text-xs text-muted">No model snapshot yet — run a Home refresh once model sources have been collected.</p>
@@ -295,7 +416,7 @@ function HomeTab({ home, loading, error, onRetry }: {
         </section>
 
         <section className="overflow-hidden rounded-lg border border-border bg-surface/40">
-          <header className="flex h-11 items-center gap-2 border-b border-border px-4"><Rss size={14} className="text-accent" /><h2 className="text-xs font-semibold text-text">Latest Releases</h2></header>
+          <header className="flex h-11 items-center gap-2 border-b border-border px-4"><Rss size={14} className="text-accent" /><h2 className="text-xs font-semibold text-text">Latest Releases</h2><span className="ml-auto"><SourceIconGroup sources={sources} /></span></header>
           {releases.length === 0 ? (
             <p className="px-4 py-10 text-center text-xs text-muted">No release evidence yet — releases appear once catalog sources report new models.</p>
           ) : (
