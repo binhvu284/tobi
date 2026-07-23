@@ -142,14 +142,22 @@ def set_note(conn: sqlite3.Connection, item_id: int, note: str | None,
 
 
 # ── passive signals (aggregated, no optimistic-version churn) ────────────────────────
+def _ensure_row(conn: sqlite3.Connection, item_id: int, now: datetime) -> None:
+    """Create the interaction row WITHOUT bumping the optimistic version — passive
+    aggregates must never invalidate the version an open UI is holding."""
+    conn.execute("INSERT OR IGNORE INTO news_interactions (item_id, updated_at) VALUES (?,?)",
+                 (item_id, now.isoformat()))
+
+
 def record_open(conn: sqlite3.Connection, item_id: int, idempotency_key: str,
                 now: datetime | None = None) -> dict:
     _ensure_once(conn); _require_item(conn, item_id)
+    now_dt = _now(now)
     fresh = record_event(conn, InteractionEvent(
         item_id=item_id, action=EventAction.OPEN, idempotency_key=idempotency_key,
-        created_at=_now(now).isoformat()))
+        created_at=now_dt.isoformat()))
     if fresh:
-        upsert_interaction(conn, item_id)             # ensure the row exists
+        _ensure_row(conn, item_id, now_dt)
         conn.execute("UPDATE news_interactions SET opens=opens+1 WHERE item_id=?", (item_id,))
     return _state(conn, item_id)
 
@@ -163,11 +171,12 @@ def record_dwell(conn: sqlite3.Connection, item_id: int, ms: int, idempotency_ke
     if ms < DWELL_THRESHOLD_MS:
         return {**_state(conn, item_id), "recorded": False}
     ms = min(ms, DWELL_MAX_MS)
+    now_dt = _now(now)
     fresh = record_event(conn, InteractionEvent(
         item_id=item_id, action=EventAction.DWELL, idempotency_key=idempotency_key,
-        created_at=_now(now).isoformat(), payload={"ms": ms}))
+        created_at=now_dt.isoformat(), payload={"ms": ms}))
     if fresh:
-        upsert_interaction(conn, item_id)
+        _ensure_row(conn, item_id, now_dt)
         conn.execute("UPDATE news_interactions SET dwell_ms=dwell_ms+? WHERE item_id=?", (ms, item_id))
     return {**_state(conn, item_id), "recorded": True}
 
