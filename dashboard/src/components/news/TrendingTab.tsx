@@ -93,6 +93,13 @@ export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
         ) : github.length === 0 ? (
           <p className="px-4 py-8 text-center text-xs text-muted">No repository snapshots yet — run a Trending refresh to start collecting star history.</p>
         ) : (
+          <>
+          {github.every(entry => entry.growth === undefined) && (
+            <p className="flex items-center gap-1.5 border-b border-border/60 bg-surface/30 px-4 py-1.5 text-[11px] text-muted">
+              <Hourglass size={11} className="shrink-0" />
+              Collecting star history — {window_ === 'all' ? 'all-time' : window_ === 'week' ? 'weekly' : 'monthly'} growth appears once daily snapshots span the window. Growth is never estimated.
+            </p>
+          )}
           <div className="divide-y divide-border/60">
             {github.map((entry, index) => {
               const tone = rankTone(index + 1)
@@ -106,22 +113,21 @@ export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
                       <p className="mt-0.5 truncate text-[11px] leading-4 text-muted" title={entry.description}>{entry.description}</p>
                     )}
                   </div>
-                  {entry.status === 'collecting' ? (
-                    <span title="Not enough persisted star history for this window yet — growth is never estimated"
-                      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-[10px] text-muted">
-                      <Hourglass size={10} /> Collecting history
-                    </span>
-                  ) : entry.growth !== undefined ? (
+                  {entry.growth !== undefined ? (
                     <span title={`vs snapshot from ${entry.baseline_date}`}
-                      className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-success">
+                      className="inline-flex w-16 shrink-0 items-center justify-end gap-1 text-xs font-semibold text-success">
                       <TrendingUp size={12} /> +{fmtStars(entry.growth)}
                     </span>
-                  ) : null}
+                  ) : (
+                    <span title="No persisted star history for this window yet — growth is never estimated"
+                      className="w-16 shrink-0 text-right text-xs text-muted/50">—</span>
+                  )}
                   <span className="inline-flex w-16 shrink-0 items-center justify-end gap-1 text-xs text-muted"><Star size={11} /> {fmtStars(entry.stars)}</span>
                 </div>
               )
             })}
           </div>
+          </>
         )}
       </section>
 

@@ -31,6 +31,17 @@ export const DEFAULT_INTERACTION: NewsV2Interaction = {
   reaction: 'none', favorite: 0, note: null, opens: 0, dwell_ms: 0, version: 0,
 }
 
+function domainOf(url?: string): string | null {
+  if (!url) return null
+  try { return new URL(url).hostname.replace(/^www\./, '') } catch { return null }
+}
+
+/** Display cleanup only (stored evidence untouched): bare URLs in source excerpts
+ *  are dead weight as text — the real link lives behind Open. */
+function cleanExcerpt(text?: string | null): string {
+  return (text ?? '').replace(/https?:\/\/\S+/g, '').replace(/\s{2,}/g, ' ').trim()
+}
+
 /** Per-item state the parent list owns so virtualized unmount/remount keeps it. */
 export type CardOverride = { interaction: NewsV2Interaction; undoUntil?: number; committed?: boolean }
 
@@ -148,18 +159,25 @@ export default function NewsCard({ entry, override, showReasons, onChange, onRem
 
   const undoRemaining = undoUntil ? Math.max(0, Math.ceil((undoUntil - Date.now()) / 1000)) : 0
   const timeLabel = ago(entry.published_at ?? entry.first_seen_at)
+  const domain = domainOf(entry.url)
+  const excerpt = cleanExcerpt(entry.excerpt)
 
   return (
-    <article ref={rootRef} className="overflow-hidden rounded-lg border border-border bg-surface/40">
+    <article ref={rootRef} className="overflow-hidden rounded-lg border border-border bg-surface/40 transition-colors hover:border-border/80 hover:bg-surface/60">
       <div className="p-4">
-        <header className="flex items-center gap-2 text-[11px] text-muted">
+        <header className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted">
           <SourceLogo name={entry.source} size={12} variant="inline" />
           <span className="font-medium text-text/80">{entry.source}</span>
+          {domain && !domain.includes('ycombinator') && (
+            <><span className="opacity-40">·</span><span className="truncate">{domain}</span></>
+          )}
+          <span className="opacity-40">·</span><span>{timeLabel}</span>
+          {typeof entry.engagement === 'number' && entry.engagement > 0 && (
+            <><span className="opacity-40">·</span><span>▲ {entry.engagement}</span></>
+          )}
           {entry.item_type && entry.item_type !== 'article' && (
             <span className="rounded-full border border-border px-1.5 py-px text-[10px] uppercase tracking-wide">{entry.item_type}</span>
           )}
-          <span>· {timeLabel}</span>
-          {typeof entry.engagement === 'number' && entry.engagement > 0 && <span>· ▲ {entry.engagement}</span>}
           {(ix.favorite === 1 || (ix.note ?? '').trim()) && (
             <span title="Favorites and notes are exempt from retention" className="ml-auto shrink-0 text-[10px] text-accent/80">never expires</span>
           )}
@@ -174,19 +192,19 @@ export default function NewsCard({ entry, override, showReasons, onChange, onRem
           </div>
         )}
 
-        <h3 className="mt-2.5 text-sm font-semibold leading-5 text-text">
-          <a href={entry.url} target="_blank" rel="noreferrer" onClick={recordOpen} className="hover:text-accent">{entry.title}</a>
+        <h3 className="mt-2 text-[15px] font-semibold leading-snug text-text">
+          <a href={entry.url} target="_blank" rel="noreferrer" onClick={recordOpen} className="transition-colors hover:text-accent">{entry.title}</a>
         </h3>
-        {entry.excerpt && <p className="mt-1.5 line-clamp-3 text-xs leading-5 text-muted">{entry.excerpt}</p>}
+        {excerpt && <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-muted">{excerpt}</p>}
 
         {showReasons && (entry.reasons?.length ?? 0) > 0 && reasonsOpen && (
-          <ul className="mt-2.5 space-y-1 rounded-md border border-accent/20 bg-accent/[0.04] px-3 py-2">
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
             {entry.reasons!.map(reason => (
-              <li key={reason.reason} className="flex items-center gap-1.5 text-[11px] text-text/85">
-                <Sparkles size={10} className="shrink-0 text-accent" /> {reason.reason}
-              </li>
+              <span key={reason.reason} className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
+                <Sparkles size={9} /> {reason.reason}
+              </span>
             ))}
-          </ul>
+          </div>
         )}
 
         {undoUntil && ix.reaction === 'dislike' ? (
@@ -199,25 +217,28 @@ export default function NewsCard({ entry, override, showReasons, onChange, onRem
             </button>
           </div>
         ) : (
-          <footer className="mt-3 flex flex-wrap items-center gap-1.5">
-            <ActionButton label="Like" active={ix.reaction === 'like'} busy={busy === 'like'}
-              onClick={() => void mutate('like')} icon={<ThumbsUp size={13} />} />
-            <ActionButton label="Dislike" active={false} busy={busy === 'dislike'}
-              onClick={() => void mutate('dislike')} icon={<ThumbsDown size={13} />} />
-            <ActionButton label={ix.favorite === 1 ? 'Saved' : 'Favorite'} active={ix.favorite === 1}
+          <footer className="-mb-1.5 mt-2 flex items-center gap-0.5">
+            <IconAction title="Like" active={ix.reaction === 'like'} busy={busy === 'like'}
+              onClick={() => void mutate('like')}
+              icon={<ThumbsUp size={14} className={ix.reaction === 'like' ? 'fill-current' : ''} />} />
+            <IconAction title="Dislike — hides this and teaches your feed" active={false} busy={busy === 'dislike'}
+              onClick={() => void mutate('dislike')} icon={<ThumbsDown size={14} />} />
+            <IconAction title={ix.favorite === 1 ? 'Remove from favorites' : 'Save to favorites'} active={ix.favorite === 1}
               busy={busy === 'favorite' || busy === 'unfavorite'}
               onClick={() => void mutate(ix.favorite === 1 ? 'unfavorite' : 'favorite')}
-              icon={<Star size={13} className={ix.favorite === 1 ? 'fill-current' : ''} />} />
-            <ActionButton label={(ix.note ?? '').trim() ? 'Note ·' : 'Note'} active={Boolean((ix.note ?? '').trim())}
-              busy={false}
+              icon={<Star size={14} className={ix.favorite === 1 ? 'fill-current' : ''} />} />
+            <IconAction title={(ix.note ?? '').trim() ? 'Edit private note' : 'Add private note'}
+              active={Boolean((ix.note ?? '').trim())} busy={false}
               onClick={() => { setDraft(ix.note ?? ''); setNoteOpen(open => !open) }}
-              icon={<StickyNote size={13} />} />
+              icon={<StickyNote size={14} />} />
             {showReasons && (entry.reasons?.length ?? 0) > 0 && (
-              <ActionButton label="Why shown" active={reasonsOpen} busy={false}
-                onClick={() => setReasonsOpen(open => !open)} icon={<Sparkles size={13} />} />
+              <button onClick={() => setReasonsOpen(open => !open)}
+                className={`ml-0.5 inline-flex h-8 items-center gap-1 rounded-md px-2 text-[11px] font-medium transition-colors ${reasonsOpen ? 'text-accent' : 'text-muted hover:bg-overlay/10 hover:text-text'}`}>
+                <Sparkles size={12} /> Why
+              </button>
             )}
             <a href={entry.url} target="_blank" rel="noreferrer" onClick={recordOpen}
-              className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] text-muted hover:text-accent">
+              className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium text-muted transition-colors hover:bg-overlay/10 hover:text-accent">
               <ExternalLink size={12} /> Open
             </a>
           </footer>
@@ -247,14 +268,16 @@ export default function NewsCard({ entry, override, showReasons, onChange, onRem
   )
 }
 
-function ActionButton({ label, icon, active, busy, onClick }: {
-  label: string; icon: React.ReactNode; active: boolean; busy: boolean; onClick: () => void
+/** Ghost icon action (X/Artifact-style quiet action row): tooltip carries the label,
+ *  active state fills with the accent, busy swaps in a spinner (CLAUDE.md rule). */
+function IconAction({ title, icon, active, busy, onClick }: {
+  title: string; icon: React.ReactNode; active: boolean; busy: boolean; onClick: () => void
 }) {
   return (
-    <button onClick={onClick} disabled={busy}
-      className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium transition-colors disabled:opacity-50 ${
-        active ? 'border-accent/50 bg-accent/10 text-accent' : 'border-border text-muted hover:border-accent/30 hover:text-text'}`}>
-      {busy ? <Loader2 size={12} className="animate-spin" /> : icon} {label}
+    <button onClick={onClick} disabled={busy} title={title} aria-label={title}
+      className={`inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors disabled:opacity-50 ${
+        active ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-overlay/10 hover:text-text'}`}>
+      {busy ? <Loader2 size={14} className="animate-spin" /> : icon}
     </button>
   )
 }
