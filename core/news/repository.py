@@ -149,6 +149,8 @@ CREATE TABLE IF NOT EXISTS news_settings (
 
 _MIGRATIONS: list[tuple[int, str]] = [(1, _MIGRATION_1)]
 
+SNAPSHOT_KEEP = 20     # retained rank snapshots per kind (immutable, rebuilt often)
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -384,9 +386,16 @@ def run_retention(conn: sqlite3.Connection | None = None, now: datetime | None =
             " AND (undo_until IS NULL OR undo_until < ?)",          # never drop a live Undo window
             (event_cutoff, now_iso)).rowcount
         media = conn.execute("DELETE FROM news_media_cache WHERE expires_at < ?", (now_iso,)).rowcount
+        # snapshots are immutable and rebuilt often — keep a bounded per-kind history
+        snapshots = 0
+        for (kind,) in conn.execute("SELECT DISTINCT kind FROM news_rank_snapshots").fetchall():
+            snapshots += conn.execute(
+                "DELETE FROM news_rank_snapshots WHERE kind=? AND id NOT IN"
+                " (SELECT id FROM news_rank_snapshots WHERE kind=? ORDER BY id DESC LIMIT ?)",
+                (kind, kind, SNAPSHOT_KEEP)).rowcount
         if own:
             conn.commit()
-        return {"items": len(expired), "events": events, "media": media}
+        return {"items": len(expired), "events": events, "media": media, "snapshots": snapshots}
     finally:
         if own:
             conn.close()

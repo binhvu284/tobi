@@ -180,6 +180,13 @@ def run_job(job_id: int, owner: str | None = None, now: datetime | None = None) 
             (final, (f"failed sources: {', '.join(failed)}" if failed else None),
              json.dumps(totals), _now().isoformat(), job_id))
         conn.commit()
+        if final in ("completed", "partial"):
+            try:  # N05: precompute the tab's rank snapshots from the fresh evidence.
+                from core.news import ranking
+                ranking.rebuild_for_tab(conn, job["tab"], now)
+                conn.commit()
+            except Exception:
+                pass                                   # ranking failure never fails the refresh
         return _row(conn, job_id)
     finally:
         conn.close()
