@@ -43,6 +43,7 @@ KEYS = {
     "developer.queue_order": "owner priority order for planned queue items (JSON int array)",
     "developer.queue_next": "queue item pinned in the Next slot (int as string, '' = none)",
     "news.v2_enabled": "#23 News Page V2 rollout (bool, default off — Explore V1 stays authoritative)",
+    "news.v2_shadow": "#23 News V2 shadow collection — scheduled adapter refreshes build history while V1 UI stays live (bool, default off)",
 }
 
 # New #20 flags — fail closed (default off). Phase A does NOT read these; they are pre-
@@ -51,9 +52,11 @@ BRAIN_V2_ENABLED = "brain.v2_enabled"
 BRAIN_V2_SHADOW = "brain.v2_shadow"
 ARCHITECTURE_V2_ENABLED = "architecture.v2_enabled"
 
-# #23 News Page V2 — fail closed (default off). N01 registers the flag; nothing reads it
-# until the rollout slices (plan §12) start gating pages on it.
+# #23 News Page V2 — fail closed (default off). `enabled` gates the V2 UI/API surface;
+# `shadow` lets the scheduled N03 refresh jobs collect history (GitHub star snapshots
+# need lead time) while Explore V1 remains the live page — mirrors brain.v2_shadow.
 NEWS_V2_ENABLED = "news.v2_enabled"
+NEWS_V2_SHADOW = "news.v2_shadow"
 
 
 def ensure_schema(conn=None) -> None:

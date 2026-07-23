@@ -565,6 +565,29 @@ def job_brain_import_expire():
         logger.error(f"Brain import expiry error: {e}")
 
 
+def job_news_v2_refresh():
+    """News V2 (#23, N03): hourly due-schedule check. Fail-closed no-op until the
+    owner turns on news.v2_enabled or news.v2_shadow (rollout stage 1)."""
+    try:
+        from core.news.refresh import job_scheduled
+        outcome = job_scheduled()
+        if outcome:
+            logger.info(f"📰 News V2 refresh: {outcome}")
+    except Exception as e:
+        logger.error(f"News V2 refresh error: {e}")
+
+
+def job_news_v2_retention():
+    """News V2 (#23): nightly retention — favorites/notes exempt. Same flag gate."""
+    try:
+        from core.news.refresh import retention_scheduled
+        outcome = retention_scheduled()
+        if outcome and any(outcome.values()):
+            logger.info(f"📰 News V2 retention: {outcome}")
+    except Exception as e:
+        logger.error(f"News V2 retention error: {e}")
+
+
 def job_storage_scan_db():
     """Hourly-ish DB storage snapshot (cheap) — Storage & Usage (#10) [S21]."""
     try:
@@ -657,6 +680,9 @@ def setup_schedules():
     schedule.every(45).minutes.do(job_graph_sync)
     schedule.every().hour.do(job_storage_scan_db)
     schedule.every().day.at("04:30").do(job_storage_scan_fs)
+    # News V2 (#23): flag-gated no-ops until news.v2_enabled/v2_shadow turn on
+    schedule.every().hour.do(job_news_v2_refresh)
+    schedule.every().day.at("04:15").do(job_news_v2_retention)
     # Explore → News (#9): per-pillar tuned cadence [E24]
     schedule.every().hour.do(job_explore_news)
     schedule.every(3).hours.do(job_explore_tools)
