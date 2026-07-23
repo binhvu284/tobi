@@ -17,6 +17,7 @@ import {
 } from '../../api'
 import { useToast } from '../../context/ToastProvider'
 import LlmLogo from '../LlmLogo'
+import TrendingTab from './TrendingTab'
 
 type V2Tab = 'home' | 'trending' | 'feed' | 'favorites'
 
@@ -46,6 +47,7 @@ export default function NewsV2() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)     // bumped after a refresh job lands
   const pollTimer = useRef<number | null>(null)
 
   const load = useCallback(async () => {
@@ -74,6 +76,7 @@ export default function NewsV2() {
             if (job.state === 'failed') toast({ kind: 'error', title: 'Refresh failed', detail: job.error ?? undefined })
             else if (job.state === 'partial') toast({ kind: 'info', title: 'Refresh finished with some sources failing', detail: job.error ?? undefined })
             else toast({ kind: 'success', title: 'Refreshed' })
+            setReloadKey(current => current + 1)
             void load()
           }
         } catch { /* job briefly unavailable — keep polling until the cap */ }
@@ -125,7 +128,8 @@ export default function NewsV2() {
 
       <main className="px-4 py-6 sm:px-6">
         {tab === 'home' && <HomeTab home={home} loading={loading} error={error} onRetry={load} />}
-        {tab !== 'home' && <PendingPanel tab={tab} />}
+        {tab === 'trending' && <TrendingTab reloadKey={reloadKey} />}
+        {(tab === 'feed' || tab === 'favorites') && <PendingPanel tab={tab} />}
       </main>
     </div>
   )

@@ -792,6 +792,35 @@ export async function getNewsV2Models(params: { q?: string; category?: string; c
   if (params.limit) qs.set('limit', String(params.limit))
   return get(`/api/explore/v2/models?${qs.toString()}`)
 }
+export type NewsV2GithubEntry = {
+  repo: string; stars: number; growth?: number; baseline_date?: string; status: 'ok' | 'collecting'
+}
+export type NewsV2Interaction = {
+  reaction: string; favorite: number; note: string | null; opens: number; dwell_ms: number; version: number
+}
+export type NewsV2ItemEntry = {
+  item_id: number; title: string; source: string; url?: string; item_type?: string
+  excerpt?: string | null; published_at?: string | null; first_seen_at?: string
+  media_key?: string | null; topic?: string; score?: number; trust?: string; engagement?: number
+  reasons?: { reason: string; strength: number }[]; interaction?: NewsV2Interaction
+}
+export async function getNewsV2TrendingGithub(window: 'week' | 'month' | 'all'): Promise<{ entries: NewsV2GithubEntry[]; snapshot_id: number | null; next_cursor: string | null }> {
+  return get(`/api/explore/v2/trending?section=github&window=${window}&limit=30`)
+}
+export async function getNewsV2TrendingTools(): Promise<{ entries: NewsV2ItemEntry[] }> {
+  return get('/api/explore/v2/trending?section=tools&limit=15')
+}
+export async function getNewsV2TrendingSources(): Promise<{ sources: { source: string; items: number; latest_observed: string }[] }> {
+  return get('/api/explore/v2/trending?section=sources')
+}
+export async function getNewsV2Feed(params: { mode: 'for_you' | 'latest' | 'favorites'; cursor?: string; limit?: number; source?: string; has_note?: boolean }): Promise<{ mode: string; entries: NewsV2ItemEntry[]; next_cursor: string | null; snapshot_id?: number | null }> {
+  const qs = new URLSearchParams({ mode: params.mode })
+  if (params.cursor) qs.set('cursor', params.cursor)
+  if (params.limit) qs.set('limit', String(params.limit))
+  if (params.source) qs.set('source', params.source)
+  if (params.has_note) qs.set('has_note', 'true')
+  return get(`/api/explore/v2/feed?${qs.toString()}`)
+}
 export async function postNewsV2Refresh(tab: 'home' | 'trending' | 'feed'): Promise<{ job_id: number; joined: boolean }> {
   return request('/api/explore/v2/refresh', { method: 'POST', body: JSON.stringify({ tab }) })
 }
