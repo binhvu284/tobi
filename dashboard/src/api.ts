@@ -794,7 +794,7 @@ export async function getNewsV2Models(params: { q?: string; category?: string; c
 }
 export type NewsV2GithubEntry = {
   repo: string; stars: number; growth?: number; baseline_date?: string; status: 'ok' | 'collecting'
-  description?: string
+  description?: string; language?: string | null
 }
 export type NewsV2Interaction = {
   reaction: string; favorite: number; note: string | null; opens: number; dwell_ms: number; version: number
@@ -806,8 +806,10 @@ export type NewsV2ItemEntry = {
   recap?: string | null
   reasons?: { reason: string; strength: number }[]; interaction?: NewsV2Interaction
 }
-export async function getNewsV2TrendingGithub(window: 'week' | 'month' | 'all'): Promise<{ entries: NewsV2GithubEntry[]; snapshot_id: number | null; next_cursor: string | null }> {
-  return get(`/api/explore/v2/trending?section=github&window=${window}&limit=30`)
+export async function getNewsV2TrendingGithub(window: 'week' | 'month' | 'all', q = ''): Promise<{ entries: NewsV2GithubEntry[]; snapshot_id: number | null; next_cursor: string | null }> {
+  const qs = new URLSearchParams({ section: 'github', window, limit: '30' })
+  if (q.trim()) qs.set('q', q.trim())
+  return get(`/api/explore/v2/trending?${qs.toString()}`)
 }
 export async function getNewsV2TrendingTools(): Promise<{ entries: NewsV2ItemEntry[] }> {
   return get('/api/explore/v2/trending?section=tools&limit=15')
@@ -823,8 +825,8 @@ export async function getNewsV2Feed(params: { mode: 'for_you' | 'latest' | 'favo
   if (params.has_note) qs.set('has_note', 'true')
   return get(`/api/explore/v2/feed?${qs.toString()}`)
 }
-export async function postNewsV2Refresh(tab: 'home' | 'trending' | 'feed'): Promise<{ job_id: number; joined: boolean }> {
-  return request('/api/explore/v2/refresh', { method: 'POST', body: JSON.stringify({ tab }) })
+export async function postNewsV2Refresh(tab: 'home' | 'trending' | 'feed', sources?: string[]): Promise<{ job_id: number; joined: boolean }> {
+  return request('/api/explore/v2/refresh', { method: 'POST', body: JSON.stringify(sources && sources.length ? { tab, sources } : { tab }) })
 }
 export async function getNewsV2RefreshJob(jobId: number): Promise<NewsV2RefreshJob> {
   return get(`/api/explore/v2/refresh/${jobId}`)

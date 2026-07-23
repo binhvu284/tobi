@@ -9,7 +9,7 @@
 // news_media_cache — never a fake screenshot presented as content.
 import { useCallback, useEffect, useState } from 'react'
 import {
-  AlertTriangle, ChevronRight, ExternalLink, Github, Hourglass, Loader2, RefreshCw,
+  AlertTriangle, ChevronRight, ExternalLink, Github, Loader2, RefreshCw, Search,
   Sparkles, Star, StickyNote, ThumbsDown, ThumbsUp, TrendingUp, Undo2, Wrench,
 } from 'lucide-react'
 import {
@@ -21,6 +21,8 @@ import { useToast } from '../../context/ToastProvider'
 import SourceLogo from '../SourceLogo'
 import SourceIconGroup from './SourceIconGroup'
 import { DEFAULT_INTERACTION, cleanExcerpt } from './NewsCard'
+import { RefreshIconButton, TableSkeleton, useTableRefresh } from './TableRefresh'
+import RichText from './RichText'
 
 type Window = 'week' | 'month' | 'all'
 
@@ -77,21 +79,28 @@ function VisualTile({ name, source, mediaKey, className }: {
 
 export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
   const [window_, setWindow] = useState<Window>('week')
+  const [query, setQuery] = useState('')
   const [github, setGithub] = useState<NewsV2GithubEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async (win: Window) => {
+  const load = useCallback(async (win: Window, q: string) => {
     setLoading(true)
     try {
-      const gh = await getNewsV2TrendingGithub(win)
+      const gh = await getNewsV2TrendingGithub(win, q)
       setGithub(gh.entries)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally { setLoading(false) }
   }, [])
-  useEffect(() => { void load(window_) }, [load, window_, reloadKey])
+  useEffect(() => {                       // debounce the search so typing doesn't hammer the API
+    const t = setTimeout(() => void load(window_, query), query ? 250 : 0)
+    return () => clearTimeout(t)
+  }, [load, window_, query, reloadKey])
+
+  const { refreshing, refresh } = useTableRefresh('trending', GITHUB_SOURCES,
+    useCallback(() => load(window_, query), [load, window_, query]))
 
   if (error) {
     return (
@@ -99,39 +108,41 @@ export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
         <AlertTriangle size={18} className="mx-auto text-danger" />
         <p className="mt-2 text-sm text-text">Trending data is unavailable.</p>
         <p className="mt-1 text-xs text-muted">{error}</p>
-        <button onClick={() => void load(window_)} className="mt-4 inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 text-xs text-text hover:bg-overlay/5"><RefreshCw size={13} /> Retry</button>
+        <button onClick={() => void load(window_, query)} className="mt-4 inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 text-xs text-text hover:bg-overlay/5"><RefreshCw size={13} /> Retry</button>
       </section>
     )
   }
 
   return (
     <div className="space-y-4">
-      {/* ── 1. GitHub growth (snapshots only — collecting until history exists) ── */}
+      {/* ── 1. GitHub trending — REAL github.com/trending numbers ── */}
       <section className="overflow-hidden rounded-lg border border-border bg-surface/40">
         <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
-          <div className="flex items-center gap-2"><Github size={14} className="text-accent" /><h2 className="text-xs font-semibold text-text">GitHub · AI repositories</h2><SourceIconGroup sources={['github']} size={16} /></div>
-          <div className="flex overflow-hidden rounded-md border border-border">
-            {(['week', 'month', 'all'] as Window[]).map(win => (
-              <button key={win} onClick={() => setWindow(win)}
-                className={`px-2.5 py-1 text-[11px] font-medium transition-colors ${window_ === win ? 'bg-accent text-background' : 'text-muted hover:text-text'}`}>
-                {win === 'all' ? 'All time' : win === 'week' ? 'Week' : 'Month'}
-              </button>
-            ))}
+          <div className="flex items-center gap-2"><Github size={14} className="text-accent" /><h2 className="text-xs font-semibold text-text">GitHub</h2><SourceIconGroup sources={['github']} size={16} /></div>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search size={12} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted" />
+              <input value={query} onChange={event => setQuery(event.target.value)}
+                placeholder="Search name / author" aria-label="Search repositories by name or author"
+                className="h-7 w-40 rounded-md border border-border bg-background pl-7 pr-2 text-[11px] text-text outline-none focus:border-accent" />
+            </div>
+            <select value={window_} onChange={event => setWindow(event.target.value as Window)}
+              aria-label="Trending window"
+              className="h-7 rounded-md border border-border bg-background px-2 text-[11px] font-medium text-text outline-none focus:border-accent">
+              <option value="week">This week</option>
+              <option value="month">This month</option>
+              <option value="all">All time</option>
+            </select>
+            <RefreshIconButton refreshing={refreshing} onClick={refresh} />
           </div>
         </header>
-        {loading && github.length === 0 ? (
-          <div className="space-y-2 p-4">{[0, 1, 2].map(i => <div key={i} className="h-9 animate-pulse rounded-md bg-overlay/10" />)}</div>
+        {refreshing || (loading && github.length === 0) ? (
+          <TableSkeleton rows={5} />
         ) : github.length === 0 ? (
-          <p className="px-4 py-8 text-center text-xs text-muted">No repository snapshots yet — run a Trending refresh to start collecting star history.</p>
+          <p className="px-4 py-8 text-center text-xs text-muted">
+            {query ? `No trending repositories match “${query}”.` : 'No trending repositories yet — refresh to pull github.com/trending.'}
+          </p>
         ) : (
-          <>
-          {window_ !== 'all' && github.every(entry => entry.growth === undefined) && (
-            <p className="flex items-center gap-1.5 border-b border-border/60 bg-surface/30 px-4 py-1.5 text-[11px] text-muted">
-              <Hourglass size={11} className="shrink-0" />
-              History collection started today — the first measured growth numbers appear with tomorrow's snapshot (real deltas, never estimated).
-            </p>
-          )}
-          {/* ~10 rows tall, scroll inside (owner request) */}
           <div className="max-h-[520px] divide-y divide-border/60 overflow-y-auto">
             {github.map((entry, index) => {
               const tone = rankTone(index + 1)
@@ -141,27 +152,24 @@ export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
                   <div className="min-w-0 flex-1">
                     <a href={`https://github.com/${entry.repo}`} target="_blank" rel="noreferrer"
                       className="block truncate text-sm font-medium text-text hover:text-accent">{entry.repo}</a>
-                    {entry.description && (
-                      <p className="mt-0.5 truncate text-[11px] leading-4 text-muted" title={entry.description}>{entry.description}</p>
-                    )}
+                    <div className="mt-0.5 flex items-center gap-2">
+                      {entry.language && <span className="shrink-0 text-[10px] font-medium text-muted/80">{entry.language}</span>}
+                      {entry.description && (
+                        <p className="truncate text-[11px] leading-4 text-muted" title={entry.description}>{entry.description}</p>
+                      )}
+                    </div>
                   </div>
-                  {window_ !== 'all' && (
-                    entry.growth !== undefined ? (
-                      <span title={`measured since the ${entry.baseline_date} snapshot`}
-                        className="inline-flex w-16 shrink-0 items-center justify-end gap-1 text-xs font-semibold text-success">
-                        <TrendingUp size={12} /> {entry.growth >= 0 ? '+' : ''}{fmtStars(entry.growth)}
-                      </span>
-                    ) : (
-                      <span title="Only one snapshot day so far — growth is never estimated"
-                        className="w-16 shrink-0 text-right text-xs text-muted/50">—</span>
-                    )
+                  {window_ !== 'all' && entry.growth !== undefined && (
+                    <span title={`real stars gained this ${window_}, per github.com/trending`}
+                      className="inline-flex w-16 shrink-0 items-center justify-end gap-1 text-xs font-semibold text-success">
+                      <TrendingUp size={12} /> {entry.growth >= 0 ? '+' : ''}{fmtStars(entry.growth)}
+                    </span>
                   )}
                   <span className="inline-flex w-16 shrink-0 items-center justify-end gap-1 text-xs text-muted"><Star size={11} /> {fmtStars(entry.stars)}</span>
                 </div>
               )
             })}
           </div>
-          </>
         )}
       </section>
 
@@ -170,6 +178,8 @@ export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
     </div>
   )
 }
+
+const GITHUB_SOURCES = ['github']
 
 // ── 2. Tool Discovery: shopping UX — one product at a time ───────────────────────────
 function ToolDiscovery({ reloadKey }: { reloadKey: number }) {
@@ -194,13 +204,17 @@ function ToolDiscovery({ reloadKey }: { reloadKey: number }) {
   }, [])
   useEffect(() => { void load() }, [load, reloadKey])
 
+  // owner: "replace explore-next by a header refresh icon" — a scoped refresh runs the
+  // content-creator (github + HN sources), which may take a while; skeleton covers it.
+  const { refreshing, refresh } = useTableRefresh('trending', TOOL_SOURCES, load)
+
   const tool = tools.length ? tools[index % tools.length] : null
   const ix = tool ? (overrides[tool.item_id] ?? tool.interaction ?? DEFAULT_INTERACTION) : DEFAULT_INTERACTION
 
   const next = () => {
     setNoteOpen(false); setUndoUntil(null)
-    if (index + 1 >= tools.length) void load()          // cycled through → refresh section
-    else setIndex(current => current + 1)
+    if (index + 1 < tools.length) setIndex(current => current + 1)
+    else void refresh()                                 // exhausted the batch → generate the next
   }
 
   const mutate = async (action: 'like' | 'dislike' | 'undo' | 'favorite' | 'unfavorite') => {
@@ -251,13 +265,14 @@ function ToolDiscovery({ reloadKey }: { reloadKey: number }) {
     <section className="overflow-hidden rounded-lg border border-border bg-surface/40">
       <header className="flex h-11 items-center gap-2 border-b border-border px-4">
         <Wrench size={14} className="text-accent" /><h2 className="text-xs font-semibold text-text">Tool Discovery</h2>
-        <SourceIconGroup sources={['hackernews']} size={16} />
-        <p className="ml-auto hidden text-[11px] text-muted sm:block">One tool at a time — like it, save it, or move on</p>
+        <SourceIconGroup sources={TOOL_SOURCES} size={16} />
+        <p className="ml-auto hidden text-[11px] text-muted sm:block">A researched pick — like it, save it, or refresh for the next</p>
+        <div className="ml-auto sm:ml-2"><RefreshIconButton refreshing={refreshing} onClick={refresh} title="Research the next tool" /></div>
       </header>
-      {loading ? (
-        <div className="p-4"><div className="h-48 animate-pulse rounded-md bg-overlay/10" /></div>
+      {refreshing || loading ? (
+        <TableSkeleton rows={4} className="p-4" />
       ) : !tool ? (
-        <p className="px-4 py-8 text-center text-xs text-muted">No tool candidates yet — Show&nbsp;HN posts and repos land here after a refresh.</p>
+        <p className="px-4 py-8 text-center text-xs text-muted">No tool spotlight yet — hit refresh to research one.</p>
       ) : (
         <div className="p-4">
           <div className="grid gap-4 md:grid-cols-[230px,1fr]">
@@ -283,9 +298,14 @@ function ToolDiscovery({ reloadKey }: { reloadKey: number }) {
               <h3 className="mt-2 text-base font-semibold leading-snug text-text">
                 <a href={tool.url} target="_blank" rel="noreferrer" onClick={recordOpen} className="hover:text-accent">{tool.title}</a>
               </h3>
-              {cleanExcerpt(tool.excerpt) && (
+              {tool.recap ? (
+                <div className="mt-2">
+                  <span className="mb-1 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-accent/80"><Sparkles size={10} /> TOBI spotlight</span>
+                  <RichText text={tool.recap} />
+                </div>
+              ) : cleanExcerpt(tool.excerpt) ? (
                 <p className="mt-2 line-clamp-4 text-xs leading-5 text-muted">{cleanExcerpt(tool.excerpt)}</p>
-              )}
+              ) : null}
               {undoUntil && ix.reaction === 'dislike' ? (
                 <div className="mt-3 flex items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2">
                   <span className="min-w-0 flex-1 text-xs text-text">Not for you — showing the next tool shortly.</span>
@@ -334,18 +354,21 @@ function ToolDiscovery({ reloadKey }: { reloadKey: number }) {
               )}
             </div>
           </div>
-          <div className="mt-4 flex justify-center">
-            <button onClick={next} disabled={loading}
-              className="inline-flex h-9 items-center gap-2 rounded-full bg-accent px-5 text-xs font-semibold text-background transition-transform hover:scale-[1.02] disabled:opacity-50">
-              {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-              Explore next tool
-            </button>
-          </div>
+          {tools.length > 1 && (
+            <div className="mt-4 flex justify-center">
+              <button onClick={next} disabled={refreshing}
+                className="inline-flex h-8 items-center gap-2 rounded-full border border-border px-4 text-[11px] font-medium text-muted transition-colors hover:border-accent/40 hover:text-text disabled:opacity-50">
+                <ChevronRight size={13} /> Next pick ({(index % tools.length) + 1}/{tools.length})
+              </button>
+            </div>
+          )}
         </div>
       )}
     </section>
   )
 }
+
+const TOOL_SOURCES = ['github', 'hackernews']
 
 function ProductAction({ label, icon, active, busy, onClick }: {
   label: string; icon: React.ReactNode; active: boolean; busy: boolean; onClick: () => void

@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  Activity, AlertTriangle, Ban, Check, CircleDashed, ExternalLink, KeyRound, Loader2,
+  Activity, AlertTriangle, Ban, Check, CircleDashed, Clock, ExternalLink, KeyRound, Loader2,
   Maximize2, Newspaper, RefreshCw, Rss, Search, Settings2, Star, TrendingUp, Trophy, X,
 } from 'lucide-react'
 import {
@@ -213,12 +213,14 @@ function SourcesSettingsModal({ open, onClose, settings, onSaved }: {
   const [enabled, setEnabled] = useState<Record<string, boolean>>({})
   const [schedules, setSchedules] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
+  const [section, setSection] = useState<'sources' | 'schedules'>('sources')
   useEffect(() => {
     if (!open) return
     const allOn = settings.enabled_sources.length === 0
     setEnabled(Object.fromEntries(settings.known_sources.map(name =>
       [name, allOn || settings.enabled_sources.includes(name)])))
     setSchedules({ ...settings.schedules })
+    setSection('sources')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -262,66 +264,91 @@ function SourcesSettingsModal({ open, onClose, settings, onSaved }: {
           <motion.section role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}
             initial={{ opacity: 0, y: 14, scale: 0.99 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.99 }}
             transition={{ duration: 0.16 }}
-            className="mt-6 w-full max-w-lg overflow-hidden rounded-lg border border-border bg-surface shadow-2xl">
-            <header className="flex items-center justify-between border-b border-border px-5 py-4">
-              <div><h2 className="font-semibold text-text">Sources & schedules</h2>
-                <p className="mt-0.5 text-xs text-muted">Changes save instantly. A disabled source is skipped by every future refresh — collected items stay.</p></div>
-              <div className="flex shrink-0 items-center gap-2">
-                {saving && <Loader2 size={14} className="animate-spin text-accent" />}
-                <button onClick={onClose} title="Close" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-overlay/10 hover:text-text"><X size={17} /></button>
+            className="mt-6 flex h-[560px] max-h-[85vh] w-full max-w-3xl overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">
+            {/* ── SaaS settings layout: left nav rail + right content pane ── */}
+            <nav className="hidden w-52 shrink-0 flex-col border-r border-border bg-background/40 p-4 sm:flex">
+              <div className="flex items-center gap-2 px-1 pb-4">
+                <Settings2 size={16} className="text-accent" />
+                <h2 className="text-sm font-semibold text-text">Settings</h2>
               </div>
-            </header>
-            <div className="max-h-[60vh] overflow-y-auto px-5 py-4">
-              <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted">Connected sources</h3>
-              <div className="mt-2 space-y-2">
-                {settings.known_sources.map(name => (
-                  <div key={name} className="flex items-center gap-3 rounded-md border border-border bg-background/40 px-3 py-2.5">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-surface">
-                      <SourceLogo name={name} size={14} variant="inline" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-medium text-text">{name}</span>
-                        {settings.unconfigured?.includes(name) && (
-                          <span title="This source is skipped until its key is connected on the Integrations page"
-                            className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-1.5 py-px text-[10px] font-medium text-warning">
-                            <KeyRound size={9} /> key required
+              {([['sources', 'Sources', Rss], ['schedules', 'Schedules', Clock]] as const).map(([key, label, Icon]) => (
+                <button key={key} onClick={() => setSection(key)}
+                  className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors ${
+                    section === key ? 'bg-accent/12 text-accent' : 'text-muted hover:bg-overlay/5 hover:text-text'}`}>
+                  <Icon size={15} /> {label}
+                </button>
+              ))}
+              <div className="mt-auto flex items-center gap-1.5 px-1 pt-4 text-[10px] text-muted">
+                {saving ? <><Loader2 size={11} className="animate-spin text-accent" /> Saving…</> : <><Check size={11} className="text-success" /> Saved automatically</>}
+              </div>
+            </nav>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <header className="flex items-center justify-between gap-3 border-b border-border px-6 py-4">
+                <div>
+                  <h3 className="text-base font-semibold text-text">{section === 'sources' ? 'Data sources' : 'Refresh schedules'}</h3>
+                  <p className="mt-0.5 text-xs text-muted">
+                    {section === 'sources'
+                      ? 'Toggle a source to include or skip it. Changes save instantly; collected items stay.'
+                      : 'How often each tab refreshes on its own. Manual refresh is always available.'}
+                  </p>
+                </div>
+                <button onClick={onClose} title="Close" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-overlay/10 hover:text-text"><X size={17} /></button>
+              </header>
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+                {section === 'sources' ? (
+                  <div className="space-y-2.5">
+                    {settings.known_sources.map(name => (
+                      <div key={name} className="flex items-center gap-3 rounded-lg border border-border bg-background/40 px-3.5 py-3 transition-colors hover:border-border/80">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface">
+                          <SourceLogo name={name} size={16} variant="inline" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-medium capitalize text-text">{name}</span>
+                            {settings.unconfigured?.includes(name) && (
+                              <span title="This source is skipped until its key is connected on the Integrations page"
+                                className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-1.5 py-px text-[10px] font-medium text-warning">
+                                <KeyRound size={9} /> key required
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-0.5 text-[11px] capitalize text-muted">Feeds {tabsUsing(name).join(', ') || '—'}</div>
+                        </div>
+                        <button onClick={() => toggleSource(name)} disabled={saving}
+                          role="switch" aria-checked={enabled[name] ?? false} title={enabled[name] ? 'On — click to disable' : 'Off — click to enable'}
+                          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors duration-200 disabled:opacity-60 ${
+                            enabled[name] ? 'border-accent bg-accent' : 'border-border bg-overlay/20'}`}>
+                          <span className={`inline-flex h-[18px] w-[18px] transform items-center justify-center rounded-full bg-white shadow-md transition-transform duration-200 ${
+                            enabled[name] ? 'translate-x-[22px]' : 'translate-x-[3px]'}`}>
+                            {enabled[name] && <Check size={12} strokeWidth={3} className="text-accent" />}
                           </span>
-                        )}
+                        </button>
                       </div>
-                      <div className="text-[11px] text-muted">feeds: {tabsUsing(name).join(', ') || '—'}</div>
-                    </div>
-                    <button onClick={() => toggleSource(name)} disabled={saving}
-                      role="switch" aria-checked={enabled[name] ?? false} title={enabled[name] ? 'On — click to disable' : 'Off — click to enable'}
-                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors duration-200 disabled:opacity-60 ${
-                        enabled[name] ? 'border-accent bg-accent' : 'border-border bg-overlay/20'}`}>
-                      {/* knob is solid white — `bg-background` was a dead class (no such token), leaving it invisible */}
-                      <span className={`inline-flex h-[18px] w-[18px] transform items-center justify-center rounded-full bg-white shadow-md transition-transform duration-200 ${
-                        enabled[name] ? 'translate-x-[22px]' : 'translate-x-[3px]'}`}>
-                        {enabled[name] && <Check size={12} strokeWidth={3} className="text-accent" />}
-                      </span>
-                    </button>
+                    ))}
                   </div>
-                ))}
-              </div>
-              <h3 className="mt-5 text-[10px] font-semibold uppercase tracking-wide text-muted">Refresh schedules</h3>
-              <div className="mt-2 space-y-2">
-                {Object.keys(schedules).map(tabName => (
-                  <div key={tabName} className="flex items-center justify-between gap-3 rounded-md border border-border bg-background/40 px-3 py-2">
-                    <span className="text-sm capitalize text-text">{tabName}</span>
-                    <select value={schedules[tabName]} disabled={saving}
-                      onChange={event => changeSchedule(tabName, event.target.value)}
-                      className="h-8 rounded-md border border-border bg-background px-2 text-xs capitalize text-text outline-none focus:border-accent disabled:opacity-60">
-                      {settings.schedule_options.map(option => <option key={option} value={option}>{option}</option>)}
-                    </select>
+                ) : (
+                  <div className="space-y-2.5">
+                    {Object.keys(schedules).map(tabName => (
+                      <div key={tabName} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background/40 px-3.5 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-muted"><Clock size={15} /></span>
+                          <span className="text-sm font-medium capitalize text-text">{tabName}</span>
+                        </div>
+                        <select value={schedules[tabName]} disabled={saving}
+                          onChange={event => changeSchedule(tabName, event.target.value)}
+                          className="h-9 rounded-md border border-border bg-background px-2.5 text-xs capitalize text-text outline-none focus:border-accent disabled:opacity-60">
+                          {settings.schedule_options.map(option => <option key={option} value={option}>{option}</option>)}
+                        </select>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
+              <footer className="flex items-center justify-end border-t border-border px-6 py-3">
+                <button onClick={onClose}
+                  className="inline-flex h-8 items-center rounded-md border border-border px-4 text-xs font-medium text-text hover:border-accent/40">Done</button>
+              </footer>
             </div>
-            <footer className="flex items-center justify-end border-t border-border px-5 py-3">
-              <button onClick={onClose}
-                className="inline-flex h-8 items-center rounded-md border border-border px-4 text-xs font-medium text-text hover:border-accent/40">Close</button>
-            </footer>
           </motion.section>
         </motion.div>
       )}

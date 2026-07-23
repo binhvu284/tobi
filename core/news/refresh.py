@@ -105,10 +105,16 @@ def _save_checkpoints(conn: sqlite3.Connection, job_id: int, checkpoints: dict,
 
 
 # ── start / join ─────────────────────────────────────────────────────────────────────
-def request_refresh(tab: str, now: datetime | None = None) -> dict:
+def request_refresh(tab: str, now: datetime | None = None,
+                    only: list[str] | None = None) -> dict:
     """Start a durable refresh for ``tab`` — or JOIN the one already active (one lease
     per tab). A running job whose lease expired (crashed owner) is reset to pending
-    with its checkpoints intact, so the next runner resumes instead of duplicating."""
+    with its checkpoints intact, so the next runner resumes instead of duplicating.
+
+    ``only`` restricts the job to a subset of the tab's sources (a per-TABLE refresh:
+    the GitHub table refreshes just ``github``, Releases just its catalog sources).
+    Unknown names are ignored; an empty resulting set falls back to the full tab so a
+    per-table refresh never no-ops silently."""
     tab_v = Tab(tab).value
     if Tab(tab_v) not in REFRESHABLE_TABS:
         raise ValueError("favorites never refreshes")
@@ -129,7 +135,12 @@ def request_refresh(tab: str, now: datetime | None = None) -> dict:
                 conn.commit()
                 return {"job_id": job_id, "joined": False, "resumed": True}
             return {"job_id": job_id, "joined": True, "resumed": False}
-        checkpoints = {a.name: {"state": "pending", "fetched": 0} for a in _adapters_for(tab_v, conn)}
+        adapters = _adapters_for(tab_v, conn)
+        if only:
+            wanted = set(only)
+            scoped = [a for a in adapters if a.name in wanted]
+            adapters = scoped or adapters              # never no-op on an all-unknown subset
+        checkpoints = {a.name: {"state": "pending", "fetched": 0} for a in adapters}
         cur = conn.execute(
             "INSERT INTO news_refresh_jobs (tab, state, attempts, checkpoints_json, created_at, updated_at)"
             " VALUES (?,?,0,?,?,?)", (tab_v, "pending", json.dumps(checkpoints), now_iso, now_iso))

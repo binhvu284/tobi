@@ -172,7 +172,7 @@ def v2_models(q: str = "", category: str = "", cursor: Optional[str] = None, lim
 
 
 @router.get("/trending")
-def v2_trending(section: str = "github", window: str = "week",
+def v2_trending(section: str = "github", window: str = "week", q: str = "",
                 cursor: Optional[str] = None, limit: int = 20):
     conn = _conn()
     try:
@@ -187,7 +187,11 @@ def v2_trending(section: str = "github", window: str = "week",
                     " WHERE s.source='github' AND s.external_id=? LIMIT 1", (entry["repo"],)).fetchone()
                 if row and (row[0] or "").strip():
                     entry["description"] = row[0]
-            return {"section": section, "window": window, **page}
+            query = q.strip().lower()
+            if query:                       # owner: search by repo name / author (page-level)
+                page["entries"] = [e for e in page["entries"]
+                                   if query in str(e.get("repo", "")).lower()]
+            return {"section": section, "window": window, "q": q, **page}
         if section == "tools":
             page = repository.read_snapshot_page(conn, kind="trending:tools", cursor=cursor, limit=limit)
             page["entries"] = _enrich(conn, page["entries"])
@@ -415,6 +419,7 @@ def v2_patch_settings(req: SettingsReq):
 # ── refresh: start/join, state, commands, SSE ────────────────────────────────────────
 class RefreshReq(BaseModel):
     tab: str
+    sources: Optional[list[str]] = None      # per-table refresh: restrict to these sources
 
 
 class CommandReq(BaseModel):
@@ -425,7 +430,7 @@ class CommandReq(BaseModel):
 def v2_refresh(req: RefreshReq):
     try:
         Tab(req.tab)
-        result = refresh.request_refresh(req.tab)
+        result = refresh.request_refresh(req.tab, only=req.sources or None)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     threading.Thread(target=refresh.run_job, args=(result["job_id"],), daemon=True).start()
