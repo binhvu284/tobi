@@ -103,6 +103,22 @@ def _iso_or_none(value: str | None, name: str) -> None:
         raise ValueError(f"{name} must be ISO-8601, got {value!r}")
 
 
+_MODEL_ID_JUNK = re.compile(r"[^a-z0-9.+-]+")
+_MODEL_ID_SUFFIX = re.compile(r":(free|extended|beta|nitro|floor|online)$")
+
+
+def canonical_model_id(raw: str) -> str:
+    """Deterministic cross-source model identity: sources name the same model
+    differently ("openai/gpt-5.4" / "GPT-5.4" / "gpt-5.4"), and rankings can only
+    combine evidence when the id matches. Rule: last path segment, lowercase,
+    routing-variant suffixes stripped, non [a-z0-9.+-] → '-'. Imperfect matches
+    simply stay separate rows — identities are never guessed beyond this rule."""
+    slug = (raw or "").strip().lower().rsplit("/", 1)[-1]
+    slug = _MODEL_ID_SUFFIX.sub("", slug)
+    slug = _MODEL_ID_JUNK.sub("-", slug).strip("-.")
+    return slug or (raw or "").strip().lower()
+
+
 def _http_url(value: str, name: str) -> None:
     """N12 security gate (plan §11 "script URLs"): every URL that can become a link
     or fetch target must be plain http(s) — javascript:/data:/file: never enter the

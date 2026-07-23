@@ -154,7 +154,16 @@ ALTER TABLE news_items ADD COLUMN recap TEXT;
 ALTER TABLE news_items ADD COLUMN recap_at TEXT;
 """
 
-_MIGRATIONS: list[tuple[int, str]] = [(1, _MIGRATION_1), (2, _MIGRATION_2)]
+# Model Strength backend fix: cross-source canonical model ids changed metric/release
+# identity. Both tables are refetchable evidence caches — clear once so old ids never
+# duplicate the newly-normalized rows; the next Home refresh repopulates everything.
+_MIGRATION_3 = """
+DELETE FROM news_model_metrics;
+DELETE FROM news_model_releases;
+DELETE FROM news_rank_snapshots WHERE kind='models:top';
+"""
+
+_MIGRATIONS: list[tuple[int, str]] = [(1, _MIGRATION_1), (2, _MIGRATION_2), (3, _MIGRATION_3)]
 
 SNAPSHOT_KEEP = 20     # retained rank snapshots per kind (immutable, rebuilt often)
 

@@ -41,11 +41,14 @@ TOOLS_CAP = 200
 
 _METRIC_FAMILY = {
     "intelligence": "intelligence", "reasoning": "intelligence", "composite": "intelligence",
-    "coding": "coding", "agentic": "agentic", "elo": "arena", "arena": "arena",
+    "coding": "coding", "webdev": "coding", "agentic": "agentic", "elo": "arena", "arena": "arena",
     "speed": "speed", "latency": "speed",
-    "price_in": "cost", "price_out": "cost", "context": "context",
+    "price_in": "cost", "price_out": "cost", "price_blended": "cost", "context": "context",
 }
-_LOWER_IS_BETTER = {"price_in", "price_out", "latency"}
+_LOWER_IS_BETTER = {"price_in", "price_out", "price_blended", "latency"}
+# Top-10 eligibility requires at least one CAPABILITY family: price/context/speed
+# alone must never rank a model as "strong" (the day-1 auto-beta lesson).
+_CAPABILITY_FAMILIES = {"intelligence", "coding", "agentic", "arena"}
 
 TRUST_BASE = {"official": 1.0, "verified_api": 0.9, "aggregator": 0.7, "community": 0.5}
 
@@ -94,6 +97,8 @@ def build_model_snapshot(conn: sqlite3.Connection, now: datetime | None = None) 
         families = per_model[model_id]["families"]
         if len(families) < MIN_SCORE_FAMILIES:
             continue                                   # incomplete evidence → not Top-10 eligible
+        if not (_CAPABILITY_FAMILIES & set(families)):
+            continue                                   # cheap+big-context ≠ strong (no capability proof)
         components = {fam: round(sum(vals) / len(vals), 4) for fam, vals in sorted(families.items())}
         present = sum(MODEL_WEIGHTS[f] for f in components)
         score = round(sum(MODEL_WEIGHTS[f] * v for f, v in components.items()) / present * 100, 2)

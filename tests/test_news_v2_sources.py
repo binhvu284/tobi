@@ -177,7 +177,7 @@ ok("metrics carry source attribution + observation time", all(
 ok("a model with no pricing/context gets NO metrics (never zeros)",
    not any(m.model_id == "old/model" for m in orr.metrics))
 ok("only recent catalog arrivals become releases", len(orr.releases) == 1
-   and orr.releases[0].model_id == "openai/gpt-6")
+   and orr.releases[0].model_id == "gpt-6")            # canonical cross-source id
 ok("release evidence carries source_url + released_at",
    orr.releases[0].source_url == "https://openrouter.ai/openai/gpt-6" and orr.releases[0].released_at)
 
@@ -319,5 +319,80 @@ dead = RSSAdapter().run()
 ok("rss adapter: every feed failing fails the adapter with a redacted error",
    not dead.ok and "sekr3t" not in (dead.error or ""))
 base.http_get_text = _real_text
+
+# ── Model Strength sources (owner: real, trustworthy, latest) ────────────────────────
+from core.news.contracts import canonical_model_id  # noqa: E402
+from core.news.sources.artificial_analysis import ArtificialAnalysisAdapter  # noqa: E402
+from core.news.sources.lmarena import LMArenaAdapter  # noqa: E402
+
+ok("canonical model ids merge cross-source namings",
+   canonical_model_id("openai/gpt-5.4") == "gpt-5.4"
+   and canonical_model_id("GPT-5.4") == "gpt-5.4"
+   and canonical_model_id("Anthropic/claude-opus-4.8:free") == "claude-opus-4.8"
+   and canonical_model_id("Claude Opus 4.8") == "claude-opus-4.8")
+
+_aa_payload = {"data": [
+    {"slug": "openai/gpt-5.4",
+     "evaluations": {"artificial_analysis_intelligence_index": 71.2,
+                     "artificial_analysis_coding_index": 66.0},
+     "median_output_tokens_per_second": 150.5,
+     "pricing": {"price_1m_blended_3_to_1": 4.2}},
+    {"slug": "tiny/no-evals"},                          # nothing numeric → no metrics
+]}
+
+
+def fake_aa(url, headers=None, timeout=8.0):
+    assert headers and headers.get("x-api-key") == "aa-test-key"
+    return _aa_payload
+
+
+_saved_key = os.environ.pop("ARTIFICIALANALYSIS_API_KEY", None)
+no_key = ArtificialAnalysisAdapter().run()
+ok("artificialanalysis without a key fails with an actionable error",
+   not no_key.ok and "ARTIFICIALANALYSIS_API_KEY" in (no_key.error or ""))
+os.environ["ARTIFICIALANALYSIS_API_KEY"] = "aa-test-key"
+base.http_get_json = fake_aa
+aa = ArtificialAnalysisAdapter().run()
+by_metric = {(m.category, m.metric): m for m in aa.metrics}
+ok("artificialanalysis emits intelligence/coding/speed/price for present fields only",
+   aa.ok and len(aa.metrics) == 4
+   and by_metric[("general", "intelligence")].value == 71.2
+   and by_metric[("coding", "coding")].model_id == "gpt-5.4")
+if _saved_key is None:
+    os.environ.pop("ARTIFICIALANALYSIS_API_KEY", None)
+else:
+    os.environ["ARTIFICIALANALYSIS_API_KEY"] = _saved_key
+
+
+def fake_arena(url, headers=None, timeout=8.0):
+    if "config=text" in url:
+        return {"rows": [
+            {"row": {"model_name": "gpt-5.4", "rating": 1499.0, "category": "overall",
+                     "leaderboard_publish_date": "2026-07-21"}},
+            {"row": {"model_name": "gpt-5.4", "rating": 1490.0, "category": "overall",
+                     "leaderboard_publish_date": "2026-07-14"}},   # stale date → ignored
+            {"row": {"model_name": "claude-fable-5", "rating": 1504.0, "category": "overall",
+                     "leaderboard_publish_date": "2026-07-21"}},
+        ]}
+    if "config=agent" in url:
+        return {"rows": [
+            {"row": {"model_name": "Claude Fable 5 (High)", "score": 0.127, "category": "overall",
+                     "leaderboard_publish_date": "2026-07-21"}},
+            {"row": {"model_name": "Claude Fable 5 (Low)", "score": 0.080, "category": "overall",
+                     "leaderboard_publish_date": "2026-07-21"}},   # variant merges, best kept
+        ]}
+    return {"rows": []}                                 # webdev board down → others survive
+
+
+base.http_get_json = fake_arena
+arena = LMArenaAdapter().run()
+elo = {m.model_id: m.value for m in arena.metrics if m.metric == "elo"}
+agentic = {m.model_id: m.value for m in arena.metrics if m.metric == "agentic"}
+ok("lmarena: newest publish date only, per-board metrics, one board down survives",
+   arena.ok and elo == {"gpt-5.4": 1499.0, "claude-fable-5": 1504.0}
+   and not any(m.metric == "webdev" for m in arena.metrics))
+ok("lmarena: effort variants merge onto the base model keeping the best score",
+   agentic == {"claude-fable-5": 0.127})
+base.http_get_json = _real_http
 
 print(f"\nALL {PASS} CHECKS PASSED")

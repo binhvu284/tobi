@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from core.news import normalizer
-from core.news.contracts import ModelMetric, ModelRelease, TrustClass
+from core.news.contracts import ModelMetric, ModelRelease, TrustClass, canonical_model_id
 from core.news.sources import base
 
 _API = "https://openrouter.ai/api/v1/models"
@@ -32,9 +32,10 @@ class OpenRouterAdapter(base.Adapter):
         data = base.http_get_json(_API, timeout=self.timeout_s) or {}
         payload = base.Payload()
         for model in (data.get("data") or [])[: self.max_records]:
-            model_id = str(model.get("id") or "").strip()
-            if not model_id:
+            raw_id = str(model.get("id") or "").strip()
+            if not raw_id:
                 continue
+            model_id = canonical_model_id(raw_id)      # cross-source identity
             pricing = model.get("pricing") or {}
             observations = (
                 ("context", model.get("context_length")),
@@ -52,11 +53,11 @@ class OpenRouterAdapter(base.Adapter):
                     observed_at=now, formula_version=FORMULA_VERSION))
             created = normalizer.to_utc_iso(model.get("created"))
             if created and datetime.fromisoformat(created) >= cutoff:
-                name = str(model.get("name") or model_id)
+                name = str(model.get("name") or raw_id)
                 payload.releases.append(ModelRelease(
                     model_id=model_id,
                     title=f"{name} available on OpenRouter",
-                    source_url=f"https://openrouter.ai/{model_id}",
+                    source_url=f"https://openrouter.ai/{raw_id}",
                     released_at=created,
                     observed_at=now))
         return payload

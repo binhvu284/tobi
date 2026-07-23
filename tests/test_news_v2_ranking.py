@@ -127,6 +127,21 @@ try:
     ok("unknown window refused", False)
 except ValueError:
     ok("unknown window refused", True)
+
+# ── capability gate: price/context alone never ranks a model ─────────────────────────
+N.ingest_model_evidence(conn, [
+    CT.ModelMetric(model_id="cheapo-big", category="general", source="catalog",
+                   metric="price_in", value=0.1, confidence=0.9,
+                   observed_at=NOW.isoformat(), formula_version="raw"),
+    CT.ModelMetric(model_id="cheapo-big", category="general", source="catalog",
+                   metric="context", value=2_000_000, confidence=0.9,
+                   observed_at=NOW.isoformat(), formula_version="raw"),
+], [])
+conn.commit()
+RK.build_model_snapshot(conn, now=NOW)
+top_ids = {e["model_id"] for e in repository.read_snapshot_page(conn, kind="models:top", limit=40)["entries"]}
+ok("2 families of cost+context alone are NOT Top-10 eligible (capability gate)",
+   "cheapo-big" not in top_ids and top_ids)
 trend_snaps = RK.build_trending_snapshots(conn, now=NOW)
 ok("trending snapshots persist per window + tools",
    set(trend_snaps) == {"github:week", "github:month", "github:all", "tools"})
