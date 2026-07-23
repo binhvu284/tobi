@@ -172,8 +172,26 @@ DELETE FROM news_model_releases;
 DELETE FROM news_rank_snapshots WHERE kind='models:top';
 """
 
+# Real GitHub trending (owner: "fetch real data, not calculated itself"). One row
+# per (repo, window) holding github.com/trending's own period-star figure, replaced
+# each refresh. The ranking reads this directly instead of deriving growth from
+# star snapshots — so week/month are real from the first refresh, no history wait.
+_MIGRATION_5 = """
+CREATE TABLE IF NOT EXISTS news_github_trending (
+    repo         TEXT NOT NULL,
+    window       TEXT NOT NULL,
+    rank         INTEGER NOT NULL,
+    period_stars INTEGER NOT NULL,
+    total_stars  INTEGER NOT NULL,
+    description  TEXT,
+    language     TEXT,
+    observed_at  TEXT NOT NULL,
+    PRIMARY KEY (repo, window)
+);
+"""
+
 _MIGRATIONS: list[tuple[int, str]] = [(1, _MIGRATION_1), (2, _MIGRATION_2), (3, _MIGRATION_3),
-                                      (4, _MIGRATION_4)]
+                                      (4, _MIGRATION_4), (5, _MIGRATION_5)]
 
 SNAPSHOT_KEEP = 20     # retained rank snapshots per kind (immutable, rebuilt often)
 

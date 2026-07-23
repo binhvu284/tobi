@@ -115,18 +115,54 @@ def build_model_snapshot(conn: sqlite3.Connection, now: datetime | None = None) 
     return write_rank_snapshot(conn, "models:top", entries[:TOP_N_MODELS * 3], MODEL_FORMULA_VERSION)
 
 
-# ── 2. GitHub growth from persisted history (plan §6) ────────────────────────────────
+# ── 2. GitHub trending: REAL numbers from github.com/trending (owner direction) ──────
 def github_trending_entries(conn: sqlite3.Connection, window: str,
                             now: datetime | None = None) -> list[dict]:
-    """``week``/``month``: newest snapshot minus the nearest snapshot AT OR BEFORE the
-    boundary. When the window isn't spanned yet but an EARLIER day exists, fall back
-    to the earliest persisted snapshot — real measured growth over a shorter span,
-    honestly labeled via ``baseline_date`` (the UI renders "since <date>"). Only a
-    single snapshot day → ``collecting`` with NO growth field: current stars are
-    never presented as growth. ``all``: total stars."""
+    """PRIMARY (owner: "real data, not calculated itself"): read github.com/trending's
+    own period-star figures straight from ``news_github_trending`` — real from the
+    first refresh, no history wait, ranked exactly as GitHub trends them. ``all`` uses
+    each trending repo's total stars. Falls back to the legacy snapshot-derived growth
+    ONLY when the live scrape produced nothing (offline), so the table degrades
+    honestly instead of going blank."""
     if window not in ("week", "month", "all"):
         raise ValueError(f"unknown window {window!r}")
     _ensure_once(conn)
+    real = _github_trending_real(conn, window)
+    if real is not None:
+        return real
+    return _github_trending_from_snapshots(conn, window, now)
+
+
+def _github_trending_real(conn: sqlite3.Connection, window: str) -> list[dict] | None:
+    """github.com/trending rows for the window (``all`` = union by total stars).
+    Returns None when the trending table is empty so the caller can fall back."""
+    if window == "all":
+        rows = conn.execute(
+            "SELECT repo, MAX(total_stars), MAX(description), MAX(language)"
+            " FROM news_github_trending GROUP BY repo").fetchall()
+        if not rows:
+            return None
+        entries = [{"repo": r[0], "stars": int(r[1]), "description": r[2],
+                    "language": r[3], "status": "ok"} for r in rows]
+        entries.sort(key=lambda e: (-e["stars"], e["repo"]))
+        return entries
+    rows = conn.execute(
+        "SELECT repo, period_stars, total_stars, description, language, rank"
+        " FROM news_github_trending WHERE window=? ORDER BY rank ASC", (window,)).fetchall()
+    if not rows:
+        return None
+    # GitHub already ordered the page by trend; keep that order, expose the real growth
+    return [{"repo": r[0], "growth": int(r[1]), "stars": int(r[2]), "description": r[3],
+             "language": r[4], "status": "ok", "source": "github_trending"} for r in rows]
+
+
+def _github_trending_from_snapshots(conn: sqlite3.Connection, window: str,
+                                    now: datetime | None = None) -> list[dict]:
+    """Legacy fallback: newest snapshot minus the nearest snapshot AT OR BEFORE the
+    boundary. When the window isn't spanned yet but an EARLIER day exists, fall back
+    to the earliest persisted snapshot — real measured growth over a shorter span,
+    honestly labeled via ``baseline_date``. Only a single snapshot day →
+    ``collecting`` with NO growth field. ``all``: total stars."""
     now_dt = _now(now)
     boundary = (now_dt - timedelta(days=7 if window == "week" else 30)).date().isoformat()
     repos = [r[0] for r in conn.execute("SELECT DISTINCT repo FROM news_github_snapshots ORDER BY repo")]

@@ -1,66 +1,110 @@
-"""GitHub AI-repository adapter (#23, N02) — authenticated REST search, rate-honest.
+"""GitHub trending adapter (#23) — REAL trending from github.com/trending.
 
-Emits repo items for Trending plus one ``GitHubSnapshot`` star reading per repo per
-day. Week/month growth is computed LATER (N05) purely from persisted snapshots — this
-adapter never claims growth, and a rate-limit response surfaces as ``rate_limited``
-instead of degraded fake data (plan §5/§6).
+Owner direction: "fetch real data from github, not calculated it self." GitHub's
+REST/GraphQL API has no trending endpoint; github.com/trending is GitHub's own
+authoritative trending list and reports the ACTUAL stars gained this week/month.
+So this adapter scrapes that page (keyless, no token needed) for the weekly and
+monthly boards and stores GitHub's real period number directly — the ranking no
+longer derives growth from our own star snapshots over time.
+
+Parsing is defensive: each repo block is isolated, missing fields are skipped
+(never guessed), and a board that fails to parse never kills the other. Star
+history snapshots are still emitted (cheap, useful for the model explorer) but
+are no longer the source of the week/month growth figure.
 """
 from __future__ import annotations
 
-import os
+import html
+import re
 from datetime import datetime, timezone
 
 from core.news import normalizer
-from core.news.contracts import GitHubSnapshot, ItemType, SourceRecord, TrustClass, payload_hash
+from core.news.contracts import (
+    GitHubSnapshot, GitHubTrending, ItemType, SourceRecord, TrustClass, payload_hash,
+)
 from core.news.sources import base
 
-_API = ("https://api.github.com/search/repositories"
-        "?q=topic:ai+stars:%3E200&sort=stars&order=desc&per_page={n}")
-_UNAUTH_MAX = 20                 # be a polite guest without a token
+_TRENDING = "https://github.com/trending?since={since}&spoken_language_code="
+_WINDOWS = (("week", "weekly"), ("month", "monthly"))
+
+_BLOCK = re.compile(r'<article class="Box-row">')
+_NAME = re.compile(r'<h2[^>]*>\s*<a[^>]*href="/([^"/]+/[^"?#]+)"')
+_DESC = re.compile(r'<p class="col-9[^"]*"[^>]*>(.*?)</p>', re.S)
+_TOTAL = re.compile(r'href="/[^"]+/stargazers"[^>]*>.*?</svg>\s*([\d,]+)', re.S)
+_PERIOD = re.compile(r'([\d,]+)\s+stars\s+(?:today|this week|this month)')
+_LANG = re.compile(r'itemprop="programmingLanguage">([^<]+)<')
+_TAG = re.compile(r"<[^>]+>")
+
+
+def _int(raw: str | None) -> int:
+    try:
+        return max(0, int((raw or "0").replace(",", "").strip()))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _text(raw: str) -> str:
+    return html.unescape(_TAG.sub("", raw)).strip()
 
 
 class GitHubTrendingAdapter(base.Adapter):
     name = "github"
     trust = TrustClass.VERIFIED_API
-    attribution = "GitHub REST API"
-    timeout_s = 8.0
-    max_records = 40
-
-    def _headers(self) -> dict:
-        headers = {"Accept": "application/vnd.github+json"}
-        token = os.getenv("GITHUB_TOKEN", "").strip()   # vault-exported when connected
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-        return headers
+    attribution = "GitHub Trending (github.com/trending)"
+    timeout_s = 10.0
+    max_records = 30
 
     def _collect(self) -> base.Payload:
-        headers = self._headers()
-        bound = self.max_records if "Authorization" in headers else min(self.max_records, _UNAUTH_MAX)
         now_dt = datetime.now(timezone.utc)
         now = now_dt.isoformat()
         today = now_dt.date().isoformat()
-        data = base.http_get_json(_API.format(n=bound), headers=headers, timeout=self.timeout_s) or {}
         payload = base.Payload()
-        for repo in (data.get("items") or [])[:bound]:
-            full_name = str(repo.get("full_name") or "").strip()
-            html_url = (repo.get("html_url") or "").strip()
-            if not full_name or "/" not in full_name or not html_url:
-                continue
-            stars = max(0, int(repo.get("stargazers_count") or 0))
-            payload.records.append(SourceRecord(
-                source=self.name,
-                external_id=full_name,
-                url=html_url,
-                title=full_name,
-                item_type=ItemType.REPO,
-                trust=self.trust,
-                observed_at=now,
-                published_at=normalizer.to_utc_iso(repo.get("created_at")),
-                excerpt=normalizer.bound_excerpt(repo.get("description")),
-                engagement=stars,
-                author=(repo.get("owner") or {}).get("login") or None,
-                raw_hash=payload_hash({"full_name": full_name, "stars": stars}),
-            ))
-            payload.github_snapshots.append(GitHubSnapshot(
-                repo=full_name, snapshot_date=today, stars=stars))
+        seen_snapshot: set[str] = set()
+        parsed_any = False
+        for window, since in _WINDOWS:
+            try:
+                page = base.http_get_text(_TRENDING.format(since=since), timeout=self.timeout_s)
+            except base.RateLimited:
+                raise
+            except Exception:
+                continue                                   # one board down never kills the other
+            blocks = _BLOCK.split(page)[1:]
+            for rank, block in enumerate(blocks[: self.max_records], start=1):
+                name_m = _NAME.search(block)
+                if not name_m:
+                    continue
+                full_name = name_m.group(1).strip()
+                if "/" not in full_name:
+                    continue
+                period_m = _PERIOD.search(block)
+                if not period_m:
+                    continue                               # no real period number → skip, never guess
+                period_stars = _int(period_m.group(1))
+                total_m = _TOTAL.search(block)
+                total_stars = _int(total_m.group(1)) if total_m else period_stars
+                desc_m = _DESC.search(block)
+                description = _text(desc_m.group(1))[:280] if desc_m else ""
+                lang_m = _LANG.search(block)
+                language = lang_m.group(1).strip() if lang_m else None
+                parsed_any = True
+                payload.github_trending.append(GitHubTrending(
+                    repo=full_name, window=window, rank=rank,
+                    period_stars=period_stars, total_stars=total_stars,
+                    observed_at=now, description=description or None, language=language))
+                if full_name not in seen_snapshot:         # one record + one snapshot per repo
+                    seen_snapshot.add(full_name)
+                    payload.records.append(SourceRecord(
+                        source=self.name, external_id=full_name,
+                        url=f"https://github.com/{full_name}",
+                        title=full_name, item_type=ItemType.REPO, trust=self.trust,
+                        observed_at=now, published_at=None,
+                        excerpt=normalizer.bound_excerpt(description),
+                        engagement=total_stars,
+                        author=full_name.split("/", 1)[0] or None,
+                        raw_hash=payload_hash({"repo": full_name, "stars": total_stars})))
+                    if total_stars > 0:
+                        payload.github_snapshots.append(GitHubSnapshot(
+                            repo=full_name, snapshot_date=today, stars=total_stars))
+        if not parsed_any:
+            raise RuntimeError("github.com/trending returned no parsable repositories")
         return payload

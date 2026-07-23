@@ -154,3 +154,28 @@ def ingest_github_snapshots(conn: sqlite3.Connection, snapshots: Iterable[GitHub
             (s.repo, s.snapshot_date, s.stars))
         n += cur.rowcount
     return n
+
+
+def ingest_github_trending(conn: sqlite3.Connection, rows: Iterable) -> int:
+    """GitHub's OWN trending numbers, upserted per (repo, window). A window present
+    in this refresh is fully replaced (stale repos that fell off the board are
+    cleared first) so the table always mirrors the live trending page."""
+    from core.news import repository
+    repository._ensure_once(conn)
+    rows = list(rows)
+    for window in {r.window for r in rows}:
+        conn.execute("DELETE FROM news_github_trending WHERE window=?", (window,))
+    n = 0
+    for r in rows:
+        cur = conn.execute(
+            "INSERT INTO news_github_trending"
+            " (repo, window, rank, period_stars, total_stars, description, language, observed_at)"
+            " VALUES (?,?,?,?,?,?,?,?)"
+            " ON CONFLICT(repo, window) DO UPDATE SET rank=excluded.rank,"
+            " period_stars=excluded.period_stars, total_stars=excluded.total_stars,"
+            " description=excluded.description, language=excluded.language,"
+            " observed_at=excluded.observed_at",
+            (r.repo, r.window, r.rank, r.period_stars, r.total_stars,
+             r.description, r.language, r.observed_at))
+        n += cur.rowcount
+    return n

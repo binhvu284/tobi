@@ -188,6 +188,7 @@ def run_job(job_id: int, owner: str | None = None, now: datetime | None = None) 
                     counts = normalizer.ingest(conn, result.records)
                     ev = normalizer.ingest_model_evidence(conn, result.metrics, result.releases)
                     snaps = normalizer.ingest_github_snapshots(conn, result.github_snapshots)
+                    normalizer.ingest_github_trending(conn, result.github_trending)
                     for key, val in counts.items():
                         totals[key] = totals.get(key, 0) + val
                     totals["metrics"] += ev["metrics"]; totals["releases"] += ev["releases"]

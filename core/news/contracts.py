@@ -276,6 +276,29 @@ class GitHubSnapshot:
         _require(self.stars >= 0, "stars must be >= 0")
 
 
+# ── GitHub REAL trending (owner: "fetch real data, not calculated itself") ───────────
+# github.com/trending is GitHub's own authoritative trending list — it reports the
+# actual stars gained this week/month, so we store that period number directly
+# instead of deriving growth from our own star snapshots over time.
+@dataclass(frozen=True)
+class GitHubTrending:
+    repo: str                 # owner/name
+    window: str               # "week" | "month"
+    rank: int                 # position on GitHub's trending page (1-based)
+    period_stars: int         # REAL stars gained this window, per GitHub
+    total_stars: int
+    observed_at: str
+    description: str | None = None
+    language: str | None = None
+
+    def __post_init__(self) -> None:
+        _require(bool(self.repo.strip()) and "/" in self.repo, "repo must be owner/name")
+        _require(self.window in ("week", "month"), "window must be week|month")
+        _require(self.rank >= 1, "rank must be >= 1")
+        _require(self.period_stars >= 0 and self.total_stars >= 0, "star counts must be >= 0")
+        _iso_or_none(self.observed_at, "observed_at")
+
+
 # ── model evidence (plan §5/§6) ──────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class ModelMetric:

@@ -128,6 +128,32 @@ try:
 except ValueError:
     ok("unknown window refused", True)
 
+# ── GitHub REAL trending: github.com/trending numbers PREEMPT the snapshot fallback ──
+N.ingest_github_trending(conn, [
+    CT.GitHubTrending(repo="hot/repo", window="week", rank=1, period_stars=1234,
+                      total_stars=4200, observed_at=NOW.isoformat(), description="d1", language="Python"),
+    CT.GitHubTrending(repo="cool/repo", window="week", rank=2, period_stars=800,
+                      total_stars=9000, observed_at=NOW.isoformat(), description="d2", language="Rust"),
+    CT.GitHubTrending(repo="hot/repo", window="month", rank=1, period_stars=5000,
+                      total_stars=4200, observed_at=NOW.isoformat()),
+])
+conn.commit()
+rweek = RK.github_trending_entries(conn, "week", now=NOW)
+ok("real trending preempts snapshots: growth is GitHub's own period number, page order kept",
+   [(e["repo"], e["growth"]) for e in rweek] == [("hot/repo", 1234), ("cool/repo", 800)],
+   str(rweek))
+ok("real trending never emits 'collecting' (data is real from the first refresh)",
+   all(e["status"] == "ok" for e in rweek))
+rall = RK.github_trending_entries(conn, "all", now=NOW)
+ok("all-time over real trending ranks by total stars",
+   [e["repo"] for e in rall] == ["cool/repo", "hot/repo"], str(rall))
+N.ingest_github_trending(conn, [
+    CT.GitHubTrending(repo="hot/repo", window="week", rank=1, period_stars=1234,
+                      total_stars=4200, observed_at=NOW.isoformat())])
+gone = [e["repo"] for e in RK.github_trending_entries(conn, "week", now=NOW)]
+ok("a repo that fell off GitHub's board is cleared on the next refresh",
+   gone == ["hot/repo"], str(gone))
+
 # ── capability gate: price/context alone never ranks a model ─────────────────────────
 N.ingest_model_evidence(conn, [
     CT.ModelMetric(model_id="cheapo-big", category="general", source="catalog",

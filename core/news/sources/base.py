@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass, field
 
 from core.news.contracts import (
-    GitHubSnapshot, ModelMetric, ModelRelease, SourceRecord, TrustClass,
+    GitHubSnapshot, GitHubTrending, ModelMetric, ModelRelease, SourceRecord, TrustClass,
 )
 
 
@@ -29,6 +29,7 @@ class AdapterResult:
     metrics: tuple = ()             # ModelMetric
     releases: tuple = ()            # ModelRelease
     github_snapshots: tuple = ()    # GitHubSnapshot
+    github_trending: tuple = ()     # GitHubTrending (real period stars)
     rate_limited: bool = False
     error: str | None = None
     attempts: int = 0
@@ -42,6 +43,7 @@ class Payload:
     metrics: list = field(default_factory=list)
     releases: list = field(default_factory=list)
     github_snapshots: list = field(default_factory=list)
+    github_trending: list = field(default_factory=list)
 
 
 _SECRET = re.compile(r"(?i)(bearer\s+\S+|token[=:\s]\S+|ghp_\w+|sk-\w+|key[=:]\S+)")
@@ -119,7 +121,8 @@ class Adapter:
                     if not isinstance(rec, SourceRecord):
                         raise RuntimeError(f"{self.name} emitted a non-contract record")
                 for group, cls in ((payload.metrics, ModelMetric), (payload.releases, ModelRelease),
-                                   (payload.github_snapshots, GitHubSnapshot)):
+                                   (payload.github_snapshots, GitHubSnapshot),
+                                   (payload.github_trending, GitHubTrending)):
                     for row in group:
                         if not isinstance(row, cls):
                             raise RuntimeError(f"{self.name} emitted a non-contract {cls.__name__}")
@@ -129,6 +132,7 @@ class Adapter:
                     metrics=tuple(payload.metrics[: self.max_records * 4]),
                     releases=tuple(payload.releases[: self.max_records]),
                     github_snapshots=tuple(payload.github_snapshots[: self.max_records]),
+                    github_trending=tuple(payload.github_trending[: self.max_records * 2]),
                 )
             except RateLimited as exc:
                 return AdapterResult(source=self.name, ok=False, rate_limited=True,

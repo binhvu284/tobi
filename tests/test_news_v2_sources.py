@@ -181,49 +181,64 @@ ok("only recent catalog arrivals become releases", len(orr.releases) == 1
 ok("release evidence carries source_url + released_at",
    orr.releases[0].source_url == "https://openrouter.ai/openai/gpt-6" and orr.releases[0].released_at)
 
-# ── 5. GitHub mapping: auth-aware bounds, snapshots, honest rate limits ──────────────
-_GH_RESULT = {"items": [
-    {"full_name": "org/ai-lib", "html_url": "https://github.com/org/ai-lib",
-     "stargazers_count": 4200, "description": "An <b>AI</b> library", "created_at": "2025-01-01T00:00:00Z",
-     "owner": {"login": "org"}},
-    {"full_name": "solo/tool", "html_url": "https://github.com/solo/tool", "stargazers_count": 900},
-]}
-seen_headers: dict = {}
+# ── 5. GitHub trending: REAL github.com/trending scrape (owner: "real data") ─────────
+def _gh_row(repo, total, period, lang="Python", desc="An <b>AI</b> library"):
+    # mirrors the real page: an <svg height="16"> icon precedes the star count,
+    # so the total-stars regex must skip the svg (guards the height=16 gotcha)
+    return (f'<article class="Box-row">'
+            f'<h2 class="h3 lh-condensed"><a href="/{repo}">{repo}</a></h2>'
+            f'<p class="col-9 color-fg-muted my-1 pr-4">{desc}</p>'
+            f'<span itemprop="programmingLanguage">{lang}</span>'
+            f'<a href="/{repo}/stargazers" class="Link--muted">'
+            f'<svg aria-label="star" height="16" width="16" class="octicon"></svg> {total:,}</a>'
+            f'<span class="d-inline-block float-sm-right">{period:,} stars this week</span>')
 
 
-def gh_stub(url, headers=None, timeout=8.0):
-    CALLS.append(url)
-    seen_headers.update(headers or {})
-    return _GH_RESULT
+GH_CALLS: list = []
+def gh_trending(url, headers=None, timeout=8.0):
+    GH_CALLS.append(url)
+    if "since=weekly" in url:
+        return "<html>" + _gh_row("org/ai-lib", 4200, 1234) + _gh_row("solo/tool", 900, 300) + "</html>"
+    if "since=monthly" in url:
+        return "<html>" + _gh_row("org/ai-lib", 4200, 5000) + "</html>"
+    return "<html></html>"
 
 
-use(gh_stub)
+_real_text_gh = base.http_get_text
+base.http_get_text = gh_trending
 gh = GitHubTrendingAdapter().run()
-ok("unauthenticated GitHub stays a polite guest (per_page=20, no auth header)",
-   "per_page=20" in CALLS[-1] and "Authorization" not in seen_headers)
-ok("repos map to REPO records with star engagement", len(gh.records) == 2
-   and gh.records[0].item_type is CT.ItemType.REPO and gh.records[0].engagement == 4200)
+ok("github scrapes the real trending page for the weekly + monthly boards",
+   gh.ok and any("since=weekly" in u for u in GH_CALLS) and any("since=monthly" in u for u in GH_CALLS))
+tw = {(t.repo, t.window): t for t in gh.github_trending}
+ok("real period stars come straight from GitHub, not self-calculated",
+   tw[("org/ai-lib", "week")].period_stars == 1234
+   and tw[("org/ai-lib", "month")].period_stars == 5000
+   and tw[("org/ai-lib", "week")].total_stars == 4200)
+ok("one REPO record + one snapshot per repo, deduped across boards",
+   len(gh.records) == 2 and gh.records[0].item_type is CT.ItemType.REPO
+   and gh.records[0].engagement == 4200)
 today = NOW.date().isoformat()
-ok("every repo yields today's star snapshot (growth comes ONLY from history)",
-   [(s.repo, s.snapshot_date, s.stars) for s in gh.github_snapshots]
-   == [("org/ai-lib", today, 4200), ("solo/tool", today, 900)])
-
-os.environ["GITHUB_TOKEN"] = "ghp_dummy"
-seen_headers.clear()
-use(gh_stub)
-GitHubTrendingAdapter().run()
-ok("a vault-exported token authenticates and raises the bound",
-   seen_headers.get("Authorization") == "Bearer ghp_dummy" and "per_page=40" in CALLS[-1])
-os.environ.pop("GITHUB_TOKEN", None)
+ok("every trending repo yields today's star snapshot",
+   sorted((s.repo, s.stars) for s in gh.github_snapshots) == [("org/ai-lib", 4200), ("solo/tool", 900)])
 
 
 def gh_limited(url, headers=None, timeout=8.0):
-    raise base.RateLimited("rate limited: HTTP 403")
+    raise base.RateLimited("rate limited: HTTP 429")
 
 
-use(gh_limited)
+base.http_get_text = gh_limited
 res = GitHubTrendingAdapter().run()
-ok("GitHub rate limit surfaces honestly with zero records", res.rate_limited and not res.records)
+ok("github rate limit surfaces honestly with zero records", res.rate_limited and not res.records)
+
+
+def gh_empty(url, headers=None, timeout=8.0):
+    return "<html>nothing to parse here</html>"
+
+
+base.http_get_text = gh_empty
+dead_gh = GitHubTrendingAdapter().run()
+ok("github with no parsable repos fails cleanly (never fabricates)", not dead_gh.ok)
+base.http_get_text = _real_text_gh
 
 # ── 6. normalizer text + timestamps ──────────────────────────────────────────────────
 ok("strip_html removes tags and unescapes entities", N.strip_html("<b>Hi</b> &amp; <i>bye</i>") == "Hi & bye")
