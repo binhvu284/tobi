@@ -12,10 +12,10 @@ import {
   Newspaper, RefreshCw, Rss, Search, Settings2, Star, TrendingUp, Trophy, X,
 } from 'lucide-react'
 import {
-  getNewsV2Home, getNewsV2Models, getNewsV2RefreshJob, getNewsV2Settings, patchNewsV2Settings,
-  postNewsV2Refresh, postNewsV2RefreshCommand,
-  type NewsV2Home, type NewsV2ModelMetric, type NewsV2RankEntry, type NewsV2RefreshJob,
-  type NewsV2Release, type NewsV2Settings,
+  getNewsV2Home, getNewsV2ModelLeaderboards, getNewsV2Models, getNewsV2RefreshJob,
+  getNewsV2Settings, patchNewsV2Settings, postNewsV2Refresh, postNewsV2RefreshCommand,
+  type NewsV2Home, type NewsV2Leaderboard, type NewsV2ModelMetric, type NewsV2RankEntry,
+  type NewsV2RefreshJob, type NewsV2Release, type NewsV2Settings,
 } from '../../api'
 import { useToast } from '../../context/ToastProvider'
 import LlmLogo from '../LlmLogo'
@@ -44,6 +44,14 @@ function ago(iso: string | null | undefined): string {
   const h = Math.floor(m / 60)
   if (h < 48) return `${h}h ago`
   return `${Math.floor(h / 24)}d ago`
+}
+
+/** Absolute time in the OWNER's local timezone (matches the header clock) — used
+ *  as the tooltip behind every relative "Xh ago" so times are never ambiguous. */
+function localTime(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const stamp = new Date(iso)
+  return Number.isFinite(stamp.getTime()) ? stamp.toLocaleString() : String(iso)
 }
 
 export default function NewsV2() {
@@ -147,7 +155,7 @@ export default function NewsV2() {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {freshest && <span className="hidden items-center gap-1.5 rounded-full border border-border px-2 py-1 text-[10px] text-muted sm:inline-flex"><Activity size={11} /> data {ago(freshest)}</span>}
+            {freshest && <span title={localTime(freshest)} className="hidden items-center gap-1.5 rounded-full border border-border px-2 py-1 text-[10px] text-muted sm:inline-flex"><Activity size={11} /> data {ago(freshest)}</span>}
             {tab !== 'favorites' && (
               <button onClick={refresh} disabled={refreshing} title={`Refresh the ${tab} tab now`}
                 className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-xs font-medium text-text hover:border-accent/40 disabled:opacity-50">
@@ -368,6 +376,47 @@ function RefreshProgress({ job, running, onCancel, onRetry, onDismiss }: {
   )
 }
 
+/** One category's Top-5 leaderboard card — mini table with relative benchmark bars,
+ *  sources attributed in the header. Purely data-driven per category. */
+function LeaderboardCard({ board }: { board: NewsV2Leaderboard }) {
+  const top = board.entries[0]?.score || 100
+  return (
+    <section className="overflow-hidden rounded-lg border border-border bg-surface/50">
+      <header className="flex h-10 items-center gap-2 border-b border-border px-3.5">
+        <Trophy size={12} className="text-accent" />
+        <h3 className="text-xs font-semibold capitalize text-text">{board.category}</h3>
+        <span className="ml-auto"><SourceIconGroup sources={board.sources} size={16} /></span>
+      </header>
+      <div className="divide-y divide-border/50">
+        {board.entries.map((entry, index) => {
+          const tone = index === 0
+            ? { row: 'bg-accent/[0.05]', badge: 'bg-accent text-background', bar: 'bg-accent' }
+            : index === 1
+              ? { row: '', badge: 'border border-accent/50 text-accent', bar: 'bg-accent/70' }
+              : index === 2
+                ? { row: '', badge: 'border border-accent/25 text-accent/80', bar: 'bg-accent/50' }
+                : { row: '', badge: 'border border-border text-muted', bar: 'bg-overlay/30' }
+          return (
+            <div key={entry.model_id} title={`${entry.metrics} metrics · observed ${localTime(entry.observed_at)}`}
+              className={`flex items-center gap-2.5 px-3.5 py-2 ${tone.row}`}>
+              <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${tone.badge}`}>{index + 1}</span>
+              <LlmLogo model={entry.model_id} size={11} className="h-5 w-5 border border-border bg-background" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-xs font-medium text-text">{entry.model_id}</div>
+                <div className="mt-1 h-1 w-full max-w-[180px] overflow-hidden rounded-full bg-background/70">
+                  <div className={`h-full rounded-full ${tone.bar}`}
+                    style={{ width: `${Math.max(5, Math.round((entry.score / Math.max(1, top)) * 100))}%` }} />
+                </div>
+              </div>
+              <span className="shrink-0 font-mono text-xs font-semibold text-text">{entry.score.toFixed(1)}</span>
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 // ── Home (N08): Model Strength Top 10 + Latest Releases, always sourced + timed ──────
 function HomeTab({ home, loading, error, onRetry, sources }: {
   home: NewsV2Home | null; loading: boolean; error: string | null; onRetry: () => void
@@ -401,7 +450,7 @@ function HomeTab({ home, loading, error, onRetry, sources }: {
               <SourceIconGroup sources={sources} />
               <button onClick={() => setExplorerOpen(true)}
                 className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted hover:text-accent">
-                <Maximize2 size={11} /> Explore models
+                <Maximize2 size={11} /> Explore
               </button>
             </div>
           </header>
@@ -469,7 +518,7 @@ function ReleaseRow({ release }: { release: NewsV2Release }) {
       <LlmLogo model={release.model_id ?? undefined} size={14} className="h-6 w-6 border border-border bg-background" />
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm text-text">{release.title}</div>
-        <div className="mt-0.5 text-[11px] text-muted">
+        <div className="mt-0.5 text-[11px] text-muted" title={localTime(release.released_at ?? release.observed_at)}>
           {release.released_at ? `released ${ago(release.released_at)}` : `observed ${ago(release.observed_at)}`}
         </div>
       </div>
@@ -502,16 +551,32 @@ function SourceHealth({ home }: { home: NewsV2Home | null }) {
   )
 }
 
-// ── Full-screen Model Explorer (N08): search + category, keyset pagination ───────────
+// ── Full-screen Model Explorer (N08, redesigned): category leaderboard cards ─────────
+// Overview = one Top-5 card per evidence category (data-driven — future benchmark
+// categories like coding/image/video become new cards automatically). Searching
+// flips to the detailed per-model evidence tables.
 function ModelExplorerModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [q, setQ] = useState('')
+  const [detail, setDetail] = useState(false)          // false → leaderboard overview
+  const [boards, setBoards] = useState<Awaited<ReturnType<typeof getNewsV2ModelLeaderboards>>['categories']>([])
   const [category, setCategory] = useState('')
   const [models, setModels] = useState<{ model_id: string; metrics: NewsV2ModelMetric[] }[]>([])
   const [cursor, setCursor] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState<string | null>(null)
 
+  useEffect(() => {
+    if (!open) return
+    setDetail(false); setQ(''); setCategory('')
+    setBusy(true)
+    void getNewsV2ModelLeaderboards()
+      .then(res => { setBoards(res.categories); setFailed(null) })
+      .catch(err => setFailed(err instanceof Error ? err.message : String(err)))
+      .finally(() => setBusy(false))
+  }, [open])
+
   const search = useCallback(async (reset: boolean, cur?: string | null) => {
+    setDetail(true)
     setBusy(true)
     try {
       const page = await getNewsV2Models({ q, category, cursor: reset ? undefined : cur ?? undefined, limit: 20 })
@@ -522,7 +587,6 @@ function ModelExplorerModal({ open, onClose }: { open: boolean; onClose: () => v
       setFailed(err instanceof Error ? err.message : String(err))
     } finally { setBusy(false) }
   }, [q, category])
-  useEffect(() => { if (open) void search(true) }, [open, search])
 
   return createPortal(
     <AnimatePresence>
@@ -540,23 +604,41 @@ function ModelExplorerModal({ open, onClose }: { open: boolean; onClose: () => v
             <div className="flex flex-wrap items-center gap-2 border-b border-border px-5 py-3">
               <div className="relative min-w-[220px] flex-1">
                 <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
-                <input value={q} onChange={event => setQ(event.target.value)} placeholder="Search by model id"
+                <input value={q} onChange={event => setQ(event.target.value)} placeholder="Search by model id — opens detailed evidence"
                   onKeyDown={event => { if (event.key === 'Enter') void search(true) }}
                   className="h-9 w-full rounded-md border border-border bg-background pl-8 pr-3 text-sm text-text outline-none focus:border-accent" />
               </div>
               <select value={category} onChange={event => setCategory(event.target.value)}
-                className="h-9 rounded-md border border-border bg-background px-2 text-xs text-text outline-none focus:border-accent">
+                className="h-9 rounded-md border border-border bg-background px-2 text-xs capitalize text-text outline-none focus:border-accent">
                 <option value="">All categories</option>
-                <option value="general">General</option>
+                {boards.map(board => <option key={board.category} value={board.category}>{board.category}</option>)}
               </select>
               <button onClick={() => void search(true)} disabled={busy}
                 className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-xs font-semibold text-background disabled:opacity-50">
                 {busy ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />} Search
               </button>
+              {detail && (
+                <button onClick={() => { setDetail(false); setQ('') }}
+                  className="inline-flex h-9 items-center rounded-md border border-border px-3 text-xs text-text hover:border-accent/40">
+                  ← Overview
+                </button>
+              )}
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               {failed ? (
                 <div className="flex items-center gap-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"><AlertTriangle size={13} /> {failed}</div>
+              ) : !detail ? (
+                busy && boards.length === 0 ? (
+                  <div className="grid gap-4 sm:grid-cols-2">{[0, 1].map(i => (
+                    <div key={i} className="h-56 animate-pulse rounded-lg border border-border bg-surface/40" />))}
+                  </div>
+                ) : boards.length === 0 ? (
+                  <p className="py-12 text-center text-xs text-muted">No model evidence yet — run a Home refresh first.</p>
+                ) : (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {boards.map(board => <LeaderboardCard key={board.category} board={board} />)}
+                  </div>
+                )
               ) : models.length === 0 && !busy ? (
                 <p className="py-12 text-center text-xs text-muted">No models match.</p>
               ) : (
@@ -580,7 +662,7 @@ function ModelExplorerModal({ open, onClose }: { open: boolean; onClose: () => v
                                 <td className="px-3 py-1.5 text-text">{metric.metric}</td>
                                 <td className="px-3 py-1.5 font-mono text-text">{metric.value}</td>
                                 <td className="px-3 py-1.5 text-muted">{metric.source}</td>
-                                <td className="px-3 py-1.5 text-muted">{ago(metric.observed_at)}</td>
+                                <td className="px-3 py-1.5 text-muted" title={localTime(metric.observed_at)}>{ago(metric.observed_at)}</td>
                                 <td className="px-3 py-1.5 text-muted">{Math.round(metric.confidence * 100)}%</td>
                               </tr>
                             ))}

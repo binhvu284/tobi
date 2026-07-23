@@ -171,7 +171,8 @@ export default function NewsCard({ entry, override, showReasons, onChange, onRem
           {domain && !domain.includes('ycombinator') && (
             <><span className="opacity-40">·</span><span className="truncate">{domain}</span></>
           )}
-          <span className="opacity-40">·</span><span>{timeLabel}</span>
+          <span className="opacity-40">·</span>
+          <span title={new Date(entry.published_at ?? entry.first_seen_at ?? '').toLocaleString()}>{timeLabel}</span>
           {typeof entry.engagement === 'number' && entry.engagement > 0 && (
             <><span className="opacity-40">·</span><span>▲ {entry.engagement}</span></>
           )}

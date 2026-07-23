@@ -837,6 +837,13 @@ export type NewsV2Settings = {
   known_sources: string[]; tab_sources: Record<string, string[]>
 }
 export async function getNewsV2Settings(): Promise<NewsV2Settings> { return get('/api/explore/v2/settings') }
+export type NewsV2Leaderboard = {
+  category: string; sources: string[]
+  entries: { model_id: string; score: number; metrics: number; observed_at: string }[]
+}
+export async function getNewsV2ModelLeaderboards(): Promise<{ categories: NewsV2Leaderboard[] }> {
+  return get('/api/explore/v2/models/leaderboards')
+}
 export async function patchNewsV2Settings(patch: {
   schedules?: Record<string, string>; enabled_sources?: string[]; context_classes?: Record<string, boolean>
 }): Promise<{ schedules: Record<string, string>; enabled_sources: string[]; context_classes: Record<string, boolean> }> {

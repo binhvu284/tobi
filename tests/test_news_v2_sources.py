@@ -271,4 +271,53 @@ conn.commit()
 conn.close()
 
 base.http_get_json = _real_http
+
+# ── RSS adapter (N12 owner QA): curated publication feeds, RSS2 + Atom ───────────────
+from core.news.sources.rss import RSSAdapter, FEEDS  # noqa: E402
+
+_RSS_XML = """<?xml version="1.0"?><rss version="2.0"><channel>
+<item><title>AI &lt;b&gt;chips&lt;/b&gt; surge</title><link>https://pub.io/a1</link>
+<pubDate>Wed, 22 Jul 2026 08:00:00 GMT</pubDate>
+<description>&lt;p&gt;Big move in &lt;i&gt;silicon&lt;/i&gt;&lt;/p&gt;</description></item>
+<item><title>No link item</title><link></link></item>
+</channel></rss>"""
+_ATOM_XML = """<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">
+<entry><title>Atom AI story</title><link href="https://pub2.io/b1"/>
+<updated>2026-07-22T09:30:00Z</updated><summary>Atom summary</summary></entry>
+</feed>"""
+
+
+def fake_text(url, headers=None, timeout=8.0):
+    if FEEDS[0][1] == url:
+        return _RSS_XML
+    if FEEDS[1][1] == url:
+        return _ATOM_XML
+    raise RuntimeError("HTTP 500")
+
+
+_real_text = base.http_get_text
+base.http_get_text = fake_text
+rss_result = RSSAdapter().run()
+ok("rss adapter: partial feed failure still succeeds with parsed records",
+   rss_result.ok and len(rss_result.records) == 2, str(rss_result.error))
+by_source = {r.source: r for r in rss_result.records}
+ok("rss records carry the PUBLICATION as source (newspaper rack, not pipeline name)",
+   set(by_source) == {FEEDS[0][0], FEEDS[1][0]})
+ok("rss strips HTML from titles and excerpts",
+   by_source[FEEDS[0][0]].title == "AI chips surge" and "<" not in by_source[FEEDS[0][0]].excerpt)
+ok("rss parses RFC-822 and Atom dates to UTC ISO",
+   (by_source[FEEDS[0][0]].published_at or "").startswith("2026-07-22")
+   and (by_source[FEEDS[1][0]].published_at or "").startswith("2026-07-22"))
+
+
+def all_fail(url, headers=None, timeout=8.0):
+    raise RuntimeError("HTTP 500 token=sekr3t")
+
+
+base.http_get_text = all_fail
+dead = RSSAdapter().run()
+ok("rss adapter: every feed failing fails the adapter with a redacted error",
+   not dead.ok and "sekr3t" not in (dead.error or ""))
+base.http_get_text = _real_text
+
 print(f"\nALL {PASS} CHECKS PASSED")

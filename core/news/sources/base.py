@@ -67,6 +67,19 @@ def http_get_json(url: str, headers: dict | None = None, timeout: float = 8.0):
     return resp.json()
 
 
+def http_get_text(url: str, headers: dict | None = None, timeout: float = 8.0) -> str:
+    """Text twin of ``http_get_json`` for XML/RSS bodies — same seam contract
+    (tests monkeypatch this), same rate-limit honesty."""
+    import requests
+    resp = requests.get(url, headers=headers or {}, timeout=timeout)
+    if resp.status_code == 429 or (
+            resp.status_code == 403 and resp.headers.get("X-RateLimit-Remaining") == "0"):
+        raise RateLimited(f"rate limited: HTTP {resp.status_code}")
+    if resp.status_code != 200:
+        raise RuntimeError(f"HTTP {resp.status_code}")
+    return resp.text
+
+
 class Adapter:
     """Subclasses set the class attributes and implement ``_collect() -> Payload``.
     They must fetch through ``base.http_get_json`` and validate everything they emit

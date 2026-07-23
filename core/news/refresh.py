@@ -20,6 +20,7 @@ from core.news.contracts import REFRESHABLE_TABS, Schedule, Tab
 from core.news.sources.github_trending import GitHubTrendingAdapter
 from core.news.sources.hackernews import HackerNewsAdapter
 from core.news.sources.openrouter import OpenRouterAdapter
+from core.news.sources.rss import RSSAdapter
 
 LEASE_TTL_S = 300
 _INTERVALS = {Schedule.DAILY.value: timedelta(days=1),
@@ -31,7 +32,7 @@ _INTERVALS = {Schedule.DAILY.value: timedelta(days=1),
 _TAB_SOURCES: dict = {
     Tab.HOME.value: (OpenRouterAdapter,),
     Tab.TRENDING.value: (GitHubTrendingAdapter, HackerNewsAdapter),
-    Tab.FEED.value: (HackerNewsAdapter,),
+    Tab.FEED.value: (HackerNewsAdapter, RSSAdapter),
 }
 
 

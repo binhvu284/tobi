@@ -124,6 +124,18 @@ def v2_home():
         conn.close()
 
 
+@router.get("/models/leaderboards")
+def v2_model_leaderboards():
+    """Model Explorer overview: one Top-5 board per evidence category (data-driven —
+    new benchmark categories become new boards automatically)."""
+    from core.news import ranking
+    conn = _conn()
+    try:
+        return {"categories": ranking.category_leaderboards(conn)}
+    finally:
+        conn.close()
+
+
 @router.get("/models")
 def v2_models(q: str = "", category: str = "", cursor: Optional[str] = None, limit: int = 20):
     """Model Explorer: every model with evidence (Top-10 eligibility NOT required),

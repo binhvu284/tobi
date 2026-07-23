@@ -284,6 +284,43 @@ def build_feed_snapshots(conn: sqlite3.Connection, now: datetime | None = None,
     }
 
 
+def category_leaderboards(conn: sqlite3.Connection, top_n: int = 5) -> list[dict]:
+    """Per-category Top-N leaderboards for the Model Explorer overview. DATA-DRIVEN:
+    every distinct ``category`` in the evidence table becomes its own board — a new
+    benchmark source emitting e.g. ``coding``/``image``/``video`` categories creates
+    new boards with zero code change (owner requirement). Scoring reuses the N05
+    idea: min-max normalize within each (source, metric) so scales never mix, invert
+    lower-is-better metrics, average per model ×100. Deterministic; never invented."""
+    _ensure_once(conn)
+    rows = conn.execute("SELECT category, source, metric, model_id, value, observed_at"
+                        " FROM news_model_metrics").fetchall()
+    by_category: dict[str, dict] = {}
+    for category, source, metric, model_id, value, observed in rows:
+        by_category.setdefault(category, {}).setdefault((source, metric), []).append(
+            (model_id, float(value), observed))
+    boards = []
+    for category in sorted(by_category):
+        per_model: dict[str, dict] = {}
+        sources: set[str] = set()
+        for (source, metric), values in by_category[category].items():
+            sources.add(source)
+            nums = [v for _, v, _ in values]
+            lo, hi = min(nums), max(nums)
+            for model_id, value, observed in values:
+                norm = 0.5 if hi == lo else (value - lo) / (hi - lo)
+                if metric in _LOWER_IS_BETTER:
+                    norm = 1.0 - norm
+                slot = per_model.setdefault(model_id, {"scores": [], "latest": observed})
+                slot["scores"].append(norm)
+                slot["latest"] = max(slot["latest"], observed)
+        entries = [{"model_id": model_id, "score": round(100 * sum(d["scores"]) / len(d["scores"]), 1),
+                    "metrics": len(d["scores"]), "observed_at": d["latest"]}
+                   for model_id, d in per_model.items()]
+        entries.sort(key=lambda e: (-e["score"], e["model_id"]))
+        boards.append({"category": category, "sources": sorted(sources), "entries": entries[:top_n]})
+    return boards
+
+
 # ── 4. per-tab rebuild (called by the N03 refresh engine after ingest) ───────────────
 def rebuild_for_tab(conn: sqlite3.Connection, tab: str, now: datetime | None = None) -> dict:
     """Precompute the snapshots one tab's pages read. For the feed this refreshes the

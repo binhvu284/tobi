@@ -126,6 +126,15 @@ ok("explorer metrics carry attribution", all(
     for m in client.get(f"{V2}/models", params={"q": "alpha"}).json()["models"]))
 ok("bad explorer cursor is a 422", client.get(f"{V2}/models", params={"cursor": "zzz!"}).status_code == 422)
 
+boards = client.get(f"{V2}/models/leaderboards").json()["categories"]
+ok("leaderboards are data-driven per category, sourced, and Top-5 bounded",
+   boards and all(b["sources"] and len(b["entries"]) <= 5 for b in boards)
+   and {b["category"] for b in boards} == {r[0] for r in get_connection().execute(
+       "SELECT DISTINCT category FROM news_model_metrics")})
+ok("leaderboard entries are ranked deterministically",
+   all(b["entries"] == sorted(b["entries"], key=lambda e: (-e["score"], e["model_id"]))
+       for b in boards))
+
 trending = client.get(f"{V2}/trending", params={"section": "github", "window": "week"}).json()
 ok("trending github serves the snapshot with growth", trending["entries"][0]["growth"] == 50)
 ok("bad trending window is a 422", client.get(
