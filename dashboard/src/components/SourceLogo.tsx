@@ -9,7 +9,7 @@
  */
 import {
   SiYcombinator, SiGithub, SiProducthunt, SiReddit, SiX, SiRss,
-  SiGooglenews, SiOpenrouter, type IconType,
+  SiGooglenews, SiOpenrouter, SiHuggingface, type IconType,
 } from '@icons-pack/react-simple-icons'
 import { BarChart3, Globe, LineChart, Newspaper, Swords } from 'lucide-react'
 import tavilySvg from '@lobehub/icons-static-svg/icons/tavily-color.svg?raw'
@@ -28,6 +28,7 @@ const MARKS: Record<string, Mark> = {
   rss:         { kind: 'icon',   Icon: SiRss,         color: '#FFA500' },
   gnews:       { kind: 'icon',   Icon: SiGooglenews,  color: '#4285F4' },
   openrouter:  { kind: 'icon',   Icon: SiOpenrouter,  color: '#8B7CF6' },
+  huggingface: { kind: 'icon',   Icon: SiHuggingface, color: '#FFD21E' },
   tavily:      { kind: 'raw',    svg: tavilySvg,      color: '#6C5CE7' },
   newsdata:    { kind: 'lucide', Icon: Newspaper,     color: '#22a3e0' },
   gdelt:       { kind: 'lucide', Icon: Globe,         color: '#2ecc71' },
@@ -50,6 +51,7 @@ export const SOURCE_META: Record<string, { label: string; color: string }> = {
   rss: { label: 'RSS', color: '#FFA500' },
   gnews: { label: 'GNews', color: '#4285F4' },
   openrouter: { label: 'OpenRouter', color: '#8B7CF6' },
+  huggingface: { label: 'Hugging Face', color: '#FFD21E' },
   tavily: { label: 'Tavily', color: '#6C5CE7' },
   newsdata: { label: 'NewsData.io', color: '#22a3e0' },
   gdelt: { label: 'GDELT', color: '#2ecc71' },

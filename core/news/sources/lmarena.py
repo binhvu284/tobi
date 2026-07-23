@@ -2,11 +2,14 @@
 
 Human-preference ratings from the OFFICIAL ``lmarena-ai/leaderboard-dataset``
 (Hugging Face datasets-server JSON, keyless, ``latest`` split — verified live).
-Three boards feed three capability families the N05 formula already weights:
-text → ``elo`` (arena), agent → ``agentic``, webdev → ``webdev`` (coding).
-Rows are filtered to each board's newest ``leaderboard_publish_date`` and the
-``overall`` category; one rating per model, never guessed, never averaged
-across publish dates.
+Seven boards feed the ranking's capability families AND the Model Explorer's
+per-aspect tables (owner: "coding, image, video, research aspects"): text → arena,
+agent → agentic, webdev → coding, and the keyless media/multimodal boards
+vision → vision, text_to_image → image, text_to_video → video, search → search.
+All board configs are live-verified to carry an ``overall`` category and a
+``rating`` column. Rows are filtered to each board's newest
+``leaderboard_publish_date`` and the ``overall`` category; one rating per model,
+never guessed, never averaged across publish dates.
 """
 from __future__ import annotations
 
@@ -35,11 +38,18 @@ _ROWS = ("https://datasets-server.huggingface.co/rows"
          "&offset=0&length=100")
 FORMULA_VERSION = "arena-latest"
 
-# (dataset config, emitted metric, category)
+# (dataset config, emitted metric, category). The first three feed ranking
+# capability families; the media/multimodal boards enrich the Model Explorer's
+# per-aspect leaderboards (data-driven — a new category becomes a new board with
+# zero ranking code change) without inflating the overall "strongest LLM" score.
 _BOARDS = (
     ("text", "elo", "general"),
     ("agent", "agentic", "agentic"),
     ("webdev", "webdev", "coding"),
+    ("vision", "vision", "vision"),
+    ("text_to_image", "image", "image"),
+    ("text_to_video", "video", "video"),
+    ("search", "search", "search"),
 )
 
 

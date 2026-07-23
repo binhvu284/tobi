@@ -365,7 +365,7 @@ else:
 
 
 def fake_arena(url, headers=None, timeout=8.0):
-    if "config=text" in url:
+    if "config=text&" in url:                           # exact board (not text_to_image/_to_video)
         return {"rows": [
             {"row": {"model_name": "gpt-5.4", "rating": 1499.0, "category": "overall",
                      "leaderboard_publish_date": "2026-07-21"}},
@@ -383,6 +383,13 @@ def fake_arena(url, headers=None, timeout=8.0):
             {"row": {"model_name": "GPT 5.6 Sol xHigh Codex Harness", "score": 0.101,
                      "category": "overall", "leaderboard_publish_date": "2026-07-21"}},
         ]}
+    if "config=text_to_image" in url:                   # owner: image aspect (keyless board)
+        return {"rows": [
+            {"row": {"model_name": "gpt-image-2 (medium)", "rating": 1384.8, "category": "overall",
+                     "leaderboard_publish_date": "2026-07-21"}},
+            {"row": {"model_name": "muse-image", "rating": 1280.3, "category": "overall",
+                     "leaderboard_publish_date": "2026-07-21"}},
+        ]}
     return {"rows": []}                                 # webdev board down → others survive
 
 
@@ -390,11 +397,44 @@ base.http_get_json = fake_arena
 arena = LMArenaAdapter().run()
 elo = {m.model_id: m.value for m in arena.metrics if m.metric == "elo"}
 agentic = {m.model_id: m.value for m in arena.metrics if m.metric == "agentic"}
+image = {m.model_id: m.value for m in arena.metrics if m.metric == "image"}
 ok("lmarena: newest publish date only, per-board metrics, one board down survives",
    arena.ok and elo == {"gpt-5.4": 1499.0, "claude-fable-5": 1504.0}
    and not any(m.metric == "webdev" for m in arena.metrics))
 ok("lmarena: effort/harness variants merge onto the base model keeping the best score",
    agentic == {"claude-fable-5": 0.127, "gpt-5.6-sol": 0.101})
+ok("lmarena: keyless media boards emit their own aspect metric (image) + category",
+   image == {"gpt-image-2": 1384.8, "muse-image": 1280.3}
+   and all(m.category == "image" for m in arena.metrics if m.metric == "image"))
+base.http_get_json = _real_http
+
+# ── Hugging Face Hub (keyless release resilience, no key ever) ────────────────────────
+from core.news.sources.huggingface import HuggingFaceAdapter, MIN_LIKES  # noqa: E402
+from datetime import timedelta as _td  # noqa: E402
+
+_hf_now = datetime.now(timezone.utc)
+def fake_hf(url, headers=None, timeout=8.0):
+    assert "huggingface.co/api/models" in url
+    return [
+        {"id": "acme/glm-5.2-mini", "likes": 42,
+         "createdAt": (_hf_now - _td(days=2)).isoformat()},
+        {"id": "nobody/untested", "likes": 0,                       # below traction floor → dropped
+         "createdAt": (_hf_now - _td(days=1)).isoformat()},
+        {"id": "acme/ancient-model", "likes": 900,                  # too old → dropped
+         "createdAt": (_hf_now - _td(days=90)).isoformat()},
+        {"id": "", "likes": 50, "createdAt": _hf_now.isoformat()},  # no id → dropped
+    ]
+
+
+base.http_get_json = fake_hf
+hf = HuggingFaceAdapter().run()
+ok("huggingface needs no key (keyless resilience source)",
+   HuggingFaceAdapter().configured()[0] is True)
+ok("huggingface emits only recent, community-noticed releases with Hub-URL evidence",
+   hf.ok and len(hf.releases) == 1
+   and hf.releases[0].source_url == "https://huggingface.co/acme/glm-5.2-mini"
+   and hf.releases[0].model_id == "glm-5.2-mini"
+   and MIN_LIKES == 5)
 base.http_get_json = _real_http
 
 # ── LLM Stats (official Data API, owner-referenced) ──────────────────────────────────
