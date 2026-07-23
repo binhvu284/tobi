@@ -222,6 +222,20 @@ class RefreshJob:
         _iso_or_none(self.lease_until, "lease_until")
 
 
+# ── GitHub star history (plan §5: growth ONLY from persisted snapshots) ──────────────
+@dataclass(frozen=True)
+class GitHubSnapshot:
+    repo: str                 # owner/name
+    snapshot_date: str        # YYYY-MM-DD (UTC)
+    stars: int
+
+    def __post_init__(self) -> None:
+        _require(bool(self.repo.strip()) and "/" in self.repo, "repo must be owner/name")
+        _require(bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", self.snapshot_date)),
+                 "snapshot_date must be YYYY-MM-DD")
+        _require(self.stars >= 0, "stars must be >= 0")
+
+
 # ── model evidence (plan §5/§6) ──────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class ModelMetric:
