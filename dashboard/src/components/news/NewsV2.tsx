@@ -276,7 +276,7 @@ function SourcesSettingsModal({ open, onClose, settings, onSaved }: {
               <div className="mt-2 space-y-2">
                 {settings.known_sources.map(name => (
                   <div key={name} className="flex items-center gap-3 rounded-md border border-border bg-background/40 px-3 py-2.5">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-background">
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-surface">
                       <SourceLogo name={name} size={14} variant="inline" />
                     </span>
                     <div className="min-w-0 flex-1">
@@ -294,10 +294,11 @@ function SourcesSettingsModal({ open, onClose, settings, onSaved }: {
                     <button onClick={() => toggleSource(name)} disabled={saving}
                       role="switch" aria-checked={enabled[name] ?? false} title={enabled[name] ? 'On — click to disable' : 'Off — click to enable'}
                       className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors duration-200 disabled:opacity-60 ${
-                        enabled[name] ? 'border-accent bg-accent' : 'border-border bg-overlay/15'}`}>
-                      <span className={`inline-flex h-[18px] w-[18px] transform items-center justify-center rounded-full bg-background shadow-md transition-transform duration-200 ${
+                        enabled[name] ? 'border-accent bg-accent' : 'border-border bg-overlay/20'}`}>
+                      {/* knob is solid white — `bg-background` was a dead class (no such token), leaving it invisible */}
+                      <span className={`inline-flex h-[18px] w-[18px] transform items-center justify-center rounded-full bg-white shadow-md transition-transform duration-200 ${
                         enabled[name] ? 'translate-x-[22px]' : 'translate-x-[3px]'}`}>
-                        {enabled[name] && <Check size={11} className="text-accent" />}
+                        {enabled[name] && <Check size={12} strokeWidth={3} className="text-accent" />}
                       </span>
                     </button>
                   </div>

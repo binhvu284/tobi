@@ -434,4 +434,35 @@ else:
     os.environ["LLMSTATS_API_KEY"] = _saved_ls
 base.http_get_json = _real_http
 
+# ── Owner QA: reasoning-effort variants are ONE model — "the value is the highest mode"
+import core.news.sources.llmstats as _llmstats_mod  # noqa: E402
+
+ok("llmstats targets the official zeroeval Data API host (llm-stats alias 403s, live-verified)",
+   _llmstats_mod._BASE.startswith("https://api.zeroeval.com/"))
+ok("adapter HTTP identifies as TOBI, never python-requests (WAF tarpits it, live-verified)",
+   bool(base._USER_AGENT) and "python" not in base._USER_AGENT.lower())
+ok("canonical ids collapse reasoning-effort variants into the base model",
+   canonical_model_id("gpt-5.6-sol-xhigh") == "gpt-5.6-sol"
+   and canonical_model_id("openai/gpt-5.6-terra-non-reasoning") == "gpt-5.6-terra"
+   and canonical_model_id("GPT-5.6 Sol (medium)") == "gpt-5.6-sol"
+   and canonical_model_id("claude-fable-5-thinking") == "claude-fable-5")
+ok("family names that merely end in an effort word never collapse",
+   canonical_model_id("mistral-medium") == "mistral-medium")
+
+conn = get_connection()
+mkm = lambda rid, metric, value: CT.ModelMetric(  # noqa: E731
+    model_id=canonical_model_id(rid), category="general", source="artificialanalysis",
+    metric=metric, value=value, confidence=0.95, observed_at=NOW.isoformat(),
+    formula_version="aa-v1")
+N.ingest_model_evidence(conn, [
+    mkm("gpt-5.6-sol", "coding", 77.4), mkm("gpt-5.6-sol-xhigh", "coding", 78.3),
+    mkm("gpt-5.6-sol-low", "coding", 69.7),
+    mkm("gpt-5.6-sol", "price_blended", 11.25), mkm("gpt-5.6-sol-xhigh", "price_blended", 12.0)], [])
+vals = dict(conn.execute("SELECT metric, value FROM news_model_metrics"
+                         " WHERE model_id='gpt-5.6-sol' AND source='artificialanalysis'").fetchall())
+ok("collapsed variants keep the BEST mode in one row (max score, min price)",
+   vals == {"coding": 78.3, "price_blended": 11.25}, str(vals))
+conn.commit()
+conn.close()
+
 print(f"\nALL {PASS} CHECKS PASSED")

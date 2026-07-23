@@ -1,7 +1,8 @@
 """LLM Stats adapter (#23, Model Strength backend — owner-referenced source).
 
-Official llm-stats.com Data API (``https://api.llm-stats.com/stats/v1``, Bearer
-``ze_…`` key from the developer console — vaulted as ``LLMSTATS_API_KEY``).
+Official llm-stats.com Data API — served from ``https://api.zeroeval.com/stats/v1``
+(LLM Stats is a ZeroEval product; the ``api.llm-stats.com`` alias 403s real keys,
+live-verified 2026-07-23). Bearer ``ze_…`` key — vaulted as ``LLMSTATS_API_KEY``.
 ``/models`` supplies per-category benchmark scores (every category in the
 response becomes evidence — new categories flow straight into the data-driven
 leaderboards); ``/updates`` supplies recently-added models as release evidence.
@@ -18,7 +19,7 @@ from core.news import normalizer
 from core.news.contracts import ModelMetric, ModelRelease, TrustClass, canonical_model_id
 from core.news.sources import base
 
-_BASE = "https://api.llm-stats.com/stats/v1"
+_BASE = "https://api.zeroeval.com/stats/v1"
 FORMULA_VERSION = "llmstats-v1"
 
 

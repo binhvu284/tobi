@@ -364,6 +364,13 @@ NeedsKey.has_key = True
 job2 = refresh.request_refresh("home")
 ok("adding the key just works on the next refresh",
    refresh.run_job(job2["job_id"])["checkpoints"]["needskey"]["state"] == "ok")
+job3 = refresh.request_refresh("home")
+refresh._TAB_SOURCES[CT.Tab.HOME.value] = (InstantEmpty,)   # owner toggles the source off mid-job
+done3 = refresh.run_job(job3["job_id"])
+cp3 = done3["checkpoints"]["needskey"]
+ok("source disabled after job creation → skipped (honoring the toggle is never a failure)",
+   cp3["state"] == "skipped" and "disabled" in cp3["reason"] and done3["state"] == "completed",
+   str(cp3))
 refresh._TAB_SOURCES.clear()
 refresh._TAB_SOURCES.update(_orig_sources)
 conn.close()

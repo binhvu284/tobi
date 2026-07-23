@@ -54,11 +54,17 @@ def redact(message: str) -> str:
     return _QUERY.sub("?[redacted]", msg)[:200]
 
 
+# Some upstream WAFs tarpit/deny the python-requests default UA (live-verified:
+# api.zeroeval.com hangs on "python-requests/*" but answers a plain product token
+# instantly) — every adapter call identifies honestly as TOBI instead.
+_USER_AGENT = "tobi-news/1.0"
+
+
 def http_get_json(url: str, headers: dict | None = None, timeout: float = 8.0):
     """Single HTTP seam every adapter calls (tests monkeypatch this). Raises
     ``RateLimited`` on 429 / rate-limit 403; ``RuntimeError`` on other failures."""
     import requests
-    resp = requests.get(url, headers=headers or {}, timeout=timeout)
+    resp = requests.get(url, headers={"User-Agent": _USER_AGENT, **(headers or {})}, timeout=timeout)
     if resp.status_code == 429 or (
             resp.status_code == 403 and resp.headers.get("X-RateLimit-Remaining") == "0"):
         raise RateLimited(f"rate limited: HTTP {resp.status_code}")
@@ -71,7 +77,7 @@ def http_get_text(url: str, headers: dict | None = None, timeout: float = 8.0) -
     """Text twin of ``http_get_json`` for XML/RSS bodies — same seam contract
     (tests monkeypatch this), same rate-limit honesty."""
     import requests
-    resp = requests.get(url, headers=headers or {}, timeout=timeout)
+    resp = requests.get(url, headers={"User-Agent": _USER_AGENT, **(headers or {})}, timeout=timeout)
     if resp.status_code == 429 or (
             resp.status_code == 403 and resp.headers.get("X-RateLimit-Remaining") == "0"):
         raise RateLimited(f"rate limited: HTTP {resp.status_code}")

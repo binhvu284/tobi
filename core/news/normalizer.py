@@ -102,6 +102,12 @@ def ingest(conn: sqlite3.Connection, records: Iterable[SourceRecord]) -> dict:
     return counters
 
 
+# Lower-is-better metrics: when reasoning-effort variants collapse into one model
+# id, the CHEAPEST price is the model's price; every other metric keeps its BEST
+# (highest) mode — the owner rule "the value is the highest mode".
+_LOWER_IS_BETTER = {"price_in", "price_out", "price_blended"}
+
+
 def ingest_model_evidence(conn: sqlite3.Connection, metrics: Iterable[ModelMetric],
                           releases: Iterable[ModelRelease]) -> dict:
     """Metrics upsert on their identity key (fresh observation replaces value);
@@ -109,7 +115,14 @@ def ingest_model_evidence(conn: sqlite3.Connection, metrics: Iterable[ModelMetri
     from core.news import repository
     repository._ensure_once(conn)
     counters = {"metrics": 0, "releases": 0}
-    for m in metrics:
+    best: dict[tuple, ModelMetric] = {}
+    for m in metrics:                    # collapsed variants share a key → keep the best mode
+        key = (m.model_id, m.category, m.source, m.metric, m.formula_version)
+        held = best.get(key)
+        if held is None or ((m.value < held.value) if m.metric in _LOWER_IS_BETTER
+                            else (m.value > held.value)):
+            best[key] = m
+    for m in best.values():
         cur = conn.execute(
             "INSERT INTO news_model_metrics (model_id, category, source, metric, value,"
             " confidence, observed_at, formula_version) VALUES (?,?,?,?,?,?,?,?)"

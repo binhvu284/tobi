@@ -172,7 +172,10 @@ def run_job(job_id: int, owner: str | None = None, now: datetime | None = None) 
                 break                                    # owner canceled mid-run — stop cleanly
             adapter = adapters.get(source)
             if adapter is None:
-                checkpoints[source] = {"state": "failed", "fetched": 0, "error": "adapter unavailable"}
+                # source disabled after the job was created (owner toggled it off
+                # mid-run/retry) — honoring the toggle is not a failure
+                checkpoints[source] = {"state": "skipped", "fetched": 0,
+                                       "reason": "source disabled in Sources & schedules"}
             elif not (conf := _configured_safe(adapter))[0]:
                 # missing key → honest SKIP: a setup task, never a failure (and the
                 # next refresh re-checks, so adding the key just works)

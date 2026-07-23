@@ -163,7 +163,17 @@ DELETE FROM news_model_releases;
 DELETE FROM news_rank_snapshots WHERE kind='models:top';
 """
 
-_MIGRATIONS: list[tuple[int, str]] = [(1, _MIGRATION_1), (2, _MIGRATION_2), (3, _MIGRATION_3)]
+# Reasoning-effort variant collapse (…-xhigh/-high/-medium → base id) changed metric
+# identity again — same refetchable-cache clear as migration 3 so stale variant rows
+# (gpt-5-6-sol-xhigh, …) never sit beside the collapsed ids. Next refresh repopulates.
+_MIGRATION_4 = """
+DELETE FROM news_model_metrics;
+DELETE FROM news_model_releases;
+DELETE FROM news_rank_snapshots WHERE kind='models:top';
+"""
+
+_MIGRATIONS: list[tuple[int, str]] = [(1, _MIGRATION_1), (2, _MIGRATION_2), (3, _MIGRATION_3),
+                                      (4, _MIGRATION_4)]
 
 SNAPSHOT_KEEP = 20     # retained rank snapshots per kind (immutable, rebuilt often)
 

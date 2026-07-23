@@ -105,17 +105,29 @@ def _iso_or_none(value: str | None, name: str) -> None:
 
 _MODEL_ID_JUNK = re.compile(r"[^a-z0-9.+-]+")
 _MODEL_ID_SUFFIX = re.compile(r":(free|extended|beta|nitro|floor|online)$")
+# Reasoning-effort/harness variants of ONE model, not distinct models (owner rule:
+# "just take gpt-5-6-sol, the value is the highest mode"). Benchmark sources list
+# each mode separately (…-xhigh/-high/-medium/-low/-non-reasoning); they collapse
+# into the base id so evidence merges instead of fragmenting the leaderboard.
+_MODEL_ID_VARIANT = re.compile(
+    r"-(?:codex-harness|harness|non-?reasoning|non-?thinking|thinking|xhigh|high|medium|low|minimal)$")
 
 
 def canonical_model_id(raw: str) -> str:
     """Deterministic cross-source model identity: sources name the same model
     differently ("openai/gpt-5.4" / "GPT-5.4" / "gpt-5.4"), and rankings can only
     combine evidence when the id matches. Rule: last path segment, lowercase,
-    routing-variant suffixes stripped, non [a-z0-9.+-] → '-'. Imperfect matches
-    simply stay separate rows — identities are never guessed beyond this rule."""
+    routing-variant suffixes stripped, non [a-z0-9.+-] → '-', reasoning-effort
+    variant suffixes collapsed into the base id. Imperfect matches simply stay
+    separate rows — identities are never guessed beyond this rule."""
     slug = (raw or "").strip().lower().rsplit("/", 1)[-1]
     slug = _MODEL_ID_SUFFIX.sub("", slug)
     slug = _MODEL_ID_JUNK.sub("-", slug).strip("-.")
+    while (m := _MODEL_ID_VARIANT.search(slug)):
+        base = slug[: m.start()].rstrip("-.")
+        if not any(ch.isdigit() for ch in base):
+            break        # "mistral-medium" → a family name, not an effort variant
+        slug = base
     return slug or (raw or "").strip().lower()
 
 
