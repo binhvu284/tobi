@@ -94,6 +94,12 @@ class Adapter:
     max_attempts: int = 2
     retry_wait_s: float = 0.5
 
+    def configured(self) -> tuple[bool, str]:
+        """Override to declare required configuration (API keys). Returning
+        ``(False, reason)`` makes the refresh SKIP this source honestly — a
+        missing key is a setup task for the owner, never a failure."""
+        return True, ""
+
     def _collect(self) -> Payload:  # pragma: no cover — abstract
         raise NotImplementedError
 

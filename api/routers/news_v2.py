@@ -376,7 +376,11 @@ def v2_get_settings():
                                          for cls in classes}),
                 # which registered sources feed each tab — the UI's section attribution
                 "tab_sources": {tab: [cls().name for cls in classes]
-                                for tab, classes in refresh._TAB_SOURCES.items()}}
+                                for tab, classes in refresh._TAB_SOURCES.items()},
+                # sources awaiting owner setup (missing keys) — skipped, never failed
+                "unconfigured": sorted({adapter.name for classes in refresh._TAB_SOURCES.values()
+                                        for cls in classes
+                                        if not refresh._configured_safe(adapter := cls())[0]})}
     finally:
         conn.close()
 

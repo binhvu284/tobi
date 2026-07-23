@@ -779,7 +779,7 @@ export type NewsV2Models = {
 }
 export type NewsV2RefreshJob = {
   id: number; tab: string; state: string; error: string | null
-  checkpoints: Record<string, { state?: string; error?: string }>
+  checkpoints: Record<string, { state?: string; error?: string; reason?: string }>
   metrics: Record<string, number>; updated_at: string
 }
 export async function getNewsV2Config(): Promise<NewsV2Config> { return get('/api/explore/v2/config') }
@@ -836,6 +836,7 @@ export type NewsV2Settings = {
   schedules: Record<string, string>; enabled_sources: string[]
   context_classes: Record<string, boolean>; schedule_options: string[]
   known_sources: string[]; tab_sources: Record<string, string[]>
+  unconfigured?: string[]
 }
 export async function getNewsV2Settings(): Promise<NewsV2Settings> { return get('/api/explore/v2/settings') }
 export type NewsV2Leaderboard = {

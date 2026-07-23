@@ -331,6 +331,41 @@ ok("restoring the default re-enables every source",
    and set(refresh.get_job(refresh.request_refresh("trending")["job_id"])["checkpoints"])
    == {"github", "hackernews"})
 refresh.cancel_job(refresh.request_refresh("trending")["job_id"])
+
+# ── 8. UNCONFIGURED SOURCES: skipped honestly, never failed ──────────────────────────
+class NeedsKey(base.Adapter):
+    name = "needskey"
+    max_attempts = 1
+    retry_wait_s = 0.0
+    has_key = False
+
+    def configured(self):
+        if not type(self).has_key:
+            return False, "needs FAKESOURCE_API_KEY — connect it on the Integrations page"
+        return True, ""
+
+    def _collect(self) -> base.Payload:
+        return base.Payload()
+
+
+refresh._TAB_SOURCES[CT.Tab.HOME.value] = (InstantEmpty, NeedsKey)
+job = refresh.request_refresh("home")
+final_job = refresh.run_job(job["job_id"])
+cp = final_job["checkpoints"]["needskey"]
+ok("missing key → checkpoint skipped with an actionable reason",
+   cp["state"] == "skipped" and "Integrations" in cp["reason"])
+ok("a skipped source never degrades the job (completed, not partial)",
+   final_job["state"] == "completed" and final_job["error"] is None, final_job["state"])
+ok("skipped sources never raise Inbox telemetry",
+   telemetry.failing_sources(conn, "home") == [])
+ok("settings surface the awaiting-key sources",
+   "needskey" in client.get(f"{V2}/settings").json()["unconfigured"])
+NeedsKey.has_key = True
+job2 = refresh.request_refresh("home")
+ok("adding the key just works on the next refresh",
+   refresh.run_job(job2["job_id"])["checkpoints"]["needskey"]["state"] == "ok")
+refresh._TAB_SOURCES.clear()
+refresh._TAB_SOURCES.update(_orig_sources)
 conn.close()
 
 print(f"\nALL {PASS} CHECKS PASSED")

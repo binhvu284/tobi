@@ -69,6 +69,13 @@ def _now(now: datetime | None = None) -> datetime:
     return now or datetime.now(timezone.utc)
 
 
+def _configured_safe(adapter) -> tuple[bool, str]:
+    try:
+        return adapter.configured()
+    except Exception:
+        return True, ""                                # a broken check never blocks a source
+
+
 def _owner_id() -> str:
     return f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:6]}"
 
@@ -166,6 +173,10 @@ def run_job(job_id: int, owner: str | None = None, now: datetime | None = None) 
             adapter = adapters.get(source)
             if adapter is None:
                 checkpoints[source] = {"state": "failed", "fetched": 0, "error": "adapter unavailable"}
+            elif not (conf := _configured_safe(adapter))[0]:
+                # missing key → honest SKIP: a setup task, never a failure (and the
+                # next refresh re-checks, so adding the key just works)
+                checkpoints[source] = {"state": "skipped", "fetched": 0, "reason": conf[1]}
             else:
                 result = adapter.run()
                 if result.ok:
@@ -190,7 +201,8 @@ def run_job(job_id: int, owner: str | None = None, now: datetime | None = None) 
         if end_state_row and end_state_row[0] == "canceled":
             final = "canceled"
         else:
-            states = {cp.get("state") for cp in checkpoints.values()} or {"ok"}
+            # skipped (unconfigured) sources are neutral — they never degrade the job
+            states = {cp.get("state") for cp in checkpoints.values()} - {"skipped"} or {"ok"}
             final = ("completed" if states == {"ok"}
                      else "partial" if "ok" in states else "failed")
         failed = sorted(s for s, cp in checkpoints.items() if cp.get("state") == "failed")

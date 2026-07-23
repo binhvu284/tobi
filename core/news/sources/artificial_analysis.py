@@ -53,6 +53,12 @@ class ArtificialAnalysisAdapter(base.Adapter):
     timeout_s = 10.0
     max_records = 150
 
+    def configured(self) -> tuple[bool, str]:
+        if not os.getenv("ARTIFICIALANALYSIS_API_KEY", "").strip():
+            return False, ("needs ARTIFICIALANALYSIS_API_KEY — free key at"
+                           " artificialanalysis.ai, connect it on the Integrations page")
+        return True, ""
+
     def _collect(self) -> base.Payload:
         key = os.getenv("ARTIFICIALANALYSIS_API_KEY", "").strip()
         if not key:

@@ -46,6 +46,12 @@ class LLMStatsAdapter(base.Adapter):
     timeout_s = 10.0
     max_records = 150
 
+    def configured(self) -> tuple[bool, str]:
+        if not os.getenv("LLMSTATS_API_KEY", "").strip():
+            return False, ("needs LLMSTATS_API_KEY — key at llm-stats.com/developer,"
+                           " connect it on the Integrations page")
+        return True, ""
+
     def _headers(self) -> dict:
         key = os.getenv("LLMSTATS_API_KEY", "").strip()
         if not key:

@@ -8,8 +8,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  Activity, AlertTriangle, Ban, Check, CircleDashed, ExternalLink, Loader2, Maximize2,
-  Newspaper, RefreshCw, Rss, Search, Settings2, Star, TrendingUp, Trophy, X,
+  Activity, AlertTriangle, Ban, Check, CircleDashed, ExternalLink, KeyRound, Loader2,
+  Maximize2, Newspaper, RefreshCw, Rss, Search, Settings2, Star, TrendingUp, Trophy, X,
 } from 'lucide-react'
 import {
   getNewsV2Home, getNewsV2ModelLeaderboards, getNewsV2Models, getNewsV2RefreshJob,
@@ -280,7 +280,15 @@ function SourcesSettingsModal({ open, onClose, settings, onSaved }: {
                       <SourceLogo name={name} size={14} variant="inline" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-text">{name}</div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-medium text-text">{name}</span>
+                        {settings.unconfigured?.includes(name) && (
+                          <span title="This source is skipped until its key is connected on the Integrations page"
+                            className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-1.5 py-px text-[10px] font-medium text-warning">
+                            <KeyRound size={9} /> key required
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[11px] text-muted">feeds: {tabsUsing(name).join(', ') || '—'}</div>
                     </div>
                     <button onClick={() => toggleSource(name)} disabled={saving}
@@ -331,16 +339,19 @@ function RefreshProgress({ job, running, onCancel, onRetry, onDismiss }: {
   const checkpoints = Object.entries(job.checkpoints)
   const done = checkpoints.filter(([, cp]) => cp.state === 'ok').length
   const failed = checkpoints.filter(([, cp]) => cp.state === 'failed')
-  const total = Math.max(1, checkpoints.length)
+  const skipped = checkpoints.filter(([, cp]) => cp.state === 'skipped').length
+  const total = Math.max(1, checkpoints.length - skipped)          // skipped are neutral
   const inFlight = running
-    ? checkpoints.find(([, cp]) => cp.state !== 'ok' && cp.state !== 'failed')?.[0]
+    ? checkpoints.find(([, cp]) => cp.state !== 'ok' && cp.state !== 'failed' && cp.state !== 'skipped')?.[0]
     : undefined
   const pct = Math.round(((done + failed.length) / total) * 100)   // processed = ok + failed
   const label = running
     ? `Refreshing ${job.tab} — ${done}/${total} sources done`
     : job.state === 'partial'
       ? `Refresh finished — ${failed.length} source${failed.length === 1 ? '' : 's'} failed`
-      : job.state === 'failed' ? 'Refresh failed — every source errored' : `Refresh ${job.state}`
+      : job.state === 'failed' ? 'Refresh failed — every source errored'
+        : skipped > 0 ? `Refresh ${job.state} — ${skipped} source${skipped === 1 ? '' : 's'} awaiting keys`
+          : `Refresh ${job.state}`
   return (
     <div className="border-t border-border bg-surface/70 px-4 py-2 sm:px-6">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-3 gap-y-2">
@@ -356,16 +367,21 @@ function RefreshProgress({ job, running, onCancel, onRetry, onDismiss }: {
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           {checkpoints.map(([source, cp]) => (
-            <span key={source} title={cp.state === 'failed' ? (cp.error ?? 'failed') : cp.state ?? 'queued'}
+            <span key={source}
+              title={cp.state === 'failed' ? (cp.error ?? 'failed')
+                : cp.state === 'skipped' ? (cp.reason ?? 'awaiting a key — connect it on the Integrations page')
+                  : cp.state ?? 'queued'}
               className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] ${
                 cp.state === 'ok' ? 'border-success/40 bg-success/10 text-success'
                   : cp.state === 'failed' ? 'border-danger/40 bg-danger/10 text-danger'
-                    : source === inFlight ? 'border-accent/40 bg-accent/10 text-accent'
-                      : 'border-border text-muted'}`}>
+                    : cp.state === 'skipped' ? 'border-dashed border-border text-muted'
+                      : source === inFlight ? 'border-accent/40 bg-accent/10 text-accent'
+                        : 'border-border text-muted'}`}>
               {cp.state === 'ok' ? <Check size={10} />
                 : cp.state === 'failed' ? <X size={10} />
-                  : source === inFlight ? <Loader2 size={10} className="animate-spin" />
-                    : <CircleDashed size={10} />}
+                  : cp.state === 'skipped' ? <KeyRound size={10} />
+                    : source === inFlight ? <Loader2 size={10} className="animate-spin" />
+                      : <CircleDashed size={10} />}
               {source}
             </span>
           ))}
