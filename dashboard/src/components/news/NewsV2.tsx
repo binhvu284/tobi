@@ -3,12 +3,12 @@
 // CSS variables mapped from the ACTIVE theme tokens (--news-rank-*: var(--accent))
 // — never hardcoded colors — so every installed theme renders the #1..#3 hierarchy;
 // motion is gated with motion-safe so Reduced/Off keeps badge/border/type hierarchy.
-// Trending / Feed / Favorites panels land with N09/N10 — labeled, never mocked.
+// Trending (N09) and Feed/Favorites (N10) render their own tab components.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  Activity, AlertTriangle, ExternalLink, Hammer, Loader2, Maximize2, Newspaper,
+  Activity, AlertTriangle, ExternalLink, Loader2, Maximize2, Newspaper,
   RefreshCw, Rss, Search, Star, TrendingUp, Trophy, X,
 } from 'lucide-react'
 import {
@@ -18,6 +18,8 @@ import {
 import { useToast } from '../../context/ToastProvider'
 import LlmLogo from '../LlmLogo'
 import TrendingTab from './TrendingTab'
+import FeedTab from './FeedTab'
+import FavoritesTab from './FavoritesTab'
 
 type V2Tab = 'home' | 'trending' | 'feed' | 'favorites'
 
@@ -129,25 +131,10 @@ export default function NewsV2() {
       <main className="px-4 py-6 sm:px-6">
         {tab === 'home' && <HomeTab home={home} loading={loading} error={error} onRetry={load} />}
         {tab === 'trending' && <TrendingTab reloadKey={reloadKey} />}
-        {(tab === 'feed' || tab === 'favorites') && <PendingPanel tab={tab} />}
+        {tab === 'feed' && <FeedTab reloadKey={reloadKey} />}
+        {tab === 'favorites' && <FavoritesTab />}
       </main>
     </div>
-  )
-}
-
-/** N09/N10 land these — honest placeholder, never mocked data. */
-function PendingPanel({ tab }: { tab: V2Tab }) {
-  const detail = tab === 'trending'
-    ? 'GitHub growth, tool discovery, and source explore. The backend already computes trending snapshots — this view arrives with N09.'
-    : tab === 'feed'
-      ? 'The personalized virtualized feed with like/dislike, 10-second undo, and “Why shown”. Ranking is already live server-side — the view arrives with N10.'
-      : 'Saved items and private notes. Favorites storage is already durable server-side — the view arrives with N10.'
-  return (
-    <section className="mx-auto max-w-xl rounded-lg border border-dashed border-border bg-surface/40 px-6 py-10 text-center">
-      <Hammer size={20} className="mx-auto text-muted" />
-      <h2 className="mt-3 text-sm font-semibold text-text">This tab is on the way</h2>
-      <p className="mt-2 text-xs leading-5 text-muted">{detail}</p>
-    </section>
   )
 }
 

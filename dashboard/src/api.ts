@@ -827,6 +827,40 @@ export async function postNewsV2Refresh(tab: 'home' | 'trending' | 'feed'): Prom
 export async function getNewsV2RefreshJob(jobId: number): Promise<NewsV2RefreshJob> {
   return get(`/api/explore/v2/refresh/${jobId}`)
 }
+// Mutations (N06 contract): every write carries an Idempotency-Key (replays return
+// current state, replayed:true) and the optimistic interaction version (stale → 409).
+export type NewsV2InteractionState = NewsV2Interaction & { item_id: number; replayed: boolean }
+export function newsV2IdemKey(): string {
+  return (crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`)
+}
+export async function patchNewsV2Interaction(
+  itemId: number, action: 'like' | 'dislike' | 'undo' | 'favorite' | 'unfavorite', version: number,
+): Promise<NewsV2InteractionState> {
+  return request(`/api/explore/v2/items/${itemId}/interaction`, {
+    method: 'PATCH', headers: { 'Idempotency-Key': newsV2IdemKey() },
+    body: JSON.stringify({ action, version }),
+  })
+}
+export async function putNewsV2Note(itemId: number, note: string | null, version: number): Promise<NewsV2InteractionState> {
+  return request(`/api/explore/v2/items/${itemId}/note`, {
+    method: 'PUT', headers: { 'Idempotency-Key': newsV2IdemKey() },
+    body: JSON.stringify({ note, version }),
+  })
+}
+export async function postNewsV2Event(
+  itemId: number, event: { type: 'open' } | { type: 'dwell'; ms: number },
+): Promise<NewsV2Interaction & { item_id: number; recorded: boolean }> {
+  return request(`/api/explore/v2/items/${itemId}/events`, {
+    method: 'POST', headers: { 'Idempotency-Key': newsV2IdemKey() },
+    body: JSON.stringify(event),
+  })
+}
+export async function getNewsV2Profile(): Promise<{
+  version: number; topics: Record<string, number>; sources: Record<string, number>
+  types: Record<string, number>; provenance: Record<string, unknown>
+}> {
+  return get('/api/explore/v2/profile')
+}
 
 // ── Explore scout stream: real per-step refresh progress (SSE) ─────────────────
 export type ScoutEvent =
