@@ -13,8 +13,9 @@ import {
   type ScoutEvent,
   getExploreStatus, getExploreNews, getExploreModels, getExploreTools, getExploreSocial,
   getExploreConfig, saveExploreConfig, setExploreSource, exploreDigest,
-  streamExploreRefresh,
+  streamExploreRefresh, getNewsV2Config,
 } from '../api'
+import NewsV2 from '../components/news/NewsV2'
 import { useToast } from '../context/ToastProvider'
 import LlmLogo, { brandForModel, BRAND_META, brandForProvider } from '../components/LlmLogo'
 import SourceLogo, { sourceMeta } from '../components/SourceLogo'
@@ -40,7 +41,18 @@ type ScoutState = {
   error?: string
 }
 
+// #23 rollout switch: V1 stays the page until news.v2_enabled turns on (rollback =
+// flip the flag off — nothing below this component changes).
 export default function News() {
+  const [v2, setV2] = useState<boolean | null>(null)
+  useEffect(() => {
+    getNewsV2Config().then(cfg => setV2(cfg.enabled)).catch(() => setV2(false))
+  }, [])
+  if (v2 === null) return <div className="h-40 animate-pulse rounded-lg border border-border bg-surface/30 m-6" />
+  return v2 ? <NewsV2 /> : <NewsV1 />
+}
+
+function NewsV1() {
   const { toast } = useToast()
   const [tab, setTab] = useState<Tab>('models')
   const [status, setStatus] = useState<ExploreStatus | null>(null)

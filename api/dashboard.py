@@ -198,7 +198,9 @@ app.include_router(health_router)
 from api.routers.explore import router as explore_router
 app.include_router(explore_router)
 from api.routers.news_v2 import router as news_v2_router  # #23 News V2 (flag-gated 503 until enabled)
+from api.routers.news_v2 import config_router as news_v2_config_router
 app.include_router(news_v2_router)
+app.include_router(news_v2_config_router)
 from api.routers.graph import router as graph_router
 app.include_router(graph_router)
 from api.routers.storage import router as storage_router

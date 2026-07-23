@@ -40,6 +40,16 @@ def _v2_gate() -> None:
 
 router = APIRouter(prefix="/api/explore/v2", tags=["news-v2"], dependencies=[Depends(_v2_gate)])
 
+# Ungated: the frontend reads the rollout flags to decide V1 vs V2 rendering — this
+# must work while the gated surface is still sealed (plan §12 stage gating).
+config_router = APIRouter(prefix="/api/explore/v2", tags=["news-v2"])
+
+
+@config_router.get("/config")
+def v2_config():
+    return {"enabled": owner_flags.get_bool(owner_flags.NEWS_V2_ENABLED, False),
+            "shadow": owner_flags.get_bool(owner_flags.NEWS_V2_SHADOW, False)}
+
 
 def _conn():
     conn = get_connection()

@@ -52,10 +52,14 @@ client = TestClient(app)
 V2 = "/api/explore/v2"
 NOW = datetime.now(timezone.utc)
 
-# ── 1. fail-closed gate ──────────────────────────────────────────────────────────────
+# ── 1. fail-closed gate (config stays reachable so the UI can pick V1 vs V2) ─────────
 ok("V2 surface is 503 until the owner opts in", client.get(f"{V2}/home").status_code == 503)
+cfg = client.get(f"{V2}/config")
+ok("config is ungated and reports both flags off", cfg.status_code == 200
+   and cfg.json() == {"enabled": False, "shadow": False})
 owner_flags.set_bool(owner_flags.NEWS_V2_SHADOW, True)
 ok("shadow flag opens the surface", client.get(f"{V2}/home").status_code == 200)
+ok("config reflects the flag flip", client.get(f"{V2}/config").json()["shadow"] is True)
 
 # ── 2. seed evidence + snapshots ─────────────────────────────────────────────────────
 conn = get_connection()

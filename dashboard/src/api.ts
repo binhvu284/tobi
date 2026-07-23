@@ -753,6 +753,52 @@ export async function exploreDigest(days = 1): Promise<{ text: string }> {
   return request('/api/explore/digest', { method: 'POST', body: JSON.stringify({}) })
 }
 
+// ── News V2 (#23): /api/explore/v2 — flag-gated; V1 above stays for rollback ────
+export type NewsV2Config = { enabled: boolean; shadow: boolean }
+export type NewsV2RankEntry = {
+  model_id: string; score: number; components: Record<string, number>
+  families: number; sources: string[]; formula_version: string
+}
+export type NewsV2Release = {
+  id: number; model_id: string | null; title: string; source_url: string
+  released_at: string | null; observed_at: string
+}
+export type NewsV2SourceHealth = {
+  state: string; sources: Record<string, { state?: string; error?: string }>; updated_at: string
+} | null
+export type NewsV2Home = {
+  top10: NewsV2RankEntry[]; snapshot_id: number | null; releases: NewsV2Release[]
+  source_health: Record<string, NewsV2SourceHealth>; freshness: Record<string, string>
+}
+export type NewsV2ModelMetric = {
+  category: string; source: string; metric: string; value: number
+  confidence: number; observed_at: string; formula_version: string
+}
+export type NewsV2Models = {
+  models: { model_id: string; metrics: NewsV2ModelMetric[] }[]; next_cursor: string | null
+}
+export type NewsV2RefreshJob = {
+  id: number; tab: string; state: string; error: string | null
+  checkpoints: Record<string, { state?: string; error?: string }>
+  metrics: Record<string, number>; updated_at: string
+}
+export async function getNewsV2Config(): Promise<NewsV2Config> { return get('/api/explore/v2/config') }
+export async function getNewsV2Home(): Promise<NewsV2Home> { return get('/api/explore/v2/home') }
+export async function getNewsV2Models(params: { q?: string; category?: string; cursor?: string; limit?: number } = {}): Promise<NewsV2Models> {
+  const qs = new URLSearchParams()
+  if (params.q) qs.set('q', params.q)
+  if (params.category) qs.set('category', params.category)
+  if (params.cursor) qs.set('cursor', params.cursor)
+  if (params.limit) qs.set('limit', String(params.limit))
+  return get(`/api/explore/v2/models?${qs.toString()}`)
+}
+export async function postNewsV2Refresh(tab: 'home' | 'trending' | 'feed'): Promise<{ job_id: number; joined: boolean }> {
+  return request('/api/explore/v2/refresh', { method: 'POST', body: JSON.stringify({ tab }) })
+}
+export async function getNewsV2RefreshJob(jobId: number): Promise<NewsV2RefreshJob> {
+  return get(`/api/explore/v2/refresh/${jobId}`)
+}
+
 // ── Explore scout stream: real per-step refresh progress (SSE) ─────────────────
 export type ScoutEvent =
   | { phase: 'pillar'; pillar: string; index: number; total: number }
