@@ -99,8 +99,13 @@ export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
               return (
                 <div key={entry.repo} className={`flex items-center gap-3 px-4 py-2 ${tone.row}`}>
                   <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${tone.badge}`}>{index + 1}</span>
-                  <a href={`https://github.com/${entry.repo}`} target="_blank" rel="noreferrer"
-                    className="min-w-0 flex-1 truncate text-sm font-medium text-text hover:text-accent">{entry.repo}</a>
+                  <div className="min-w-0 flex-1">
+                    <a href={`https://github.com/${entry.repo}`} target="_blank" rel="noreferrer"
+                      className="block truncate text-sm font-medium text-text hover:text-accent">{entry.repo}</a>
+                    {entry.description && (
+                      <p className="mt-0.5 truncate text-[11px] leading-4 text-muted" title={entry.description}>{entry.description}</p>
+                    )}
+                  </div>
                   {entry.status === 'collecting' ? (
                     <span title="Not enough persisted star history for this window yet — growth is never estimated"
                       className="inline-flex shrink-0 items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-[10px] text-muted">
@@ -133,7 +138,12 @@ export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
                 {tools.slice(1, 6).map(tool => (
                   <div key={tool.item_id} className="flex items-center gap-2.5 py-2">
                     <SourceLogo name={tool.source} size={12} variant="inline" />
-                    <a href={tool.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-sm text-text hover:text-accent">{tool.title}</a>
+                    <div className="min-w-0 flex-1">
+                      <a href={tool.url} target="_blank" rel="noreferrer" className="block truncate text-sm text-text hover:text-accent">{tool.title}</a>
+                      {tool.excerpt && (
+                        <p className="mt-0.5 truncate text-[11px] leading-4 text-muted" title={tool.excerpt}>{tool.excerpt}</p>
+                      )}
+                    </div>
                     <span className="shrink-0 text-[11px] text-muted">{tool.engagement ? `▲ ${tool.engagement}` : tool.source}</span>
                   </div>
                 ))}
@@ -208,7 +218,12 @@ function SourceExplore({ sources }: { sources: { source: string; items: number; 
             <div className="divide-y divide-border/50">
               {items.map(item => (
                 <div key={item.item_id} className="flex items-center gap-2.5 py-2">
-                  <a href={item.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-sm text-text hover:text-accent">{item.title}</a>
+                  <div className="min-w-0 flex-1">
+                    <a href={item.url} target="_blank" rel="noreferrer" className="block truncate text-sm text-text hover:text-accent">{item.title}</a>
+                    {item.excerpt && (
+                      <p className="mt-0.5 truncate text-[11px] leading-4 text-muted" title={item.excerpt}>{item.excerpt}</p>
+                    )}
+                  </div>
                   <span className="shrink-0 text-[11px] text-muted">{ago(item.published_at ?? item.first_seen_at)}</span>
                 </div>
               ))}

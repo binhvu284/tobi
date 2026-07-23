@@ -167,6 +167,12 @@ def v2_trending(section: str = "github", window: str = "week",
                 raise HTTPException(status_code=422, detail="window must be week|month|all")
             page = repository.read_snapshot_page(conn, kind=f"trending:github:{window}",
                                                  cursor=cursor, limit=limit)
+            for entry in page["entries"]:   # join the repo description from the ledger
+                row = conn.execute(
+                    "SELECT n.excerpt FROM news_items n JOIN news_item_sources s ON s.item_id=n.id"
+                    " WHERE s.source='github' AND s.external_id=? LIMIT 1", (entry["repo"],)).fetchone()
+                if row and (row[0] or "").strip():
+                    entry["description"] = row[0]
             return {"section": section, "window": window, **page}
         if section == "tools":
             page = repository.read_snapshot_page(conn, kind="trending:tools", cursor=cursor, limit=limit)

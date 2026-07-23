@@ -8,12 +8,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  Activity, AlertTriangle, ExternalLink, Loader2, Maximize2, Newspaper,
-  RefreshCw, Rss, Search, Star, TrendingUp, Trophy, X,
+  Activity, AlertTriangle, Ban, Check, CircleDashed, ExternalLink, Loader2, Maximize2,
+  Newspaper, RefreshCw, Rss, Search, Star, TrendingUp, Trophy, X,
 } from 'lucide-react'
 import {
-  getNewsV2Home, getNewsV2Models, getNewsV2RefreshJob, postNewsV2Refresh,
-  type NewsV2Home, type NewsV2ModelMetric, type NewsV2RankEntry, type NewsV2Release,
+  getNewsV2Home, getNewsV2Models, getNewsV2RefreshJob, postNewsV2Refresh, postNewsV2RefreshCommand,
+  type NewsV2Home, type NewsV2ModelMetric, type NewsV2RankEntry, type NewsV2RefreshJob,
+  type NewsV2Release,
 } from '../../api'
 import { useToast } from '../../context/ToastProvider'
 import LlmLogo from '../LlmLogo'
@@ -52,6 +53,8 @@ export default function NewsV2() {
   const [reloadKey, setReloadKey] = useState(0)     // bumped after a refresh job lands
   const pollTimer = useRef<number | null>(null)
 
+  const [job, setJob] = useState<NewsV2RefreshJob | null>(null)   // live progress panel
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -64,29 +67,58 @@ export default function NewsV2() {
   useEffect(() => { void load() }, [load])
   useEffect(() => () => { if (pollTimer.current) window.clearInterval(pollTimer.current) }, [])
 
+  // Poll the durable job row and keep it in state — the progress strip renders
+  // per-source checkpoints live. Terminal partial/failed keeps the panel up with
+  // a Retry-failed action instead of vanishing into a toast.
+  const beginPolling = (jobId: number) => {
+    if (pollTimer.current) window.clearInterval(pollTimer.current)
+    pollTimer.current = window.setInterval(async () => {
+      try {
+        const current = await getNewsV2RefreshJob(jobId)
+        setJob(current)
+        if (['completed', 'partial', 'failed', 'canceled'].includes(current.state)) {
+          if (pollTimer.current) window.clearInterval(pollTimer.current)
+          setRefreshing(false)
+          if (current.state === 'failed') toast({ kind: 'error', title: 'Refresh failed', detail: current.error ?? undefined })
+          else if (current.state === 'partial') toast({ kind: 'info', title: 'Refresh finished with some sources failing', detail: current.error ?? undefined })
+          else if (current.state === 'canceled') { toast({ kind: 'info', title: 'Refresh canceled' }); setJob(null) }
+          else { toast({ kind: 'success', title: 'Refreshed' }); setJob(null) }
+          setReloadKey(value => value + 1)
+          void load()
+        }
+      } catch { /* job briefly unavailable — keep polling */ }
+    }, 700)
+  }
+
   const refresh = async () => {
     if (refreshing || tab === 'favorites') return
     setRefreshing(true)
+    setJob(null)
     try {
       const started = await postNewsV2Refresh(tab === 'home' ? 'home' : tab === 'trending' ? 'trending' : 'feed')
-      pollTimer.current = window.setInterval(async () => {
-        try {
-          const job = await getNewsV2RefreshJob(started.job_id)
-          if (['completed', 'partial', 'failed', 'canceled'].includes(job.state)) {
-            if (pollTimer.current) window.clearInterval(pollTimer.current)
-            setRefreshing(false)
-            if (job.state === 'failed') toast({ kind: 'error', title: 'Refresh failed', detail: job.error ?? undefined })
-            else if (job.state === 'partial') toast({ kind: 'info', title: 'Refresh finished with some sources failing', detail: job.error ?? undefined })
-            else toast({ kind: 'success', title: 'Refreshed' })
-            setReloadKey(current => current + 1)
-            void load()
-          }
-        } catch { /* job briefly unavailable — keep polling until the cap */ }
-      }, 800)
+      try { setJob(await getNewsV2RefreshJob(started.job_id)) } catch { /* first poll fills it */ }
+      beginPolling(started.job_id)
     } catch (err) {
       setRefreshing(false)
       toast({ kind: 'error', title: 'Refresh did not start', detail: err instanceof Error ? err.message : String(err) })
     }
+  }
+
+  const retryFailed = async () => {
+    if (!job || refreshing) return
+    setRefreshing(true)
+    try {
+      setJob(await postNewsV2RefreshCommand(job.id, 'retry_failed'))
+      beginPolling(job.id)
+    } catch (err) {
+      setRefreshing(false)
+      toast({ kind: 'error', title: 'Retry did not start', detail: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  const cancelRefresh = async () => {
+    if (!job) return
+    try { await postNewsV2RefreshCommand(job.id, 'cancel') } catch { /* runner may have just finished */ }
   }
 
   const freshest = useMemo(() => {
@@ -126,6 +158,12 @@ export default function NewsV2() {
             </button>
           ))}
         </nav>
+        {job && (
+          <RefreshProgress job={job} running={refreshing}
+            onCancel={() => void cancelRefresh()}
+            onRetry={() => void retryFailed()}
+            onDismiss={() => setJob(null)} />
+        )}
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
@@ -134,6 +172,81 @@ export default function NewsV2() {
         {tab === 'feed' && <FeedTab reloadKey={reloadKey} />}
         {tab === 'favorites' && <FavoritesTab />}
       </main>
+    </div>
+  )
+}
+
+/** Live refresh progress (plan §7: job/source/stage/progress) — renders the durable
+ *  job row's per-source checkpoints: bar + one chip per source. Partial/failed stays
+ *  visible with Retry failed (only failed sources re-run) instead of vanishing. */
+function RefreshProgress({ job, running, onCancel, onRetry, onDismiss }: {
+  job: NewsV2RefreshJob; running: boolean
+  onCancel: () => void; onRetry: () => void; onDismiss: () => void
+}) {
+  const checkpoints = Object.entries(job.checkpoints)
+  const done = checkpoints.filter(([, cp]) => cp.state === 'ok').length
+  const failed = checkpoints.filter(([, cp]) => cp.state === 'failed')
+  const total = Math.max(1, checkpoints.length)
+  const inFlight = running
+    ? checkpoints.find(([, cp]) => cp.state !== 'ok' && cp.state !== 'failed')?.[0]
+    : undefined
+  const pct = Math.round(((done + failed.length) / total) * 100)   // processed = ok + failed
+  const label = running
+    ? `Refreshing ${job.tab} — ${done}/${total} sources done`
+    : job.state === 'partial'
+      ? `Refresh finished — ${failed.length} source${failed.length === 1 ? '' : 's'} failed`
+      : job.state === 'failed' ? 'Refresh failed — every source errored' : `Refresh ${job.state}`
+  return (
+    <div className="border-t border-border bg-surface/70 px-4 py-2 sm:px-6">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="inline-flex items-center gap-2 text-[11px] font-medium text-text">
+          {running ? <Loader2 size={13} className="animate-spin text-accent" />
+            : failed.length ? <AlertTriangle size={13} className="text-warning" />
+              : <Check size={13} className="text-success" />}
+          {label}
+        </span>
+        <div className="h-1.5 w-36 overflow-hidden rounded-full bg-background/70">
+          <div className={`h-full rounded-full transition-all duration-500 ${failed.length && !running ? 'bg-warning' : 'bg-accent'}`}
+            style={{ width: `${Math.max(4, pct)}%` }} />
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {checkpoints.map(([source, cp]) => (
+            <span key={source} title={cp.state === 'failed' ? (cp.error ?? 'failed') : cp.state ?? 'queued'}
+              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] ${
+                cp.state === 'ok' ? 'border-success/40 bg-success/10 text-success'
+                  : cp.state === 'failed' ? 'border-danger/40 bg-danger/10 text-danger'
+                    : source === inFlight ? 'border-accent/40 bg-accent/10 text-accent'
+                      : 'border-border text-muted'}`}>
+              {cp.state === 'ok' ? <Check size={10} />
+                : cp.state === 'failed' ? <X size={10} />
+                  : source === inFlight ? <Loader2 size={10} className="animate-spin" />
+                    : <CircleDashed size={10} />}
+              {source}
+            </span>
+          ))}
+        </div>
+        <div className="ml-auto flex items-center gap-1.5">
+          {running ? (
+            <button onClick={onCancel}
+              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border px-2.5 text-[11px] text-muted hover:text-danger">
+              <Ban size={11} /> Cancel
+            </button>
+          ) : (
+            <>
+              {failed.length > 0 && (
+                <button onClick={onRetry}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-md border border-accent/40 bg-accent/10 px-2.5 text-[11px] font-medium text-accent hover:bg-accent/20">
+                  <RefreshCw size={11} /> Retry failed
+                </button>
+              )}
+              <button onClick={onDismiss} title="Dismiss"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted hover:text-text">
+                <X size={13} />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

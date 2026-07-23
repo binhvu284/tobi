@@ -794,6 +794,7 @@ export async function getNewsV2Models(params: { q?: string; category?: string; c
 }
 export type NewsV2GithubEntry = {
   repo: string; stars: number; growth?: number; baseline_date?: string; status: 'ok' | 'collecting'
+  description?: string
 }
 export type NewsV2Interaction = {
   reaction: string; favorite: number; note: string | null; opens: number; dwell_ms: number; version: number
@@ -826,6 +827,9 @@ export async function postNewsV2Refresh(tab: 'home' | 'trending' | 'feed'): Prom
 }
 export async function getNewsV2RefreshJob(jobId: number): Promise<NewsV2RefreshJob> {
   return get(`/api/explore/v2/refresh/${jobId}`)
+}
+export async function postNewsV2RefreshCommand(jobId: number, command: 'cancel' | 'retry_failed'): Promise<NewsV2RefreshJob> {
+  return request(`/api/explore/v2/refresh/${jobId}/commands`, { method: 'POST', body: JSON.stringify({ command }) })
 }
 // Mutations (N06 contract): every write carries an Idempotency-Key (replays return
 // current state, replayed:true) and the optimistic interaction version (stale → 409).
