@@ -199,6 +199,12 @@ def run_job(job_id: int, owner: str | None = None, now: datetime | None = None) 
              json.dumps(totals), _now().isoformat(), job_id))
         conn.commit()
         if final in ("completed", "partial"):
+            if job["tab"] == Tab.FEED.value:
+                try:  # feed-quality: recap the top stories BEFORE ranking reads them
+                    from core.news import recap
+                    recap.run_for_refresh(conn, now)
+                except Exception:
+                    pass                               # recaps degrade, never fail a refresh
             try:  # N05: precompute the tab's rank snapshots from the fresh evidence.
                 from core.news import ranking
                 ranking.rebuild_for_tab(conn, job["tab"], now)

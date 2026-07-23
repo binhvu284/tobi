@@ -803,6 +803,7 @@ export type NewsV2ItemEntry = {
   item_id: number; title: string; source: string; url?: string; item_type?: string
   excerpt?: string | null; published_at?: string | null; first_seen_at?: string
   media_key?: string | null; topic?: string; score?: number; trust?: string; engagement?: number
+  recap?: string | null
   reasons?: { reason: string; strength: number }[]; interaction?: NewsV2Interaction
 }
 export async function getNewsV2TrendingGithub(window: 'week' | 'month' | 'all'): Promise<{ entries: NewsV2GithubEntry[]; snapshot_id: number | null; next_cursor: string | null }> {

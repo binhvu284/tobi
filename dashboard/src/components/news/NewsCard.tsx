@@ -196,7 +196,18 @@ export default function NewsCard({ entry, override, showReasons, onChange, onRem
         <h3 className="mt-2 text-[15px] font-semibold leading-snug text-text">
           <a href={entry.url} target="_blank" rel="noreferrer" onClick={recordOpen} className="transition-colors hover:text-accent">{entry.title}</a>
         </h3>
-        {excerpt && <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-muted">{excerpt}</p>}
+        {entry.recap ? (
+          <div className="mt-2">
+            {/* Derived content is always labeled — a recap is TOBI's grounded summary,
+                never presented as the publisher's words. */}
+            <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent">
+              <Sparkles size={9} /> TOBI recap
+            </span>
+            <p className="mt-1.5 whitespace-pre-line text-[13px] leading-6 text-text/90">{entry.recap}</p>
+          </div>
+        ) : excerpt ? (
+          <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-muted">{excerpt}</p>
+        ) : null}
 
         {showReasons && (entry.reasons?.length ?? 0) > 0 && reasonsOpen && (
           <div className="mt-2.5 flex flex-wrap gap-1.5">

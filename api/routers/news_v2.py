@@ -87,13 +87,13 @@ def _enrich(conn, entries: list[dict]) -> list[dict]:
     for entry in entries:
         row = conn.execute(
             "SELECT canonical_url, item_type, excerpt, published_at, first_seen_at, media_key,"
-            " (SELECT MAX(engagement) FROM news_item_sources WHERE item_id=n.id)"
+            " (SELECT MAX(engagement) FROM news_item_sources WHERE item_id=n.id), recap"
             " FROM news_items n WHERE id=?", (entry["item_id"],)).fetchone()
         if not row:
             continue
         out.append({**entry, "url": row[0], "item_type": row[1], "excerpt": row[2],
                     "published_at": row[3], "first_seen_at": row[4], "media_key": row[5],
-                    "engagement": int(row[6] or 0),
+                    "engagement": int(row[6] or 0), "recap": row[7],
                     "interaction": _interaction_state(conn, entry["item_id"])})
     return out
 

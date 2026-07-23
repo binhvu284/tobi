@@ -147,7 +147,14 @@ CREATE TABLE IF NOT EXISTS news_settings (
 );
 """
 
-_MIGRATIONS: list[tuple[int, str]] = [(1, _MIGRATION_1)]
+# Feed-quality redesign (owner direction): a few deep-dive stories per refresh.
+# The background recap engine (core/news/recap.py) fills these; page reads only join.
+_MIGRATION_2 = """
+ALTER TABLE news_items ADD COLUMN recap TEXT;
+ALTER TABLE news_items ADD COLUMN recap_at TEXT;
+"""
+
+_MIGRATIONS: list[tuple[int, str]] = [(1, _MIGRATION_1), (2, _MIGRATION_2)]
 
 SNAPSHOT_KEEP = 20     # retained rank snapshots per kind (immutable, rebuilt often)
 

@@ -58,7 +58,9 @@ expected = {"news_items", "news_item_sources", "news_interactions", "news_intera
             "news_media_cache", "news_settings", "news_schema_migrations"}
 ok("all 12 N01 tables + ledger exist", expected <= tables, str(sorted(expected - tables)))
 ledger = conn.execute("SELECT version, COUNT(*) FROM news_schema_migrations GROUP BY version").fetchall()
-ok("ledger recorded migration 1 exactly once", [tuple(r) for r in ledger] == [(1, 1)], str(ledger))
+ok("ledger recorded every migration exactly once",
+   [tuple(r) for r in ledger] == [(v, 1) for v, _ in __import__("core.news.repository", fromlist=["_MIGRATIONS"])._MIGRATIONS],
+   str(ledger))
 conn.close()
 
 # ── 2. V1 copy: idempotent, V1 rows byte-identical, compat ids retained ──────────────

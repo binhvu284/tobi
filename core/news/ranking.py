@@ -242,14 +242,17 @@ def build_feed_snapshots(conn: sqlite3.Connection, now: datetime | None = None,
     rows = conn.execute(
         "SELECT n.id, n.title, n.item_type, n.published_at, n.first_seen_at,"
         " COALESCE(i.reaction,'none'), COALESCE(i.favorite,0), i.note,"
-        " COALESCE(n.published_at, n.first_seen_at) AS stamp"
+        " COALESCE(n.published_at, n.first_seen_at) AS stamp, n.recap_at"
         " FROM news_items n LEFT JOIN news_interactions i ON i.item_id=n.id"
         " WHERE n.item_type IN ('article','social')"
         " ORDER BY stamp DESC, n.id DESC LIMIT ?", (FEED_CANDIDATE_CAP,)).fetchall()
     stamps: dict[int, str] = {}
+    recap_at: dict[int, str] = {}
     candidates = []
-    for item_id, title, item_type, published, first_seen, reaction, favorite, note, stamp in rows:
+    for item_id, title, item_type, published, first_seen, reaction, favorite, note, stamp, recapped in rows:
         stamps[item_id] = stamp or ""
+        if recapped:
+            recap_at[item_id] = recapped
         if reaction == "dislike":
             continue                                   # hidden immediately (plan §1)
         evidence = conn.execute("SELECT source, trust, engagement FROM news_item_sources"
@@ -275,7 +278,17 @@ def build_feed_snapshots(conn: sqlite3.Connection, now: datetime | None = None,
             "reasons": personalization.reasons_for(conn, item_id, profile),
         })
     candidates.sort(key=lambda e: (-e["score"], e["item_id"]))
-    for_you = _apply_diversity(candidates)
+    # Feed-quality rule (owner direction): For You is the CURATED deep-dive stream —
+    # only recapped stories, newest recap batch first, personalization score within a
+    # batch. Until the first recap exists (LLM off / first run) it falls back to the
+    # full ranked list so the page is never artificially empty. Latest always stays
+    # the raw everything-by-recency firehose.
+    curated = [e for e in candidates if e["item_id"] in recap_at]
+    if curated:
+        curated.sort(key=lambda e: (recap_at[e["item_id"]], e["score"], -e["item_id"]), reverse=True)
+        for_you = curated
+    else:
+        for_you = _apply_diversity(candidates)
     latest = sorted(candidates, key=lambda e: (e["item_id"],))
     latest = sorted(latest, key=lambda e: stamps.get(e["item_id"], ""), reverse=True)
     return {
