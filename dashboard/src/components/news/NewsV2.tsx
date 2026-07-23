@@ -9,13 +9,13 @@ import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Activity, AlertTriangle, Ban, Check, CircleDashed, Clock, ExternalLink, KeyRound, Loader2,
-  Maximize2, Newspaper, RefreshCw, Rss, Search, Settings2, Star, TrendingUp, Trophy, X,
+  Maximize2, Newspaper, RefreshCw, Rss, Search, Settings2, Sparkles, Star, TrendingUp, Trophy, X,
 } from 'lucide-react'
 import {
   getNewsV2Home, getNewsV2ModelLeaderboards, getNewsV2Models, getNewsV2RefreshJob,
   getNewsV2Settings, patchNewsV2Settings, postNewsV2Refresh, postNewsV2RefreshCommand,
   type NewsV2Home, type NewsV2Leaderboard, type NewsV2ModelMetric, type NewsV2RankEntry,
-  type NewsV2RefreshJob, type NewsV2Release, type NewsV2Settings,
+  type NewsV2RefreshJob, type NewsV2ReleaseNews, type NewsV2Settings,
 } from '../../api'
 import { useToast } from '../../context/ToastProvider'
 import LlmLogo from '../LlmLogo'
@@ -24,6 +24,7 @@ import SourceIconGroup from './SourceIconGroup'
 import TrendingTab from './TrendingTab'
 import FeedTab from './FeedTab'
 import FavoritesTab from './FavoritesTab'
+import { RefreshIconButton, TableSkeleton, useTableRefresh } from './TableRefresh'
 
 type V2Tab = 'home' | 'trending' | 'feed' | 'favorites'
 
@@ -487,6 +488,8 @@ function HomeTab({ home, loading, error, onRetry, sources }: {
   sources: string[]
 }) {
   const [explorerOpen, setExplorerOpen] = useState(false)
+  const topRefresh = useTableRefresh('home', MODEL_SOURCES, onRetry)
+  const newsRefresh = useTableRefresh('home', RELEASE_SOURCES, onRetry)
   if (loading && !home) {
     return <div className="grid gap-4 xl:grid-cols-2">{[0, 1].map(i => (
       <div key={i} className="h-72 animate-pulse rounded-lg border border-border bg-surface/40" />))}
@@ -503,7 +506,7 @@ function HomeTab({ home, loading, error, onRetry, sources }: {
     )
   }
   const top = home?.top ?? []
-  const releases = home?.releases ?? []
+  const releaseNews = home?.release_news ?? []
   return (
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-2">
@@ -516,9 +519,10 @@ function HomeTab({ home, loading, error, onRetry, sources }: {
                 className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted hover:text-accent">
                 <Maximize2 size={11} /> Explore
               </button>
+              <RefreshIconButton refreshing={topRefresh.refreshing} onClick={topRefresh.refresh} title="Refresh model rankings" />
             </div>
           </header>
-          {top.length === 0 ? (
+          {topRefresh.refreshing && top.length === 0 ? <TableSkeleton rows={6} /> : top.length === 0 ? (
             <p className="px-4 py-10 text-center text-xs text-muted">No model snapshot yet — run a Home refresh once model sources have been collected.</p>
           ) : (
             /* Top 20 ranked, ~10 rows visible, scroll inside (owner request) */
@@ -530,11 +534,17 @@ function HomeTab({ home, loading, error, onRetry, sources }: {
         </section>
 
         <section className="overflow-hidden rounded-lg border border-border bg-surface/40">
-          <header className="flex h-11 items-center gap-2 border-b border-border px-4"><Rss size={14} className="text-accent" /><h2 className="text-xs font-semibold text-text">Latest Releases</h2><span className="ml-auto"><SourceIconGroup sources={sources} /></span></header>
-          {releases.length === 0 ? (
-            <p className="px-4 py-10 text-center text-xs text-muted">No release evidence yet — releases appear once catalog sources report new models.</p>
+          <header className="flex h-11 items-center gap-2 border-b border-border px-4">
+            <Rss size={14} className="text-accent" /><h2 className="text-xs font-semibold text-text">Latest Releases</h2>
+            <span className="ml-auto"><SourceIconGroup sources={RELEASE_SOURCES} /></span>
+            <RefreshIconButton refreshing={newsRefresh.refreshing} onClick={newsRefresh.refresh} title="Refresh release news" />
+          </header>
+          {newsRefresh.refreshing && releaseNews.length === 0 ? <TableSkeleton rows={4} /> : releaseNews.length === 0 ? (
+            <p className="px-4 py-10 text-center text-xs text-muted">No release news yet — refresh to pull the latest big-tech launch coverage.</p>
           ) : (
-            <div className="divide-y divide-border/60">{releases.map(release => <ReleaseRow key={release.id} release={release} />)}</div>
+            <div className="max-h-[560px] divide-y divide-border/60 overflow-y-auto">
+              {releaseNews.map(item => <ReleaseNewsCard key={item.item_id} item={item} />)}
+            </div>
           )}
         </section>
       </div>
@@ -544,6 +554,9 @@ function HomeTab({ home, loading, error, onRetry, sources }: {
     </div>
   )
 }
+
+const MODEL_SOURCES = ['openrouter', 'artificialanalysis', 'lmarena', 'huggingface', 'llmstats']
+const RELEASE_SOURCES = ['rss', 'huggingface', 'openrouter']
 
 /** Rank hierarchy #1→#3 reduces in intensity; every treatment reads from the
  *  news-scoped variables (theme tokens) — bars/badges survive Reduced/Off motion. */
@@ -577,21 +590,41 @@ function RankRow({ entry, rank, maxScore }: { entry: NewsV2RankEntry; rank: numb
   )
 }
 
-function ReleaseRow({ release }: { release: NewsV2Release }) {
+/** Release NEWS card (owner: single-line card + thumbnail + title + ~3-line body +
+ *  TOBI recap). Real cached publisher image or a deterministic gradient fallback. */
+function ReleaseNewsCard({ item }: { item: NewsV2ReleaseNews }) {
+  const hue = [...item.title].reduce((acc, ch) => (acc * 31 + ch.charCodeAt(0)) % 360, 11)
+  const body = (item.recap || item.excerpt || '').trim()
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5">
-      <LlmLogo model={release.model_id ?? undefined} size={14} className="h-6 w-6 border border-border bg-background" />
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm text-text">{release.title}</div>
-        <div className="mt-0.5 text-[11px] text-muted" title={localTime(release.released_at ?? release.observed_at)}>
-          {release.released_at ? `released ${ago(release.released_at)}` : `observed ${ago(release.observed_at)}`}
-        </div>
+    <a href={item.url} target="_blank" rel="noreferrer" title={item.url}
+      className="group flex gap-3 px-4 py-3 transition-colors hover:bg-overlay/[0.04]">
+      <div className="relative h-16 w-24 shrink-0 overflow-hidden rounded-md border border-border">
+        {item.media_key ? (
+          <img src={`/api/explore/v2/media/${item.media_key}`} alt="" loading="lazy"
+            className="h-full w-full object-cover"
+            onError={event => { event.currentTarget.style.display = 'none' }} />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center"
+            style={{ background: `linear-gradient(135deg, hsl(${hue} 42% 30%), hsl(${(hue + 45) % 360} 52% 15%))` }}>
+            <SourceLogo name={item.source ?? 'rss'} size={16} variant="inline" />
+          </div>
+        )}
       </div>
-      <a href={release.source_url} target="_blank" rel="noreferrer" title={release.source_url}
-        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted hover:text-accent">
-        <ExternalLink size={13} />
-      </a>
-    </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          {item.source && <SourceLogo name={item.source} size={11} variant="inline" />}
+          <span className="truncate text-[10px] uppercase tracking-wide text-muted">{item.source ?? 'news'}</span>
+          <span className="ml-auto shrink-0 text-[10px] text-muted">{ago(item.published_at ?? item.first_seen_at)}</span>
+        </div>
+        <h3 className="mt-0.5 line-clamp-1 text-sm font-medium text-text group-hover:text-accent">{item.title}</h3>
+        {body && (
+          item.recap
+            ? <div className="mt-0.5"><span className="mr-1 inline-flex items-center gap-0.5 align-middle text-[9px] font-semibold uppercase text-accent/80"><Sparkles size={9} /> recap</span><span className="text-[11px] leading-4 text-muted [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">{body}</span></div>
+            : <p className="mt-0.5 line-clamp-3 text-[11px] leading-4 text-muted">{body}</p>
+        )}
+      </div>
+      <ExternalLink size={13} className="mt-0.5 shrink-0 text-muted/50 group-hover:text-accent" />
+    </a>
   )
 }
 

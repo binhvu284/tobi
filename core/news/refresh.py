@@ -33,9 +33,12 @@ _INTERVALS = {Schedule.DAILY.value: timedelta(days=1),
 
 # Tab → adapter classes. HN serves feed articles AND trending tool candidates; the
 # normalizer's canonical ingest dedupes overlap. Tests patch this registry.
+# RSS runs on HOME too: it supplies the image-rich "Latest Releases" news cards
+# (publication articles about big-tech launches). The normalizer dedupes items, so
+# the same article seen by the feed tab is one canonical row shared by both.
 _TAB_SOURCES: dict = {
     Tab.HOME.value: (OpenRouterAdapter, ArtificialAnalysisAdapter, LMArenaAdapter,
-                     HuggingFaceAdapter, LLMStatsAdapter),
+                     HuggingFaceAdapter, LLMStatsAdapter, RSSAdapter),
     Tab.TRENDING.value: (GitHubTrendingAdapter, HackerNewsAdapter),
     Tab.FEED.value: (HackerNewsAdapter, RSSAdapter),
 }
@@ -231,8 +234,8 @@ def run_job(job_id: int, owner: str | None = None, now: datetime | None = None) 
              json.dumps(totals), _now().isoformat(), job_id))
         conn.commit()
         if final in ("completed", "partial"):
-            if job["tab"] == Tab.FEED.value:
-                try:  # feed-quality: recap the top stories BEFORE ranking reads them
+            if job["tab"] in (Tab.FEED.value, Tab.HOME.value):
+                try:  # recap top stories BEFORE ranking reads them (feed AND home releases)
                     from core.news import recap
                     recap.run_for_refresh(conn, now)
                 except Exception:

@@ -290,9 +290,10 @@ base.http_get_json = _real_http
 # ── RSS adapter (N12 owner QA): curated publication feeds, RSS2 + Atom ───────────────
 from core.news.sources.rss import RSSAdapter, FEEDS  # noqa: E402
 
-_RSS_XML = """<?xml version="1.0"?><rss version="2.0"><channel>
+_RSS_XML = """<?xml version="1.0"?><rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"><channel>
 <item><title>AI &lt;b&gt;chips&lt;/b&gt; surge</title><link>https://pub.io/a1</link>
 <pubDate>Wed, 22 Jul 2026 08:00:00 GMT</pubDate>
+<media:content url="https://pub.io/img/a1.jpg" type="image/jpeg"/>
 <description>&lt;p&gt;Big move in &lt;i&gt;silicon&lt;/i&gt;&lt;/p&gt;</description></item>
 <item><title>No link item</title><link></link></item>
 </channel></rss>"""
@@ -323,6 +324,9 @@ ok("rss strips HTML from titles and excerpts",
 ok("rss parses RFC-822 and Atom dates to UTC ISO",
    (by_source[FEEDS[0][0]].published_at or "").startswith("2026-07-22")
    and (by_source[FEEDS[1][0]].published_at or "").startswith("2026-07-22"))
+ok("rss extracts the publisher image as media_url (for the SSRF-guarded thumbnail fetch)",
+   by_source[FEEDS[0][0]].media_url == "https://pub.io/img/a1.jpg"
+   and by_source[FEEDS[1][0]].media_url is None)
 
 
 def all_fail(url, headers=None, timeout=8.0):

@@ -10,6 +10,7 @@ are rejected at validation, HTML is stripped, excerpts bounded.
 """
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -17,6 +18,10 @@ from email.utils import parsedate_to_datetime
 from core.news import normalizer
 from core.news.contracts import ItemType, SourceRecord, TrustClass, payload_hash
 from core.news.sources import base
+
+_MEDIA = "{http://search.yahoo.com/mrss/}"
+_IMG_SRC = re.compile(r'<img[^>]+src=["\']([^"\']+)["\']', re.I)
+_HTTP_IMG = re.compile(r"^https?://", re.I)
 
 # (source name, feed URL) — curated, publication-grade AI coverage. Adding a feed
 # here is the only change needed for a new publication to appear everywhere.
@@ -44,22 +49,40 @@ def _to_iso(raw: str) -> str | None:
         return normalizer.to_utc_iso(raw)             # ISO (Atom) or None
 
 
+def _image(node, summary: str) -> str | None:
+    """The item's lead image: media:content/thumbnail or an <enclosure> image, else
+    the first <img> in the summary HTML. Only http(s) URLs; never guessed."""
+    for tag in (f"{_MEDIA}content", f"{_MEDIA}thumbnail"):
+        el = node.find(tag)
+        if el is not None and _HTTP_IMG.match((el.get("url") or "").strip()):
+            return el.get("url").strip()
+    enc = node.find("enclosure")
+    if enc is not None and (enc.get("type") or "").startswith("image") \
+            and _HTTP_IMG.match((enc.get("url") or "").strip()):
+        return enc.get("url").strip()
+    m = _IMG_SRC.search(summary or "")
+    if m and _HTTP_IMG.match(m.group(1)):
+        return m.group(1)
+    return None
+
+
 def _parse_feed(xml_text: str) -> list[dict]:
-    """RSS 2.0 ``item`` and Atom ``entry`` → [{title, url, published, summary}]."""
+    """RSS 2.0 ``item`` and Atom ``entry`` → [{title, url, published, summary, image}]."""
     root = ET.fromstring(xml_text)
     items = []
     for item in root.iter("item"):                    # RSS 2.0
+        summary = _text(item, "description")
         items.append({"title": _text(item, "title"), "url": _text(item, "link"),
                       "published": _to_iso(_text(item, "pubDate")),
-                      "summary": _text(item, "description")})
+                      "summary": summary, "image": _image(item, summary)})
     for entry in root.iter(f"{_ATOM}entry"):          # Atom
         link = entry.find(f"{_ATOM}link")
+        summary = _text(entry, f"{_ATOM}summary") or _text(entry, f"{_ATOM}content")
         items.append({"title": _text(entry, f"{_ATOM}title"),
                       "url": (link.get("href") or "").strip() if link is not None else "",
                       "published": _to_iso(_text(entry, f"{_ATOM}updated")
                                            or _text(entry, f"{_ATOM}published")),
-                      "summary": _text(entry, f"{_ATOM}summary")
-                      or _text(entry, f"{_ATOM}content")})
+                      "summary": summary, "image": _image(entry, summary)})
     return items
 
 
@@ -99,6 +122,7 @@ class RSSAdapter(base.Adapter):
                     observed_at=now,
                     published_at=item["published"],
                     excerpt=normalizer.bound_excerpt(normalizer.strip_html(item["summary"])),
+                    media_url=item.get("image"),      # publisher thumbnail (SSRF-fetched on ingest)
                     raw_hash=payload_hash({"url": url, "title": title}),
                 ))
         if failures and not payload.records:

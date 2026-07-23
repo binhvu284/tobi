@@ -763,11 +763,17 @@ export type NewsV2Release = {
   id: number; model_id: string | null; title: string; source_url: string
   released_at: string | null; observed_at: string
 }
+export type NewsV2ReleaseNews = {
+  item_id: number; title: string; url: string; source: string | null
+  excerpt: string | null; recap: string | null; media_key: string | null
+  published_at: string | null; first_seen_at: string | null
+}
 export type NewsV2SourceHealth = {
   state: string; sources: Record<string, { state?: string; error?: string }>; updated_at: string
 } | null
 export type NewsV2Home = {
   top: NewsV2RankEntry[]; snapshot_id: number | null; releases: NewsV2Release[]
+  release_news: NewsV2ReleaseNews[]
   source_health: Record<string, NewsV2SourceHealth>; freshness: Record<string, string>
 }
 export type NewsV2ModelMetric = {

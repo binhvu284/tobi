@@ -60,11 +60,22 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Media fetch seam (tests stub this to stay network-free). Returns the cached local
+# media key for an image URL, or None. SSRF-guarded inside core.news.media.
+def _cache_media(conn: sqlite3.Connection, url: str) -> str | None:
+    try:
+        from core.news import media
+        return media.cache_image(conn, url)
+    except Exception:
+        return None
+
+
 # ── ingest: canonical items + per-source evidence ────────────────────────────────────
 def ingest(conn: sqlite3.Connection, records: Iterable[SourceRecord]) -> dict:
     """Persist adapter records. Dedupe items by canonical URL hash; retain one evidence
     row per (source, external_id) and refresh its engagement/observation on re-sight.
-    Idempotent: replaying identical records changes nothing. Returns counters."""
+    A record carrying a ``media_url`` gets its publisher image fetched (SSRF-guarded)
+    and cached once, so the card shows a real thumbnail. Idempotent. Returns counters."""
     from core.news import repository
     repository._ensure_once(conn)
     counters = {"items_new": 0, "evidence_new": 0, "evidence_updated": 0}
@@ -79,10 +90,15 @@ def ingest(conn: sqlite3.Connection, records: Iterable[SourceRecord]) -> dict:
             (h, canonical_url(rec.url), rec.item_type.value, strip_html(rec.title)[:300],
              bound_excerpt(rec.excerpt), to_utc_iso(rec.published_at), now, expiry))
         counters["items_new"] += cur.rowcount
-        row = conn.execute("SELECT id FROM news_items WHERE url_hash=?", (h,)).fetchone()
+        row = conn.execute("SELECT id, media_key FROM news_items WHERE url_hash=?", (h,)).fetchone()
         if not row:
             continue
         item_id = int(row[0])
+        if rec.media_url and row[1] is None:          # fetch the thumbnail once, best-effort
+            key = _cache_media(conn, rec.media_url)
+            if key:
+                conn.execute("UPDATE news_items SET media_key=? WHERE id=? AND media_key IS NULL",
+                             (key, item_id))
         cur = conn.execute(
             "INSERT OR IGNORE INTO news_item_sources (item_id, source, external_id,"
             " original_url, payload_hash, trust, engagement, observed_at)"

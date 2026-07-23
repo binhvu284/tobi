@@ -109,6 +109,18 @@ def v2_home():
                         "SELECT id, model_id, title, source_url, released_at, observed_at"
                         " FROM news_model_releases ORDER BY COALESCE(released_at, observed_at) DESC"
                         " LIMIT 10")]
+        # image-rich release NEWS (owner: single-line card + thumbnail + title + 3-line
+        # + TOBI recap). Recent publication articles; recapped/thumbnailed ones first.
+        release_news = [dict(zip(("item_id", "title", "url", "source", "excerpt", "recap",
+                                  "media_key", "published_at", "first_seen_at"), r))
+                        for r in conn.execute(
+                            "SELECT n.id, n.title, n.canonical_url,"
+                            " (SELECT s.source FROM news_item_sources s WHERE s.item_id=n.id"
+                            "   ORDER BY s.observed_at DESC LIMIT 1),"
+                            " n.excerpt, n.recap, n.media_key, n.published_at, n.first_seen_at"
+                            " FROM news_items n WHERE n.item_type='article'"
+                            " ORDER BY (n.media_key IS NOT NULL) DESC, (n.recap IS NOT NULL) DESC,"
+                            " COALESCE(n.published_at, n.first_seen_at) DESC LIMIT 8")]
         health = {}
         for tab in ("home", "trending", "feed"):
             job = conn.execute(
@@ -119,7 +131,8 @@ def v2_home():
         freshness = {r[0]: r[1] for r in conn.execute(
             "SELECT kind, MAX(created_at) FROM news_rank_snapshots GROUP BY kind")}
         return {"top": top["entries"][:20], "snapshot_id": top["snapshot_id"],
-                "releases": releases, "source_health": health, "freshness": freshness}
+                "releases": releases, "release_news": release_news,
+                "source_health": health, "freshness": freshness}
     finally:
         conn.close()
 
