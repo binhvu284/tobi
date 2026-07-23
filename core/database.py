@@ -1291,6 +1291,11 @@ def init_database() -> None:
         explore.ensure_schema(conn)
     except Exception:
         pass
+    try:  # News V2 (#23, N01) — additive ledger migrations; V1 explore tables untouched
+        from core.news import repository as news_repository
+        news_repository.ensure_schema(conn)
+    except Exception:
+        pass
     conn.commit()
     conn.close()
     print(f"✅ Database ready: {DB_PATH}")

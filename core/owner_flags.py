@@ -42,6 +42,7 @@ KEYS = {
     "developer.auto_queue": "continue with the next eligible Developer queue item after success (bool)",
     "developer.queue_order": "owner priority order for planned queue items (JSON int array)",
     "developer.queue_next": "queue item pinned in the Next slot (int as string, '' = none)",
+    "news.v2_enabled": "#23 News Page V2 rollout (bool, default off — Explore V1 stays authoritative)",
 }
 
 # New #20 flags — fail closed (default off). Phase A does NOT read these; they are pre-
@@ -49,6 +50,10 @@ KEYS = {
 BRAIN_V2_ENABLED = "brain.v2_enabled"
 BRAIN_V2_SHADOW = "brain.v2_shadow"
 ARCHITECTURE_V2_ENABLED = "architecture.v2_enabled"
+
+# #23 News Page V2 — fail closed (default off). N01 registers the flag; nothing reads it
+# until the rollout slices (plan §12) start gating pages on it.
+NEWS_V2_ENABLED = "news.v2_enabled"
 
 
 def ensure_schema(conn=None) -> None:
