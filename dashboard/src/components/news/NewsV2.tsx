@@ -128,7 +128,7 @@ export default function NewsV2() {
         </nav>
       </header>
 
-      <main className="px-4 py-6 sm:px-6">
+      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
         {tab === 'home' && <HomeTab home={home} loading={loading} error={error} onRetry={load} />}
         {tab === 'trending' && <TrendingTab reloadKey={reloadKey} />}
         {tab === 'feed' && <FeedTab reloadKey={reloadKey} />}
