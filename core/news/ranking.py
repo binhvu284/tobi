@@ -32,6 +32,12 @@ MAX_TOPIC_SHARE = 0.40
 FRESH_EVIDENCE_DAYS = 30
 MIN_SCORE_FAMILIES = 2
 TOP_N_MODELS = 10
+# N12 performance gates (plan §9): snapshots stay bounded so page reads meet the
+# <300 ms cached target no matter how large the canonical store grows. The feed
+# ranks the freshest FEED_CANDIDATE_CAP items; older items remain in the ledger
+# (searchable, favoritable) but are not re-ranked every rebuild.
+FEED_CANDIDATE_CAP = 500
+TOOLS_CAP = 200
 
 _METRIC_FAMILY = {
     "intelligence": "intelligence", "reasoning": "intelligence", "composite": "intelligence",
@@ -153,7 +159,8 @@ def build_trending_snapshots(conn: sqlite3.Connection, now: datetime | None = No
     tool_entries = [{"item_id": r[0], "title": r[1], "source": r[2], "trust": r[3],
                      "engagement": int(r[4] or 0)} for r in tools]
     tool_entries.sort(key=lambda e: (-TRUST_BASE.get(e["trust"], 0.5), -e["engagement"], e["item_id"]))
-    out["tools"] = write_rank_snapshot(conn, "trending:tools", tool_entries, TRENDING_FORMULA_VERSION)
+    out["tools"] = write_rank_snapshot(conn, "trending:tools", tool_entries[:TOOLS_CAP],
+                                       TRENDING_FORMULA_VERSION)
     return out
 
 
@@ -230,13 +237,19 @@ def build_feed_snapshots(conn: sqlite3.Connection, now: datetime | None = None,
     settings = repository.get_settings(conn)
     profile = active_profile(conn)
     deltas = immediate_adjustments(conn, now_dt)
+    # Bounded candidate window (N12): rank the freshest FEED_CANDIDATE_CAP items so
+    # rebuild cost and snapshot size stay flat as the canonical store grows.
     rows = conn.execute(
         "SELECT n.id, n.title, n.item_type, n.published_at, n.first_seen_at,"
-        " COALESCE(i.reaction,'none'), COALESCE(i.favorite,0), i.note"
+        " COALESCE(i.reaction,'none'), COALESCE(i.favorite,0), i.note,"
+        " COALESCE(n.published_at, n.first_seen_at) AS stamp"
         " FROM news_items n LEFT JOIN news_interactions i ON i.item_id=n.id"
-        " WHERE n.item_type IN ('article','social') ORDER BY n.id").fetchall()
+        " WHERE n.item_type IN ('article','social')"
+        " ORDER BY stamp DESC, n.id DESC LIMIT ?", (FEED_CANDIDATE_CAP,)).fetchall()
+    stamps: dict[int, str] = {}
     candidates = []
-    for item_id, title, item_type, published, first_seen, reaction, favorite, note in rows:
+    for item_id, title, item_type, published, first_seen, reaction, favorite, note, stamp in rows:
+        stamps[item_id] = stamp or ""
         if reaction == "dislike":
             continue                                   # hidden immediately (plan §1)
         evidence = conn.execute("SELECT source, trust, engagement FROM news_item_sources"
@@ -264,9 +277,7 @@ def build_feed_snapshots(conn: sqlite3.Connection, now: datetime | None = None,
     candidates.sort(key=lambda e: (-e["score"], e["item_id"]))
     for_you = _apply_diversity(candidates)
     latest = sorted(candidates, key=lambda e: (e["item_id"],))
-    latest = sorted(latest, key=lambda e: (
-        conn.execute("SELECT COALESCE(published_at, first_seen_at) FROM news_items WHERE id=?",
-                     (e["item_id"],)).fetchone()[0] or ""), reverse=True)
+    latest = sorted(latest, key=lambda e: stamps.get(e["item_id"], ""), reverse=True)
     return {
         "for_you": write_rank_snapshot(conn, "feed:for_you", for_you, FEED_FORMULA_VERSION),
         "latest": write_rank_snapshot(conn, "feed:latest", latest, FEED_FORMULA_VERSION),

@@ -187,6 +187,12 @@ def run_job(job_id: int, owner: str | None = None, now: datetime | None = None) 
                 conn.commit()
             except Exception:
                 pass                                   # ranking failure never fails the refresh
+        if final in ("partial", "failed"):
+            try:  # N12: repeated source failures raise ONE deduplicated Inbox action.
+                from core.news import telemetry
+                telemetry.alert_failing_sources(conn, job["tab"])
+            except Exception:
+                pass                                   # telemetry never breaks a refresh
         return _row(conn, job_id)
     finally:
         conn.close()

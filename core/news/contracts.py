@@ -103,6 +103,15 @@ def _iso_or_none(value: str | None, name: str) -> None:
         raise ValueError(f"{name} must be ISO-8601, got {value!r}")
 
 
+def _http_url(value: str, name: str) -> None:
+    """N12 security gate (plan §11 "script URLs"): every URL that can become a link
+    or fetch target must be plain http(s) — javascript:/data:/file: never enter the
+    ledger, so the UI can render hrefs without per-render sanitization."""
+    scheme = urlsplit((value or "").strip()).scheme.lower()
+    if scheme not in ("http", "https"):
+        raise ValueError(f"{name} must be an http(s) URL, got scheme {scheme!r}")
+
+
 # ── canonical URL → dedupe hash (minimal seam; N02's normalizer builds on it) ────────
 _TRACKING_PARAM = re.compile(r"^(utm_\w+|fbclid|gclid|ref|ref_src|s|si)$", re.IGNORECASE)
 
@@ -165,6 +174,9 @@ class SourceRecord:
         _require(bool(self.source.strip()), "source is required")
         _require(bool(self.external_id.strip()), "external_id is required")
         _require(bool(self.url.strip()), "url is required")
+        _http_url(self.url, "url")
+        if self.media_url is not None:
+            _http_url(self.media_url, "media_url")
         _require(bool(self.title.strip()), "title is required")
         _require(isinstance(self.item_type, ItemType), "item_type must be ItemType")
         _require(isinstance(self.trust, TrustClass), "trust must be TrustClass")
@@ -269,6 +281,7 @@ class ModelRelease:
     def __post_init__(self) -> None:
         _require(bool(self.title.strip()), "title is required")
         _require(bool(self.source_url.strip()), "source_url evidence is required")
+        _http_url(self.source_url, "source_url")
         _iso_or_none(self.observed_at, "observed_at")
         _iso_or_none(self.released_at, "released_at")
 
