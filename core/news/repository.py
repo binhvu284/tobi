@@ -286,11 +286,15 @@ def record_event(conn: sqlite3.Connection, event: InteractionEvent) -> bool:
     return True
 
 
+_KEEP = object()   # sentinel: "leave the note alone" — note=None must mean CLEAR it
+
+
 def upsert_interaction(conn: sqlite3.Connection, item_id: int, *, reaction: Reaction | None = None,
-                       favorite: bool | None = None, note: str | None = None,
+                       favorite: bool | None = None, note: object = _KEEP,
                        expected_version: int | None = None) -> dict:
     """Optimistic-versioned current-state upsert. ``expected_version`` mismatch raises
-    ``ValueError`` (the API's 409). Returns the stored state."""
+    ``ValueError`` (the API's 409). Omit ``note`` to keep it; pass ``None`` to clear.
+    Returns the stored state."""
     _ensure_once(conn)
     row = conn.execute("SELECT reaction, favorite, note, opens, dwell_ms, version"
                        " FROM news_interactions WHERE item_id=?", (item_id,)).fetchone()
@@ -300,7 +304,7 @@ def upsert_interaction(conn: sqlite3.Connection, item_id: int, *, reaction: Reac
     state = {
         "reaction": (reaction.value if reaction is not None else (row[0] if row else Reaction.NONE.value)),
         "favorite": int(favorite if favorite is not None else (row[1] if row else 0)),
-        "note": note if note is not None else (row[2] if row else None),
+        "note": (row[2] if row else None) if note is _KEEP else note,
         "opens": row[3] if row else 0,
         "dwell_ms": row[4] if row else 0,
         "version": current_version + 1,
