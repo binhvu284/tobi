@@ -23,6 +23,7 @@ import SourceIconGroup from './SourceIconGroup'
 import { DEFAULT_INTERACTION, cleanExcerpt } from './NewsCard'
 import { RefreshIconButton, TableSkeleton, useTableRefresh } from './TableRefresh'
 import RichText from './RichText'
+import ActionBar from './ActionBar'
 
 type Window = 'week' | 'month' | 'all'
 
@@ -165,7 +166,10 @@ export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
                       <TrendingUp size={12} /> {entry.growth >= 0 ? '+' : ''}{fmtStars(entry.growth)}
                     </span>
                   )}
-                  <span className="inline-flex w-16 shrink-0 items-center justify-end gap-1 text-xs text-muted"><Star size={11} /> {fmtStars(entry.stars)}</span>
+                  <span className="inline-flex w-14 shrink-0 items-center justify-end gap-1 text-xs text-muted"><Star size={11} /> {fmtStars(entry.stars)}</span>
+                  {entry.item_id !== undefined && (
+                    <ActionBar itemId={entry.item_id} interaction={entry.interaction} size="xs" actions={['favorite', 'note']} />
+                  )}
                 </div>
               )
             })}
@@ -185,7 +189,6 @@ const GITHUB_SOURCES = ['github']
 function ToolDiscovery({ reloadKey }: { reloadKey: number }) {
   const { toast } = useToast()
   const [tools, setTools] = useState<NewsV2ItemEntry[]>([])
-  const [index, setIndex] = useState(0)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [overrides, setOverrides] = useState<Record<number, NewsV2Interaction>>({})
@@ -199,7 +202,6 @@ function ToolDiscovery({ reloadKey }: { reloadKey: number }) {
     try {
       const res = await getNewsV2TrendingTools()
       setTools(res.entries)
-      setIndex(0)
     } catch { setTools([]) } finally { setLoading(false) }
   }, [])
   useEffect(() => { void load() }, [load, reloadKey])
@@ -208,14 +210,11 @@ function ToolDiscovery({ reloadKey }: { reloadKey: number }) {
   // content-creator (github + HN sources), which may take a while; skeleton covers it.
   const { refreshing, refresh } = useTableRefresh('trending', TOOL_SOURCES, load)
 
-  const tool = tools.length ? tools[index % tools.length] : null
+  // owner: "1 quality tool at a time" — show only the newest spotlight; refresh = next.
+  const tool = tools.length ? tools[0] : null
   const ix = tool ? (overrides[tool.item_id] ?? tool.interaction ?? DEFAULT_INTERACTION) : DEFAULT_INTERACTION
 
-  const next = () => {
-    setNoteOpen(false); setUndoUntil(null)
-    if (index + 1 < tools.length) setIndex(current => current + 1)
-    else void refresh()                                 // exhausted the batch → generate the next
-  }
+  const next = () => { setNoteOpen(false); setUndoUntil(null); void refresh() }
 
   const mutate = async (action: 'like' | 'dislike' | 'undo' | 'favorite' | 'unfavorite') => {
     if (!tool || busy) return
@@ -354,14 +353,6 @@ function ToolDiscovery({ reloadKey }: { reloadKey: number }) {
               )}
             </div>
           </div>
-          {tools.length > 1 && (
-            <div className="mt-4 flex justify-center">
-              <button onClick={next} disabled={refreshing}
-                className="inline-flex h-8 items-center gap-2 rounded-full border border-border px-4 text-[11px] font-medium text-muted transition-colors hover:border-accent/40 hover:text-text disabled:opacity-50">
-                <ChevronRight size={13} /> Next pick ({(index % tools.length) + 1}/{tools.length})
-              </button>
-            </div>
-          )}
         </div>
       )}
     </section>
@@ -390,21 +381,18 @@ function SourceExplore({ reloadKey }: { reloadKey: number }) {
   const [sources, setSources] = useState<{ source: string; items: number; latest_observed: string }[]>([])
   const [selected, setSelected] = useState('')          // '' = all sources
   const [items, setItems] = useState<NewsV2ItemEntry[]>([])
-  const [cursor, setCursor] = useState<string | null>(null)
-  const [offset, setOffset] = useState(0)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     void getNewsV2TrendingSources().then(res => setSources(res.sources)).catch(() => {})
   }, [reloadKey])
 
+  // owner: "only 3 quality items at a time" — the freshest picks; refresh rotates them.
   const loadItems = useCallback(async (source: string) => {
     setBusy(true)
     try {
-      const page = await getNewsV2Feed({ mode: 'latest', source: source || undefined, limit: 15 })
-      setItems(page.entries)
-      setCursor(page.next_cursor)
-      setOffset(0)
+      const page = await getNewsV2Feed({ mode: 'latest', source: source || undefined, limit: EXPLORE_CARDS })
+      setItems(page.entries.slice(0, EXPLORE_CARDS))
     } catch { setItems([]) } finally { setBusy(false) }
   }, [])
   useEffect(() => { void loadItems(selected) }, [loadItems, selected, reloadKey])
@@ -415,25 +403,7 @@ function SourceExplore({ reloadKey }: { reloadKey: number }) {
       await loadItems(selected)
     }, [loadItems, selected]))
 
-  const exploreMore = async () => {
-    if (busy) return
-    if (offset + EXPLORE_CARDS < items.length) { setOffset(offset + EXPLORE_CARDS); return }
-    if (cursor) {                                       // deeper into the pinned snapshot
-      setBusy(true)
-      try {
-        const page = await getNewsV2Feed({ mode: 'latest', source: selected || undefined, cursor, limit: 15 })
-        const known = new Set(items.map(item => item.item_id))
-        const merged = [...items, ...page.entries.filter(item => !known.has(item.item_id))]
-        setItems(merged)
-        setCursor(page.next_cursor)
-        setOffset(current => (current + EXPLORE_CARDS < merged.length ? current + EXPLORE_CARDS : 0))
-      } catch { /* keep current cards */ } finally { setBusy(false) }
-      return
-    }
-    setOffset(0)                                        // exhausted → wrap to the start
-  }
-
-  const visible = items.slice(offset, offset + EXPLORE_CARDS)
+  const visible = items.slice(0, EXPLORE_CARDS)
   if (!sources.length) return null
 
   return (
@@ -466,10 +436,10 @@ function SourceExplore({ reloadKey }: { reloadKey: number }) {
         <div className="p-4">
           <div className="grid gap-3 sm:grid-cols-3">
             {visible.map(item => (
-              <article key={item.item_id} className="overflow-hidden rounded-lg border border-border bg-surface/60 transition-colors hover:border-accent/30">
+              <article key={item.item_id} className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface/60 transition-colors hover:border-accent/30">
                 <VisualTile name={item.title} source={item.source} mediaKey={item.media_key}
                   className="aspect-video" />
-                <div className="p-3">
+                <div className="flex flex-1 flex-col p-3">
                   <div className="flex items-center gap-1.5 text-[10px] text-muted">
                     <SourceLogo name={item.source} size={11} variant="inline" />
                     <span className="font-medium text-text/75">{item.source}</span>
@@ -479,23 +449,22 @@ function SourceExplore({ reloadKey }: { reloadKey: number }) {
                     <a href={item.url} target="_blank" rel="noreferrer" className="hover:text-accent">{item.title}</a>
                   </h3>
                   {cleanExcerpt(item.excerpt) && (
-                    <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted">{cleanExcerpt(item.excerpt)}</p>
+                    <p className="mt-1 line-clamp-4 text-[11px] leading-[1.35rem] text-muted">{cleanExcerpt(item.excerpt)}</p>
                   )}
-                  <a href={item.url} target="_blank" rel="noreferrer"
-                    className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-muted transition-colors hover:text-accent">
-                    <ExternalLink size={11} /> Open
-                  </a>
+                  <div className="mt-auto flex items-center justify-between gap-2 pt-2.5">
+                    <a href={item.url} target="_blank" rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] font-medium text-muted transition-colors hover:text-accent">
+                      <ExternalLink size={11} /> Open
+                    </a>
+                    <ActionBar itemId={item.item_id} interaction={item.interaction} size="xs" />
+                  </div>
                 </div>
               </article>
             ))}
           </div>
-          <div className="mt-4 flex justify-center">
-            <button onClick={() => void exploreMore()} disabled={busy}
-              className="inline-flex h-9 items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-5 text-xs font-semibold text-accent transition-colors hover:bg-accent/20 disabled:opacity-50">
-              {busy ? <Loader2 size={13} className="animate-spin" /> : <ChevronRight size={13} />}
-              Explore more
-            </button>
-          </div>
+          <p className="mt-3 text-center text-[10px] text-muted/70">
+            Three fresh picks each refresh — favourite one to keep it, the rest rotate out.
+          </p>
         </div>
       )}
     </section>

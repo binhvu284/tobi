@@ -144,9 +144,17 @@ ok("real trending preempts snapshots: growth is GitHub's own period number, page
    str(rweek))
 ok("real trending never emits 'collecting' (data is real from the first refresh)",
    all(e["status"] == "ok" for e in rweek))
+# all-time is its OWN real board (GitHub Search top-starred), not a reorder of trending
+N.ingest_github_trending(conn, [
+    CT.GitHubTrending(repo="torvalds/linux", window="all", rank=1, period_stars=0,
+                      total_stars=900000, observed_at=NOW.isoformat(), description="kernel", language="C"),
+    CT.GitHubTrending(repo="sindre/awesome", window="all", rank=2, period_stars=0,
+                      total_stars=488000, observed_at=NOW.isoformat())])
+conn.commit()
 rall = RK.github_trending_entries(conn, "all", now=NOW)
-ok("all-time over real trending ranks by total stars",
-   [e["repo"] for e in rall] == ["cool/repo", "hot/repo"], str(rall))
+ok("all-time is the real Search-API board (verifiable), GitHub's rank order, no growth",
+   [e["repo"] for e in rall] == ["torvalds/linux", "sindre/awesome"] and "growth" not in rall[0],
+   str(rall))
 N.ingest_github_trending(conn, [
     CT.GitHubTrending(repo="hot/repo", window="week", rank=1, period_stars=1234,
                       total_stars=4200, observed_at=NOW.isoformat())])

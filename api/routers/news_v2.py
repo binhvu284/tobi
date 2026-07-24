@@ -121,6 +121,8 @@ def v2_home():
                             " FROM news_items n WHERE n.item_type='article'"
                             " ORDER BY (n.media_key IS NOT NULL) DESC, (n.recap IS NOT NULL) DESC,"
                             " COALESCE(n.published_at, n.first_seen_at) DESC LIMIT 8")]
+        for item in release_news:                        # each release-news card is likeable
+            item["interaction"] = _interaction_state(conn, item["item_id"])
         health = {}
         for tab in ("home", "trending", "feed"):
             job = conn.execute(
@@ -194,12 +196,15 @@ def v2_trending(section: str = "github", window: str = "week", q: str = "",
                 raise HTTPException(status_code=422, detail="window must be week|month|all")
             page = repository.read_snapshot_page(conn, kind=f"trending:github:{window}",
                                                  cursor=cursor, limit=limit)
-            for entry in page["entries"]:   # join the repo description from the ledger
+            for entry in page["entries"]:   # join the ledger item so each row is likeable
                 row = conn.execute(
-                    "SELECT n.excerpt FROM news_items n JOIN news_item_sources s ON s.item_id=n.id"
+                    "SELECT n.id, n.excerpt FROM news_items n JOIN news_item_sources s ON s.item_id=n.id"
                     " WHERE s.source='github' AND s.external_id=? LIMIT 1", (entry["repo"],)).fetchone()
-                if row and (row[0] or "").strip():
-                    entry["description"] = row[0]
+                if row:
+                    entry["item_id"] = row[0]
+                    entry["interaction"] = _interaction_state(conn, row[0])
+                    if (row[1] or "").strip() and not entry.get("description"):
+                        entry["description"] = row[1]
             query = q.strip().lower()
             if query:                       # owner: search by repo name / author (page-level)
                 page["entries"] = [e for e in page["entries"]

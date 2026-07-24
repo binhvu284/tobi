@@ -134,26 +134,22 @@ def github_trending_entries(conn: sqlite3.Connection, window: str,
 
 
 def _github_trending_real(conn: sqlite3.Connection, window: str) -> list[dict] | None:
-    """github.com/trending rows for the window (``all`` = union by total stars).
-    Returns None when the trending table is empty so the caller can fall back."""
-    if window == "all":
-        rows = conn.execute(
-            "SELECT repo, MAX(total_stars), MAX(description), MAX(language)"
-            " FROM news_github_trending GROUP BY repo").fetchall()
-        if not rows:
-            return None
-        entries = [{"repo": r[0], "stars": int(r[1]), "description": r[2],
-                    "language": r[3], "status": "ok"} for r in rows]
-        entries.sort(key=lambda e: (-e["stars"], e["repo"]))
-        return entries
+    """Real rows for the window straight from ``news_github_trending``: week/month from
+    github.com/trending (with growth), ``all`` from the GitHub Search top-starred board.
+    GitHub already ordered each board, so we keep its rank. None when empty → fall back."""
     rows = conn.execute(
         "SELECT repo, period_stars, total_stars, description, language, rank"
         " FROM news_github_trending WHERE window=? ORDER BY rank ASC", (window,)).fetchall()
     if not rows:
         return None
-    # GitHub already ordered the page by trend; keep that order, expose the real growth
-    return [{"repo": r[0], "growth": int(r[1]), "stars": int(r[2]), "description": r[3],
-             "language": r[4], "status": "ok", "source": "github_trending"} for r in rows]
+    entries = []
+    for repo, period, total, description, language, _rank in rows:
+        entry = {"repo": repo, "stars": int(total), "description": description,
+                 "language": language, "status": "ok", "source": "github_trending"}
+        if window != "all":                              # all-time has no period growth
+            entry["growth"] = int(period)
+        entries.append(entry)
+    return entries
 
 
 def _github_trending_from_snapshots(conn: sqlite3.Connection, window: str,
@@ -203,16 +199,15 @@ def build_trending_snapshots(conn: sqlite3.Connection, now: datetime | None = No
         out[f"github:{window}"] = write_rank_snapshot(
             conn, f"trending:github:{window}", github_trending_entries(conn, window, now),
             TRENDING_FORMULA_VERSION)
-    # Tool Discovery candidates are tools AND repos (owner: "use github as well"); the
-    # content-creator's SPOTLIGHTED picks (those with a recap) always lead the section.
+    # Tool Discovery shows ONLY the content-creator's SPOTLIGHTED picks (owner: "1 quality
+    # tool, not 1 quality + trash"). Newest spotlight leads; the widget shows one at a time.
     tools = conn.execute(
-        "SELECT n.id, n.title, s.source, s.trust, MAX(s.engagement), (n.recap IS NOT NULL)"
+        "SELECT n.id, n.title, s.source, s.trust, MAX(s.engagement), n.recap_at"
         " FROM news_items n JOIN news_item_sources s ON s.item_id=n.id"
-        " WHERE n.item_type IN ('tool','repo') GROUP BY n.id ORDER BY n.id").fetchall()
+        " WHERE n.item_type IN ('tool','repo') AND n.recap IS NOT NULL"
+        " GROUP BY n.id ORDER BY n.recap_at DESC").fetchall()
     tool_entries = [{"item_id": r[0], "title": r[1], "source": r[2], "trust": r[3],
-                     "engagement": int(r[4] or 0), "spotlighted": bool(r[5])} for r in tools]
-    tool_entries.sort(key=lambda e: (not e["spotlighted"], -TRUST_BASE.get(e["trust"], 0.5),
-                                     -e["engagement"], e["item_id"]))
+                     "engagement": int(r[4] or 0), "recap_at": r[5]} for r in tools]
     out["tools"] = write_rank_snapshot(conn, "trending:tools", tool_entries[:TOOLS_CAP],
                                        TRENDING_FORMULA_VERSION)
     return out

@@ -293,7 +293,8 @@ class GitHubTrending:
 
     def __post_init__(self) -> None:
         _require(bool(self.repo.strip()) and "/" in self.repo, "repo must be owner/name")
-        _require(self.window in ("week", "month"), "window must be week|month")
+        # week/month = real github.com/trending; all = real GitHub Search top-starred
+        _require(self.window in ("week", "month", "all"), "window must be week|month|all")
         _require(self.rank >= 1, "rank must be >= 1")
         _require(self.period_stars >= 0 and self.total_stars >= 0, "star counts must be >= 0")
         _iso_or_none(self.observed_at, "observed_at")

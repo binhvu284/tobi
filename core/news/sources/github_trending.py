@@ -26,6 +26,11 @@ from core.news.sources import base
 
 _TRENDING = "https://github.com/trending?since={since}&spoken_language_code="
 _WINDOWS = (("week", "weekly"), ("month", "monthly"))
+# "All time" is the REAL most-starred set from GitHub's Search API (owner can verify at
+# github.com/search?q=stars:>50000&type=repositories&s=stars) — NOT a reorder of the
+# trending list. Keyless; one request per refresh stays inside the unauth rate limit.
+_ALLTIME = ("https://api.github.com/search/repositories"
+            "?q=stars:%3E50000&sort=stars&order=desc&per_page=30")
 
 _BLOCK = re.compile(r'<article class="Box-row">')
 _NAME = re.compile(r'<h2[^>]*>\s*<a[^>]*href="/([^"/]+/[^"?#]+)"')
@@ -91,20 +96,48 @@ class GitHubTrendingAdapter(base.Adapter):
                     repo=full_name, window=window, rank=rank,
                     period_stars=period_stars, total_stars=total_stars,
                     observed_at=now, description=description or None, language=language))
-                if full_name not in seen_snapshot:         # one record + one snapshot per repo
-                    seen_snapshot.add(full_name)
-                    payload.records.append(SourceRecord(
-                        source=self.name, external_id=full_name,
-                        url=f"https://github.com/{full_name}",
-                        title=full_name, item_type=ItemType.REPO, trust=self.trust,
-                        observed_at=now, published_at=None,
-                        excerpt=normalizer.bound_excerpt(description),
-                        engagement=total_stars,
-                        author=full_name.split("/", 1)[0] or None,
-                        raw_hash=payload_hash({"repo": full_name, "stars": total_stars})))
-                    if total_stars > 0:
-                        payload.github_snapshots.append(GitHubSnapshot(
-                            repo=full_name, snapshot_date=today, stars=total_stars))
+                self._emit_repo(payload, seen_snapshot, full_name, total_stars, description, today, now)
+
+        # all-time most-starred (verifiable Search API) — a board an owner can trust
+        try:
+            data = base.http_get_json(_ALLTIME, headers={"Accept": "application/vnd.github+json"},
+                                      timeout=self.timeout_s) or {}
+        except base.RateLimited:
+            raise
+        except Exception:
+            data = {}
+        for rank, repo in enumerate((data.get("items") or [])[: self.max_records], start=1):
+            full_name = str(repo.get("full_name") or "").strip()
+            if "/" not in full_name:
+                continue
+            stars = _int(str(repo.get("stargazers_count") or 0))
+            description = _text(str(repo.get("description") or ""))[:280]
+            payload.github_trending.append(GitHubTrending(
+                repo=full_name, window="all", rank=rank, period_stars=0, total_stars=stars,
+                observed_at=now, description=description or None,
+                language=(repo.get("language") or None)))
+            self._emit_repo(payload, seen_snapshot, full_name, stars, description, today, now)
+            parsed_any = True
+
         if not parsed_any:
             raise RuntimeError("github.com/trending returned no parsable repositories")
         return payload
+
+    @staticmethod
+    def _emit_repo(payload: base.Payload, seen: set, full_name: str, stars: int,
+                   description: str, today: str, now: str) -> None:
+        """One canonical REPO record + one star snapshot per repo (deduped across boards),
+        so every GitHub-table row has a news item id to like/favourite/note."""
+        if full_name in seen:
+            return
+        seen.add(full_name)
+        payload.records.append(SourceRecord(
+            source="github", external_id=full_name, url=f"https://github.com/{full_name}",
+            title=full_name, item_type=ItemType.REPO, trust=TrustClass.VERIFIED_API,
+            observed_at=now, published_at=None,
+            excerpt=normalizer.bound_excerpt(description), engagement=stars,
+            author=full_name.split("/", 1)[0] or None,
+            raw_hash=payload_hash({"repo": full_name, "stars": stars})))
+        if stars > 0:
+            payload.github_snapshots.append(GitHubSnapshot(
+                repo=full_name, snapshot_date=today, stars=stars))

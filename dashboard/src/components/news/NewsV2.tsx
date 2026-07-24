@@ -24,6 +24,7 @@ import SourceIconGroup from './SourceIconGroup'
 import TrendingTab from './TrendingTab'
 import FeedTab from './FeedTab'
 import FavoritesTab from './FavoritesTab'
+import ActionBar from './ActionBar'
 import { RefreshIconButton, TableSkeleton, useTableRefresh } from './TableRefresh'
 
 type V2Tab = 'home' | 'trending' | 'feed' | 'favorites'
@@ -265,9 +266,9 @@ function SourcesSettingsModal({ open, onClose, settings, onSaved }: {
           <motion.section role="dialog" aria-modal="true" onClick={event => event.stopPropagation()}
             initial={{ opacity: 0, y: 14, scale: 0.99 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 10, scale: 0.99 }}
             transition={{ duration: 0.16 }}
-            className="mt-6 flex h-[560px] max-h-[85vh] w-full max-w-3xl overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">
+            className="mt-6 flex h-[680px] max-h-[88vh] w-full max-w-5xl overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">
             {/* ── SaaS settings layout: left nav rail + right content pane ── */}
-            <nav className="hidden w-52 shrink-0 flex-col border-r border-border bg-background/40 p-4 sm:flex">
+            <nav className="hidden w-60 shrink-0 flex-col border-r border-border bg-background/40 p-4 sm:flex">
               <div className="flex items-center gap-2 px-1 pb-4">
                 <Settings2 size={16} className="text-accent" />
                 <h2 className="text-sm font-semibold text-text">Settings</h2>
@@ -509,7 +510,8 @@ function HomeTab({ home, loading, error, onRetry, sources }: {
   const releaseNews = home?.release_news ?? []
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-2">
+      {/* owner: full-width widgets, stacked (room to add more settings/columns later) */}
+      <div className="space-y-4">
         <section className="overflow-hidden rounded-lg border border-border bg-surface/40">
           <header className="flex h-11 items-center justify-between border-b border-border px-4">
             <div className="flex items-center gap-2"><Trophy size={14} className="text-accent" /><h2 className="text-xs font-semibold text-text">LLM · Top 20</h2></div>
@@ -596,9 +598,9 @@ function ReleaseNewsCard({ item }: { item: NewsV2ReleaseNews }) {
   const hue = [...item.title].reduce((acc, ch) => (acc * 31 + ch.charCodeAt(0)) % 360, 11)
   const body = (item.recap || item.excerpt || '').trim()
   return (
-    <a href={item.url} target="_blank" rel="noreferrer" title={item.url}
-      className="group flex gap-3 px-4 py-3 transition-colors hover:bg-overlay/[0.04]">
-      <div className="relative h-16 w-24 shrink-0 overflow-hidden rounded-md border border-border">
+    <div className="group flex gap-3 px-4 py-3 transition-colors hover:bg-overlay/[0.04]">
+      <a href={item.url} target="_blank" rel="noreferrer" title={item.url}
+        className="relative h-16 w-24 shrink-0 overflow-hidden rounded-md border border-border">
         {item.media_key ? (
           <img src={`/api/explore/v2/media/${item.media_key}`} alt="" loading="lazy"
             className="h-full w-full object-cover"
@@ -609,22 +611,24 @@ function ReleaseNewsCard({ item }: { item: NewsV2ReleaseNews }) {
             <SourceLogo name={item.source ?? 'rss'} size={16} variant="inline" />
           </div>
         )}
-      </div>
+      </a>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           {item.source && <SourceLogo name={item.source} size={11} variant="inline" />}
           <span className="truncate text-[10px] uppercase tracking-wide text-muted">{item.source ?? 'news'}</span>
           <span className="ml-auto shrink-0 text-[10px] text-muted">{ago(item.published_at ?? item.first_seen_at)}</span>
         </div>
-        <h3 className="mt-0.5 line-clamp-1 text-sm font-medium text-text group-hover:text-accent">{item.title}</h3>
+        <h3 className="mt-0.5 line-clamp-1 text-sm font-medium text-text group-hover:text-accent">
+          <a href={item.url} target="_blank" rel="noreferrer">{item.title}</a>
+        </h3>
         {body && (
           item.recap
             ? <div className="mt-0.5"><span className="mr-1 inline-flex items-center gap-0.5 align-middle text-[9px] font-semibold uppercase text-accent/80"><Sparkles size={9} /> recap</span><span className="text-[11px] leading-4 text-muted [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">{body}</span></div>
             : <p className="mt-0.5 line-clamp-3 text-[11px] leading-4 text-muted">{body}</p>
         )}
+        <div className="mt-1.5"><ActionBar itemId={item.item_id} interaction={item.interaction} size="xs" /></div>
       </div>
-      <ExternalLink size={13} className="mt-0.5 shrink-0 text-muted/50 group-hover:text-accent" />
-    </a>
+    </div>
   )
 }
 

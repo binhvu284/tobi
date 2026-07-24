@@ -97,6 +97,9 @@ N.ingest_github_snapshots(conn, [
     CT.GitHubSnapshot(repo="o/r", snapshot_date=(NOW - timedelta(days=8)).date().isoformat(), stars=100),
     CT.GitHubSnapshot(repo="o/r", snapshot_date=NOW.date().isoformat(), stars=150),
 ])
+# Tool Discovery shows only SPOTLIGHTED picks now — give the tool a content-creator recap.
+conn.execute("UPDATE news_items SET recap='A neat tool.\n**Highlights**\n- fast', recap_at=?"
+             " WHERE url_hash=?", (NOW.isoformat(), CT.url_hash("https://x.io/t1")))
 for tab in ("home", "trending", "feed"):
     RK.rebuild_for_tab(conn, tab, now=NOW)
 conn.commit()

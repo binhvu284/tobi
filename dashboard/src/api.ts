@@ -767,6 +767,7 @@ export type NewsV2ReleaseNews = {
   item_id: number; title: string; url: string; source: string | null
   excerpt: string | null; recap: string | null; media_key: string | null
   published_at: string | null; first_seen_at: string | null
+  interaction?: NewsV2Interaction
 }
 export type NewsV2SourceHealth = {
   state: string; sources: Record<string, { state?: string; error?: string }>; updated_at: string
@@ -801,6 +802,7 @@ export async function getNewsV2Models(params: { q?: string; category?: string; c
 export type NewsV2GithubEntry = {
   repo: string; stars: number; growth?: number; baseline_date?: string; status: 'ok' | 'collecting'
   description?: string; language?: string | null
+  item_id?: number; interaction?: NewsV2Interaction
 }
 export type NewsV2Interaction = {
   reaction: string; favorite: number; note: string | null; opens: number; dwell_ms: number; version: number

@@ -204,8 +204,18 @@ def gh_trending(url, headers=None, timeout=8.0):
     return "<html></html>"
 
 
-_real_text_gh = base.http_get_text
-base.http_get_text = gh_trending
+def gh_alltime(url, headers=None, timeout=8.0):        # the verifiable Search API board
+    assert "search/repositories" in url and "sort=stars" in url
+    return {"total_count": 2, "items": [
+        {"full_name": "torvalds/linux", "stargazers_count": 900000, "language": "C",
+         "description": "The Linux kernel"},
+        {"full_name": "org/ai-lib", "stargazers_count": 4200, "language": "Python",
+         "description": "dup already seen in trending"},
+    ]}
+
+
+_real_text_gh, _real_json_gh = base.http_get_text, base.http_get_json
+base.http_get_text, base.http_get_json = gh_trending, gh_alltime
 gh = GitHubTrendingAdapter().run()
 ok("github scrapes the real trending page for the weekly + monthly boards",
    gh.ok and any("since=weekly" in u for u in GH_CALLS) and any("since=monthly" in u for u in GH_CALLS))
@@ -214,12 +224,16 @@ ok("real period stars come straight from GitHub, not self-calculated",
    tw[("org/ai-lib", "week")].period_stars == 1234
    and tw[("org/ai-lib", "month")].period_stars == 5000
    and tw[("org/ai-lib", "week")].total_stars == 4200)
-ok("one REPO record + one snapshot per repo, deduped across boards",
-   len(gh.records) == 2 and gh.records[0].item_type is CT.ItemType.REPO
-   and gh.records[0].engagement == 4200)
+ok("all-time board comes from the verifiable Search API, ranked by real total stars",
+   tw[("torvalds/linux", "all")].total_stars == 900000
+   and tw[("torvalds/linux", "all")].period_stars == 0 and tw[("torvalds/linux", "all")].rank == 1)
+ok("one REPO record + snapshot per repo, deduped across ALL boards (trending + all-time)",
+   len(gh.records) == 3 and {r.external_id for r in gh.records} == {"org/ai-lib", "solo/tool", "torvalds/linux"})
 today = NOW.date().isoformat()
-ok("every trending repo yields today's star snapshot",
-   sorted((s.repo, s.stars) for s in gh.github_snapshots) == [("org/ai-lib", 4200), ("solo/tool", 900)])
+ok("every repo yields today's star snapshot",
+   sorted((s.repo, s.stars) for s in gh.github_snapshots)
+   == [("org/ai-lib", 4200), ("solo/tool", 900), ("torvalds/linux", 900000)])
+base.http_get_json = _real_json_gh
 
 
 def gh_limited(url, headers=None, timeout=8.0):
