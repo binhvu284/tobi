@@ -801,7 +801,7 @@ export async function getNewsV2Models(params: { q?: string; category?: string; c
 }
 export type NewsV2GithubEntry = {
   repo: string; stars: number; growth?: number; baseline_date?: string; status: 'ok' | 'collecting'
-  description?: string; language?: string | null
+  description?: string; language?: string | null; topic?: string
   item_id?: number; interaction?: NewsV2Interaction
 }
 export type NewsV2Interaction = {
@@ -814,9 +814,10 @@ export type NewsV2ItemEntry = {
   recap?: string | null
   reasons?: { reason: string; strength: number }[]; interaction?: NewsV2Interaction
 }
-export async function getNewsV2TrendingGithub(window: 'week' | 'month' | 'all', q = ''): Promise<{ entries: NewsV2GithubEntry[]; snapshot_id: number | null; next_cursor: string | null }> {
+export async function getNewsV2TrendingGithub(window: 'week' | 'month' | 'all', q = '', topic = ''): Promise<{ entries: NewsV2GithubEntry[]; snapshot_id: number | null; next_cursor: string | null; topics?: string[] }> {
   const qs = new URLSearchParams({ section: 'github', window, limit: '30' })
   if (q.trim()) qs.set('q', q.trim())
+  if (topic.trim() && topic !== 'All topics') qs.set('topic', topic.trim())
   return get(`/api/explore/v2/trending?${qs.toString()}`)
 }
 export async function getNewsV2TrendingTools(): Promise<{ entries: NewsV2ItemEntry[] }> {

@@ -27,6 +27,10 @@ import ActionBar from './ActionBar'
 
 type Window = 'week' | 'month' | 'all'
 
+// Mirrors the server-side facet (api/routers/news_v2.py). The dropdown filters the loaded
+// board by topic; the server owns the classification so the two can never drift.
+const TOPICS = ['All topics', 'AI/ML', 'Learn', 'Web', 'Mobile', 'Data', 'DevOps', 'Systems', 'Other']
+
 function ago(iso: string | null | undefined): string {
   if (!iso) return '—'
   const ms = Date.now() - new Date(iso).getTime()
@@ -81,14 +85,15 @@ function VisualTile({ name, source, mediaKey, className }: {
 export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
   const [window_, setWindow] = useState<Window>('week')
   const [query, setQuery] = useState('')
+  const [topic, setTopic] = useState('All topics')
   const [github, setGithub] = useState<NewsV2GithubEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async (win: Window, q: string) => {
+  const load = useCallback(async (win: Window, q: string, top: string) => {
     setLoading(true)
     try {
-      const gh = await getNewsV2TrendingGithub(win, q)
+      const gh = await getNewsV2TrendingGithub(win, q, top)
       setGithub(gh.entries)
       setError(null)
     } catch (err) {
@@ -96,12 +101,12 @@ export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
     } finally { setLoading(false) }
   }, [])
   useEffect(() => {                       // debounce the search so typing doesn't hammer the API
-    const t = setTimeout(() => void load(window_, query), query ? 250 : 0)
+    const t = setTimeout(() => void load(window_, query, topic), query ? 250 : 0)
     return () => clearTimeout(t)
-  }, [load, window_, query, reloadKey])
+  }, [load, window_, query, topic, reloadKey])
 
   const { refreshing, refresh } = useTableRefresh('trending', GITHUB_SOURCES,
-    useCallback(() => load(window_, query), [load, window_, query]))
+    useCallback(() => load(window_, query, topic), [load, window_, query, topic]))
 
   if (error) {
     return (
@@ -109,7 +114,7 @@ export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
         <AlertTriangle size={18} className="mx-auto text-danger" />
         <p className="mt-2 text-sm text-text">Trending data is unavailable.</p>
         <p className="mt-1 text-xs text-muted">{error}</p>
-        <button onClick={() => void load(window_, query)} className="mt-4 inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 text-xs text-text hover:bg-overlay/5"><RefreshCw size={13} /> Retry</button>
+        <button onClick={() => void load(window_, query, topic)} className="mt-4 inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 text-xs text-text hover:bg-overlay/5"><RefreshCw size={13} /> Retry</button>
       </section>
     )
   }
@@ -127,6 +132,11 @@ export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
                 placeholder="Search name / author" aria-label="Search repositories by name or author"
                 className="h-7 w-40 rounded-md border border-border bg-background pl-7 pr-2 text-[11px] text-text outline-none focus:border-accent" />
             </div>
+            <select value={topic} onChange={event => setTopic(event.target.value)}
+              aria-label="Filter by topic"
+              className="h-7 rounded-md border border-border bg-background px-2 text-[11px] font-medium text-text outline-none focus:border-accent">
+              {TOPICS.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
             <select value={window_} onChange={event => setWindow(event.target.value as Window)}
               aria-label="Trending window"
               className="h-7 rounded-md border border-border bg-background px-2 text-[11px] font-medium text-text outline-none focus:border-accent">
@@ -141,7 +151,9 @@ export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
           <TableSkeleton rows={5} />
         ) : github.length === 0 ? (
           <p className="px-4 py-8 text-center text-xs text-muted">
-            {query ? `No trending repositories match “${query}”.` : 'No trending repositories yet — refresh to pull github.com/trending.'}
+            {query ? `No trending repositories match “${query}”.`
+              : topic !== 'All topics' ? `No ${topic} repositories in this window.`
+              : 'No trending repositories yet — refresh to pull github.com/trending.'}
           </p>
         ) : (
           <div className="max-h-[520px] divide-y divide-border/60 overflow-y-auto">

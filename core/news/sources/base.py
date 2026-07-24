@@ -99,6 +99,10 @@ class Adapter:
     attribution: str = ""
     timeout_s: float = 8.0
     max_records: int = 50
+    # Cap on emitted SourceRecords. Defaults to max_records; sources whose records span
+    # several boards (GitHub: week + month + all-time) raise it so EVERY listed row still
+    # has a ledger item to like/favourite (else late-board rows are truncated → no item_id).
+    max_out_records: int | None = None
     max_attempts: int = 2
     retry_wait_s: float = 0.5
 
@@ -128,7 +132,7 @@ class Adapter:
                             raise RuntimeError(f"{self.name} emitted a non-contract {cls.__name__}")
                 return AdapterResult(
                     source=self.name, ok=True, attempts=attempt, attribution=self.attribution,
-                    records=tuple(payload.records[: self.max_records]),
+                    records=tuple(payload.records[: (self.max_out_records or self.max_records)]),
                     metrics=tuple(payload.metrics[: self.max_records * 4]),
                     releases=tuple(payload.releases[: self.max_records]),
                     github_snapshots=tuple(payload.github_snapshots[: self.max_records]),

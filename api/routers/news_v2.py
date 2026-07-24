@@ -71,6 +71,41 @@ def _decode_after(token: str) -> str:
         raise HTTPException(status_code=422, detail="invalid cursor")
 
 
+# ── GitHub topic facet (owner: "add filter menu — all topic, AI, …") ──────────────────
+# A coarse, HONEST category derived only from real signals (repo name + description +
+# language) — a filter aid, never fabricated metadata. First matching group wins; the
+# order puts the most specific intent (AI, learning resources) ahead of the generic ones.
+_TOPICS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("AI/ML", ("ai", "ml", "llm", "gpt", "gemini", "claude", "neural", "deep learning",
+               "deep-learning", "machine learning", "machine-learning", "transformer",
+               "llama", "agent", "chatbot", "diffusion", "pytorch", "tensorflow", "rag",
+               "langchain", "openai", "assistant", "prompt", "embedding")),
+    ("Learn", ("awesome", "roadmap", "book", "tutorial", "course", "interview", "learn",
+               "curriculum", "free-programming", "build-your-own", "cheatsheet", "handbook",
+               "system-design", "coding-interview", "guide", "study", "examples", "resources")),
+    ("Web", ("react", "vue", "svelte", "angular", "next.js", "nextjs", "nuxt", "tailwind",
+             "css", "frontend", "front-end", "website", "webpack", "vite", "node", "express",
+             "typescript", "javascript", "http", "browser", "graphql")),
+    ("Mobile", ("android", "ios", "flutter", "react-native", "swift", "kotlin", "mobile")),
+    ("Data", ("data", "sql", "database", "postgres", "mysql", "mongodb", "analytics", "etl",
+              "spark", "pandas", "dataframe", "warehouse", "bigquery", "kafka")),
+    ("DevOps", ("docker", "kubernetes", "k8s", "devops", "terraform", "ansible", "ci/cd",
+                "cli", "infra", "cloud", "aws", "monitoring", "prometheus", "helm")),
+    ("Systems", ("rust", "golang", "compiler", "kernel", "operating system", "linux",
+                 "systems", "embedded", "wasm", "c++")),
+)
+GITHUB_TOPICS = ["All topics", *[name for name, _ in _TOPICS], "Other"]
+
+
+def _repo_topic(repo: str, language: str | None, description: str | None) -> str:
+    """Classify a repo into one coarse topic from its real signals. Deterministic."""
+    hay = f"{repo} {description or ''} {language or ''}".lower()
+    for name, keywords in _TOPICS:
+        if any(kw in hay for kw in keywords):
+            return name
+    return "Other"
+
+
 def _interaction_state(conn, item_id: int) -> dict:
     row = conn.execute("SELECT reaction, favorite, note, opens, dwell_ms, version"
                        " FROM news_interactions WHERE item_id=?", (item_id,)).fetchone()
@@ -187,7 +222,7 @@ def v2_models(q: str = "", category: str = "", cursor: Optional[str] = None, lim
 
 
 @router.get("/trending")
-def v2_trending(section: str = "github", window: str = "week", q: str = "",
+def v2_trending(section: str = "github", window: str = "week", q: str = "", topic: str = "",
                 cursor: Optional[str] = None, limit: int = 20):
     conn = _conn()
     try:
@@ -205,11 +240,17 @@ def v2_trending(section: str = "github", window: str = "week", q: str = "",
                     entry["interaction"] = _interaction_state(conn, row[0])
                     if (row[1] or "").strip() and not entry.get("description"):
                         entry["description"] = row[1]
+                entry["topic"] = _repo_topic(entry.get("repo", ""), entry.get("language"),
+                                             entry.get("description"))
             query = q.strip().lower()
             if query:                       # owner: search by repo name / author (page-level)
                 page["entries"] = [e for e in page["entries"]
                                    if query in str(e.get("repo", "")).lower()]
-            return {"section": section, "window": window, "q": q, **page}
+            want = topic.strip()            # owner: topic filter (All topics = no filter)
+            if want and want != "All topics":
+                page["entries"] = [e for e in page["entries"] if e.get("topic") == want]
+            return {"section": section, "window": window, "q": q, "topic": topic,
+                    "topics": GITHUB_TOPICS, **page}
         if section == "tools":
             page = repository.read_snapshot_page(conn, kind="trending:tools", cursor=cursor, limit=limit)
             page["entries"] = _enrich(conn, page["entries"])

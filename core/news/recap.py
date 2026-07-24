@@ -64,20 +64,11 @@ def _budget_ok() -> bool:
 
 
 def _llm_complete(user: str) -> str | None:
-    """Single LLM seam (tests stub this). None when routing is unavailable —
-    the caller degrades honestly instead of failing the refresh."""
-    try:
-        from core.model_router import get_llm, set_usage_context
-        prev = set_usage_context(_SURFACE, "feed_recap")
-        try:
-            client = get_llm("simple")
-            text = client.complete([{"role": "user", "content": user}],
-                                   system=_SYSTEM, max_tokens=280)
-            return (text or "").strip() or None
-        finally:
-            set_usage_context(prev["surface"], prev["feature"])
-    except Exception:
-        return None
+    """Single LLM seam (tests stub this). Runs on the owner's CURRENT chat model
+    (never the free reasoning tier) and rejects leaked chain-of-thought, so the
+    caller degrades honestly instead of surfacing raw reasoning. See core/news/llm.py."""
+    from core.news import llm
+    return llm.complete(_SYSTEM, user, feature="feed_recap", max_tokens=280)
 
 
 def pick_top_stories(conn: sqlite3.Connection, now: datetime | None = None,
@@ -142,5 +133,8 @@ def generate_recaps(conn: sqlite3.Connection, item_ids: list[int],
 
 def run_for_refresh(conn: sqlite3.Connection, now: datetime | None = None) -> dict:
     """The feed refresh hook: pick the top stories from what was just ingested and
-    recap them. Background only — never called from a page request."""
+    recap them. Background only — never called from a page request. First self-heals
+    any recap already stored as leaked reasoning so a good model can replace it."""
+    from core.news import llm
+    llm.clear_leaked_recaps(conn, ("article", "social"))
     return generate_recaps(conn, pick_top_stories(conn, now), now)

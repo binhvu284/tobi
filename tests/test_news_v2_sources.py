@@ -236,6 +236,27 @@ ok("every repo yields today's star snapshot",
 base.http_get_json = _real_json_gh
 
 
+# records cap covers ALL boards (owner: "some rows have no action buttons"): a repo that
+# appears only in the all-time board must still get a ledger item, so it isn't truncated
+# off at the old 30-record cap while its trending row is shown.
+def gh_many_text(url, headers=None, timeout=8.0):
+    if "since=weekly" in url:
+        return "<html>" + "".join(_gh_row(f"week/repo{i}", 1000 + i, 100 + i) for i in range(30)) + "</html>"
+    return "<html></html>"
+
+
+def gh_many_json(url, headers=None, timeout=8.0):
+    return {"items": [{"full_name": f"top/repo{i}", "stargazers_count": 90000 + i,
+                       "language": "Go", "description": "a top-starred repo"} for i in range(30)]}
+
+
+base.http_get_text, base.http_get_json = gh_many_text, gh_many_json
+many = GitHubTrendingAdapter().run()
+ok("records cap spans all boards — 60 distinct repos (week + all-time) all keep a ledger item",
+   many.ok and len(many.records) == 60 and len({r.external_id for r in many.records}) == 60)
+base.http_get_text, base.http_get_json = gh_trending, _real_json_gh
+
+
 def gh_limited(url, headers=None, timeout=8.0):
     raise base.RateLimited("rate limited: HTTP 429")
 

@@ -142,6 +142,16 @@ trending = client.get(f"{V2}/trending", params={"section": "github", "window": "
 ok("trending github serves the snapshot with growth", trending["entries"][0]["growth"] == 50)
 ok("bad trending window is a 422", client.get(
     f"{V2}/trending", params={"section": "github", "window": "fortnight"}).status_code == 422)
+# owner: "add filter menu — all topic, AI, …". Every row carries a derived topic facet.
+ok("trending github rows carry a topic facet + the topic list",
+   trending["entries"][0]["topic"] == "Other" and "AI/ML" in trending.get("topics", []))
+ai_only = client.get(f"{V2}/trending",
+                     params={"section": "github", "window": "week", "topic": "AI/ML"}).json()
+kept = client.get(f"{V2}/trending",
+                  params={"section": "github", "window": "week", "topic": "Other"}).json()
+ok("topic filter narrows the board (AI/ML → none here) and All topics is a no-op",
+   ai_only["entries"] == [] and len(kept["entries"]) == len(trending["entries"])
+   and len(trending["entries"]) > 0)
 tools = client.get(f"{V2}/trending", params={"section": "tools"}).json()
 ok("tools section enriches canonical items", tools["entries"]
    and tools["entries"][0]["interaction"]["version"] == 0)

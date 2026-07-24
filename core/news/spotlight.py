@@ -47,19 +47,12 @@ def _now(now: datetime | None = None) -> datetime:
 
 
 def _llm_complete(user: str) -> str | None:
-    """LLM seam (tests stub this). None when routing is unavailable → no spotlight."""
-    try:
-        from core.model_router import get_llm, set_usage_context
-        prev = set_usage_context(_SURFACE, "tool_spotlight")
-        try:
-            client = get_llm("simple")
-            text = client.complete([{"role": "user", "content": user}],
-                                   system=_SYSTEM, max_tokens=340)
-            return (text or "").strip() or None
-        finally:
-            set_usage_context(prev["surface"], prev["feature"])
-    except Exception:
-        return None
+    """LLM seam (tests stub this). Runs on the owner's CURRENT chat model (never the
+    free reasoning tier that leaked chain-of-thought into the card) and rejects any
+    reasoning that slips through → no spotlight rather than crash content. See
+    core/news/llm.py."""
+    from core.news import llm
+    return llm.complete(_SYSTEM, user, feature="tool_spotlight", max_tokens=340)
 
 
 def _affinity(profile: dict | None, deltas: dict, source: str, item_type: str, title: str) -> float:
@@ -157,7 +150,11 @@ def generate_spotlight(conn: sqlite3.Connection, item_id: int,
 
 
 def run_for_refresh(conn: sqlite3.Connection, now: datetime | None = None) -> dict:
-    """Trending refresh hook: spotlight the single best new candidate. Background only."""
+    """Trending refresh hook: spotlight the single best new candidate. Background only.
+    First self-heals any tool/repo recap stored as leaked reasoning (nulled → the item
+    becomes re-eligible), so a bad card from the old free-model routing is replaced."""
+    from core.news import llm
+    llm.clear_leaked_recaps(conn, ("tool", "repo"))
     item_id = pick_spotlight(conn, now)
     if item_id is None:
         return {"spotlighted": 0}

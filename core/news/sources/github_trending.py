@@ -58,6 +58,9 @@ class GitHubTrendingAdapter(base.Adapter):
     attribution = "GitHub Trending (github.com/trending)"
     timeout_s = 10.0
     max_records = 30
+    # Three boards (week + month + all-time), deduped, yield ~80 distinct repos — emit a
+    # ledger item for every one so no GitHub-table row is left without action buttons.
+    max_out_records = 100
 
     def _collect(self) -> base.Payload:
         now_dt = datetime.now(timezone.utc)
