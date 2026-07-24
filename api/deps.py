@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from fastapi import HTTPException
+
 # The SQLite database path. Read from the environment at import time so both the
 # server (which loads .env) and direct CLI imports resolve consistently.
 DB_PATH = os.path.expanduser(os.getenv("DB_PATH", "~/.mmo_agent/agent.db"))
@@ -69,3 +71,16 @@ def fmt_ago(ts_str: str | None) -> str | None:
         return f"{hours // 24}d ago"
     except Exception:
         return ts_str
+
+
+def _vault_guard(token: str | None) -> None:
+    """Require an unlocked vault session for protected endpoints. Shared by the vault,
+    integrations, keys, and llm-key routes (lifted from dashboard.py so those groups
+    can move into api/routers/* without importing the dashboard module)."""
+    from core import vault
+    if not vault.CRYPTO_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Vault unavailable — 'cryptography' is not installed.")
+    try:
+        vault.require_session(token)
+    except vault.VaultLocked as e:
+        raise HTTPException(status_code=401, detail=str(e))
