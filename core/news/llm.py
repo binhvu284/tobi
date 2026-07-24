@@ -24,10 +24,12 @@ Fix (owner: "always assign the current chat model — glm 5.2 — to LLM workflo
 """
 from __future__ import annotations
 
+import logging
 import re
 import sqlite3
 
 _SURFACE = "news_v2"
+_log = logging.getLogger("tobi.news.llm")
 
 # Reasoning-model scaffolding some backends emit inline. Stripped before inspection.
 _THINK_RE = re.compile(r"<\s*(think|thinking|reason|reasoning|scratchpad|analysis)\s*>.*?"
@@ -115,6 +117,7 @@ def complete(system: str, user: str, feature: str, max_tokens: int) -> str | Non
     output reads as leaked reasoning. Tagged for usage attribution under news_v2."""
     model = resolve_content_model()
     if not model:
+        _log.warning("news content (%s): no usable model resolved — skipping", feature)
         return None
     try:
         from core.model_router import get_llm, set_usage_context
@@ -125,9 +128,16 @@ def complete(system: str, user: str, feature: str, max_tokens: int) -> str | Non
                                    system=system, max_tokens=max_tokens)
         finally:
             set_usage_context(prev["surface"], prev["feature"])
-    except Exception:
+    except Exception as exc:
+        # Make silent content failures diagnosable (this was an unexplained empty card):
+        # the MC console now names the model and the real transport/auth error.
+        _log.warning("news content (%s) LLM failed on %s: %s", feature, model, exc)
         return None
-    return sanitize(text)
+    cleaned = sanitize(text)
+    if cleaned is None:
+        _log.info("news content (%s) on %s rejected as leaked/empty (%d chars)",
+                  feature, model, len(text or ""))
+    return cleaned
 
 
 def clear_leaked_recaps(conn: sqlite3.Connection, item_types: tuple[str, ...]) -> int:

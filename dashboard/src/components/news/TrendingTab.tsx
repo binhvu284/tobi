@@ -7,7 +7,7 @@
 //    (quality over quantity), "Explore more" pages this section only.
 // Visual tiles are deterministic decorative gradients until the media pipeline fills
 // news_media_cache — never a fake screenshot presented as content.
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle, ChevronRight, ExternalLink, Github, Loader2, RefreshCw, Search,
   Sparkles, Star, StickyNote, ThumbsDown, ThumbsUp, TrendingUp, Undo2, Wrench,
@@ -222,6 +222,19 @@ function ToolDiscovery({ reloadKey }: { reloadKey: number }) {
   // content-creator (github + HN sources), which may take a while; skeleton covers it.
   const { refreshing, refresh } = useTableRefresh('trending', TOOL_SOURCES, load)
 
+  // The refresh now resolves as soon as DATA is ready (fast); the LLM spotlight lands a
+  // few seconds later in the backend's background phase. While the top pick still has no
+  // recap, re-fetch a few times so the rich card upgrades itself — no second manual
+  // refresh — then stop (bounded, never polls forever).
+  const spotlightPoll = useRef(0)
+  useEffect(() => { spotlightPoll.current = 0 }, [reloadKey, refreshing])
+  useEffect(() => {
+    const top = tools[0]
+    if (!top || top.recap || refreshing || spotlightPoll.current >= 4) return
+    const timer = setTimeout(() => { spotlightPoll.current += 1; void load() }, 12_000)
+    return () => clearTimeout(timer)
+  }, [tools, refreshing, load])
+
   // owner: "1 quality tool at a time" — show only the newest spotlight; refresh = next.
   const tool = tools.length ? tools[0] : null
   const ix = tool ? (overrides[tool.item_id] ?? tool.interaction ?? DEFAULT_INTERACTION) : DEFAULT_INTERACTION
@@ -314,9 +327,16 @@ function ToolDiscovery({ reloadKey }: { reloadKey: number }) {
                   <span className="mb-1 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-accent/80"><Sparkles size={10} /> TOBI spotlight</span>
                   <RichText text={tool.recap} />
                 </div>
-              ) : cleanExcerpt(tool.excerpt) ? (
-                <p className="mt-2 line-clamp-4 text-xs leading-5 text-muted">{cleanExcerpt(tool.excerpt)}</p>
-              ) : null}
+              ) : (
+                <div className="mt-2">
+                  {cleanExcerpt(tool.excerpt) && (
+                    <p className="line-clamp-4 text-xs leading-5 text-muted">{cleanExcerpt(tool.excerpt)}</p>
+                  )}
+                  <span className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-muted/70">
+                    <Loader2 size={10} className="animate-spin" /> TOBI is researching a deeper spotlight — refresh in a moment.
+                  </span>
+                </div>
+              )}
               {undoUntil && ix.reaction === 'dislike' ? (
                 <div className="mt-3 flex items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2">
                   <span className="min-w-0 flex-1 text-xs text-text">Not for you — showing the next tool shortly.</span>

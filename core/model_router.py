@@ -225,6 +225,21 @@ class ClaudeClient(BaseLLMClient):
         self.provider = provider
         self.last_usage = {}
 
+    @staticmethod
+    def _text_from(r) -> str:
+        """Concatenate TEXT blocks only. Reasoning models (GLM-4.6/5, Claude with
+        extended thinking) return a leading *thinking* block, so the old
+        ``content[0].text`` either grabbed reasoning or raised AttributeError on the
+        thinking block — the latter silently killed every background completion. This
+        skips non-text blocks and never raises (streaming already filters via
+        ``text_stream``; this makes the non-streaming path just as safe)."""
+        parts = [getattr(b, "text", "") or "" for b in (getattr(r, "content", None) or [])
+                 if getattr(b, "type", None) == "text"]
+        if parts:
+            return "".join(parts)
+        first = (getattr(r, "content", None) or [None])[0]
+        return getattr(first, "text", "") or ""
+
     def complete(self, messages, system=None, max_tokens=2000) -> str:
         kwargs = {"model": self.model, "max_tokens": max_tokens, "messages": messages}
         if system:
@@ -237,7 +252,7 @@ class ClaudeClient(BaseLLMClient):
         except Exception:
             self.last_usage = {}
         self.last_finish_reason = _norm_finish(getattr(r, "stop_reason", None))
-        text = r.content[0].text
+        text = self._text_from(r)
         self._log_usage(t0, text)
         return text
 

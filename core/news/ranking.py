@@ -199,13 +199,17 @@ def build_trending_snapshots(conn: sqlite3.Connection, now: datetime | None = No
         out[f"github:{window}"] = write_rank_snapshot(
             conn, f"trending:github:{window}", github_trending_entries(conn, window, now),
             TRENDING_FORMULA_VERSION)
-    # Tool Discovery shows ONLY the content-creator's SPOTLIGHTED picks (owner: "1 quality
-    # tool, not 1 quality + trash"). Newest spotlight leads; the widget shows one at a time.
+    # Tool Discovery leads with the content-creator's SPOTLIGHTED pick (owner: "1 quality
+    # tool"), but is NEVER empty: when no spotlight exists yet (the background creator is
+    # still researching, or an LLM call failed) it falls back to the strongest real
+    # candidate by engagement, shown with its own description. The widget shows one at a
+    # time; the rich spotlight upgrades the card as soon as it lands.
     tools = conn.execute(
-        "SELECT n.id, n.title, s.source, s.trust, MAX(s.engagement), n.recap_at"
+        "SELECT n.id, n.title, s.source, s.trust, MAX(s.engagement) AS eng, n.recap_at"
         " FROM news_items n JOIN news_item_sources s ON s.item_id=n.id"
-        " WHERE n.item_type IN ('tool','repo') AND n.recap IS NOT NULL"
-        " GROUP BY n.id ORDER BY n.recap_at DESC").fetchall()
+        " WHERE n.item_type IN ('tool','repo')"
+        " GROUP BY n.id"
+        " ORDER BY (n.recap IS NOT NULL) DESC, n.recap_at DESC, eng DESC, n.id DESC").fetchall()
     tool_entries = [{"item_id": r[0], "title": r[1], "source": r[2], "trust": r[3],
                      "engagement": int(r[4] or 0), "recap_at": r[5]} for r in tools]
     out["tools"] = write_rank_snapshot(conn, "trending:tools", tool_entries[:TOOLS_CAP],

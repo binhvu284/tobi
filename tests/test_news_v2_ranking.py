@@ -180,6 +180,30 @@ trend_snaps = RK.build_trending_snapshots(conn, now=NOW)
 ok("trending snapshots persist per window + tools",
    set(trend_snaps) == {"github:week", "github:month", "github:all", "tools"})
 
+# Tool Discovery is NEVER empty (owner: "backend not working" — the section was a stuck
+# skeleton): a tool/repo with no spotlight yet still appears as a fallback candidate, and a
+# spotlighted (recapped) pick leads it as soon as the background creator writes one.
+N.ingest(conn, [CT.SourceRecord(source="github", external_id="cand/tool",
+    url="https://github.com/cand/tool", title="cand/tool", item_type=CT.ItemType.REPO,
+    trust=CT.TrustClass.VERIFIED_API, observed_at=NOW.isoformat(),
+    excerpt="A real candidate description.", engagement=999)])
+conn.commit()
+RK.build_trending_snapshots(conn, now=NOW)
+cand_id = conn.execute("SELECT id FROM news_items WHERE canonical_url LIKE '%cand/tool%'").fetchone()[0]
+tools_snap = repository.read_snapshot_page(conn, kind="trending:tools", limit=20)["entries"]
+ok("an un-spotlighted candidate still appears in Tool Discovery (never empty)",
+   any(e["item_id"] == cand_id for e in tools_snap), str(tools_snap))
+N.ingest(conn, [CT.SourceRecord(source="hn", external_id="spot-tool", url="https://x.io/spot",
+    title="Spotlighted", item_type=CT.ItemType.TOOL, trust=CT.TrustClass.COMMUNITY,
+    observed_at=NOW.isoformat(), excerpt="tool", engagement=1)])
+spot_id = conn.execute("SELECT id FROM news_items WHERE canonical_url LIKE '%/spot%'").fetchone()[0]
+conn.execute("UPDATE news_items SET recap='A great tool.\n**Highlights**\n- x', recap_at=? WHERE id=?",
+             (NOW.isoformat(), spot_id))
+conn.commit()
+RK.build_trending_snapshots(conn, now=NOW)
+ok("a spotlighted pick leads the raw candidate",
+   repository.read_snapshot_page(conn, kind="trending:tools", limit=20)["entries"][0]["item_id"] == spot_id)
+
 # ── 3. Feed: formula, hiding, diversity, context, latest ─────────────────────────────
 T2H = (NOW - timedelta(hours=2)).isoformat()
 

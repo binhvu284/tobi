@@ -226,6 +226,19 @@ def run_job(job_id: int, owner: str | None = None, now: datetime | None = None) 
             final = ("completed" if states == {"ok"}
                      else "partial" if "ok" in states else "failed")
         failed = sorted(s for s, cp in checkpoints.items() if cp.get("state") == "failed")
+
+        # ── Phase 1 — DATA READY (fast, no LLM): rebuild the tab's rank snapshots from
+        # the fresh ingest and ONLY THEN mark the job terminal. The UI polls until the job
+        # is terminal, so it now resolves in seconds with fresh data instead of waiting on
+        # slow content generation. Tool Discovery is never empty here — its snapshot falls
+        # back to the strongest real candidate when no spotlight exists yet (ranking.py).
+        if final in ("completed", "partial"):
+            try:
+                from core.news import ranking
+                ranking.rebuild_for_tab(conn, job["tab"], now)
+                conn.commit()
+            except Exception:
+                pass                                   # ranking failure never fails the refresh
         totals["duration_ms"] = int((_now() - start).total_seconds() * 1000)
         conn.execute(
             "UPDATE news_refresh_jobs SET state=?, attempts=attempts+1, error=?, metrics_json=?,"
@@ -233,34 +246,57 @@ def run_job(job_id: int, owner: str | None = None, now: datetime | None = None) 
             (final, (f"failed sources: {', '.join(failed)}" if failed else None),
              json.dumps(totals), _now().isoformat(), job_id))
         conn.commit()
-        if final in ("completed", "partial"):
-            if job["tab"] in (Tab.FEED.value, Tab.HOME.value):
-                try:  # recap top stories BEFORE ranking reads them (feed AND home releases)
-                    from core.news import recap
-                    recap.run_for_refresh(conn, now)
-                except Exception:
-                    pass                               # recaps degrade, never fail a refresh
-            if job["tab"] == Tab.TRENDING.value:
-                try:  # content-creator: spotlight ONE tool BEFORE ranking reads it
-                    from core.news import spotlight
-                    spotlight.run_for_refresh(conn, now)
-                except Exception:
-                    pass                               # spotlight degrades, never fails a refresh
-            try:  # N05: precompute the tab's rank snapshots from the fresh evidence.
-                from core.news import ranking
-                ranking.rebuild_for_tab(conn, job["tab"], now)
-                conn.commit()
-            except Exception:
-                pass                                   # ranking failure never fails the refresh
+
         if final in ("partial", "failed"):
             try:  # N12: repeated source failures raise ONE deduplicated Inbox action.
                 from core.news import telemetry
                 telemetry.alert_failing_sources(conn, job["tab"])
             except Exception:
                 pass                                   # telemetry never breaks a refresh
+
+        # ── Phase 2 — CONTENT ENRICHMENT (slow LLM, OFF the critical path): the job is
+        # already terminal and the UI has its data, so recaps/spotlight run on the owner's
+        # chat model without blocking anything, then a second rebuild folds them in. The
+        # outcome (incl. any 0-write) is recorded to metrics so a silent content failure
+        # is observable instead of an unexplained empty section.
+        if final in ("completed", "partial"):
+            outcome = _enrich_content(conn, job["tab"], now)
+            if outcome:
+                try:
+                    produced = (int(outcome.get("recaps", {}).get("written", 0))
+                                + int(outcome.get("spotlight", {}).get("spotlighted", 0)))
+                    if produced:                       # only rebuild when new content landed
+                        from core.news import ranking
+                        ranking.rebuild_for_tab(conn, job["tab"], now)
+                    totals["content"] = outcome        # always record the outcome (0-writes too)
+                    conn.execute("UPDATE news_refresh_jobs SET metrics_json=?, updated_at=? WHERE id=?",
+                                 (json.dumps(totals), _now().isoformat(), job_id))
+                    conn.commit()
+                except Exception:
+                    pass
         return _row(conn, job_id)
     finally:
         conn.close()
+
+
+def _enrich_content(conn: sqlite3.Connection, tab: str, now: datetime | None) -> dict:
+    """Background content generation for a tab — recaps (feed/home) and the tool
+    spotlight (trending). Isolated per kind; records the outcome (and any error) so a
+    zero-write is visible in the job metrics. Never raises."""
+    out: dict = {}
+    if tab in (Tab.FEED.value, Tab.HOME.value):
+        try:
+            from core.news import recap
+            out["recaps"] = recap.run_for_refresh(conn, now)
+        except Exception as exc:
+            out["recap_error"] = str(exc)[:160]
+    if tab == Tab.TRENDING.value:
+        try:
+            from core.news import spotlight
+            out["spotlight"] = spotlight.run_for_refresh(conn, now)
+        except Exception as exc:
+            out["spotlight_error"] = str(exc)[:160]
+    return out
 
 
 def get_job(job_id: int) -> dict:

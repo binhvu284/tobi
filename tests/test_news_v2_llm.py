@@ -98,6 +98,30 @@ ok("complete returns None when the model leaks reasoning (no crash content)",
 model_router.load_llm_config, chat_store.list_sessions, model_router.available_models = (
     _real_cfg, _real_sessions, _real_models)
 
+# ── 3.5 ClaudeClient text extraction skips reasoning blocks (THE root cause of empty ──
+# cards): GLM-5.2 returns a leading thinking block, and the old content[0].text raised on
+# it → every background completion silently died. Pure static method, no SDK needed.
+class _Block:
+    def __init__(self, btype, **kw):
+        self.type = btype
+        for k, v in kw.items():
+            setattr(self, k, v)
+
+
+class _Resp:
+    def __init__(self, content):
+        self.content = content
+
+
+_thinking = _Block("thinking", thinking="let me plan the answer…")
+_answer = _Block("text", text="The real answer.")
+ok("text comes from the TEXT block, never the leading thinking block",
+   model_router.ClaudeClient._text_from(_Resp([_thinking, _answer])) == "The real answer.")
+ok("a thinking-only response yields '' and never raises",
+   model_router.ClaudeClient._text_from(_Resp([_thinking])) == "")
+ok("a plain single text block still works",
+   model_router.ClaudeClient._text_from(_Resp([_Block("text", text="hi")])) == "hi")
+
 # ── 4. clear_leaked_recaps: self-heal already-stored garbage ──────────────────────────
 conn = get_connection()
 _ensure_once(conn)
