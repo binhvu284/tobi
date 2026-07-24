@@ -223,6 +223,8 @@ from api.routers.owner import router as owner_router
 app.include_router(owner_router)
 from api.routers.keys import router as keys_router
 app.include_router(keys_router)
+from api.routers.llm import router as llm_router
+app.include_router(llm_router)
 
 # MCP Hub (#5) — mount TOBI's MCP server (Streamable HTTP) at /mcp. Inbound auth,
 # rate-limit, scope, and audit are enforced by McpAuthMiddleware inside the app.
@@ -5106,92 +5108,6 @@ def chat_session_compact(sid: int, body: ChatCompactReq):
     if msgs is None:
         return {"compacted": False, "messages": chat_store.get_messages(sid)}
     return {"compacted": True, "messages": msgs, "summary": summary}
-
-
-@app.get("/api/llm/usage")
-def llm_usage(days: int = 7):
-    """Weekly token/cost/latency analytics from real per-call logging (Models page + Health)."""
-    from core import usage
-    return usage.summary(days=max(1, min(days, 90)))
-
-
-@app.get("/api/llm/usage/recent")
-def llm_usage_recent(limit: int = 50):
-    from core import usage
-    return {"calls": usage.recent(limit=limit)}
-
-
-class LlmConfigReq(BaseModel):
-    config: dict
-
-
-class LlmKeyReq(BaseModel):
-    value: str
-
-
-@app.get("/api/llm/config")
-def llm_config_get():
-    """Routing config + provider catalog (key-presence, base_urls, models) + the flat
-    'provider:model' picker list. Non-secret — no vault session required to read."""
-    from core import model_router
-    return {
-        "config": model_router.load_llm_config(),
-        "providers": model_router.provider_catalog(),
-        "models": model_router.available_models(),
-    }
-
-
-@app.get("/api/llm/models")
-def llm_models():
-    from core import model_router
-    return {"models": model_router.available_models()}
-
-
-@app.post("/api/llm/config")
-def llm_config_save(body: LlmConfigReq):
-    """Save routing prefs (default + per-task + fallback + provider base_urls/models) and
-    **push to Hermes** (best-effort, never fails the save)."""
-    from core import model_router, hermes_sync
-    cfg = model_router.save_llm_config(body.config or {})
-    try:
-        hermes = hermes_sync.push_config(cfg)
-    except Exception as e:  # never let a Hermes hiccup break the save
-        hermes = {"ok": False, "detail": f"Hermes push skipped: {str(e)[:120]}"}
-    return {"config": cfg, "providers": model_router.provider_catalog(),
-            "models": model_router.available_models(), "hermes": hermes}
-
-
-@app.post("/api/llm/provider/{pid}/key")
-def llm_provider_key(pid: str, body: LlmKeyReq,
-                     x_vault_session: str | None = Header(None, alias="X-Vault-Session")):
-    """Store a provider's API key in the Genesis vault (encrypted) and inject it live.
-    Routed through the key-slot system so it appears in the multi-key list too."""
-    _vault_guard(x_vault_session)
-    from core import model_router
-    spec = model_router.PROVIDERS.get(pid)
-    if not spec or not spec.get("key_env"):
-        raise HTTPException(status_code=400, detail="provider has no API key")
-    conn = _get_conn()
-    try:
-        vault.add_key_slot(conn, spec["key_env"], body.value, activate=True)
-    finally:
-        conn.close()
-    return {"ok": True, "providers": model_router.provider_catalog(),
-            "models": model_router.available_models()}
-
-
-@app.post("/api/llm/discover/{pid}")
-def llm_discover(pid: str):
-    from core import model_router
-    if pid not in model_router.PROVIDERS:
-        raise HTTPException(status_code=404, detail="unknown provider")
-    return model_router.discover_models(pid)
-
-
-@app.post("/api/llm/hermes-push")
-def llm_hermes_push():
-    from core import hermes_sync, model_router
-    return hermes_sync.push_config(model_router.load_llm_config())
 
 
 # ── Serve React static files (MUST be last — catch-all shadows all routes above) ──
