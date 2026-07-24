@@ -217,6 +217,8 @@ from api.routers.usage import router as usage_router
 app.include_router(usage_router)
 from api.routers.terminal import router as terminal_router
 app.include_router(terminal_router)
+from api.routers.conductor import router as conductor_router
+app.include_router(conductor_router)
 
 # MCP Hub (#5) — mount TOBI's MCP server (Streamable HTTP) at /mcp. Inbound auth,
 # rate-limit, scope, and audit are enforced by McpAuthMiddleware inside the app.
@@ -4316,32 +4318,6 @@ async def brain_chat_stream(payload: BrainChatReq):
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
                                       "X-Accel-Buffering": "no"})
-
-
-@app.get("/api/conductor/status")
-def conductor_status():
-    """The Conductor's exposed read/act tools + phase (queue #7)."""
-    from core import conductor
-    return conductor.conductor_status()
-
-
-@app.get("/api/conductor/actions")
-def conductor_actions(limit: int = 50):
-    """The TOBI Actions audit log — what the Conductor did/proposed, when, and the result."""
-    from core import conductor
-    return conductor.list_actions(limit=max(1, min(limit, 200)))
-
-
-class ConductorConfirmReq(BaseModel):
-    action_id: int
-    decision: str = "approve"   # approve | reject
-
-
-@app.post("/api/conductor/confirm")
-def conductor_confirm(payload: ConductorConfirmReq):
-    """Approve or reject a proposed high-risk Conductor action (the confirm button)."""
-    from core import conductor
-    return conductor.confirm_action(payload.action_id, payload.decision, surface="mc")
 
 
 @app.get("/api/brain/chat/history")
