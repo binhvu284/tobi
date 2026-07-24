@@ -5,26 +5,30 @@
 | Field | Decision |
 |---|---|
 | Queue item | `#21` |
-| Status | Queued design only |
-| Delivery order | Start only after queue items `#18` and `#20` are accepted and merged |
+| Status | Blocked design; implementation must not begin until `#22` local acceptance and owner browser acceptance pass |
+| Delivered dependency | `#20` Brain V2 is delivered; T00 must reconcile this plan with its actual contracts, migrations, context behavior, and rollback path |
+| Start gate | `#22` Coding Agent V2 must pass its ten-run local acceptance matrix and owner browser acceptance |
+| Deployment confidence | The `#22` 24-hour/72-hour VPS soak remains a deployment confidence gate, not a source-development blocker for `#21` unless the owner explicitly promotes it to one |
 | Primary outcome | Make Mission Control the authoritative, reliable control plane for TOBI |
 | First usable release | Reliable Chat/Agent runtime with durable runs, typed tools, policy, and traceability |
 | Migration style | Incremental strangler migration behind per-domain flags |
 | Deployment posture | Local-first on the owner's Windows/D-drive environment; managed services remain optional |
 | Worker model | Small sequential packages; one implementation worker at a time |
 | Compatibility | Preserve existing conversations, actions, runs, tools, pages, Telegram, CLI, Office, and schedulers through adapters |
-| Planning boundary | This document and the queue row are the only deliverables now; do not implement from this planning task |
+| Planning boundary | This document is the only deliverable for this adjustment; do not edit the queue or implement runtime/UI code |
 
 This plan consolidates TOBI around Mission Control (MC). MC becomes the owner of run state, policy, approvals, tools, context, audit, observability, and shared UI projections. Hermes remains useful as a managed execution engine, but it must not become a second control plane.
 
-Before implementation, reconcile this plan against the delivered state of:
+Before implementation, reconcile this plan against the delivered or accepted state of:
 
-- [TOBI Coding Agent / Controlled Self-Development System](TOBI_CODING_AGENT_SELF_DEVELOPMENT_PLAN.md) (`#18`)
-- [Brain Context & Architecture V2](BRAIN_CONTEXT_ARCHITECTURE_V2_PLAN.md) (`#20`)
+- [Brain Context & Architecture V2](BRAIN_CONTEXT_ARCHITECTURE_V2_PLAN.md) (`#20`, delivered and authoritative)
+- [TOBI Coding Agent V2](TOBI_CODING_AGENT_V2_PLAN.md) (`#22`, implementation delivered; acceptance still open)
+- [Coding Agent V2 completion acceptance](TOBI_CODING_AGENT_V2_COMPLETION_ACCEPTANCE_2026-07-22.md) (ten-run matrix plus owner browser acceptance)
+- [TOBI Coding Agent / Controlled Self-Development System](TOBI_CODING_AGENT_SELF_DEVELOPMENT_PLAN.md) (`#18`, historical compatibility source)
 - [Current TOBI architecture](../ARCHITECTURE.md)
 - [Current Mission Control guide](../MISSION_CONTROL.md)
 
-Do not implement `#18`, `#20`, and `#21` in parallel. They share Chat/Agent orchestration, durable execution, tool policy, Brain context, Hermes, database migrations, observability, and frontend state.
+Do not begin `#21` while `#22` acceptance remains open. T00 must map the delivered `#20` and accepted `#22` contracts into one owner per shared API, table, event, runtime, context, policy, and frontend projection before implementation packages start. Never run `#21` workers in parallel with corrective `#22` work that touches the same contracts, migrations, durable execution, tool policy, Brain context, Hermes adapters, observability, or Developer state.
 
 ## 1. Outcome And Non-Goals
 
@@ -57,7 +61,7 @@ MC must be able to:
 
 ## 2. Graphify-Guided Current-State Audit
 
-Graphify is a navigation index only. The available graph was built at commit `c39c34a`, while this plan was verified against source commit `8f07c32`; workers must refresh or re-check the graph after `#18` and `#20` merge.
+Graphify is a navigation index only. The graph snapshot used by the original plan predates delivered `#20` and the `#22` completion implementation. T00 must refresh or verify focused graph paths against current `main`, then reconcile every material conclusion against live source, migrations, tests, and accepted runtime evidence.
 
 ```mermaid
 flowchart LR
@@ -87,7 +91,7 @@ flowchart LR
 | Actions | `tobi_actions` stores proposals and outcomes | Action history and run history are related but separate; no canonical append-only event stream |
 | Tool registry | Typed `ToolSpec` validation exists for the Chat runtime | Tool metadata, MCP tools, Conductor functions, terminal capabilities, and page commands still have multiple ownership paths |
 | Context | A `ContextManifest` and token budgets exist | Owner intelligence is not consistently applied to routing, planning, tool choice, and final response across all surfaces |
-| Brain and Graph | Brain stores durable memories; Graph exposes relationships and retrieval | Graph is more visible than causal; certainty, provenance, relevance, and feedback need typed decision influence |
+| Brain and Graph | Delivered `#20` makes Brain V2 authoritative while retaining legacy compatibility; Graph exposes typed relationships and provenance | MC V2 must consume the delivered contracts rather than inventing a second memory schema, and must project context influence into runs and eval evidence |
 | Hermes | Startup, persona/skills, memory, and model routing have several one-way sync paths | No single synchronization contract; split-brain behavior is possible |
 | MCP/A2A | Inbound/outbound tools, scopes, approvals, audits, and discovery exist | MCP is not yet the canonical tool description shared by local tools, pages, and the runtime |
 | MC pages | Rich domain pages exist and each has useful local state | Cross-page actions, run progress, recovery, and audit are not projected from one shared live state |
@@ -144,11 +148,14 @@ The 60-question intake is summarized below. Workers must not reopen these choice
 | Scope | All MC pages eventually; reliable Chat/Agent core first |
 | Conductor | Thin compatibility facade after migration |
 | Backend structure | Shared core services plus staged page adapters |
-| Queue order | Implement after `#18` and `#20` |
+| Queue order | Reconcile delivered `#20`; begin only after `#22` passes the ten-run local matrix and owner browser acceptance |
 | Other surfaces | Telegram, CLI, Office, and schedulers use compatibility adapters initially |
 | Deployment | Local-first hybrid |
 | Ownership | Single-owner, future-ready data and API contracts |
 | Runtime | Local durable runtime first |
+| Loop control | Persisted turn-, goal-, time-, and future proactive-loop recipes/policies; goal-based is the Developer default |
+| Developer loop choice | MC suggests the safest compatible loop with reason; owner may make a policy-valid override |
+| Proactive autonomy | Disabled by default until owner, policy, TOBIval, budget, approval, and explanation gates pass |
 | Delivery semantics | At-least-once execution with idempotency |
 | Approvals | Risk-based approvals |
 | Recovery | Runs resumable indefinitely; safe steps auto-resume after restart |
@@ -177,7 +184,7 @@ The 60-question intake is summarized below. Workers must not reopen these choice
 | Telemetry | OpenTelemetry-compatible events plus MC local UI |
 | Trace UX | Concise by default, expandable details |
 | Retention | Full trace 90 days, then redacted summary |
-| Evals | Required regression gates |
+| Evals | Local-first TOBIval release and autonomy regression gates |
 | Dataset | Golden cases plus real production failures |
 | Reliability target | At least 95% supported-workflow completion or structured recovery |
 | Trust | Label by source class; trust never grants instruction authority |
@@ -186,6 +193,8 @@ The 60-question intake is summarized below. Workers must not reopen these choice
 | Run UI | Global Runs center plus contextual page views |
 | Frontend state | Shared live projections across pages |
 | Failure UX | Actionable recovery cards |
+| System model | Separate evidence-backed System Graph; delivered `#20` Brain Graph remains owner/project/resource knowledge authority |
+| Living Atlas | Foundation only in `#21`; full visual page and advanced animation are deferred |
 | Schema | Additive shared runtime tables |
 | History | Append-only events plus projections |
 | Rollback | Per-domain feature flags |
@@ -214,11 +223,14 @@ flowchart TB
     Router["Hybrid intent router"]
     Context["Context and owner-intelligence assembler"]
     Planner["Typed planner and clarification gate"]
+    Loop["Loop controller and loop policy"]
     Policy["Policy, approval, budget, and trust engine"]
     Runtime["Durable workflow runtime"]
     Tools["Canonical tool registry and router"]
     Events["Append-only events and projections"]
-    Trace["Trace, metrics, evals, and feedback"]
+    Trace["Trace, metrics, and feedback"]
+    Eval["TOBIval eval and release gate"]
+    System["System model and Atlas-ready projections"]
   end
 
   subgraph Engines["Managed engines and adapters"]
@@ -237,8 +249,10 @@ flowchart TB
   Router --> Context
   Router --> Planner
   Context --> Planner
-  Planner --> Policy
+  Planner --> Loop
+  Loop --> Policy
   Policy --> Runtime
+  Loop --> Runtime
   Runtime --> Tools
   Tools --> Engines
   Runtime --> Events
@@ -246,6 +260,11 @@ flowchart TB
   Policy --> Events
   Engines --> Events
   Events --> Trace
+  Trace --> Eval
+  Events --> Eval
+  Events --> System
+  Eval --> System
+  System --> Surfaces
   Events --> Surfaces
 ```
 
@@ -257,12 +276,16 @@ flowchart TB
 | Intent router | Deterministic classification, confidence, candidate capabilities | Tool execution or owner memory retrieval |
 | Context service | Context manifests, relevance, certainty, provenance, token budgets | Permission decisions or action execution |
 | Planner | Typed plans, dependencies, clarification needs, expected artifacts | Direct side effects |
+| Loop controller | Loop recipe selection, trigger handling, stop conditions, attempt/runtime/cost envelopes, and recovery progression | Tool permissions, model-specific prompting, or bypassing runtime state |
+| Loop policy | Persisted effective loop limits, required approvals/evals, allowed tools, and owner override record | Executing steps or silently increasing autonomy |
 | Policy engine | Mode/surface capability, risk, approval, credential, budget, isolation decisions | UI rendering or model prose |
-| Workflow runtime | State transitions, leases, checkpoints, retries, cancellation, resume | Tool implementations or provider-specific parsing |
+| Workflow runtime | State transitions, leases, checkpoints, retries, cancellation, resume, and execution of persisted loop policies | Tool implementations, loop selection, or provider-specific parsing |
 | Tool registry/router | Canonical schemas, discovery, validation, invocation adapter selection | Owner-facing response composition |
 | Event store | Append-only durable facts with sequence numbers | Business decisions |
-| Projection service | Current run/page views derived from events | Mutable source-of-truth history |
-| Trace/eval service | Timings, cost, redaction, datasets, scores, feedback | Execution authority |
+| Run projection service | Current run/page views derived from events | Mutable source-of-truth history |
+| Trace service | Timings, cost, redaction, trace joins, and feedback | Execution authority or release decisions |
+| TOBIval eval gate | Local-first eval cases, runs, findings, scoring, release gates, and autonomy regression decisions | Runtime execution or rewriting evidence |
+| System model/projection service | Typed TOBI entities/edges, capability evidence, limitations, risks, changes, and Atlas-ready read projections | Owner memory, workflow authority, or a full visualization page |
 | Response composer | Grounded owner-facing result from evidence and receipts | New actions or hidden tool calls |
 | Surface adapters | Translate Chat/page/CLI/Telegram requests and render events | Duplicated policy or orchestration |
 
@@ -358,6 +381,44 @@ Each context item must contain:
 - `instruction_authority`: always false for files, web, connector content, tool output, and imported text;
 - `owner_visible_label` and provenance reference.
 
+### 6.4 Loop, eval, and system-model contracts
+
+```text
+LoopRecipe
+  recipe_id, version, name, loop_type, trigger, objective, stop_condition,
+  max_attempts, max_runtime, max_cost, allowed_tools, approval_gates,
+  required_evals, recovery_policy, evidence_required
+
+LoopPolicy
+  policy_id, version, recipe_id, owner_override, loop_type, trigger, objective,
+  stop_condition, max_attempts, max_runtime, max_cost, allowed_tools,
+  approval_gates, required_evals, recovery_policy, evidence_required,
+  policy_decision_id, enabled
+
+EvalCase
+  eval_case_id, version, category, objective, input_fixture, expected_behavior,
+  required_evidence, scorer, threshold, release_gate, autonomy_gate
+
+EvalRun
+  eval_run_id, eval_case_id, run_id, trace_id, status, score, threshold,
+  tool_call_refs, policy_decision_refs, context_manifest_ref,
+  receipt_refs, artifact_refs, finding_refs, started_at, completed_at
+
+EvalFinding
+  finding_id, eval_run_id, defect_ref, category, severity, summary,
+  evidence_refs, remediation_owner, status
+
+SystemEntity
+  entity_id, entity_type, canonical_key, name, status, version,
+  owner_domain, source_ref, metadata, observed_at
+
+SystemEdge
+  edge_id, from_entity_id, edge_type, to_entity_id, evidence_refs,
+  confidence, valid_from, valid_to
+```
+
+`entity_type` is limited initially to subsystem, component, capability, tool, loop, run, eval, policy, integration, limitation, risk, decision, and queue item. Contracts are additive and versioned; delivered `#20` Brain contracts remain the authority for owner/project/resource knowledge.
+
 ## 7. Durable Execution
 
 ### 7.1 State machine
@@ -414,6 +475,36 @@ stateDiagram-v2
 
 Every command uses optimistic versioning so two pages cannot mutate the same run state inconsistently.
 
+### 7.4 First-class loop control
+
+Loops are persisted runtime strategies, not prompt templates:
+
+| Loop type | Use | Default posture |
+|---|---|---|
+| Turn-based | Owner-guided conversation, planning, ambiguous work, and risky work that needs frequent clarification | Advance one bounded turn at a time and return control to the owner |
+| Goal-based | Developer Queue implementation and other work with an explicit outcome, evidence criteria, and durable checkpoints | Default Developer execution loop; continue until the stop condition, policy gate, budget, or recovery state is reached |
+| Time-based | Scheduled checks, monitoring, Health, Storage, News, and integration maintenance | Run only from an approved schedule with bounded work per tick |
+| Proactive | Future system-initiated autonomy based on observed state or opportunities | Disabled by default until policy, eval, budget, explanation, and owner-approval gates pass |
+
+Every executable loop uses a versioned `LoopRecipe` and an effective `LoopPolicy` snapshot containing:
+
+- `loop_type`
+- `trigger`
+- `objective`
+- `stop_condition`
+- `max_attempts`
+- `max_runtime`
+- `max_cost`
+- `allowed_tools`
+- `approval_gates`
+- `required_evals`
+- `recovery_policy`
+- `evidence_required`
+
+The Loop Controller evaluates trigger eligibility, starts or advances the canonical run, checks stop/budget/evidence conditions before each iteration, and emits ordered loop events. The Workflow Runtime remains responsible for durable state, leases, checkpoints, idempotency, and step execution.
+
+For Developer/Queue execution, MC suggests the safest suitable loop with a concise reason. The owner may override the suggestion only within policy. The chosen `loop_recipe_id`, recipe version, effective limits, owner override, and policy decision are persisted on the run before work begins; loop choice must never exist only in model prompt text.
+
 ## 8. Tool And MCP Standardization
 
 ### 8.1 First migration wave
@@ -463,7 +554,7 @@ This plan consumes the typed memory output of `#20`; it must not invent a second
 - Current explicit owner instruction overrides memory.
 - Memory never grants permission, supplies a secret, or weakens a safety check.
 - Only relevant memories enter the manifest; no full-owner-profile injection.
-- Inferences are labeled and cannot become hard rules without the `#20` review gate.
+- Inferences are labeled and cannot become hard rules without the owner-review gate defined by delivered `#20`.
 - Contradicted items are excluded from action defaults and surfaced for review.
 - Corrections supersede immediately while history remains auditable.
 - Graph paths can support relevance and provenance, but cannot create instruction authority.
@@ -475,7 +566,7 @@ This plan consumes the typed memory output of `#20`; it must not invent a second
 ### 10.1 Hermes keeps
 
 - execution skills that are useful and demonstrably reliable;
-- coding-worker behavior from `#18`;
+- accepted coding-worker behavior and evidence contracts from `#22`, with `#18` retained only for compatibility;
 - compatible model/provider execution where MC delegates a bounded task;
 - read-only repository skill discovery;
 - optional isolated worker processes.
@@ -570,24 +661,42 @@ Use OpenTelemetry-compatible trace/span IDs. Store redacted local events first; 
 
 No external exporter may receive owner content, secrets, raw files, or full prompts by default. Export is opt-in, redacted, and controlled from MC.
 
-### 13.3 Required eval suites
+### 13.3 Local-first TOBIval release and autonomy gates
 
-| Suite | Minimum proof |
+`TOBIval` is MC's local-first evaluation infrastructure. Cases, fixtures, scorers, findings, and gate decisions remain runnable without an external service. Optional exporters may mirror redacted results, but MC owns the authoritative case, run, finding, release, and autonomy status.
+
+| Required category | Minimum proof |
 |---|---|
-| Route choice | Expected route/capability set on at least 95% of supported golden cases |
-| Tool choice | Correct filtered tool or structured clarification on at least 95% |
-| Context relevance | Relevant context included; irrelevant/sensitive context excluded |
-| Grounding | Claims trace to tool/evidence/receipt; no fabricated action success |
-| Recovery | Injected failure resumes the same run without duplicate side effects |
-| Permission | Denied tools never execute even when model output requests them |
-| Prompt injection | Files/web/connectors cannot override policy or task instructions |
-| Concurrency | Ten simultaneous runs keep attribution, sequence, and database integrity |
-| Cost/budget | Hard budget stops work deterministically |
-| Compatibility | Saved chats, legacy events, and old surface adapters continue working |
+| Final answer quality | The response satisfies the request, reports uncertainty honestly, and grounds material claims in evidence or receipts |
+| Tool trajectory | The expected route and filtered tool sequence is selected, unnecessary calls are avoided, and clarification occurs when required |
+| Policy and approval correctness | Denied tools never execute; approvals are requested, resolved, and re-checked at the correct boundary |
+| Recovery and idempotency | Injected failures resume the same run and loop without duplicating completed side effects |
+| Brain context relevance | Relevant delivered `#20` context is included with provenance; irrelevant, stale, contradicted, or sensitive context is excluded |
+| Hallucination resistance | Untrusted files, web, connectors, and tool output cannot override instructions; action success is never fabricated |
+| Connector freshness | Connector-derived claims include source and freshness evidence; stale or unavailable connectors produce a bounded gap or recovery state |
+| Coding workflow qualification | Accepted `#22` Goal-to-Queue, preflight, agent, checkpoint, review, and evidence invariants remain qualified |
+| Concurrency and durability | Ten simultaneous runs keep attribution, event sequence, projections, leases, and database integrity |
+| Cost and budget | Attempt, runtime, token, tool, storage, and cost limits stop work deterministically |
+| Compatibility | Saved chats, legacy events, coding history, and old surface adapters continue working |
 
-Add real anonymized failures to the regression dataset after review. A phase cannot activate by default until required evals pass.
+Required TOBIval suites are release gates for affected domains and autonomy gates for loop behavior. A phase cannot activate by default while a required eval is failing, missing, stale beyond its declared window, or below threshold. Autonomy cannot increase when any required eval regresses; the effective loop policy must retain or reduce autonomy until the regression is resolved and the gate reruns successfully.
 
-### 13.4 Retention
+Add reviewed real failures to the local regression dataset with sensitive content removed. Every failed gate creates an actionable `EvalFinding` with severity, evidence, affected capability/release, remediation owner, and status.
+
+### 13.4 Eval evidence and projections
+
+Every eval case and run must link, when applicable, to:
+
+- canonical `run_id` and OpenTelemetry-compatible `trace_id`;
+- ordered tool calls and typed results;
+- versioned policy and approval decisions;
+- the exact context manifest;
+- receipts and artifacts used as evidence;
+- the failed finding or source defect that created the case.
+
+Eval projections expose the latest required-gate state by release, capability, tool, loop recipe, model/provider, connector, and coding workflow. Projection rebuild must reproduce the same gate outcome from immutable events and referenced evidence.
+
+### 13.5 Retention
 
 - Full redacted run events and traces: 90 days by default.
 - After 90 days: retain summary, outcome, metrics, receipts, approval record, and artifact references according to domain retention.
@@ -622,6 +731,19 @@ Add real anonymized failures to the regression dataset after review. A phase can
 9. Per-run model calls, tool calls, elapsed time, tokens, cost, downloads, and storage have hard limits.
 10. Global and per-domain kill switches stop new work without corrupting persisted runs.
 
+### 14.3 No premature proactive autonomy
+
+Proactive loops remain disabled by default. MC may enable a specific proactive `LoopRecipe` only when all are true:
+
+1. the owner explicitly approves that version of the recipe;
+2. central policy permits its trigger, tools, target, and execution boundary;
+3. the required TOBIval baseline passes without regression;
+4. attempt, runtime, model/tool, cost, download, and storage budgets are persisted;
+5. every external, destructive, publishing, financial, permission-changing, deployment, or otherwise material side effect remains approval-gated;
+6. Runs and Atlas-ready system projections can explain the trigger, context, policy, actions, evidence, outcome, and recovery path.
+
+Recipe edits invalidate prior proactive approval and require policy/eval requalification. A kill switch or eval regression prevents new proactive runs without corrupting already-persisted history.
+
 ## 15. UI And Shared State
 
 ### 15.1 Global Runs center
@@ -632,12 +754,13 @@ Add a `/runs` operational page with:
 - objective, source surface, mode, current step, elapsed time, budget, and owner attention state;
 - concise milestone timeline with expandable technical trace;
 - context chips, approvals, tool calls, receipts, artifacts, and model escalation notices;
+- loop type/recipe, effective limits, stop condition, and required eval status;
 - same-run Resume, Retry step, Skip, Revise, Approve/Reject, and Cancel controls;
 - links back to the originating Chat, Project, Office mission, Developer workflow, or task.
 
 ### 15.2 Contextual projections
 
-Chat, Projects, Office, Developer, Actions, Tasks, Health, and Architecture should show a filtered projection of the same run/event data, not separate workflow truth.
+Chat, Projects, Office, Developer, Actions, Tasks, Health, and Architecture should show a filtered projection of the same run/event data, not separate workflow truth. Loop, eval, trace, context, recovery, capability, and evidence links use the same projection identity.
 
 Use one frontend run store keyed by `run_id`. It consumes ordered snapshots/events, deduplicates by sequence, reconnects from the last sequence, and invalidates domain queries after relevant receipts.
 
@@ -649,12 +772,51 @@ Use one frontend run store keyed by `run_id`. It consumes ordered snapshots/even
 | Actions | Project action receipts and approvals from run events; keep legacy history visible |
 | Projects/Tasks | Show related runs, live changes, and receipts; route mutations through command gateway |
 | Office | Adapt missions and actions to shared runs after Chat stabilizes |
-| Developer | Adapt `#18` coding workflows to shared runtime contracts |
+| Developer | Adapt accepted `#22` coding workflows to shared runtime contracts; suggest a safest suitable loop with reason, allow a policy-bounded owner override, and show the persisted recipe/eval state |
 | Brain/Graph | Show which memories/paths influenced a run and collect feedback |
-| Health/Performance | Runtime latency, failure class, queue depth, worker saturation, cost, and eval status |
-| Architecture | Update Mermaid diagrams and domain ownership after each accepted phase |
+| Health/Performance | Runtime latency, failure class, queue depth, worker saturation, cost, loop health, and TOBIval gate status |
+| Architecture | Update Mermaid diagrams and domain ownership after each accepted phase; link capabilities and limitations to evidence-backed system entities |
 
 Do not create nested cards or expose raw traces by default. Recovery cards must state what failed, what completed, whether retry is safe, and what each command will do.
+
+`#21` is not a full frontend redesign. Its required frontend foundation is limited to:
+
+- the Runs Center;
+- one shared live frontend store/projection client;
+- actionable recovery and approval cards;
+- an expandable trace/context viewer;
+- an eval status panel;
+- a loop selector in Developer with suggestion reason and persisted selection state;
+- capability/evidence links;
+- Atlas-ready APIs and projections.
+
+Defer the full Living Atlas page, an advanced animated system graph, and an architecture visual-delta timeline to a later queue item. Existing page structure, theme tokens, components, and responsive conventions remain the default.
+
+### 15.4 System Model / Living Atlas Foundation
+
+MC maintains a separate System Graph over these entity types:
+
+- subsystem;
+- component;
+- capability;
+- tool;
+- loop;
+- run;
+- eval;
+- policy;
+- integration;
+- limitation;
+- risk;
+- decision;
+- queue item.
+
+Boundaries:
+
+- **Brain Graph** is the delivered `#20` graph for owner memory, project knowledge, resources, and their provenance.
+- **System Graph** models TOBI architecture, capabilities, runtime relationships, evidence, limitations, risks, policy, decisions, and change events.
+- **Living Atlas** is a future owner-facing visual layer over the System Graph, traces, evals, risks, and changes.
+
+`#21` builds only the typed entities/edges, evidence and limitation records, change-event ingestion, deterministic projections, and read APIs required by a future Atlas page. It must not duplicate Brain memories, infer unsupported capability status, or scope the deferred Atlas visualization into this implementation.
 
 ## 16. Data Model And Compatibility
 
@@ -668,6 +830,8 @@ Do not create nested cards or expose raw traces by default. Recovery cards must 
 | `mc_run_commands` | Owner/system recovery and control commands with optimistic version |
 | `mc_run_artifacts` | Artifact metadata and scoped storage references |
 | `mc_run_approvals` | Risk decision, request, response, expiry, and authentication evidence |
+| `mc_loop_recipes` | Versioned loop type, trigger, objective, stop, budget, tool, approval, eval, recovery, and evidence contract |
+| `mc_loop_runs` | Canonical run-to-recipe version, effective policy snapshot, trigger, iteration state, stop reason, and owner override |
 | `mc_action_receipts` | Immutable side-effect evidence and reconciliation status |
 | `mc_idempotency` | Request/tool effect keys and completed result references |
 | `mc_policy_decisions` | Inputs, rule version, result, and redacted reason |
@@ -675,10 +839,16 @@ Do not create nested cards or expose raw traces by default. Recovery cards must 
 | `mc_runtime_projections` | Rebuildable current views for UI and adapters |
 | `mc_owner_feedback` | Run/route/context/tool/result feedback and verified learning state |
 | `mc_capability_sync` | Hermes/MCP capability manifest versions, checksums, and status |
-| `mc_eval_cases` | Approved golden and real-failure case metadata |
-| `mc_eval_runs` | Eval result, version, metrics, and release gate |
+| `mc_eval_cases` | Versioned local golden/real-failure fixtures, expected behavior, scorers, thresholds, and required release/autonomy gates |
+| `mc_eval_runs` | Case/run/trace links, tool/policy/context/evidence references, scores, status, and gate result |
+| `mc_eval_findings` | Actionable failed-eval findings linked to defects, evidence, affected capability/release, remediation, and lifecycle |
+| `mc_system_entities` | Versioned typed subsystem, component, capability, tool, loop, run, eval, policy, integration, limitation, risk, decision, and queue-item records |
+| `mc_system_edges` | Typed evidence-backed relationships between System Graph entities |
+| `mc_capability_evidence` | Capability status evidence from runs, evals, tools, integrations, receipts, and accepted owner decisions |
+| `mc_limitations` | Known limitation, scope, severity, evidence, mitigation, owner-visible status, and supersession |
+| `mc_change_events` | Append-only accepted architecture/capability/policy/risk changes used to rebuild Atlas-ready projections |
 
-Use the existing schema migration ledger. Add indexes for run status/time, event `(run_id, sequence)`, runnable steps, idempotency key, approval state, and trace ID.
+Use the existing schema migration ledger. Add indexes for run status/time, event `(run_id, sequence)`, runnable steps, idempotency key, approval state, trace ID, loop recipe/version/status, eval case/category/gate status, system entity type/key, edge endpoints/type, and change-event sequence. Do not duplicate delivered `#20` Brain tables; System Graph records reference Brain/context provenance by stable IDs where required.
 
 ### 16.2 Legacy migration
 
@@ -702,19 +872,24 @@ Keep existing APIs and add a stable runtime namespace:
 | `POST /api/runtime/runs/{run_id}/commands` | Resume/retry/skip/revise/input/approve/reject/cancel |
 | `GET /api/runtime/runs/{run_id}/trace` | Redacted expandable trace |
 | `GET /api/runtime/runs/{run_id}/artifacts` | Scoped artifact metadata |
+| `GET /api/runtime/loops` | Policy-filtered loop recipes and effective availability |
+| `POST /api/runtime/loops/suggest` | Safest compatible loop suggestion, reason, blockers, and owner-overridable choices |
 | `GET /api/runtime/tools` | Policy-filtered capability discovery for UI/admin use |
 | `GET /api/runtime/health` | Workers, leases, queue, projections, and event-store health |
-| `GET /api/runtime/evals` | Current regression-gate status |
+| `GET /api/runtime/evals` | Current TOBIval release/autonomy gate status and actionable findings |
+| `GET /api/runtime/evals/{eval_run_id}` | Case, trace, context, tool/policy, evidence, score, and finding projection |
+| `GET /api/runtime/system/entities` | Filtered Atlas-ready System Graph entity projection |
+| `GET /api/runtime/system/edges` | Evidence-backed Atlas-ready System Graph relationships |
 
-All mutations require `request_id` or `client_command_id`. SSE events carry `run_id`, monotonic sequence, event type, stage, timestamp, and redacted payload.
+All mutations require `request_id` or `client_command_id`. Run creation accepts an approved `loop_recipe_id`/version or a policy-valid suggestion selection and persists the effective `LoopPolicy` snapshot. SSE events carry `run_id`, monotonic sequence, event type, stage, timestamp, and redacted payload.
 
 ## 18. Implementation DAG
 
 ```mermaid
 graph TD
-  T00["T00 Reconcile #18/#20 and refresh map"] --> T01["T01 Domain contracts and flags"]
-  T01 --> T02["T02 Event store and projections"]
-  T02 --> T03["T03 Durable run and checkpoint engine"]
+  T00["T00 Reconcile delivered #20 and accepted #22"] --> T01["T01 Runtime, loop, eval, and system contracts"]
+  T01 --> T02["T02 Event store and run/system projections"]
+  T02 --> T03["T03 Durable loop-aware runtime"]
   T03 --> T04["T04 Chat/Agent gateway adapter"]
   T01 --> T05["T05 Central policy and approval service"]
   T01 --> T06["T06 Canonical tool registry"]
@@ -723,17 +898,20 @@ graph TD
   T06 --> T07
   T04 --> T08["T08 Conductor strangler extraction"]
   T07 --> T08
-  T00 --> T09["T09 #20 owner-intelligence adapter"]
+  T00 --> T09["T09 Delivered #20 owner-intelligence adapter"]
   T08 --> T09
-  T00 --> T10["T10 Hermes and #18 adapter"]
+  T00 --> T10["T10 Hermes and accepted #22 adapter"]
   T03 --> T10
   T06 --> T10
-  T09 --> T11["T11 Trace, metrics, and eval gates"]
+  T09 --> T11["T11 Trace, metrics, and TOBIval gates"]
   T10 --> T11
+  T02 --> T11A["T11A System Model and Atlas foundation"]
+  T11 --> T11A
   T05 --> T12["T12 Security and failure hardening"]
   T11 --> T12
-  T04 --> T13["T13 Runs center and shared UI state"]
+  T04 --> T13["T13 Runs, loop, eval, context UI projections"]
   T11 --> T13
+  T11A --> T13
   T12 --> T14["T14 Shadow and staged activation"]
   T13 --> T14
   T14 --> T15["T15 Page adapters, docs, legacy exit review"]
@@ -745,22 +923,23 @@ Each task is a separate, reviewable package. A worker must stop after its accept
 
 | ID | Goal and ownership | Depends on | Likely files | Acceptance criteria | Risk |
 |---|---|---|---|---|---|
-| T00 | Reconcile current `main`, delivered `#18/#20`, Graphify, docs, and tests. Produce a drift matrix; no runtime change. | None | Graphify output, this plan, architecture docs | Every overlapping service/table/API has one declared owner; stale plan assumptions are amended before code | Medium |
-| T01 | Add typed domain contracts, error taxonomy, capability/risk enums, and per-domain flags. | T00 | New `core/runtime/` contracts/config; database migrations | Contracts validate at every boundary; old callers compile/run unchanged | Medium |
-| T02 | Add append-only event store, sequence allocation, projections, redaction, and rebuild command. | T01 | Runtime event/projection modules, DB init/migrations | Concurrent events remain ordered; projection rebuild yields identical current state | High |
-| T03 | Add durable state machine, leases, checkpoints, retry, cancellation, commands, budgets, and idempotency. | T02 | Runtime engine/repository/worker modules | Restart recovery and duplicate-delivery tests prove no repeated side effects | High |
+| T00 | Confirm `#22` local/browser acceptance, then reconcile current `main`, delivered `#20`, accepted `#22`, Graphify, docs, migrations, and tests. Produce a drift/ownership matrix; no runtime change. | `#22` ten-run matrix and owner browser acceptance | Graphify output, this plan, `#20/#22` plans and acceptance evidence, architecture docs | Every overlapping service/table/API has one declared owner; delivered contracts and rollback paths are mapped; stale assumptions are amended before code | Medium |
+| T01 | Add typed runtime contracts, error taxonomy, capability/risk enums, per-domain flags, `LoopRecipe`, `LoopPolicy`, eval contracts, and `SystemEntity/SystemEdge` contracts. | T00 | New `core/runtime/` contracts/config; database migrations | Contracts validate at every boundary; recipe/eval/system versions are explicit; old callers compile/run unchanged | Medium |
+| T02 | Add append-only event store, sequence allocation, run and System Model projections, redaction, and deterministic rebuild commands. | T01 | Runtime event/projection modules, system-model projector, DB init/migrations | Concurrent events remain ordered; run and System Graph projection rebuilds yield identical current state | High |
+| T03 | Add durable state machine, leases, checkpoints, retry, cancellation, commands, budgets, idempotency, Loop Controller, and persisted loop-policy execution. | T02 | Runtime engine/repository/worker/loop modules | Restart recovery and duplicate-delivery tests prove no repeated side effects; stop conditions and effective loop limits are enforced from persisted state | High |
 | T04 | Adapt MC Chat/Agent request and SSE routes to the gateway in shadow then on mode. | T03 | Chat runtime, dashboard route extraction, chat tests | Existing sessions/events remain readable; same-run recovery and first acknowledgement targets pass | High |
 | T05 | Centralize mode/surface/tool risk, approvals, credentials, trust, isolation, and budget decisions. | T01 | Policy/approval modules, vault public adapter, mode compatibility | Denied actions fail server-side; every policy decision is versioned and auditable | High |
 | T06 | Build canonical MCP-compatible registry, filtered discovery, schema validation, availability, and adapters. | T01, T05 | Tool registry/router, MCP client/server adapters, Conductor compatibility | No duplicate catalog authority; invalid args never reach tools; full catalog is never advertised | High |
 | T07 | Migrate file, terminal, and project tools with receipts and idempotency. | T03, T06 | Terminal, attachments/files, PM tools, tests | Read and action golden cases use typed contracts; retry cannot duplicate mutation | High |
 | T08 | Extract router, planner, context call, execution, and response composition from Conductor one concern at a time. | T04, T07 | Conductor, new runtime services, Telegram adapter tests | `conductor.answer()` is a thin facade; legacy and V2 golden outputs remain compatible | High |
-| T09 | Connect `#20` typed owner intelligence and Graph provenance to route/plan/tool/response stages. | T00, T08 | Context service, Brain/Graph adapters, response composer | Relevant memory changes expected behavior; irrelevant/stale/sensitive memory does not leak or control actions | High |
-| T10 | Add versioned Hermes capability sync and adapt `#18` workflows/workers to shared runs without giving Hermes authority. | T00, T03, T06 | Hermes sync/skills, coding-agent adapters, CLI compatibility | MC remains authoritative; unavailable Hermes yields structured recovery; coding run history is unified | High |
-| T11 | Add OTel-compatible traces, runtime dashboards, golden/real-failure datasets, and release-gate runner. | T09, T10 | Telemetry/eval modules, usage, performance doctor | Route/tool/context/recovery metrics are queryable; required evals block activation on regression | Medium |
+| T09 | Connect delivered `#20` typed owner intelligence and Brain Graph provenance to route/plan/tool/response stages without duplicating its schema. | T00, T08 | Context service, delivered Brain/Graph adapters, response composer | Relevant memory changes expected behavior; irrelevant/stale/sensitive memory does not leak or control actions; context influence is visible in trace/eval evidence | High |
+| T10 | Add versioned Hermes capability sync and adapt accepted `#22` Goal/Queue/agent/checkpoint/evidence workflows to shared runs without giving Hermes authority. | T00, T03, T06 | Hermes sync/skills, coding-agent adapters, Developer compatibility, CLI compatibility | MC remains authoritative; unavailable workers yield structured recovery; accepted `#22` invariants and coding history remain unified and readable | High |
+| T11 | Add OTel-compatible traces, local-first TOBIval cases/runs/findings, golden/real-failure datasets, and release/autonomy-gate runner. | T09, T10 | Telemetry/eval modules, usage, performance doctor | Final-answer, tool-trajectory, policy, recovery, Brain context, hallucination, connector-freshness, and coding-workflow gates are queryable; regression blocks activation or autonomy increase | Medium |
+| T11A | Build the System Model/Living Atlas foundation: typed entities/edges, capability evidence, limitations, risks, change events, deterministic projections, and read APIs. Do not build the full Atlas page. | T02, T11 | System-model contracts/repository/projector/API tests | Core subsystems, capabilities, tools, loops, evals, policies, integrations, risks, limitations, decisions, and queue items have evidence-backed projections usable by a future Atlas page | Medium |
 | T12 | Run threat model and harden injection, secrets, supply chain, agency, budgets, network, paths, and redaction. | T05, T11 | Policy, vault adapter, net guard, terminal, MCP security, tests | Security failure-injection suite passes; no raw secret or untrusted instruction crosses boundary | High |
-| T13 | Build Runs center, shared frontend store, contextual projections, recovery cards, context/trace UI, and responsive behavior. | T04, T11 | New Runs page/store, `api.ts` domain module, Chat/Actions/Health adapters | Two pages show one consistent live run; reconnect resumes by sequence; controls mutate same run | Medium |
+| T13 | Build the frontend foundation only: Runs Center, shared projection client/store, recovery cards, trace/context viewer, eval panel, Developer loop selector, capability/evidence links, and Atlas-ready projection clients. | T04, T11, T11A | New Runs page/store, `api.ts` domain module, Developer/Chat/Actions/Health adapters | Two pages show one consistent run/loop/eval/trace/recovery state; loop selection persists; reconnect resumes by sequence; no full Atlas page or broad redesign is introduced | Medium |
 | T14 | Shadow compare legacy/V2 routes, manifests, policies, latency, and outcomes; activate direct Chat, reads, actions, then Agent. | T12, T13 | Flags, shadow comparator, eval reports, owner settings | Gates pass seven consecutive local test runs per stage; rollback flag is exercised | High |
-| T15 | Adapt remaining Projects, Office, Developer, CLI, Telegram, and schedulers; update docs and decide legacy retirement separately. | T14 | Domain adapters, docs, tests | All surfaces use shared contracts or documented adapters; no legacy deletion without owner-approved exit review | High |
+| T15 | Adapt remaining Projects, Office, CLI, Telegram, and schedulers; update docs and decide legacy retirement separately. | T14 | Domain adapters, docs, tests | All surfaces use shared contracts or documented adapters; no legacy deletion without owner-approved exit review | High |
 
 ## 20. Phased Delivery And File Map
 
@@ -768,33 +947,36 @@ Each task is a separate, reviewable package. A worker must stop after its accept
 
 | Phase | Scope | Tasks | Exit gate |
 |---|---|---|---|
-| Phase 0 - Research and current-state map | Reconcile delivered `#18/#20`, refresh Graphify, verify live ownership and contracts | T00 | Drift/ownership matrix accepted; no unresolved shared-table or shared-API owner |
+| Phase 0 - Acceptance, reconciliation, and current-state map | Confirm the `#22` ten-run/browser gate, reconcile delivered `#20` and accepted `#22`, refresh Graphify, verify live ownership and contracts | T00 | `#22` start gate passed; drift/ownership matrix accepted; no unresolved shared-table or shared-API owner |
 | Phase 1 - Domain boundaries and Conductor decomposition | Contracts, flags, dependency rules, and extraction sequence | T01 | Domain contracts pass tests; legacy behavior unchanged |
-| Phase 2 - Durable run/checkpoint foundation | Event store, projections, runtime, leases, retries, idempotency, and Chat gateway | T02-T04 | Restart/retry/reconnect tests prove same-run recovery without duplicate effects |
+| Phase 2 - Durable run/loop/checkpoint foundation | Event store, run/system projections, persisted loop policy, runtime, leases, retries, idempotency, and Chat gateway | T02-T04 | Restart/retry/reconnect tests prove same-run recovery without duplicate effects; loop limits and stop conditions are enforced |
 | Phase 3 - Tool router and MCP standardization | Central policy, canonical registry, and first tool migrations | T05-T07 | Files/terminal/projects pass typed contract, permission, receipt, and idempotency suites |
-| Phase 4 - Brain/Graph owner intelligence | Conductor extraction and `#20` context integration | T08-T09 | Golden cases prove relevant owner intelligence changes behavior safely |
-| Phase 5 - Observability, evals, and security | Hermes/`#18` adapter, unified traces, regression gates, and threat hardening | T10-T12 | Required eval/security suites pass and telemetry contains no restricted data |
-| Phase 6 - MC UI integration and docs | Runs center, shared state, shadow rollout, staged activation, and current docs | T13-T14 | Cross-page state is consistent; staged defaults and rollback are demonstrated |
-| Phase 7 - Future coding-agent compatibility and remaining adapters | Developer/`#18`, Projects, Office, CLI, Telegram, schedulers, and legacy exit review | T15 | All surfaces use shared contracts or documented adapters; owner separately approves legacy retirement |
+| Phase 4 - Brain/Graph owner intelligence | Conductor extraction and delivered `#20` context integration | T08-T09 | Golden cases prove relevant owner intelligence changes behavior safely without duplicating Brain contracts |
+| Phase 5 - Observability, TOBIval, System Model, and security | Hermes/accepted-`#22` adapter, unified traces, release/autonomy gates, Atlas foundation, and threat hardening | T10-T12 including T11A | Required eval/security suites pass; system projections rebuild deterministically; telemetry contains no restricted data |
+| Phase 6 - MC frontend foundation and docs | Runs Center, loop/eval/context projections, shared state, shadow rollout, staged activation, and current docs | T13-T14 | Cross-page run/loop/eval/trace/recovery state is consistent; staged defaults and rollback are demonstrated |
+| Phase 7 - Remaining adapters | Projects, Office, CLI, Telegram, schedulers, and legacy exit review | T15 | All surfaces use shared contracts or documented adapters; owner separately approves legacy retirement |
 
 Never overlap Phase 2-5 workers on shared runtime contracts or migrations. A later phase may begin only when the prior phase's exit gate and documentation update are accepted.
 
 ### 20.2 File-to-task map
 
-This is a likely map, not permission for broad edits. T00 must revise it after `#18/#20` delivery.
+This is a likely map, not permission for broad edits. T00 must revise it after `#22` acceptance and reconciliation with delivered `#20`.
 
 | Area | Existing files to inspect | Primary tasks |
 |---|---|---|
 | API | `api/dashboard.py` and extracted route modules | T04, T13, T15 |
 | Chat runtime | `core/chat_runtime.py`, `chat_runtime_contracts.py`, `context_manager.py`, `agent_runs.py` | T01-T04, T09 |
+| Loop control | Accepted `#22` runtime/queue services plus new shared loop contracts/controller/repository | T01-T03, T10 |
 | Conductor | `core/conductor.py`, `core/chat_modes.py` | T05, T06, T08 |
 | Tools | `core/tool_registry.py`, terminal, PM, attachments, integrations modules | T06, T07, T12 |
 | Models | `core/model_router.py`, usage modules | T08, T11 |
-| Brain/Graph | `core/brain.py`, `core/graph_engine.py`, delivered `#20` modules | T09 |
-| Hermes | `core/hermes_sync.py`, `core/hermes_skills.py`, `main.py`, delivered `#18` modules | T10, T15 |
+| Brain/Graph | Delivered `#20` contracts/modules plus compatibility adapters; do not create a second schema | T09 |
+| System Model | New system entity/edge/evidence/limitation/change-event repository and projection modules | T01, T02, T11A |
+| Evals | New local TOBIval case/run/finding and release/autonomy-gate modules; existing performance/usage evidence | T01, T11 |
+| Hermes/Coding | `core/hermes_sync.py`, `core/hermes_skills.py`, `main.py`, accepted `#22` modules and historical `#18` compatibility | T10, T15 |
 | MCP/A2A | `core/mcp_server.py`, `mcp_client.py`, `mcp_security.py`, `a2a.py` | T06, T12 |
-| Persistence | database initialization and schema migration helpers | T01-T03 |
-| Frontend | `dashboard/src/api.ts`, domain API modules, Chat, Actions, Health, Office, Project, Developer | T13, T15 |
+| Persistence | database initialization and schema migration helpers | T01-T03, T11, T11A |
+| Frontend | `dashboard/src/api.ts`, domain API modules, Runs, Developer, Chat, Actions, Health, Office, Project | T13, T15 |
 | Docs | `docs/ARCHITECTURE.md`, `MISSION_CONTROL.md`, API/data/testing/security docs | T00, T15 and every accepted phase |
 
 ## 21. Verification Plan
@@ -804,8 +986,11 @@ This is a likely map, not permission for broad edits. T00 must revise it after `
 - contract validation and version compatibility;
 - state transition legality and optimistic versions;
 - event ordering, redaction, and projection rebuild;
+- loop recipe/policy validation, selection, persisted override, stop condition, and hard-limit enforcement;
 - tool schema, policy filtering, and availability;
 - context relevance, certainty, precedence, and budget;
+- TOBIval case/run/finding linkage, scorer thresholds, release gates, and autonomy-regression gates;
+- System Model entity/edge validation, capability-evidence rules, and deterministic projection rebuild;
 - error taxonomy and owner-safe recovery options;
 - idempotency and receipt reconciliation;
 - Hermes/MCP adapter contract tests.
@@ -823,6 +1008,11 @@ This is a likely map, not permission for broad edits. T00 must revise it after `
 - duplicate request/call delivery;
 - unavailable Hermes, MCP server, connector, and browser;
 - stale project/memory context;
+- stale connector evidence and failed connector-freshness eval;
+- loop stop-condition, attempt, runtime, and cost exhaustion;
+- proactive loop request while recipe approval, policy, budget, eval, or explanation gates are missing;
+- TOBIval regression blocking staged activation and autonomy increase;
+- System Model rebuild from change events and missing/contradictory capability evidence;
 - prompt injection in files, web, connectors, tool output, and artifacts.
 
 ### 21.3 Performance targets
@@ -839,10 +1029,11 @@ This is a likely map, not permission for broad edits. T00 must revise it after `
 ### 21.4 Frontend verification
 
 - TypeScript and production build;
-- Playwright desktop and mobile flows for Runs, Chat recovery, approvals, context, traces, and artifacts;
+- Playwright desktop and mobile flows for Runs, Chat recovery, approvals, context, traces, artifacts, eval status, and Developer loop selection;
 - no layout overlap or table/card overflow;
 - reduced-motion behavior;
-- reconnect and cross-page state consistency;
+- reconnect and cross-page run/loop/eval/trace/recovery consistency;
+- capability/evidence links resolve to Atlas-ready projections without requiring a full Atlas page;
 - screenshot evidence for owner acceptance.
 
 ## 22. Rollout And Rollback
@@ -867,16 +1058,18 @@ Rollout order:
 5. reversible local actions;
 6. approval-gated actions;
 7. full Agent workflows;
-8. `#18` coding workflows and Hermes;
+8. accepted `#22` coding workflows and Hermes;
 9. remaining MC pages and non-MC surfaces.
 
 Rollback means disabling the affected domain flag. Additive tables remain readable; legacy APIs, conversations, actions, and runs continue to work. Never roll back by deleting V2 data or rewriting history. Before each default activation, create and verify a local database backup and exercise the rollback path.
+
+The `#22` 24-hour/72-hour VPS soak remains a deployment confidence gate for continuous coding operation. It does not block `#21` source development after the ten-run local matrix and owner browser acceptance pass unless the owner explicitly changes that gate. It may still block production deployment or an autonomy increase for affected loop recipes.
 
 ## 23. Risks And Mitigations
 
 | Risk | Mitigation |
 |---|---|
-| `#18/#20/#21` ownership collision | Strict queue serialization; T00 produces one owner per contract/table/API |
+| Delivered `#20`, accepted `#22`, and `#21` ownership collision | `#22` acceptance start gate, strict worker serialization, and T00 ownership mapping for every shared contract/table/API |
 | New platform becomes another god module | Enforce domain boundaries and dependency direction in tests |
 | Dual-write drift | Prefer append-only events plus compatibility projectors; add reconciliation reports |
 | SQLite contention | WAL/busy timeout, short transactions, bounded workers, concurrency tests, later ADR if measured |
@@ -887,6 +1080,9 @@ Rollback means disabling the affected domain flag. Additive tables remain readab
 | Prompt injection | Structural untrusted-data envelopes, no instruction authority, policy re-check before effects |
 | Trace leaks sensitive data | Redaction before persistence/export, metadata-first retention, security tests |
 | UI and backend disagree | One event/projection model and sequence-based frontend store |
+| Proactive autonomy activates before proof | Disabled by default; recipe approval, policy, budgets, required TOBIval gates, side-effect approvals, and explainable projections are mandatory |
+| Brain Graph and System Graph drift or overlap | Keep `#20` owner/project/resource knowledge authoritative; System Graph references provenance and owns only architecture/capability/runtime relationships |
+| Eval gate becomes decorative | Persist gate decisions and findings; block release or autonomy increases server-side when required cases regress |
 | Migration stalls indefinitely | Small packages, measurable exit gates, per-domain flags, no premature legacy deletion |
 | Managed-service lock-in | Local interface first; optional adapters only after ADR |
 
@@ -899,13 +1095,18 @@ Rollback means disabling the affected domain flag. Additive tables remain readab
 3. File, terminal, and project tools use one canonical typed registry and central policy.
 4. Long-running Agent workflows survive restart and resume the same run.
 5. Retry/reconnect cannot duplicate a completed side effect.
-6. Relevant approved owner intelligence measurably changes route/plan/tool/response behavior, while irrelevant or unsafe memory does not.
-7. Hermes executes only bounded typed requests and cannot mutate authoritative MC state.
-8. Runs and contextual pages show one consistent live history with actionable recovery.
-9. Required security and behavioral evals pass, including the 95% supported-workflow target.
-10. Shadow/staged activation and per-domain rollback are both demonstrated.
-11. Existing conversations, actions, Agent runs, Office history, and `#18` coding history remain readable.
-12. Architecture, Mission Control, API/data, testing, security, and operator docs match the delivered system.
+6. Versioned loop recipes and effective loop policies are persisted, selected with an owner-visible reason, and enforced for trigger, stop, attempt, runtime, cost, tools, approvals, evals, recovery, and evidence.
+7. Proactive loops remain disabled unless every owner, policy, budget, eval, side-effect approval, and explanation gate is satisfied.
+8. Relevant approved owner intelligence from delivered `#20` measurably changes route/plan/tool/response behavior, while irrelevant or unsafe memory does not.
+9. Hermes and accepted `#22` workers execute only bounded typed requests and cannot mutate authoritative MC state.
+10. Runs and contextual pages show one consistent run, loop, eval, trace, context, and recovery history.
+11. Required local-first TOBIval security and behavioral evals pass, including the 95% supported-workflow target; autonomy cannot increase on regression.
+12. Every failed required eval creates an actionable finding linked to its run/trace, tools, policy decisions, context manifest, evidence, and source defect when relevant.
+13. System entities and evidence-backed projections exist for core subsystems, components, capabilities, tools, loops, evals, policies, integrations, risks, limitations, decisions, and queue items.
+14. The Living Atlas foundation exposes deterministic, Atlas-ready entities, edges, capability evidence, limitations, risks, and change projections usable by a future Atlas page.
+15. Shadow/staged activation and per-domain rollback are both demonstrated.
+16. Existing conversations, actions, Agent runs, Office history, and `#18/#22` coding history remain readable.
+17. Architecture, Mission Control, API/data, testing, security, and operator docs match the delivered system.
 
 ## 25. Worker Runbook
 
@@ -929,3 +1130,4 @@ Planning state only. Add one dated row after each accepted worker package.
 | Date | Task | Commit | Verification | Status/notes |
 |---|---|---|---|---|
 | 2026-07-14 | Planning and queue entry | N/A | Markdown/link/table checks | Queued; no implementation |
+| 2026-07-24 | Direction reconciliation | N/A | Target-file diff, dependency/link, heading, table, and whitespace checks | Planning only; reconciles delivered `#20`, gates start on `#22` acceptance, and adds Loop, TOBIval, and Living Atlas foundation |
