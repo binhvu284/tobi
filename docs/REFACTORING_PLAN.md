@@ -130,8 +130,20 @@ Branch `refactor/dashboard-decomposition` (not merged to `main`).
 | 7 | `api/routers/missions.py` — `/api/missions/*` (+ `_sse`, `_serialize_mission`) | ✅ verified |
 | 8 | `api/routers/office.py` — `/api/office/*` (imports `api_agents`+`api_missions`) | ✅ verified |
 | 9 | `api/routers/usage.py` — `/api/usage/*` | ✅ verified |
+| 10 | `api/routers/terminal.py` — `/api/terminal/*` (#11 CLI) | ✅ verified |
+| 11 | `api/routers/conductor.py` — `/api/conductor/*` (#7) | ✅ verified |
+| 12 | `api/routers/owner.py` — `/api/owner/*` (`_get_conn` via deps) | ✅ verified |
 
-`api/dashboard.py`: **6,636 → 5,406 lines**. openapi route set held at **329** through every slice.
+`api/dashboard.py`: **6,636 → 5,354 lines**. Slices 1–9 held the route set at 329; the
+pre-#21 continuation (10–12) re-baselined to **358 operations** (News V2 + others added
+since) and holds parity there. Gate per slice: pyflakes (no undefined name) + import smoke
++ openapi route-parity diff + TestClient smoke.
+
+> **Pre-#21 continuation (2026-07-24):** this decomposition is being finished as the
+> refactor that unblocks **#21 Mission Control Infrastructure V2** (whose own audit names
+> `dashboard.py` and `conductor.py` as the top collision risks) and lifts the Performance
+> Doctor grade toward A. Landing per-slice on `main` with the 4 gates. See
+> `D:\ClaudeData\plans\now-for-the-upcomming-cheerful-globe.md` for the full phased plan.
 
 **Cross-handler coupling pattern:** `api_office_v3_snapshot` calls the agents +
 missions list handlers directly (`asyncio.gather`). When a caller and callee land in
