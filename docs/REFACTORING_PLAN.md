@@ -133,11 +133,17 @@ Branch `refactor/dashboard-decomposition` (not merged to `main`).
 | 10 | `api/routers/terminal.py` — `/api/terminal/*` (#11 CLI) | ✅ verified |
 | 11 | `api/routers/conductor.py` — `/api/conductor/*` (#7) | ✅ verified |
 | 12 | `api/routers/owner.py` — `/api/owner/*` (`_get_conn` via deps) | ✅ verified |
+| 13 | `api/routers/keys.py` — `/api/keys/*` (+ `_vault_guard` lifted to deps) | ✅ verified |
+| 14 | `api/routers/llm.py` — `/api/llm/*` (usage/config/models/provider-key) | ✅ verified |
+| 15 | `core/awakening_detect.py` — moved `_TIER_DEFINITIONS`+`_detect_abilities`+`_ABILITY_NAMES` (~359 lines) out of dashboard to core; fixes the core→api backdep | ✅ verified |
+| 16 | `api/routers/mcp.py` — `/api/mcp/*` (10 models + `_mcp_guard` + 29 routes, ~298 lines) | ✅ verified |
 
-`api/dashboard.py`: **6,636 → 5,354 lines**. Slices 1–9 held the route set at 329; the
-pre-#21 continuation (10–12) re-baselined to **358 operations** (News V2 + others added
+`api/dashboard.py`: **6,636 → 4,510 lines**. Slices 1–9 held the route set at 329; the
+pre-#21 continuation (10–16) re-baselined to **358 operations** (News V2 + others added
 since) and holds parity there. Gate per slice: pyflakes (no undefined name) + import smoke
-+ openapi route-parity diff + TestClient smoke.
++ openapi route-parity diff + TestClient smoke. Slices 15–16 used a scripted verbatim
+line-range move (preserves line endings, `@app.`→`@router.`); the pyflakes gate caught a
+missing `Field`/`asyncio` import in the mcp move before commit — exactly its purpose.
 
 > **Pre-#21 continuation (2026-07-24):** this decomposition is being finished as the
 > refactor that unblocks **#21 Mission Control Infrastructure V2** (whose own audit names
