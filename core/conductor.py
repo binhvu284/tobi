@@ -30,6 +30,15 @@ from typing import Any, Callable, Optional
 
 logger = logging.getLogger("tobi.conductor")
 
+# Shared tool helpers/constants live in core/conductor_tools/common.py (Phase 2 refactor)
+# so the extracted tool modules and this orchestrator share one definition. Imported back
+# into this namespace to preserve every existing reference (inline tools + orchestration).
+from core.conductor_tools.common import (  # noqa: E402
+    _AGENT_ALIASES, _EMOJI_BY_CATEGORY, _TASK_AGENTS, _TASK_PRIORITY,
+    _TASK_STATUS_LEGACY, _conn, _load_owner_timezone, _notion_title, _pm_log,
+    _pm_recalc, _resolve_pm_project, _resolve_when, _resource_inventory,
+)
+
 MAX_TOOL_STEPS = 8  # enough for a chain: read → create project → tasks → assign → answer
 _LLM_DOWN = "I can't reach my language model right now, sir — do check the LLM API key in Integrations."
 
@@ -47,9 +56,6 @@ def _failure_report(done: list[str], failed_summary: str, error: str) -> str:
 # ════════════════════════════════════════════════════════════════════════════
 # Read-tool catalog  (each returns a compact, JSON-serializable dict of LIVE data)
 # ════════════════════════════════════════════════════════════════════════════
-def _conn():
-    from core.database import get_connection
-    return get_connection()
 
 
 def tool_get_evolution(**_: Any) -> dict:
@@ -255,15 +261,6 @@ def tool_recall(query: str = "", **_: Any) -> dict:
 
 
 # ── External read tools (P3) — Notion / GitHub / Drive, via the Genesis-vault creds ──
-def _notion_title(page: dict) -> str:
-    try:
-        for v in (page.get("properties") or {}).values():
-            if isinstance(v, dict) and v.get("type") == "title":
-                txt = "".join(t.get("plain_text", "") for t in v.get("title", []))
-                return txt or "(untitled)"
-    except Exception:
-        pass
-    return page.get("url", "(untitled)")
 
 
 def tool_read_notion(query: str = "", page_id: str = "", **_: Any) -> dict:
@@ -461,34 +458,6 @@ def _detect_past_reference(message: str) -> bool:
     return bool(_PAST_REF_RE.search(message or ""))
 
 
-def _resolve_when(when: str) -> tuple[str, str]:
-    """Parse a natural-language time reference into (date_from, date_to) in YYYY-MM-DD.
-
-    Supports: 'yesterday', 'today', 'last week', 'last month',
-    'N days ago', 'YYYY-MM-DD', or empty (all time).
-    """
-    now = _dt.now(_tz.utc)
-    w = (when or "").strip().lower()
-    if not w or w in ("today", "now"):
-        d = now.strftime("%Y-%m-%d")
-        return d, d
-    if w == "yesterday":
-        d = (now - _td(days=1)).strftime("%Y-%m-%d")
-        return d, d
-    if "last week" in w or "past week" in w:
-        return (now - _td(days=7)).strftime("%Y-%m-%d"), now.strftime("%Y-%m-%d")
-    if "last month" in w or "past month" in w:
-        return (now - _td(days=30)).strftime("%Y-%m-%d"), now.strftime("%Y-%m-%d")
-    m = _re.match(r'(\d+)\s*days?\s*ago', w)
-    if m:
-        d = (now - _td(days=int(m.group(1)))).strftime("%Y-%m-%d")
-        return d, d
-    try:
-        _dt.strptime(w, "%Y-%m-%d")
-        return w, w
-    except ValueError:
-        pass
-    return "", ""
 
 
 def tool_recall_conversations(query: str = "", when: str = "", limit: int = 30, **_: Any) -> dict:
@@ -645,17 +614,6 @@ def tool_get_current_datetime(**_: Any) -> dict:
     }
 
 
-def _load_owner_timezone() -> str:
-    conn = _conn()
-    try:
-        row = conn.execute(
-            "SELECT value FROM owner_settings WHERE key='timezone'"
-        ).fetchone()
-        return row["value"] if row else "Asia/Ho_Chi_Minh"
-    except Exception:
-        return "Asia/Ho_Chi_Minh"
-    finally:
-        conn.close()
 
 
 def tool_ask_owner_details(topic: str = "", questions: Optional[list] = None, **_: Any) -> dict:
@@ -687,37 +645,8 @@ def _picker_intro(picker: dict) -> str:
     return f"I need a bit of context first, sir — {topic[:1].lower() + topic[1:]}. Mind filling these in?"
 
 
-def _resolve_pm_project(conn, key: str):
-    """Resolve a pm_projects row by numeric id or fuzzy name. Returns the row or None."""
-    key = str(key or "").strip()
-    if not key:
-        return None
-    if key.isdigit():
-        return conn.execute("SELECT id, name FROM pm_projects WHERE id=?", (int(key),)).fetchone()
-    return conn.execute("SELECT id, name FROM pm_projects WHERE name LIKE ? ORDER BY updated_at DESC LIMIT 1",
-                        (f"%{key}%",)).fetchone()
 
 
-def _resource_inventory(conn, pid: int, project_name: str, limit: int = 50) -> dict:
-    """List what the owner uploaded to ONE project's Resources drive — no search query needed."""
-    rows = conn.execute(
-        "SELECT id, name, kind, rtype, ext, source, size_bytes, url, created_by, created_at, "
-        "       (text_content IS NOT NULL AND length(text_content) > 0) AS has_text "
-        "FROM pm_resources WHERE project_id=? ORDER BY created_at DESC LIMIT ?",
-        (int(pid), int(limit))).fetchall()
-    items = [{
-        "id": r["id"], "name": r["name"], "kind": r["kind"], "rtype": r["rtype"],
-        "ext": r["ext"], "source": r["source"], "size_bytes": r["size_bytes"] or 0,
-        "url": r["url"], "readable": bool(r["has_text"]), "added_by": r["created_by"],
-        "added_at": r["created_at"],
-    } for r in rows]
-    out = {"project_id": pid, "project": project_name, "count": len(items), "resources": items}
-    if not items:
-        out["note"] = "This project's Resources drive is empty — nothing has been uploaded to it yet."
-    else:
-        out["hint"] = ("Use read_resource(project, name) to read one, or "
-                       "search_project_resources(project, query) to search inside them.")
-    return out
 
 
 def tool_list_project_resources(project: str = "", limit: int = 50, **_: Any) -> dict:
@@ -935,23 +864,8 @@ def tool_remember(fact: str = "", category: Optional[str] = None, **_: Any) -> d
     return {"ok": True, "saved": fact[:80], "detail": res}
 
 
-def _pm_recalc(conn, project_id: int) -> None:
-    """Keep a PM project's progress % in sync after a task change (reuses the API's logic)."""
-    try:
-        from api import dashboard as D
-        D._pm_recalc_progress(conn, project_id)
-    except Exception as e:  # never let progress bookkeeping break the act
-        logger.debug("pm recalc skipped: %s", e)
 
 
-def _pm_log(conn, project_id: int, action_type: str, summary: str) -> None:
-    try:
-        conn.execute(
-            "INSERT INTO pm_activity (project_id, actor, action_type, summary) VALUES (?,?,?,?)",
-            (project_id, "tobi", action_type, summary),
-        )
-    except Exception:
-        pass
 
 
 def tool_create_project(name: str = "", description: str = "", category: str = "", **_: Any) -> dict:
@@ -1074,11 +988,6 @@ def tool_set_project_description(project_id: int = 0, description: str = "", **_
     return {"ok": True, "project_id": project_id, "description": description}
 
 
-_EMOJI_BY_CATEGORY = {
-    "general": "📁", "work": "💼", "personal": "🌟", "research": "🔬",
-    "marketing": "📣", "dev": "💻", "design": "🎨", "business": "🏢",
-    "content": "✍️", "growth": "📈",
-}
 
 
 def tool_pick_project_icon(project_id: int = 0, emoji: str = "", icon: str = "", **_: Any) -> dict:
@@ -1203,10 +1112,7 @@ def tool_delete_project(project_id: int = 0, **_: Any) -> dict:
 
 
 # Task agent labels the Tasks board understands (mirrors the API's ALLOWED_AGENTS).
-_TASK_AGENTS = {"tobi", "research", "coder", "ceo"}
 # Friendly synonyms → the canonical task-agent key.
-_AGENT_ALIASES = {"developer": "coder", "dev": "coder", "engineer": "coder", "writer": "coder",
-                  "researcher": "research", "analyst": "research", "boss": "ceo", "manager": "ceo"}
 
 
 def tool_assign_task(task_id: int = 0, agent: str = "", **_: Any) -> dict:
@@ -1510,11 +1416,6 @@ _TASK_STATUS_V1 = {
     "done": "done", "completed": "done", "complete": "done",
     "cancelled": "cancelled", "canceled": "cancelled",
 }
-_TASK_STATUS_LEGACY = {"planned": "pending", "in_progress": "in_progress", "paused": "pending",
-                       "blocked": "pending", "needs_owner_input": "pending", "done": "done",
-                       "cancelled": "skipped"}
-_TASK_PRIORITY = {"p0": "P0", "p1": "P1", "p2": "P2", "p3": "P3", "urgent": "P0",
-                  "high": "P1", "medium": "P2", "normal": "P2", "low": "P3"}
 
 
 def tool_update_task(task_id: int = 0, title: str = "", description: str = "",
