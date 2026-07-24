@@ -219,6 +219,8 @@ from api.routers.terminal import router as terminal_router
 app.include_router(terminal_router)
 from api.routers.conductor import router as conductor_router
 app.include_router(conductor_router)
+from api.routers.owner import router as owner_router
+app.include_router(owner_router)
 
 # MCP Hub (#5) — mount TOBI's MCP server (Streamable HTTP) at /mcp. Inbound auth,
 # rate-limit, scope, and audit are enforced by McpAuthMiddleware inside the app.
@@ -1386,34 +1388,6 @@ import re
 
 
 
-class OwnerSettingsPatchRequest(BaseModel):
-    timezone: str | None = None
-
-
-@app.get("/api/owner/settings")
-async def get_owner_settings():
-    conn = _get_conn()
-    try:
-        rows = conn.execute("SELECT key, value FROM owner_settings").fetchall()
-        return {r["key"]: r["value"] for r in rows}
-    finally:
-        conn.close()
-
-
-@app.patch("/api/owner/settings")
-async def patch_owner_settings(payload: OwnerSettingsPatchRequest):
-    conn = _get_conn()
-    try:
-        if payload.timezone is not None:
-            conn.execute(
-                "INSERT OR REPLACE INTO owner_settings (key, value, updated_at) VALUES ('timezone', ?, CURRENT_TIMESTAMP)",
-                (payload.timezone,),
-            )
-        conn.commit()
-        rows = conn.execute("SELECT key, value FROM owner_settings").fetchall()
-        return {r["key"]: r["value"] for r in rows}
-    finally:
-        conn.close()
 
 
 @app.on_event("startup")
