@@ -215,6 +215,8 @@ from api.routers.office import router as office_router
 app.include_router(office_router)
 from api.routers.usage import router as usage_router
 app.include_router(usage_router)
+from api.routers.terminal import router as terminal_router
+app.include_router(terminal_router)
 
 # MCP Hub (#5) — mount TOBI's MCP server (Streamable HTTP) at /mcp. Inbound auth,
 # rate-limit, scope, and audit are enforced by McpAuthMiddleware inside the app.
@@ -4340,65 +4342,6 @@ def conductor_confirm(payload: ConductorConfirmReq):
     """Approve or reject a proposed high-risk Conductor action (the confirm button)."""
     from core import conductor
     return conductor.confirm_action(payload.action_id, payload.decision, surface="mc")
-
-
-# ── TOBI CLI / Terminal engine (#11) ─────────────────────────────────────────────
-class TerminalModeReq(BaseModel):
-    mode: str                     # plan | ask | accept | auto
-
-
-class TerminalKillSwitchReq(BaseModel):
-    enabled: bool
-
-
-@app.get("/api/terminal/status")
-def terminal_status():
-    """Approval mode, kill-switch, OS/shell, package managers, and registered tools (#11)."""
-    from core import terminal_engine as te
-    return te.status()
-
-
-@app.post("/api/terminal/mode")
-def terminal_set_mode(payload: TerminalModeReq):
-    """Switch the terminal approval mode: plan | ask | accept | auto [D17]."""
-    from core import terminal_engine as te
-    try:
-        return {"ok": True, "mode": te.set_mode(payload.mode)}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.post("/api/terminal/killswitch")
-def terminal_killswitch(payload: TerminalKillSwitchReq):
-    """Global kill-switch — freeze/unfreeze all terminal execution instantly [D25]."""
-    from core import terminal_engine as te
-    return {"ok": True, "enabled": te.set_enabled(payload.enabled)}
-
-
-@app.get("/api/terminal/jobs")
-def terminal_jobs(limit: int = 20):
-    """Background-job registry [D11]."""
-    from core import terminal_engine as te
-    return te.list_jobs(limit=limit)
-
-
-@app.get("/api/terminal/jobs/{job_id}")
-def terminal_job(job_id: int):
-    from core import terminal_engine as te
-    return te.get_job(job_id)
-
-
-@app.post("/api/terminal/jobs/{job_id}/kill")
-def terminal_job_kill(job_id: int):
-    from core import terminal_engine as te
-    return te.kill_job(job_id)
-
-
-@app.get("/api/terminal/tools")
-def terminal_tools():
-    """The capability registry: tools TOBI has installed/configured/connected [D15]."""
-    from core import terminal_engine as te
-    return te.list_tools()
 
 
 @app.get("/api/brain/chat/history")
