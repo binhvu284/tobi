@@ -240,6 +240,12 @@ def run_job(job_id: int, owner: str | None = None, now: datetime | None = None) 
                     recap.run_for_refresh(conn, now)
                 except Exception:
                     pass                               # recaps degrade, never fail a refresh
+            if job["tab"] == Tab.TRENDING.value:
+                try:  # content-creator: spotlight ONE tool BEFORE ranking reads it
+                    from core.news import spotlight
+                    spotlight.run_for_refresh(conn, now)
+                except Exception:
+                    pass                               # spotlight degrades, never fails a refresh
             try:  # N05: precompute the tab's rank snapshots from the fresh evidence.
                 from core.news import ranking
                 ranking.rebuild_for_tab(conn, job["tab"], now)

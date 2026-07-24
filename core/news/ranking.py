@@ -203,13 +203,16 @@ def build_trending_snapshots(conn: sqlite3.Connection, now: datetime | None = No
         out[f"github:{window}"] = write_rank_snapshot(
             conn, f"trending:github:{window}", github_trending_entries(conn, window, now),
             TRENDING_FORMULA_VERSION)
+    # Tool Discovery candidates are tools AND repos (owner: "use github as well"); the
+    # content-creator's SPOTLIGHTED picks (those with a recap) always lead the section.
     tools = conn.execute(
-        "SELECT n.id, n.title, s.source, s.trust, MAX(s.engagement) FROM news_items n"
-        " JOIN news_item_sources s ON s.item_id=n.id WHERE n.item_type='tool'"
-        " GROUP BY n.id ORDER BY n.id").fetchall()
+        "SELECT n.id, n.title, s.source, s.trust, MAX(s.engagement), (n.recap IS NOT NULL)"
+        " FROM news_items n JOIN news_item_sources s ON s.item_id=n.id"
+        " WHERE n.item_type IN ('tool','repo') GROUP BY n.id ORDER BY n.id").fetchall()
     tool_entries = [{"item_id": r[0], "title": r[1], "source": r[2], "trust": r[3],
-                     "engagement": int(r[4] or 0)} for r in tools]
-    tool_entries.sort(key=lambda e: (-TRUST_BASE.get(e["trust"], 0.5), -e["engagement"], e["item_id"]))
+                     "engagement": int(r[4] or 0), "spotlighted": bool(r[5])} for r in tools]
+    tool_entries.sort(key=lambda e: (not e["spotlighted"], -TRUST_BASE.get(e["trust"], 0.5),
+                                     -e["engagement"], e["item_id"]))
     out["tools"] = write_rank_snapshot(conn, "trending:tools", tool_entries[:TOOLS_CAP],
                                        TRENDING_FORMULA_VERSION)
     return out

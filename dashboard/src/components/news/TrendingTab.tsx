@@ -384,6 +384,7 @@ function ProductAction({ label, icon, active, busy, onClick }: {
 
 // ── 3. Source Explore: compact header filter + exactly 3 quality cards ───────────────
 const EXPLORE_CARDS = 3
+const EXPLORE_SOURCES = ['rss', 'hackernews']
 
 function SourceExplore({ reloadKey }: { reloadKey: number }) {
   const [sources, setSources] = useState<{ source: string; items: number; latest_observed: string }[]>([])
@@ -407,6 +408,12 @@ function SourceExplore({ reloadKey }: { reloadKey: number }) {
     } catch { setItems([]) } finally { setBusy(false) }
   }, [])
   useEffect(() => { void loadItems(selected) }, [loadItems, selected, reloadKey])
+
+  const { refreshing, refresh } = useTableRefresh('feed', EXPLORE_SOURCES,
+    useCallback(async () => {
+      await getNewsV2TrendingSources().then(res => setSources(res.sources)).catch(() => {})
+      await loadItems(selected)
+    }, [loadItems, selected]))
 
   const exploreMore = async () => {
     if (busy) return
@@ -445,9 +452,11 @@ function SourceExplore({ reloadKey }: { reloadKey: number }) {
               <SourceLogo name={src.source} size={13} variant="inline" />
             </button>
           ))}
+          <span className="mx-0.5 h-5 w-px bg-border" />
+          <RefreshIconButton refreshing={refreshing} onClick={refresh} title="Refresh source explore" />
         </div>
       </header>
-      {busy && visible.length === 0 ? (
+      {refreshing || (busy && visible.length === 0) ? (
         <div className="grid gap-3 p-4 sm:grid-cols-3">{[0, 1, 2].map(i => (
           <div key={i} className="h-52 animate-pulse rounded-lg bg-overlay/10" />))}
         </div>
