@@ -70,3 +70,69 @@ Record the workflow ID, Queue item, agent, evidence, result, and defect link for
 - Disable the Coding Agent V2 completion feature flag and retain additive Goal links, readiness snapshots, attempts, evidence, scorecards, and historical runs.
 - Continue serving legacy workflow routes through compatibility adapters.
 - Do not delete historical synthetic Goal tasks; keep them hidden from active Work.
+
+## Run Log
+
+### Run 1 — MC Native happy path — 2026-07-25 — BLOCKED (not attempted, no run created)
+
+No workflow was created, so there is no workflow ID to record. The run was stopped by
+preflight, which is the correct behavior: this is live confirmation of the "Strict
+readiness" automated gate, not a defect in it. Nothing was mutated to work around the
+blockers — the Closure Rule states a run is not a pass when it needs direct database
+repair or an undocumented manual workaround, and that applies equally to manufacturing
+the preconditions.
+
+Authoritative preflight output (`completion.preflight(queue_id, active_probe=False)`
+against the live DB):
+
+| Queue item | Resolved agent | Ready | Blockers |
+|---|---|---|---|
+| #24 `testing` | `codex-chatgpt` (default fallback) | **False** | `reviewer_unavailable` |
+| #22 (self) | `mc-native` | **False** | `reviewer_unavailable`, `agent_disabled`, `scope_too_large`, `protected_scope_approval` |
+
+**Root blocker — `reviewer-default` is disabled.** `coding_completion.py` treats a
+reviewer as unavailable when the profile is missing, `enabled` is falsy, or its adapter
+is not `model_review`. This profile has `adapter=model_review` and `health=ready`; only
+`enabled` is 0. **Every one of the ten scenarios requires an independent reviewer, so no
+run can reach verified completion until this flag is on.**
+
+Profile state, ordered by `updated_at`:
+
+| Slug | enabled | health | updated_at |
+|---|---:|---|---|
+| `reviewer-default` | 0 | ready | 2026-07-18T18:15:21Z |
+| `opencode-glm` | 0 | ready | 2026-07-18T18:15:22Z |
+| `mc-native` | 0 | needs_auth | 2026-07-18T18:15:24Z |
+| `codex-chatgpt` | 1 | ready | (live probe) |
+| `hermes-legacy` | 1 | disabled | (live probe) |
+
+Three profiles were disabled inside a **3-second window on 2026-07-18**, which reads as
+programmatic rather than hand-edited. That is **four days before this acceptance matrix
+was written**, so the ten runs have been unrunnable since before the matrix existed —
+which explains 0/10 recorded runs against a system that has otherwise been exercised
+(7 coding sessions, 22 worker sessions, 24 checkpoints, 555 development events).
+**Worth diagnosing before re-enabling**: if a health-probe or policy path disabled them,
+flipping the flags by hand will regress.
+
+Additional blockers for run 1 specifically:
+
+1. **Vault locked.** `/api/vault/status` reports `unlocked: false`; every
+   `/api/developer/*` route returns `401 "Unlock the Mission Control vault to use
+   Developer."` Requires the owner's master password in the browser.
+2. **`mc-native` is disabled and `needs_auth`** — "codex is installed but its native
+   login is not authorized." Run 1 is by definition the MC Native path, so the fallback
+   to `codex-chatgpt` does not satisfy it; that is run 2.
+3. **No Ready-scoped Queue item.** Statuses are 18 completed / 8 planned / 2 approved,
+   with no Ready item. #24 is the only small candidate; the system judges #22 itself
+   `scope_too_large` for one continuous session.
+
+**Owner unblock sequence** (each step is owner-only — credentials or live config):
+
+1. Unlock the Mission Control vault.
+2. Diagnose *why* the three profiles were disabled on 2026-07-18, then enable
+   `reviewer-default`. This alone unblocks all ten scenarios.
+3. Authorize the codex native login and enable `mc-native` (run 1 needs it; `codex-chatgpt`
+   is already enabled and ready, which is run 2's agent).
+4. Provide or scope a Ready Queue item small enough for one continuous session.
+
+After steps 1–4 the run can be re-attempted with no code change.
