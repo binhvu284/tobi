@@ -1,5 +1,5 @@
 import { Activity, Bot, FileOutput, Play, ShieldCheck } from 'lucide-react'
-import type { OfficeActivity } from '../../api.office'
+import type { OfficeActivity } from '../../api.officev3'
 
 const eventIcon = (type: string) => type.startsWith('artifact.') ? FileOutput : type.startsWith('mission.') ? Play : type.includes('confirm') ? ShieldCheck : Bot
 

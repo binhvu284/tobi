@@ -7,7 +7,7 @@ import { ACTIVE_THEMES, THEME_DEFS, type ThemeId, type ThemeIcon } from '../cont
 import { useToast } from '../context/ToastProvider'
 import { Stagger } from './motion'
 import { staggerChild, SPRING, useReducedMotionPref } from '../lib/motion'
-import { runEngine, type EngineName } from '../api.office'
+import { runEngine, type EngineName } from '../api.officev3'
 
 // icon: ThemeIcon accepts both lucide icons and the brand marks (Claude/OpenAI).
 type Action = { id: string; label: string; group: string; icon: ThemeIcon; run: () => void | Promise<void> }

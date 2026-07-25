@@ -20,4 +20,5 @@ export * from './api.conductor'
 export * from './api.terminal'
 export * from './api.chat'
 export * from './api.keys'
+export * from './api.officev3'
 

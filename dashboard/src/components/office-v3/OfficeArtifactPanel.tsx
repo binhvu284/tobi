@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { FileOutput, FileText, Plus, Save, ScrollText, Trash2 } from 'lucide-react'
-import type { OfficeArtifact, OfficeArtifactKind } from '../../api.office'
+import type { OfficeArtifact, OfficeArtifactKind } from '../../api.officev3'
 
 const kindIcon = (kind: OfficeArtifactKind) => kind === 'report' ? ScrollText : kind === 'plan' ? FileOutput : FileText
 
