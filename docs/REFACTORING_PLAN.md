@@ -365,3 +365,86 @@ Blocked or owner-decision, in value order:
    per-domain repository decision.
 3. **`Chat.tsx`** (1,534, one function) — **+3.0 points**, the largest ungated lever, but
    needs true component decomposition with visual verification.
+
+---
+
+## Round 4 — Phase 6: the readiness gate (the point of the whole exercise)
+
+Every remaining *grade* lever was blocked or awaiting an owner decision, so this round
+answered the question the plan actually exists to answer: **is the system ready to start
+#21?** The grade was only ever a proxy for that.
+
+### Full-suite run: the gate caught two real regressions
+
+First full 56-suite run since Phase 0, across ~10 large behavior-preserving refactors.
+Run 1: **50/56**. Rather than guess at causes, each failure was re-run in a worktree at
+`9a9a94c` (the commit before the first refactor slice):
+
+| Suite | Baseline | HEAD | Verdict |
+|---|---|---|---|
+| `test_awakening_route` | PASS | FAIL | **refactor regression** |
+| `test_brain_v2_schema` | PASS | FAIL | **refactor regression** |
+| `test_premium_readers` | FAIL | FAIL | pre-existing (stale skill count) |
+| `test_awakening` | FAIL | FAIL | pre-existing, environment-only |
+| `test_coding_agent_completion` | — | FAIL | environment: pytest not installed |
+| `test_news_v2_ranking` | PASS | FAIL → passes 3/3 on retry | pre-existing flake |
+
+After the fixes, run 2: **54/56**, with **zero code-caused failures**. The two remaining
+are `test_awakening` (documented: real GitHub credentials make the connector legitimately
+available, so the "configured-but-unverified → PARTIAL" assertion can't hold on this
+machine) and `test_coding_agent_completion` (the one pytest-based suite; pytest is absent
+from the venv, so it has never run here).
+
+### The regression worth remembering
+
+`test_awakening_route` failed first on `api.dashboard has no attribute
+'IntegrationConnectReq'` — the Phase 1 split moved the integration/OAuth handlers into
+`routers/genesis.py`. A sweep of every `dashboard.*` attribute referenced across all 56
+suites against the live module found exactly 4 real misses; all were re-exported.
+
+**Re-exporting fixed attribute access and did not fix the test.** It patches the vault
+guard with `dashboard._vault_guard = lambda _s: None`. That worked while the handler was
+defined in `dashboard.py`; the handler is now defined in `genesis` and binds
+`_vault_guard` from `api.deps` at import time, so the patch rebound a name nobody reads,
+left the real guard installed, and the call 401'd.
+
+This sharpens the Round-1..3 lesson: a re-export restores the *name*, but **not a
+monkeypatch seam**. Neighbouring patches (`vault._key`, `dashboard.registry.*`) were
+unaffected because they mutate attributes on a shared module object, which every importer
+sees. Rebinding a name only affects the namespace you rebind it in. Anything #21 moves
+should be checked for both.
+
+`test_brain_v2_schema` pinned `hits == ["database.py"]` over a **non-recursive**
+`os.listdir(core)`, so the Phase 4b move to `core/schema/brain.py` made it see zero files.
+The rule being guarded is "defined in exactly one module, never copied into features" —
+one owner, new address. Making the walk recursive also makes it strictly stronger: the old
+form was structurally blind to subpackages, i.e. blind to the drift it exists to catch.
+
+### TODO debt: the metric was measuring itself
+
+Chasing the plan's "7 TODO markers" found something better: **application code carries
+zero.** All 14 the doctor counted were 13 inside `performance_doctor.py` (the
+`TODO|FIXME|HACK|XXX` pattern literal, plus the findings text that reports on marker debt)
+and 1 JSX label in `PerformanceDoctor.tsx`. The doctor was billing its own rubric as the
+codebase's only debt, charging −10.2 to Storage & Usage — the subsystem that hosts it.
+
+Anchoring the match to a comment opener fixes it. Worth stating plainly: this moved the
+overall grade **76.5 → 76.6**. It was done for signal correctness, not points.
+
+### Standing after Round 4
+
+Overall **76.6 (C)**, 399 files, 8 of 11 subsystems at A/A−/B+. **4,692 excess LOC**
+remain over the 800-line threshold.
+
+**48% of everything left is locked behind the #22 gate** — `development_store.py` (1,426
+over), `coding_agent.py` (741), `coding_workers.py` (97) total 2,264 of those 4,692. No
+honest path to an A grade exists while that gate is closed; the rest of the board is worth
+a few points combined.
+
+Unchanged owner decisions: `database.py` coupling (capped 22 on `Other`), `Chat.tsx`
+(+3.0, needs real decomposition), and the ~658 lines of dead `CodingLoop`/`GoalsView`/
+`WorkersView` in the old Developer page.
+
+Two test-infrastructure gaps, neither actioned (both change the environment or pre-existing
+behavior): pytest is not installed, so one suite has never run; and
+`test_news_v2_ranking` races on `after == before + 1` immediately after `run_job`.
