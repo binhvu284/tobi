@@ -319,3 +319,49 @@ the DB, the LLM router and the flags. `api/dashboard.py` fan-out 46 and `core/co
 Chasing that metric with indirection could make the code worse, not better. **Owner
 decision recommended before optimizing coupling** — options are (a) per-domain repository
 split for `database.py`, (b) accept hub modules and raise `_GOD_DEGREE`, or (c) leave it.
+
+### Round 3 — coupling recalibration (b) + remaining ungated size work (c)
+
+**(b) `_GOD_DEGREE` 26 → 40.** A **measurement change, not a code improvement**: it moved
+the overall grade 67.7 → 76.3 without touching application code, and the commit says so
+explicitly. The value came from the real degree distribution (399 files: median 5, p90
+14, p95 18, p99 43, max 100), not from a target score. The rubric had been penalising
+*correct* shapes — high fan-IN shared services (`database.py` 88 in, `model_router.py`
+36, `vault.py` 34, `owner_flags.py` 26, `ToastProvider.tsx` 41) and high fan-OUT
+composition roots (`api/dashboard.py` 46 out) whose number rose **because** the monolith
+was decomposed. Four modules stay flagged at 40 by design; fixing those is architecture
+(per-domain repositories), not threshold inflation. Known limitation documented in code:
+degree still sums fan-in and fan-out, so a popular utility and a genuinely tangled
+module (`conductor.py` 21/15, `coding_agent.py` 8/19) still score alike.
+
+**(c) ungated size work.** Value was measured before doing it: the whole remaining (c)
+list is worth **~0.85 points**. Only the item with real maintainability value for #21 was
+taken — `core/conductor.py` → `conductor_prompts.py` + `conductor_parsing.py`,
+**1,227 → 852** (3,121 originally, −73%), which lifted Conductor & Chat to **A− 92.3**.
+
+`core/brain.py` was **deliberately skipped**: its import/extract clusters each need ~15
+core symbols (`add_memory`, `_llm`, `_best_match`, `_guess_category`…), so a clean split
+requires a new `brain_core` module — real architecture for **+0.36 points**. Bad trade
+today; revisit if Brain is touched for other reasons. `explore.py`, `graph_engine.py`,
+`brain_v2_compat.py`, `integrations.py`, `vault.py` are worth **+0.14 combined** and were
+skipped as noise.
+
+**Recurring lesson across three rounds:** every slice broke at least one caller that
+reached a symbol *through* the parent module (`conductor._BUTLER`, `conductor.list_actions`,
+`from core.conductor import tool_*`). Extracted modules must be **re-exported in full**,
+not just the symbols the parent still references itself. The test suites caught each one
+before commit.
+
+### Standing at end of session
+
+Overall **76.5 (C)** on the fresh 399-file graph. Size work ~**71%** complete
+(9,330 of 14,460 excess LOC removed since the plan's baseline).
+
+Blocked or owner-decision, in value order:
+1. **#22 stores** — `development_store.py` 2,226 + `coding_agent.py` 1,541 +
+   `coding_workers.py` 897 = **25.1 penalty points**, the single biggest remaining item.
+   Gated: 0/10 acceptance runs.
+2. **`database.py` coupling** (degree 100) — costs `Other` a capped 22. Needs the
+   per-domain repository decision.
+3. **`Chat.tsx`** (1,534, one function) — **+3.0 points**, the largest ungated lever, but
+   needs true component decomposition with visual verification.
