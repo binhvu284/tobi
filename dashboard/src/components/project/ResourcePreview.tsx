@@ -5,7 +5,7 @@ import {
   Info, Trash2, X, ChevronLeft, ChevronRight, FileAudio, ExternalLink,
   Download, Pencil, Tag, Youtube, Loader2,
 } from 'lucide-react'
-import { pmResourceRawUrl, type PMResource } from '../../api'
+import { pmResourceRawUrl, type PMResource } from '../../api.pm'
 import { fmtAgo, fmtBytes } from './shared'
 import { RTypeIcon, ytId } from './resourceHelpers'
 

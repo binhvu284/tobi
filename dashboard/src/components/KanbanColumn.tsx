@@ -1,4 +1,4 @@
-import type { TaskItem, TaskStatus } from '../api'
+import type { TaskItem, TaskStatus } from '../api.tasks'
 import TaskCard from './TaskCard'
 
 type Props = {

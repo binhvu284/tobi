@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import { X, Loader2, GitMerge, Sparkles } from 'lucide-react'
-import { type DuplicateGroup, getDuplicates, mergeDuplicates } from '../../api'
+import { type DuplicateGroup, getDuplicates, mergeDuplicates } from '../../api.brain'
 
 export default function CleanDuplicatesModal({ onClose, onDone }: { onClose: () => void; onDone: (merged: number) => void }) {
   const [groups, setGroups] = useState<DuplicateGroup[] | null>(null)

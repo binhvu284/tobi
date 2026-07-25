@@ -2,11 +2,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import { X, Check, Trash2, Loader2, Inbox, GitBranch } from 'lucide-react'
-import {
-  type Memory, type Conflict,
-  getPendingMemories, acceptPending, rejectPending,
-  getConflicts, resolveConflict,
-} from '../../api'
+import { type Memory, type Conflict, getPendingMemories, acceptPending, rejectPending, getConflicts, resolveConflict } from '../../api.brain'
 
 export default function ReviewInbox({ onClose, onChange }: { onClose: () => void; onChange: () => void }) {
   const [tab, setTab] = useState<'pending' | 'conflicts'>('pending')

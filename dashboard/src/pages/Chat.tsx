@@ -9,16 +9,11 @@ import {
   ChevronUp, MessagesSquare, ChevronRight, Pin, Youtube, Loader2, MoreVertical,
 } from 'lucide-react'
 import { SiGithub, SiGoogle, SiNotion, SiVercel, SiSupabase, type IconType } from '@icons-pack/react-simple-icons'
-import {
-  type PendingAction, type ChatSession, type AvailableModel, type ChatUsage, type ChatNotice,
-  type ChatStoredMessage, type ChatAttachment, type ConductorAction, type ChatPicker, type ReaderChip,
-  type ChatModeId, type ContextChip, type ChatArtifactEvent, type ChatArtifact, type ChatRuntimeEvent, type ChatTurnTrace,
-  getChatSessions, createChatSession, getChatSession, patchChatSession, deleteChatSession,
-  appendChatMessage, streamChatSession, getLlmModels, confirmConductorAction, rememberFact,
-  forkChatSession, setMessageFeedback, getSessionActivity, getIntegrations, compactSession,
-  getEvolution, pmListProjects, getChatConfig, commandAgentRun, getChatTurnTrace,
-  getSessionArtifacts, getChatArtifact,
-} from '../api'
+import { type ChatSession, type AvailableModel, type ChatUsage, type ChatNotice, type ChatStoredMessage, type ChatAttachment, type ConductorAction, type ChatPicker, type ReaderChip, type ChatModeId, type ContextChip, type ChatArtifactEvent, type ChatArtifact, type ChatRuntimeEvent, type ChatTurnTrace, getChatSessions, createChatSession, getChatSession, patchChatSession, deleteChatSession, appendChatMessage, streamChatSession, getLlmModels, confirmConductorAction, forkChatSession, setMessageFeedback, getSessionActivity, compactSession, getChatConfig, commandAgentRun, getChatTurnTrace, getSessionArtifacts, getChatArtifact } from '../api'
+import { getEvolution } from '../api.abilities'
+import { type PendingAction, rememberFact } from '../api.brain'
+import { getIntegrations } from '../api.genesis'
+import { pmListProjects } from '../api.pm'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useToast } from '../context/ToastProvider'
 import { useReducedMotionPref } from '../context/MotionProvider'

@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { MoreVertical, Copy, Pencil, Trash2 } from 'lucide-react'
-import { type PMResource } from '../../api'
+import type { PMResource } from '../../api.pm'
 import { useToast } from '../../context/ToastProvider'
 
 export function CardMenu({ resource, onRename, onDelete }: {

@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import type { Agent } from '../../api'
+import type { Agent } from '../../api.office'
 import { cssColorToInt } from '../theme'
 
 export type Behavior = 'working' | 'idle' | 'sleeping' | 'thinking' | 'talking' | 'error' | 'walking'

@@ -1,4 +1,4 @@
-import type { GraphCommunity } from '../../api'
+import type { GraphCommunity } from '../../api.graph'
 
 /* Communities legend (graphify-style): color dot + label + count, ordered by size.
  * Falls back to the domain key when communities haven't been computed yet. */

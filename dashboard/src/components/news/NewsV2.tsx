@@ -11,12 +11,7 @@ import {
   Activity, AlertTriangle, Ban, Check, CircleDashed, Clock, ExternalLink, KeyRound, Loader2,
   Maximize2, Newspaper, RefreshCw, Rss, Search, Settings2, Sparkles, Star, TrendingUp, Trophy, X,
 } from 'lucide-react'
-import {
-  getNewsV2Home, getNewsV2ModelLeaderboards, getNewsV2Models, getNewsV2RefreshJob,
-  getNewsV2Settings, patchNewsV2Settings, postNewsV2Refresh, postNewsV2RefreshCommand,
-  type NewsV2Home, type NewsV2Leaderboard, type NewsV2ModelMetric, type NewsV2RankEntry,
-  type NewsV2RefreshJob, type NewsV2ReleaseNews, type NewsV2Settings,
-} from '../../api'
+import { getNewsV2Home, getNewsV2ModelLeaderboards, getNewsV2Models, getNewsV2RefreshJob, getNewsV2Settings, patchNewsV2Settings, postNewsV2Refresh, postNewsV2RefreshCommand, type NewsV2Home, type NewsV2Leaderboard, type NewsV2ModelMetric, type NewsV2RankEntry, type NewsV2RefreshJob, type NewsV2ReleaseNews, type NewsV2Settings } from '../../api.explore'
 import { useToast } from '../../context/ToastProvider'
 import LlmLogo from '../LlmLogo'
 import SourceLogo from '../SourceLogo'

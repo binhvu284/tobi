@@ -5,11 +5,7 @@ import {
   Plus, RefreshCw, LayoutGrid, List, Search, X, ChevronRight,
   Target, Calendar, CheckCircle2, Trash2, TrendingUp,
 } from 'lucide-react'
-import {
-  pmListProjects, pmCreateProject, pmDeleteProject, pmReorderProjects,
-  pmListTemplates,
-  type PMProject,
-} from '../api'
+import { pmListProjects, pmCreateProject, pmDeleteProject, pmReorderProjects, pmListTemplates, type PMProject } from '../api.pm'
 import { useToast } from '../context/ToastProvider'
 import PageLoader from '../components/PageLoader'
 import { AmbientField } from '../components/motion'

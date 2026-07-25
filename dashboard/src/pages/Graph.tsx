@@ -1,10 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { BrainCircuit, RefreshCw, Activity, Cpu, Orbit, RadioTower, Share2 } from 'lucide-react'
-import {
-  getGraph, getGraphSources, getGraphTimeline, getGraphCommunities, syncGraph, createGraphNode,
-  createGraphEdge, saveGraphLayout,
-  type GraphData, type GraphNode, type GraphSource, type TimelineEvent, type GraphCommunity,
-} from '../api'
+import { getGraph, getGraphSources, getGraphTimeline, getGraphCommunities, syncGraph, createGraphNode, createGraphEdge, saveGraphLayout, type GraphData, type GraphNode, type GraphSource, type TimelineEvent, type GraphCommunity } from '../api.graph'
 import { useToast } from '../context/ToastProvider'
 import ForceGraphCanvas, { type CanvasHandle } from '../components/graph/ForceGraphCanvas'
 import NodeDetailPanel from '../components/graph/NodeDetailPanel'

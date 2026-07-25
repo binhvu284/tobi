@@ -6,10 +6,7 @@ import {
 } from 'lucide-react'
 import { Stagger, StaggerItem } from './motion'
 import { useReducedMotionPref } from '../context/MotionProvider'
-import {
-  getPerformance, runPerformance, createPerformanceTask,
-  type PerfReport, type PerfFinding, type PerfSubsystem,
-} from '../api'
+import { getPerformance, runPerformance, createPerformanceTask, type PerfReport, type PerfFinding, type PerfSubsystem } from '../api.performance'
 
 // grade → theme color family
 function gradeColor(grade: string): { text: string; bg: string; ring: string } {

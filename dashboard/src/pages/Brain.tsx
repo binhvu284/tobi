@@ -8,11 +8,7 @@ import {
   ArrowDownUp, Sparkle, CalendarClock, TrendingUp, ArrowDownAZ, Check,
   ChevronDown, MessageSquare,
 } from 'lucide-react'
-import {
-  type Memory, type MemoryCategory, type BrainStats,
-  getBrainCategories, getBrainStats, getMemories, searchMemories,
-  getNarrative, makeNarrative, runBrainSweep, deleteMemory,
-} from '../api'
+import { type Memory, type MemoryCategory, type BrainStats, getBrainCategories, getBrainStats, getMemories, searchMemories, getNarrative, makeNarrative, runBrainSweep, deleteMemory } from '../api.brain'
 import { useToast } from '../context/ToastProvider'
 import PageLoader from '../components/PageLoader'
 import MemoryModal from '../components/brain/MemoryModal'

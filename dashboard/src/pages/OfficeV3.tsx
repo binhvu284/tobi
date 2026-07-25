@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { getOfficeV3Config } from '../api'
+import { getOfficeV3Config } from '../api.office'
 import PageLoader from '../components/PageLoader'
 import OfficeV3Shell from '../components/office-v3/OfficeV3Shell'
 

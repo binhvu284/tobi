@@ -4,7 +4,8 @@ import {
   CheckCircle2, Circle, Clock, AlertTriangle, Target, HardDrive, Bot, User,
   Pencil, Save, X, Calendar, Timer, Activity as ActivityIcon, FileStack,
 } from 'lucide-react'
-import { type PMOverview, type TaskItem, pmPatchProject, pmPostActivity } from '../../api'
+import { type PMOverview, pmPatchProject, pmPostActivity } from '../../api.pm'
+import type { TaskItem } from '../../api.tasks'
 import { useToast } from '../../context/ToastProvider'
 import { Bar, fmtAgo, fmtBytes, fmtDate, fmtMinutes, TASK_STATUS_COLORS, PRIORITY_COLORS } from './shared'
 

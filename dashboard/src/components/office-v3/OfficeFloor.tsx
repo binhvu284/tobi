@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Bot, Maximize2, Radio, ScanLine } from 'lucide-react'
-import type { Agent, OfficeStats } from '../../api'
+import type { Agent, OfficeStats } from '../../api.office'
 import type { WarState } from '../../hooks/useMissionStream'
 import PhaserGame from '../../office/PhaserGame'
 import { accentHex } from '../../office/theme'

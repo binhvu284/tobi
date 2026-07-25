@@ -1,5 +1,5 @@
 import { AlertCircle, CalendarClock, PauseCircle, UserCircle2 } from 'lucide-react'
-import type { TaskItem } from '../api'
+import type { TaskItem } from '../api.tasks'
 
 type Props = {
   task: TaskItem

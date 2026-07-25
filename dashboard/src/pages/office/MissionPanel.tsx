@@ -6,11 +6,7 @@ import {
   X, Activity, Zap, Shield, Users, LayoutGrid, Plus, Play, Cpu, Coins, Trash2, Pencil, ListChecks,
   Pause, Square, Send, Radio, CheckCircle2, GripHorizontal, Rocket, ChevronDown, Volume2, VolumeX, Sparkles,
 } from 'lucide-react'
-import {
-  getAgents, getOfficeStats, getMissions, getMission, createMission, runMission, patchMission,
-  createAgent, updateAgent, deleteAgent, pauseMission, resumeMission, cancelMission, injectMission,
-  type Agent, type OfficeStats, type Mission, type AgentUpsert,
-} from '../../api'
+import { getAgents, getOfficeStats, getMissions, getMission, createMission, runMission, patchMission, createAgent, updateAgent, deleteAgent, pauseMission, resumeMission, cancelMission, injectMission, type Agent, type OfficeStats, type Mission, type AgentUpsert } from '../../api.office'
 
 // ── Mission detail panel ─────────────────────────────────────────────
 export const PRIO_COLOR: Record<string, string> = { Urgent: 'text-danger', High: 'text-warning', Normal: 'text-accent', Low: 'text-muted' }

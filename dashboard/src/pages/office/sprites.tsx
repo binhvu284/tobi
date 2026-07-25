@@ -2,11 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence, useDragControls } from 'framer-motion'
-import {
-  getAgents, getOfficeStats, getMissions, getMission, createMission, runMission, patchMission,
-  createAgent, updateAgent, deleteAgent, pauseMission, resumeMission, cancelMission, injectMission,
-  type Agent, type OfficeStats, type Mission, type AgentUpsert,
-} from '../../api'
+import { getAgents, getOfficeStats, getMissions, getMission, createMission, runMission, patchMission, createAgent, updateAgent, deleteAgent, pauseMission, resumeMission, cancelMission, injectMission, type Agent, type OfficeStats, type Mission, type AgentUpsert } from '../../api.office'
 
 
 // ── Typography ──────────────────────────────────────────────────────

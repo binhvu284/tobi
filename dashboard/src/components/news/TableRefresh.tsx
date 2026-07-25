@@ -4,7 +4,7 @@
 // GitHub, Releases, Tool Discovery and Source Explore all behave identically.
 import { useCallback, useRef, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
-import { getNewsV2RefreshJob, postNewsV2Refresh } from '../../api'
+import { getNewsV2RefreshJob, postNewsV2Refresh } from '../../api.explore'
 
 type Tab = 'home' | 'trending' | 'feed'
 const TERMINAL = new Set(['completed', 'partial', 'failed', 'canceled'])

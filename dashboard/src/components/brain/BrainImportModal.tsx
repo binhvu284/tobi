@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import { X, Upload, Check, Loader2, GitMerge, CheckCheck, FileText } from 'lucide-react'
-import { type ImportCandidate, type MemoryCategory, parseImport, commitImport } from '../../api'
+import { type ImportCandidate, type MemoryCategory, parseImport, commitImport } from '../../api.brain'
 import NeuralIngestion from './NeuralIngestion'
 import { Stagger, StaggerItem } from '../motion'
 

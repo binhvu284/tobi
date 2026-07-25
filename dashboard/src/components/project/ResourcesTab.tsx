@@ -7,11 +7,7 @@ import {
   FileArchive, FileCode2, File as FileIcon, Youtube, Github, Globe2, HardDrive,
   Download, Pencil, MoreVertical, Copy, Plus,
 } from 'lucide-react'
-import {
-  pmListResources, pmUploadResource, pmAddResourceLink, pmPatchResource,
-  pmDeleteResource, pmCreateFolder, pmRenameFolder, pmDeleteFolder, pmResourceRawUrl,
-  type PMResource, type PMFolder,
-} from '../../api'
+import { pmListResources, pmUploadResource, pmAddResourceLink, pmPatchResource, pmDeleteResource, pmCreateFolder, pmRenameFolder, pmDeleteFolder, pmResourceRawUrl, type PMResource, type PMFolder } from '../../api.pm'
 import { useToast } from '../../context/ToastProvider'
 import { fmtAgo, fmtBytes } from './shared'
 

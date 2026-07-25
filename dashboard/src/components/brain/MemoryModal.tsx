@@ -2,10 +2,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, useDragControls } from 'framer-motion'
 import { X, GripHorizontal, Trash2, CheckCircle2, History, Save } from 'lucide-react'
-import {
-  type Memory, type MemoryCategory, type MemoryVersion,
-  patchMemory, deleteMemory, confirmMemory, getMemoryVersions, createMemory,
-} from '../../api'
+import { type Memory, type MemoryCategory, type MemoryVersion, patchMemory, deleteMemory, confirmMemory, getMemoryVersions, createMemory } from '../../api.brain'
 
 type Props = {
   memory: Memory | 'new'

@@ -5,7 +5,7 @@ import {
   Music, Newspaper, Package, PenTool, Plane, ShoppingCart, Star, Store, Truck,
   Tv, Wallet, Camera, Code2, Coffee, Database, Dumbbell, type LucideIcon,
 } from 'lucide-react'
-import type { PMProject } from '../../api'
+import type { PMProject } from '../../api.pm'
 import { pmIconUrl } from '../../api'
 
 /** Curated vector pack for project icons (#12 D53) — key ↔ lucide component. */

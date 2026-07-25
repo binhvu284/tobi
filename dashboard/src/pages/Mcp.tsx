@@ -5,16 +5,8 @@ import {
   ShieldCheck, Activity, KeyRound, ChevronDown, AlertTriangle, Loader2,
   ArrowDownLeft, ArrowUpRight, Globe, Radio, Users, Send,
 } from 'lucide-react'
-import {
-  getVaultStatus,
-  getMcpServerConfig, setMcpServerConfig, getMcpClients, issueMcpClient, revokeMcpClient,
-  getMcpConnections, addMcpConnection, testMcpConnection, refreshMcpConnection,
-  setMcpConnectionEnabled, deleteMcpConnection, getMcpTools, setMcpTool, invokeMcpTool,
-  getMcpLogs, getMcpApprovals, approveMcp, rejectMcp,
-  setMcpOAuth, setMcpTunnel, getA2aCard, setA2aCard, getA2aPeers, addA2aPeer, removeA2aPeer, a2aMessage,
-  type McpServerInfo, type McpClient, type McpConnection, type McpExternalTool,
-  type McpCallLog, type McpApproval, type A2aCard, type A2aPeer,
-} from '../api'
+import { getVaultStatus } from '../api.genesis'
+import { getMcpServerConfig, setMcpServerConfig, getMcpClients, issueMcpClient, revokeMcpClient, getMcpConnections, addMcpConnection, testMcpConnection, refreshMcpConnection, setMcpConnectionEnabled, deleteMcpConnection, getMcpTools, setMcpTool, invokeMcpTool, getMcpLogs, getMcpApprovals, approveMcp, rejectMcp, setMcpOAuth, setMcpTunnel, getA2aCard, setA2aCard, getA2aPeers, addA2aPeer, removeA2aPeer, a2aMessage, type McpServerInfo, type McpClient, type McpConnection, type McpExternalTool, type McpCallLog, type McpApproval, type A2aCard, type A2aPeer } from '../api.mcp'
 import { useToast } from '../context/ToastProvider'
 import { useVaultSession } from '../hooks/useVaultSession'
 import VaultUnlockPanel from '../components/VaultUnlockPanel'

@@ -12,10 +12,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   AlertTriangle, ArrowUp, Brain, Loader2, RefreshCw, Rss, SlidersHorizontal, Sparkles, X,
 } from 'lucide-react'
-import {
-  getNewsV2Feed, getNewsV2Profile, getNewsV2TrendingSources,
-  type NewsV2ItemEntry,
-} from '../../api'
+import { getNewsV2Feed, getNewsV2Profile, getNewsV2TrendingSources, type NewsV2ItemEntry } from '../../api.explore'
 import SourceLogo from '../SourceLogo'
 import NewsCard, { type CardOverride } from './NewsCard'
 

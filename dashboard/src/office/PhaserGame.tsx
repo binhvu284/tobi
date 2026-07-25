@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import Phaser from 'phaser'
-import type { Agent, OfficeStats } from '../api'
+import type { Agent, OfficeStats } from '../api.office'
 import type { WarState } from '../hooks/useMissionStream'
 import { EventBus, EV } from './EventBus'
 import { accentHex } from './theme'

@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { X, Upload, Loader2 } from 'lucide-react'
-import { pmUploadIcon } from '../../api'
+import { pmUploadIcon } from '../../api.pm'
 import { ICON_PACK } from './ProjectIcon'
 import { useToast } from '../../context/ToastProvider'
 

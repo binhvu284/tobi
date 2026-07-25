@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Clock, Play, Pause } from 'lucide-react'
 import { useEffect, useRef } from 'react'
-import type { TimelineEvent } from '../../api'
+import type { TimelineEvent } from '../../api.graph'
 
 /* Replays graph growth: a slider over node-creation timestamps. Emits `date_to`
  * (ISO) so the graph filters to nodes that existed at the scrubbed moment. At max,

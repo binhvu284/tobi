@@ -5,7 +5,7 @@ import {
   Archive, ChevronDown, CircleAlert, FilePlus2, MoreHorizontal,
   Plus, RefreshCw, Target, Trash2, X,
 } from 'lucide-react'
-import type { DeveloperGoal } from '../../api'
+import type { DeveloperGoal } from '../../api.developer'
 
 export type GoalCommand = 'evaluate' | 'archive' | 'delete' | 'cancel'
 

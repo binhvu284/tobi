@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Bot, User, Activity as ActivityIcon, ChevronDown, ChevronUp } from 'lucide-react'
-import { pmListActivity, type PMActivity } from '../../api'
+import { pmListActivity, type PMActivity } from '../../api.pm'
 import { fmtAgo } from './shared'
 
 /** Activity — who did what (owner vs TOBI), with expandable diffs. */

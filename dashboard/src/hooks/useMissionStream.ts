@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getMission, type Mission } from '../api'
+import { getMission, type Mission } from '../api.office'
 
 export type StepState = {
   seq: number; agent_id?: string; agent?: string; action?: string

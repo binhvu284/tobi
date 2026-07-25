@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { AlertCircle, CheckCircle2, Circle, Pause, Play, Plus, RotateCcw, Square, Timer, Zap } from 'lucide-react'
-import type { Mission } from '../../api'
+import type { Mission } from '../../api.office'
 import type { WarState } from '../../hooks/useMissionStream'
 
 const statusIcon = (status: string) => status === 'done' ? CheckCircle2 : status === 'blocked' ? AlertCircle : status === 'running' ? Zap : Circle

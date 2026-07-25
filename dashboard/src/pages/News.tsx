@@ -8,13 +8,7 @@ import {
   ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, Cell,
   ResponsiveContainer,
 } from 'recharts'
-import {
-  type ExploreItem, type ExploreModel, type ExploreConfig, type ExploreSource, type ExploreStatus,
-  type ScoutEvent,
-  getExploreStatus, getExploreNews, getExploreModels, getExploreTools, getExploreSocial,
-  getExploreConfig, saveExploreConfig, setExploreSource, exploreDigest,
-  streamExploreRefresh, getNewsV2Config,
-} from '../api'
+import { type ExploreItem, type ExploreModel, type ExploreConfig, type ExploreSource, type ExploreStatus, type ScoutEvent, getExploreStatus, getExploreNews, getExploreModels, getExploreTools, getExploreSocial, getExploreConfig, saveExploreConfig, setExploreSource, exploreDigest, streamExploreRefresh, getNewsV2Config } from '../api.explore'
 import NewsV2 from '../components/news/NewsV2'
 import { useToast } from '../context/ToastProvider'
 import LlmLogo, { brandForModel, BRAND_META, brandForProvider } from '../components/LlmLogo'

@@ -5,7 +5,7 @@
 // favourite (e.g. "keep on refresh, otherwise disposable").
 import { useState } from 'react'
 import { Loader2, StickyNote, ThumbsDown, ThumbsUp, Star } from 'lucide-react'
-import { patchNewsV2Interaction, putNewsV2Note, type NewsV2Interaction } from '../../api'
+import { patchNewsV2Interaction, putNewsV2Note, type NewsV2Interaction } from '../../api.explore'
 import { useToast } from '../../context/ToastProvider'
 import { DEFAULT_INTERACTION } from './NewsCard'
 

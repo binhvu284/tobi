@@ -8,10 +8,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   ExternalLink, EyeOff, Loader2, Sparkles, Star, StickyNote, ThumbsDown, ThumbsUp, Undo2,
 } from 'lucide-react'
-import {
-  patchNewsV2Interaction, postNewsV2Event, putNewsV2Note,
-  type NewsV2Interaction, type NewsV2ItemEntry,
-} from '../../api'
+import { patchNewsV2Interaction, postNewsV2Event, putNewsV2Note, type NewsV2Interaction, type NewsV2ItemEntry } from '../../api.explore'
 import { useToast } from '../../context/ToastProvider'
 import SourceLogo from '../SourceLogo'
 

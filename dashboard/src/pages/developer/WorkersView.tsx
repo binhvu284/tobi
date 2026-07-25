@@ -9,17 +9,8 @@ import {
 } from 'lucide-react'
 import LlmLogo, { BRAND_META, brandForModel, brandForProvider } from '../../components/LlmLogo'
 import ModelMenu from '../../components/chat/ModelMenu'
-import {
-  approveDeveloperWorkflow, assessDeveloperGoal, commandDeveloperGoal, commandDeveloperWorkflow, createDeveloperGoal,
-  getDeveloperHistory, getDeveloperLearning, getDeveloperOverview, getDeveloperQueue, getDeveloperStorage, getDeveloperVersions,
-  getDeveloperGoals, getDeveloperWorkerLogin, getDeveloperWorkerModels, getDeveloperWorkers, probeDeveloperWorker, replayDeveloperLearning,
-  saveDeveloperWorker, startDeveloperWorkflow, streamDeveloperEvents, switchDeveloperWorker, cleanupDeveloperStorage,
-  rejectDeveloperWorkflow, setDeveloperProcessSettings,
-  type AvailableModel, type DeveloperAssessment, type DeveloperEvent, type DeveloperOverview, type DeveloperGoal,
-  type DeveloperQueueItem, type DeveloperQueueState, type DeveloperRelease, type DeveloperStorage, type DeveloperWorkerLogin,
-  type DeveloperWorkerModels, type DeveloperWorkerProfile,
-  type DeveloperWorkflow, type LlmProvider,
-} from '../../api'
+import type { AvailableModel, LlmProvider } from '../../api'
+import { approveDeveloperWorkflow, assessDeveloperGoal, commandDeveloperGoal, commandDeveloperWorkflow, createDeveloperGoal, getDeveloperHistory, getDeveloperLearning, getDeveloperOverview, getDeveloperQueue, getDeveloperStorage, getDeveloperVersions, getDeveloperGoals, getDeveloperWorkerLogin, getDeveloperWorkerModels, getDeveloperWorkers, probeDeveloperWorker, replayDeveloperLearning, saveDeveloperWorker, startDeveloperWorkflow, streamDeveloperEvents, switchDeveloperWorker, cleanupDeveloperStorage, rejectDeveloperWorkflow, setDeveloperProcessSettings, type DeveloperAssessment, type DeveloperEvent, type DeveloperOverview, type DeveloperGoal, type DeveloperQueueItem, type DeveloperQueueState, type DeveloperRelease, type DeveloperStorage, type DeveloperWorkerLogin, type DeveloperWorkerModels, type DeveloperWorkerProfile, type DeveloperWorkflow } from '../../api.developer'
 import { Empty, StateBadge, label } from './format'
 
 export function WorkersView({ workers, models, providers, routing, busy, onSave, onProbe, onLogin }: {

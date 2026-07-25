@@ -6,7 +6,7 @@
 // loaded rows client-side and say so.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Loader2, RefreshCw, Search, Star } from 'lucide-react'
-import { getNewsV2Feed, type NewsV2ItemEntry } from '../../api'
+import { getNewsV2Feed, type NewsV2ItemEntry } from '../../api.explore'
 import NewsCard, { type CardOverride } from './NewsCard'
 
 export default function FavoritesTab() {

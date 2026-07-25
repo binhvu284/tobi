@@ -5,9 +5,7 @@ import {
 } from 'lucide-react'
 import LlmLogo from '../LlmLogo'
 import AutoQueueToggle from './AutoQueueToggle'
-import type {
-  DeveloperEvent, DeveloperQueueItem, DeveloperWorkerProfile, DeveloperWorkflow,
-} from '../../api'
+import type { DeveloperEvent, DeveloperQueueItem, DeveloperWorkerProfile, DeveloperWorkflow } from '../../api.developer'
 
 type WorkflowCommand = 'pause' | 'resume' | 'cancel' | 'retry' | 'remove'
 type ApprovalPurpose = 'special_paths' | 'merge_deploy'

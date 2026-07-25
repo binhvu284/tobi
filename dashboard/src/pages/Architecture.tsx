@@ -7,11 +7,7 @@ import {
   FolderKanban, Boxes, Globe, Server, Circle, type LucideIcon,
 } from 'lucide-react'
 import DOMPurify from 'dompurify'
-import {
-  getArchitectureConfig, getArchitectureDiagram, getArchitectureDiagrams,
-  getArchitectureHistory, getArchitectureVersion, syncArchitecture,
-  type ArchDiagram, type ArchDiagramMeta, type ArchVersion,
-} from '../api'
+import { getArchitectureConfig, getArchitectureDiagram, getArchitectureDiagrams, getArchitectureHistory, getArchitectureVersion, syncArchitecture, type ArchDiagram, type ArchDiagramMeta, type ArchVersion } from '../api.architecture'
 import { useToast } from '../context/ToastProvider'
 import MarkdownView from '../components/chat/MarkdownView'
 import PageLoader from '../components/PageLoader'

@@ -1,5 +1,5 @@
 import { Bot, BrainCircuit, Cpu, Gauge, Radio, ShieldCheck } from 'lucide-react'
-import type { Agent } from '../../api'
+import type { Agent } from '../../api.office'
 
 export default function AgentDetailPanel({ agent }: { agent: Agent | null }) {
   if (!agent) return (

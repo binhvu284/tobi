@@ -4,11 +4,8 @@ import {
   Plus, X, CheckCircle2, Circle, Calendar, Bot, User, Trash2, GripVertical,
   ArrowUpDown, Bell, Timer, Link2, ChevronRight, Maximize2, Minimize2, Ban,
 } from 'lucide-react'
-import {
-  pmListTasks, pmCreateTask, patchTask, deleteTask, pmPatchSubtasks,
-  pmAddTaskDep, pmRemoveTaskDep,
-  type TaskItem, type TaskStatus, type PMSubTask,
-} from '../../api'
+import { pmListTasks, pmCreateTask, pmPatchSubtasks, pmAddTaskDep, pmRemoveTaskDep } from '../../api.pm'
+import { patchTask, deleteTask, type TaskItem, type TaskStatus, type PMSubTask } from '../../api.tasks'
 import { useToast } from '../../context/ToastProvider'
 import PageLoader from '../PageLoader'
 import { fmtDate, TASK_STATUS_COLORS, PRIORITY_COLORS } from './shared'

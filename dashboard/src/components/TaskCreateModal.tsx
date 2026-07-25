@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import type { Project, TaskCreatePayload, TaskPriority, TaskStatus, TaskAgent, OwnerInputChecklistItem } from '../api'
+import type { Project } from '../api.office'
+import type { TaskCreatePayload, TaskPriority, TaskStatus, TaskAgent, OwnerInputChecklistItem } from '../api.tasks'
 
 type Props = {
   open: boolean

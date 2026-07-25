@@ -12,11 +12,7 @@ import {
   AlertTriangle, ChevronRight, ExternalLink, Github, Loader2, RefreshCw, Search,
   Sparkles, Star, StickyNote, ThumbsDown, ThumbsUp, TrendingUp, Undo2, Wrench,
 } from 'lucide-react'
-import {
-  getNewsV2Feed, getNewsV2TrendingGithub, getNewsV2TrendingSources, getNewsV2TrendingTools,
-  patchNewsV2Interaction, postNewsV2Event, putNewsV2Note,
-  type NewsV2GithubEntry, type NewsV2Interaction, type NewsV2ItemEntry,
-} from '../../api'
+import { getNewsV2Feed, getNewsV2TrendingGithub, getNewsV2TrendingSources, getNewsV2TrendingTools, patchNewsV2Interaction, postNewsV2Event, putNewsV2Note, type NewsV2GithubEntry, type NewsV2Interaction, type NewsV2ItemEntry } from '../../api.explore'
 import { useToast } from '../../context/ToastProvider'
 import SourceLogo from '../SourceLogo'
 import SourceIconGroup from './SourceIconGroup'

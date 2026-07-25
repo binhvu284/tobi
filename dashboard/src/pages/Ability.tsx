@@ -6,12 +6,7 @@ import Logo from '../components/Logo'
 import StatBar from '../components/StatBar'
 import RadarChart from '../components/RadarChart'
 import { AmbientField } from '../components/motion'
-import {
-  getAbilities, getAbilityDetail, coachAbility, getProposals, approveProposal, rejectProposal, rollbackAbility,
-  getHermesSkills, getAwakening,
-  type AbilitiesReport, type AbilityUsage, type SkillDetail, type Proposal, type HermesSkill,
-  type AwakeningReport,
-} from '../api'
+import { getAbilities, getAbilityDetail, coachAbility, getProposals, approveProposal, rejectProposal, rollbackAbility, getHermesSkills, getAwakening, type AbilitiesReport, type AbilityUsage, type SkillDetail, type Proposal, type HermesSkill, type AwakeningReport } from '../api.abilities'
 
 // Tier 1 (Awakening #17) mirror — colours match the Evolution page's 4-valued status.
 const AWK_DOT: Record<string, string> = {

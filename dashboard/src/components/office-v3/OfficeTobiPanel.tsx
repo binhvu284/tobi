@@ -1,6 +1,8 @@
 import { FormEvent, useMemo, useState } from 'react'
 import { Bot, Check, Loader2, Send, ShieldAlert, Sparkles, X } from 'lucide-react'
-import { askOfficeTobi, confirmConductorAction, type PendingAction } from '../../api'
+import { confirmConductorAction } from '../../api'
+import type { PendingAction } from '../../api.brain'
+import { askOfficeTobi } from '../../api.office'
 import type { OfficeSelection } from './types'
 
 type Line = { role: 'user' | 'assistant'; text: string }

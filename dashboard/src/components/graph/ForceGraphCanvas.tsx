@@ -1,7 +1,7 @@
 import { useRef, useEffect, useMemo, useCallback, useImperativeHandle, forwardRef } from 'react'
 import ForceGraph2D from 'react-force-graph-2d'
 import { forceCollide, forceRadial, forceX, forceY } from 'd3-force'
-import type { GraphData, GraphNode, GraphEdge } from '../../api'
+import type { GraphData, GraphNode, GraphEdge } from '../../api.graph'
 
 /* The single isolated renderer for the knowledge graph. All canvas/force-graph logic
  * lives here so the library can be swapped (Sigma/Cosmograph) if scale ever demands it,

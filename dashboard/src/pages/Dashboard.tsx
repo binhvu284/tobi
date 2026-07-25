@@ -10,12 +10,12 @@ import Loader from '../components/Loader'
 import PageLoader from '../components/PageLoader'
 import { AmbientField, CountUp, SpotlightCard, TraceButton } from '../components/motion'
 import { useReducedMotionPref } from '../context/MotionProvider'
-import {
-  getStatus, getProjects, getLessons, getHealth, markDone, runEngine, pmGetStats, pmListProjects,
-  getStorageOverview, getUsageOverview, getUsageBudget,
-  type Project, type Lesson, type Todo, type HealthReport, type EngineName, type PMStats, type PMProject,
-  type StorageOverview, type UsageOverview, type UsageBudget,
-} from '../api'
+import { getStatus, getProjects, getLessons } from '../api'
+import { getHealth, type HealthReport } from '../api.abilities'
+import { runEngine, type Project, type Lesson, type Todo, type EngineName } from '../api.office'
+import { pmGetStats, pmListProjects, type PMStats, type PMProject } from '../api.pm'
+import { getStorageOverview, getUsageOverview, getUsageBudget, type StorageOverview, type UsageOverview, type UsageBudget } from '../api.storage'
+import { markDone } from '../api.tasks'
 import { fmtBytes, fmtUsd } from '../lib/format'
 import { useToast } from '../context/ToastProvider'
 

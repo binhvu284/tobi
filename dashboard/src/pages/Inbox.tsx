@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Inbox as InboxIcon, CheckCircle2, Bell, ListTodo, Trash2 } from 'lucide-react'
-import { getStatus, markDone, type Todo } from '../api'
+import { getStatus } from '../api'
+import type { Todo } from '../api.office'
+import { markDone } from '../api.tasks'
 import { useToast } from '../context/ToastProvider'
 
 const PRIORITY_META: Record<number, { label: string; cls: string }> = {

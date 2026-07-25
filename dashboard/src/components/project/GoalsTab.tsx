@@ -3,10 +3,8 @@ import {
   Plus, X, Save, Trash2, Calendar, Target, ChevronDown, ChevronUp, Search,
   CheckCircle2, AlertTriangle, Gauge, ListChecks,
 } from 'lucide-react'
-import {
-  pmCreateGoal, pmPatchGoal, pmDeleteGoal, pmLinkGoalTask, pmUnlinkGoalTask,
-  type PMGoal, type TaskItem,
-} from '../../api'
+import { pmCreateGoal, pmPatchGoal, pmDeleteGoal, pmLinkGoalTask, pmUnlinkGoalTask, type PMGoal } from '../../api.pm'
+import type { TaskItem } from '../../api.tasks'
 import { useToast } from '../../context/ToastProvider'
 import { Bar, fmtDate } from './shared'
 

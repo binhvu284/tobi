@@ -5,10 +5,8 @@ import {
   LayoutGrid, CheckCircle2, Target, FolderOpen, Activity as ActivityIcon, Zap,
   ArrowLeft, Pencil, Save, X, Trash2, RefreshCw, Calendar,
 } from 'lucide-react'
-import {
-  pmGetOverview, pmListGoals, pmListTasks, pmPatchProject, pmDeleteProject,
-  type PMOverview, type PMGoal, type TaskItem,
-} from '../api'
+import { pmGetOverview, pmListGoals, pmListTasks, pmPatchProject, pmDeleteProject, type PMOverview, type PMGoal } from '../api.pm'
+import type { TaskItem } from '../api.tasks'
 import { useToast } from '../context/ToastProvider'
 import { useWorkspaceTabs, projectTabKey } from '../context/WorkspaceTabsContext'
 import { pushRecentProject } from '../components/AppShell'

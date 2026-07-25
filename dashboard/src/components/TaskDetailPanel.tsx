@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { X } from 'lucide-react'
-import type { TaskAgent, TaskItem, TaskPriority, TaskStatus } from '../api'
+import type { TaskAgent, TaskItem, TaskPriority, TaskStatus } from '../api.tasks'
 import TaskCommandBox from './TaskCommandBox'
 import OwnerInputChecklist from './OwnerInputChecklist'
 

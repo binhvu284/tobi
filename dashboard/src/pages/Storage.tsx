@@ -11,13 +11,7 @@ import { AmbientField, CountUp, SpotlightCard } from '../components/motion'
 import { useTheme } from '../context/ThemeProvider'
 import { useToast } from '../context/ToastProvider'
 import { useReducedMotionPref } from '../context/MotionProvider'
-import {
-  getStorageOverview, getStorageCategory, runStorageScan,
-  getUsageOverview, getUsageCalls, getUsagePlans, setUsagePlans,
-  getUsageBudget, setUsageBudget,
-  type StorageOverview, type StorageCategoryDetail, type UsageOverview,
-  type UsageCall, type UsagePlan, type UsageBudget, type UsageBucket,
-} from '../api'
+import { getStorageOverview, getStorageCategory, runStorageScan, getUsageOverview, getUsageCalls, getUsagePlans, setUsagePlans, getUsageBudget, setUsageBudget, type StorageOverview, type StorageCategoryDetail, type UsageOverview, type UsageCall, type UsagePlan, type UsageBudget, type UsageBucket } from '../api.storage'
 import PageLoader from '../components/PageLoader'
 import { fmtBytes, fmtUsd, fmtTok } from '../lib/format'
 

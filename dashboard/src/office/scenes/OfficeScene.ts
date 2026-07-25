@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import type { Agent } from '../../api'
+import type { Agent } from '../../api.office'
 import { EventBus, EV } from '../EventBus'
 import { gridToScreen, isoDepth, TILE_W, TILE_H, HALF_H } from '../iso'
 import ChibiAgent, { type Behavior } from '../objects/ChibiAgent'

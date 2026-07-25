@@ -1,5 +1,5 @@
 import { Bot, Crown, Radio } from 'lucide-react'
-import type { Agent } from '../../api'
+import type { Agent } from '../../api.office'
 
 const tone = (status: string) => status === 'working' ? 'bg-warning' : status === 'online' ? 'bg-success' : 'bg-muted'
 

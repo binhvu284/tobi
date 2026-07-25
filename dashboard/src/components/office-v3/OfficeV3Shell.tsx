@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, Bot, Building2, FileOutput, ListChecks, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react'
-import {
-  getAgent, getMission, getOfficeArtifact, getOfficeV3Snapshot, proposeOfficeAction,
-  type Agent, type Mission, type OfficeArtifact, type OfficeV3Snapshot, type PendingAction,
-} from '../../api'
+import type { PendingAction } from '../../api.brain'
+import { getAgent, getMission, getOfficeArtifact, getOfficeV3Snapshot, proposeOfficeAction, type Agent, type Mission, type OfficeArtifact, type OfficeV3Snapshot } from '../../api.office'
 import { useMissionStream } from '../../hooks/useMissionStream'
 import { useToast } from '../../context/ToastProvider'
 import OfficeFloor from './OfficeFloor'

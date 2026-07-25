@@ -2,7 +2,7 @@ import { useState } from 'react'
 import {
   Search, RefreshCw, Sparkles, Link2, Zap, ZapOff, Plus, X, SlidersHorizontal,
 } from 'lucide-react'
-import { searchGraph, type GraphSource, type GraphSearchResult } from '../../api'
+import { searchGraph, type GraphSource, type GraphSearchResult } from '../../api.graph'
 
 type Props = {
   sources: GraphSource[]

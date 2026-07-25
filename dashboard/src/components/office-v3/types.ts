@@ -1,4 +1,4 @@
-import type { Agent, Mission, OfficeArtifact } from '../../api'
+import type { Agent, Mission, OfficeArtifact } from '../../api.office'
 
 export type OfficeSelection =
   | { type: 'agent'; item: Agent }

@@ -1,10 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, ExternalLink, Trash2, Pencil, Check, Unlink, Crosshair } from 'lucide-react'
-import {
-  getGraphNode, updateGraphNode, deleteGraphNode, deleteGraphEdge,
-  type GraphNode, type GraphData,
-} from '../../api'
+import { getGraphNode, updateGraphNode, deleteGraphNode, deleteGraphEdge, type GraphNode, type GraphData } from '../../api.graph'
 import { useToast } from '../../context/ToastProvider'
 
 const DOMAIN_LABEL: Record<string, string> = {

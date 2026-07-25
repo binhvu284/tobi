@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Loader2, LockKeyhole, Unlock } from 'lucide-react'
-import { vaultUnlock } from '../api'
+import { vaultUnlock } from '../api.genesis'
 import { useToast } from '../context/ToastProvider'
 
 type Props = {

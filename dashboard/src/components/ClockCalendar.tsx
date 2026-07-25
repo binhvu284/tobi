@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Clock, Calendar } from 'lucide-react'
 import { createPortal } from 'react-dom'
-import { getOwnerSettings } from '../api'
+import { getOwnerSettings } from '../api.brain'
 
 function useTimezone() {
   const [tz, setTz] = useState('Asia/Ho_Chi_Minh')

@@ -1,4 +1,4 @@
-import type { TaskAgent, TaskPriority, TaskStatus } from '../api'
+import type { TaskAgent, TaskPriority, TaskStatus } from '../api.tasks'
 
 type Props = {
   q: string

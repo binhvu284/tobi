@@ -8,11 +8,9 @@ import PageLoader from '../components/PageLoader'
 import PerformanceDoctor from '../components/PerformanceDoctor'
 import { Stagger, StaggerItem } from '../components/motion'
 import { useReducedMotionPref } from '../context/MotionProvider'
-import {
-  getHealth, runDeepTest, getIntegrations, getLlmUsage,
-  type HealthReport, type DeepTestReport, type LivenessCheck, type IntegrationsResponse,
-  type UsageSummary,
-} from '../api'
+import { getLlmUsage, type UsageSummary } from '../api'
+import { getHealth, runDeepTest, type HealthReport, type DeepTestReport, type LivenessCheck } from '../api.abilities'
+import { getIntegrations, type IntegrationsResponse } from '../api.genesis'
 
 const OVERALL = {
   healthy: { label: 'All systems healthy', cls: 'border-success/40 bg-success/10 text-success', dot: 'bg-success' },

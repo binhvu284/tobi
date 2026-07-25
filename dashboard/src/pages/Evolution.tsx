@@ -6,7 +6,7 @@ import {
   ChevronDown, ChevronUp, X, Clock, Zap, TrendingUp, Sparkles, Loader2,
   ArrowRight, Wrench, CircleDashed, MinusCircle,
 } from 'lucide-react'
-import { getEvolution, reflectNow, type EvolutionReport, type TierData, type TierAbility } from '../api'
+import { getEvolution, reflectNow, type EvolutionReport, type TierData, type TierAbility } from '../api.abilities'
 import { useSound } from '../hooks/useSound'
 import { useToast } from '../context/ToastProvider'
 import { useReducedMotionPref } from '../context/MotionProvider'

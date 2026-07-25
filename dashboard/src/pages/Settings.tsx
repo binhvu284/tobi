@@ -11,7 +11,7 @@ import {
 } from '../context/themeTokens'
 import { useMotion, type MotionSetting } from '../context/MotionProvider'
 import { sfx } from '../hooks/useSound'
-import { getOwnerSettings, patchOwnerSettings } from '../api'
+import { getOwnerSettings, patchOwnerSettings } from '../api.brain'
 import { useToast } from '../context/ToastProvider'
 
 const MOTION_OPTS: { key: MotionSetting; label: string; hint: string }[] = [

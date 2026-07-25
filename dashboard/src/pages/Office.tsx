@@ -5,11 +5,7 @@ import {
   X, Activity, Zap, Shield, Users, LayoutGrid, Plus, Play, Cpu, Coins, Trash2, Pencil, ListChecks,
   Pause, Square, Send, Radio, CheckCircle2, GripHorizontal, Rocket, ChevronDown, Volume2, VolumeX, Sparkles,
 } from 'lucide-react'
-import {
-  getAgents, getOfficeStats, getMissions, getMission, createMission, runMission, patchMission,
-  createAgent, updateAgent, deleteAgent, pauseMission, resumeMission, cancelMission, injectMission,
-  type Agent, type OfficeStats, type Mission, type AgentUpsert,
-} from '../api'
+import { getAgents, getOfficeStats, getMissions, getMission, createMission, runMission, patchMission, createAgent, updateAgent, deleteAgent, pauseMission, resumeMission, cancelMission, injectMission, type Agent, type OfficeStats, type Mission, type AgentUpsert } from '../api.office'
 import { useMissionStream, type WarState } from '../hooks/useMissionStream'
 import PageLoader from '../components/PageLoader'
 import PhaserGame from '../office/PhaserGame'

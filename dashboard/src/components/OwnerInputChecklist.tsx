@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { OwnerInputChecklistItem } from '../api'
+import type { OwnerInputChecklistItem } from '../api.tasks'
 
 type Props = {
   items: OwnerInputChecklistItem[]

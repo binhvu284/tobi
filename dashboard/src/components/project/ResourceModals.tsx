@@ -2,7 +2,7 @@
 import { useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { FolderPlus, X, Trash2, Loader2, Link2, Upload, Plus } from 'lucide-react'
-import { type PMResource, type PMFolder } from '../../api'
+import type { PMResource, PMFolder } from '../../api.pm'
 import { fmtBytes } from './shared'
 import { RTypeIcon, ytId } from './resourceHelpers'
 
