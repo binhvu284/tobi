@@ -274,3 +274,48 @@ projects to **≈91.2**.
   at HEAD. They look like staged #18 work, so they were preserved in
   `pages/developer/*` — **owner decision whether to delete**.
 - Phase 3 (#22 coding-agent stores) is still gated on #22 stability.
+
+### Round 2 (same session) — #22 gate check, `Other` subsystem, graph refresh
+
+**#22 gate: CLOSED.** `TOBI_CODING_AGENT_V2_COMPLETION_ACCEPTANCE_2026-07-22.md` shows
+**0 of 10** live runs recorded — every row still `Pending`. Per this plan's own guard,
+`development_store.py` (2,226), `coding_agent.py` (1,541) and `coding_workers.py` (897)
+were **not touched**: those ten runs must exercise unmoved code, or a failure can't be
+attributed. They remain the single largest block of size debt (25.1 penalty points).
+
+Ungated work in the same subsystem was done instead:
+
+| Slice | Result | Equivalence proof |
+|---|---|---|
+| `core/telegram_bot.py` → `core/telegram/*` | 1,306 → **571** (−56%) | build_app's **18 CommandHandler registrations all resolve**, no unresolved `cmd_*` |
+| `main.py` → `core/scheduled_jobs.py` | 948 → **697** | **18 scheduled jobs, identical intervals** before vs after (git-stash comparison) |
+| `core/conductor.py` → `conductor_registry.py` | 1,732 → **1,227** | tool-registry parity IDENTICAL |
+| `core/database.py` → `core/schema/*` | 1,790 → **685** (−62%) | **181 `sqlite_master` objects, byte-identical** |
+
+Two import cycles were resolved by putting symbols with their true owner rather than by
+adding lazy imports (`send_project_proposal_msg` → formatting; `run_research_and_notify`
+→ commands). Mutable globals moved *with* their accessors (`_tg_app`, the vault session,
+the usage ContextVar) so no split ever produced two instances of shared state.
+
+**Graphify refreshed** (AST pass, no LLM spend; doc/image concepts preserved):
+5,735 nodes / 15,059 edges / 204 communities, graph now at HEAD.
+
+### The refresh changed the picture — read this before trusting older numbers
+
+The previous graph covered **122 files**; the fresh one covers **399**. **302 source
+files were invisible to the doctor**, including the whole #22 subsystem. Every grade
+recorded before the refresh — including the original "D" and the mid-session "B−" — was
+measured on a third of the codebase. On the full map the honest score is **67.7 D**.
+
+**Coupling, not file size, is now the dominant blocker.** Five subsystems sit at the
+*capped* 22-point god-module penalty. Clearing every coupling penalty while splitting
+nothing further would reach only **~88**; reaching **A (≥93)** needs that *and* the
+remaining oversized files (most of which are #22-gated or `Chat.tsx`).
+
+The god modules are largely **inherent hubs**: `core/database.py` fan-in 88,
+`core/model_router.py` 36, `core/owner_flags.py` 26 — every feature legitimately needs
+the DB, the LLM router and the flags. `api/dashboard.py` fan-out 46 and `core/conductor.py`
+21/15 are partly *artifacts of this refactor* (an app factory must import its routers).
+Chasing that metric with indirection could make the code worse, not better. **Owner
+decision recommended before optimizing coupling** — options are (a) per-domain repository
+split for `database.py`, (b) accept hub modules and raise `_GOD_DEGREE`, or (c) leave it.
