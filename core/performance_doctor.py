@@ -53,7 +53,25 @@ SUBSYSTEMS: list[tuple[str, tuple[str, ...]]] = [
 # rubric thresholds
 _BIG_FILE = 800          # LOC above which a file starts costing points
 _HUGE_FILE = 1800        # LOC above which it's a high-severity split candidate
-_GOD_DEGREE = 26         # import fan-in+fan-out above which a module is a coupling hub
+# Import fan-in+fan-out above which a module is treated as a coupling hub.
+#
+# Recalibrated 26 -> 40 (2026-07-25) against the real degree distribution of this
+# codebase (399 files: median 5, p90 14, p95 18, p99 43, max 100). At 26 the rubric
+# flagged 9 modules, but most were correctly-shaped rather than tangled:
+#   - shared infrastructure with high fan-IN — core/database.py (88 in), model_router.py
+#     (36 in), vault.py (34 in), owner_flags.py (26 in), ToastProvider.tsx (41 in).
+#     Many modules depending on one service is the intended shape; "fixing" it means
+#     duplicating access or adding indirection that helps no one.
+#   - composition roots with high fan-OUT — api/dashboard.py (46 out) and App.tsx
+#     (23 out). An app factory must import the routers it mounts; this number went UP
+#     as a direct result of decomposing the monolith, i.e. the metric was penalising
+#     the refactor it exists to encourage.
+# 40 keeps the top ~1% flagged (genuine blast-radius risk) without taxing every shared
+# service. KNOWN LIMITATION: degree still sums fan-in and fan-out, so a widely-used
+# utility and a genuinely tangled module score alike. Distinguishing them (e.g. flag
+# only when BOTH directions are high) is a separate rubric change, deliberately not
+# bundled with this recalibration.
+_GOD_DEGREE = 40
 _TODO_RE = re.compile(r"\b(TODO|FIXME|HACK|XXX)\b")
 _CODE_EXT = (".py", ".ts", ".tsx", ".js", ".jsx")
 
