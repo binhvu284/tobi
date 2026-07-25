@@ -7,7 +7,8 @@ Plain python, no pytest:
 Covers: the four additive V2 tables exist with expected columns; legacy
 brain_memories is untouched and still readable/writable; the migration is
 idempotent (init twice); V2 rows insert; and an anti-drift check that the
-brain_memory_v2 DDL lives only in database.py (the owner_settings lesson).
+brain_memory_v2 DDL is defined in exactly one module — core/schema/brain.py
+since Phase 4b, imported back by database.py (the owner_settings lesson).
 """
 import os
 import sys
@@ -103,13 +104,21 @@ ok("link row inserted",
 
 conn.close()
 
-# ── anti-drift: V2 DDL only in database.py ───────────────────────────────────
+# ── anti-drift: the V2 DDL is defined in exactly ONE module ──────────────────
+# The rule being guarded is "never scattered across features", not "always in
+# database.py". Phase 4b moved per-domain DDL into core/schema/<domain>.py, which
+# database.py imports back and calls in the same order from init_database() — one
+# owner, new address. The walk is recursive on purpose: the previous os.listdir()
+# form could only see core/*.py, so it was blind to DDL copied into any subpackage
+# (core/schema, core/news, core/telegram) — exactly the drift it exists to catch.
 core_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "core")
 ddl = "CREATE TABLE IF NOT EXISTS brain_memory_v2"
 hits = sorted(
-    fn for fn in os.listdir(core_dir)
+    os.path.relpath(os.path.join(dirpath, fn), core_dir).replace("\\", "/")
+    for dirpath, _dirs, fns in os.walk(core_dir)
+    for fn in fns
     if fn.endswith(".py")
-    and ddl in open(os.path.join(core_dir, fn), encoding="utf-8", errors="ignore").read())
-ok("brain_memory_v2 DDL only in database.py", hits == ["database.py"], str(hits))
+    and ddl in open(os.path.join(dirpath, fn), encoding="utf-8", errors="ignore").read())
+ok("brain_memory_v2 DDL defined in exactly one module", hits == ["schema/brain.py"], str(hits))
 
 print(f"\n{PASS} checks passed")
