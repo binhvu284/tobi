@@ -4,7 +4,7 @@ import {
   ExternalLink, AlertTriangle, ScrollText, Download, Upload, Loader2, Sparkles, Copy,
   Wand2, SkipForward, ChevronDown, Cpu,
 } from 'lucide-react'
-import { getLlmConfig, type LlmProvider } from '../api'
+import { getLlmConfig, type LlmProvider } from '../api.chat'
 import { getIntegrations, vaultSetup, vaultLock, vaultReload, getVaultAudit, vaultExport, vaultImport, createVaultProfile, connectIntegration, testIntegration, revealSecret, addCustomSecret, removeIntegration, googleOAuthUrl, googleOAuthStatus, googleDisconnect, type IntegrationsResponse, type Integration, type IntegrationField, type AuditEntry, type GenesisStatus } from '../api.genesis'
 import { useToast } from '../context/ToastProvider'
 import { useSound } from '../hooks/useSound'

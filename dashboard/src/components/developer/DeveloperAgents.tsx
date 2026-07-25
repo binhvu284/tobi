@@ -4,7 +4,7 @@ import {
   Check, CheckCircle2, ChevronDown, Clipboard, ExternalLink, Loader2,
   Pencil, Play, RefreshCw, Save, TerminalSquare, UserRound, X,
 } from 'lucide-react'
-import type { AvailableModel, LlmProvider } from '../../api'
+import type { AvailableModel, LlmProvider } from '../../api.chat'
 import type { DeveloperWorkerLogin, DeveloperWorkerModels, DeveloperWorkerProfile } from '../../api.developer'
 import LlmLogo, { BRAND_META, brandForModel, brandForProvider } from '../LlmLogo'
 import ModelMenu from '../chat/ModelMenu'

@@ -6,7 +6,7 @@ import {
   Tv, Wallet, Camera, Code2, Coffee, Database, Dumbbell, type LucideIcon,
 } from 'lucide-react'
 import type { PMProject } from '../../api.pm'
-import { pmIconUrl } from '../../api'
+import { pmIconUrl } from '../../api.pm'
 
 /** Curated vector pack for project icons (#12 D53) — key ↔ lucide component. */
 export const ICON_PACK: Record<string, LucideIcon> = {

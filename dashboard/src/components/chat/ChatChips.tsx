@@ -2,7 +2,7 @@
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Loader2, Check, X, Youtube, Wrench, Briefcase, FileText, Search, CheckCircle2, Brain, ThumbsUp, ThumbsDown } from 'lucide-react'
-import type { ReaderChip, ChatModeId, ContextChip, ChatArtifactEvent, MemoryChip } from '../../api'
+import type { ReaderChip, ChatModeId, ContextChip, ChatArtifactEvent, MemoryChip } from '../../api.chat'
 import { v2Feedback } from '../../api.brainV2'
 
 /** Subtle YouTube reader chips — 'detected' before Send, then reading/ready/unavailable. */

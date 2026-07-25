@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { RefreshCw, History, CheckCircle2, XCircle, Clock, AlertTriangle, ShieldAlert, MessagesSquare, Bot, Smartphone } from 'lucide-react'
-import { getConductorActions, getConductorStatus, type ConductorAction, type ConductorStatus } from '../api'
+import { getConductorActions, getConductorStatus, type ConductorAction, type ConductorStatus } from '../api.conductor'
 import { AmbientField, Stagger, StaggerItem, CountUp } from '../components/motion'
 import PageLoader from '../components/PageLoader'
 

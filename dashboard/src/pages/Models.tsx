@@ -3,7 +3,8 @@ import {
   Cpu, Lock, Unlock, RefreshCw, Save, Plus, ArrowUp, ArrowDown, Trash2,
   CheckCircle2, Circle, Zap, Server, BarChart3, Send,
 } from 'lucide-react'
-import { type LlmConfig, type LlmProvider, type AvailableModel, type HermesPush, type UsageSummary, getLlmConfig, saveLlmConfig, discoverLlmModels, pushHermesConfig, getLlmUsage } from '../api'
+import { type LlmConfig, type LlmProvider, type AvailableModel, type HermesPush, getLlmConfig, saveLlmConfig } from '../api.chat'
+import { type UsageSummary, discoverLlmModels, pushHermesConfig, getLlmUsage } from '../api.keys'
 import { type VaultStatus, getVaultStatus, vaultUnlock } from '../api.genesis'
 import { useToast } from '../context/ToastProvider'
 import { AmbientField } from '../components/motion'

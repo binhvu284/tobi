@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react'
 import { KeyRound, Plus, Trash2, Loader2, Lock } from 'lucide-react'
-import {
-  type KeySlot, type KeySlotsResponse,
-  listKeySlots, addKeySlot, activateKeySlot, deactivateKeySlots, deleteKeySlot,
-} from '../api'
+import { type KeySlot, type KeySlotsResponse, listKeySlots, addKeySlot, activateKeySlot, deactivateKeySlots, deleteKeySlot } from '../api.keys'
 import { useToast } from '../context/ToastProvider'
 
 /**

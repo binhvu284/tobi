@@ -1,7 +1,7 @@
 // Pure helpers + mode config extracted from pages/Chat.tsx.
 import { MessageSquarePlus, Wrench, Terminal, Search, Briefcase } from 'lucide-react'
 import type { ChatMode } from './chatTypes'
-import type { ChatPicker, ChatAttachment } from '../../api'
+import type { ChatPicker, ChatAttachment } from '../../api.chat'
 
 // Local YouTube detection for the composer chip only — the backend does the real
 // fetch after Send (a pasted link is consent to read the transcript). (#14)

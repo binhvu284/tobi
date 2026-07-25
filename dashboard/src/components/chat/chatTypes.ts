@@ -1,5 +1,5 @@
 // Local Chat page types — extracted from pages/Chat.tsx for reuse and testability.
-import type { ChatModeId, ContextChip, ChatArtifactEvent, ChatAttachment, MemoryChip } from '../../api'
+import type { ChatModeId, ContextChip, ChatArtifactEvent, ChatAttachment, MemoryChip } from '../../api.chat'
 
 export type TierMark = { tier: number; colorKey: string; roman: string; name: string }
 

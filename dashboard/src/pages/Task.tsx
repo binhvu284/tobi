@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { RefreshCw, Plus } from 'lucide-react'
 import { AmbientField, CountUp, SpotlightCard } from '../components/motion'
-import { getProjects } from '../api'
+import { getProjects } from '../api.core'
 import type { Project } from '../api.office'
 import { addTaskNote, createTask, deleteTask, evaluateOwnerInput, getHighRiskTaskAudit, getTask, getTaskMetrics, getTasks, patchTask, sendTaskCommand, submitOwnerInput, type OwnerInputChecklistItem, type TaskAgent, type TaskCreatePayload, type TaskItem, type TaskMetrics, type TaskPriority, type TaskStatus, type HighRiskAuditItem } from '../api.tasks'
 import KanbanColumn from '../components/KanbanColumn'

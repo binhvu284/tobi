@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, ChevronLeft, ChevronRight, Check, SkipForward, Sparkles } from 'lucide-react'
-import type { ChatPicker } from '../../api'
+import type { ChatPicker } from '../../api.chat'
 import { useReducedMotionPref } from '../../context/MotionProvider'
 
 export type PickerAnswer = { question: string; answer: string }

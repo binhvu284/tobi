@@ -6,7 +6,7 @@ import {
   RotateCcw, Save, ScrollText, ShieldCheck, Square, Target,
   TerminalSquare, TestTube2, Trash2, Upload, WifiOff, Wrench, XCircle,
 } from 'lucide-react'
-import type { AvailableModel, LlmProvider } from '../../api'
+import type { AvailableModel, LlmProvider } from '../../api.chat'
 import { approveDeveloperWorkflow, assessDeveloperGoal, commandDeveloperGoal, commandDeveloperWorkflow, createDeveloperGoal, getDeveloperHistory, getDeveloperLearning, getDeveloperOverview, getDeveloperQueue, getDeveloperStorage, getDeveloperVersions, getDeveloperGoals, getDeveloperWorkerLogin, getDeveloperWorkerModels, getDeveloperWorkers, probeDeveloperWorker, replayDeveloperLearning, saveDeveloperWorker, startDeveloperWorkflow, streamDeveloperEvents, switchDeveloperWorker, cleanupDeveloperStorage, rejectDeveloperWorkflow, setDeveloperProcessSettings, type DeveloperAssessment, type DeveloperEvent, type DeveloperOverview, type DeveloperGoal, type DeveloperQueueItem, type DeveloperQueueState, type DeveloperRelease, type DeveloperStorage, type DeveloperWorkerLogin, type DeveloperWorkerModels, type DeveloperWorkerProfile, type DeveloperWorkflow } from '../../api.developer'
 
 export type Tab = 'overview' | 'work' | 'loop' | 'workers' | 'history' | 'system'

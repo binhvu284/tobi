@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Terminal, ShieldCheck, Power, RefreshCw, Square, Boxes, Cpu } from 'lucide-react'
-import {
-  getTerminalStatus, setTerminalMode, setTerminalKillSwitch, getTerminalJobs, killTerminalJob,
-  getInstalledTools, type TerminalStatus, type TerminalMode as TMode, type TerminalJob, type InstalledTool,
-} from '../../api'
+import type { TerminalMode as TMode } from '../../api'
+import { getTerminalStatus, setTerminalMode, setTerminalKillSwitch, getTerminalJobs, killTerminalJob, getInstalledTools, type TerminalStatus, type TerminalJob, type InstalledTool } from '../../api.terminal'
 
 /* TOBI CLI (#11) — the terminal-mode control surface inside Chat [D19].
    Two-axis safety made visible: the approval-mode switch (Plan/Ask/Accept/Auto), the global

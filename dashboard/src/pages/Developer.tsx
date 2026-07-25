@@ -15,7 +15,7 @@ import DevelopmentGoals, { type GoalCommand } from '../components/developer/Deve
 import VaultUnlockPanel from '../components/VaultUnlockPanel'
 import { useToast } from '../context/ToastProvider'
 import { useVaultSession } from '../hooks/useVaultSession'
-import type { AvailableModel, LlmProvider } from '../api'
+import type { AvailableModel, LlmProvider } from '../api.chat'
 import { approveDeveloperWorkflow, assessDeveloperGoal, commandDeveloperGoal, commandDeveloperWorkflow, createDeveloperGoal, getDeveloperHistory, getDeveloperLearning, getDeveloperOverview, getDeveloperQueue, getDeveloperStorage, getDeveloperVersions, getDeveloperGoals, getDeveloperWorkerLogin, getDeveloperWorkerModels, getDeveloperWorkers, probeDeveloperWorker, replayDeveloperLearning, saveDeveloperWorker, startDeveloperWorkflow, streamDeveloperEvents, switchDeveloperWorker, cleanupDeveloperStorage, rejectDeveloperWorkflow, setDeveloperProcessSettings, type DeveloperAssessment, type DeveloperEvent, type DeveloperOverview, type DeveloperGoal, type DeveloperQueueItem, type DeveloperQueueState, type DeveloperRelease, type DeveloperStorage, type DeveloperWorkerLogin, type DeveloperWorkerModels, type DeveloperWorkerProfile, type DeveloperWorkflow } from '../api.developer'
 
 import { HistoryView, SystemView } from './developer/SystemView'

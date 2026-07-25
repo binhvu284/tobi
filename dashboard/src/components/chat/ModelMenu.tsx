@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, Check, Eye, Brain, Zap, Cpu, Search } from 'lucide-react'
-import type { AvailableModel } from '../../api'
+import type { AvailableModel } from '../../api.chat'
 import LlmLogo, { BRAND_META, brandForProvider } from '../LlmLogo'
 
 /**
