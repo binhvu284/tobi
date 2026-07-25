@@ -204,3 +204,73 @@ are Phase 2 (`conductor.py` tool extraction) and Phase 5 (frontend god-component
 ## Appendix — why this is safe
 
 The two risks in decomposing a monolith are (1) dropping/altering a route and (2) breaking shared state. Both are neutralized: route parity is checked by openapi diff on every slice, and shared state is centralized once in `api/deps.py` (Slice 0) so no route silently loses a helper. The already-extracted `developer.py` / `brain_v2.py` prove the pattern compiles and runs in this codebase.
+
+---
+
+## Progress log — pre-#21 refactor session (2026-07-25)
+
+Continuation of the plan above, driven by the owner's "performance D → A" goal. All
+slices behavior-preserving, gated, one group per commit, pushed to `main`.
+
+### Backend
+| Slice | Result |
+|---|---|
+| `api/dashboard.py` → `api/routers/*` (Phase 1) | **6,636 → 400 LOC (−94%)**; thin app shell. Route parity held at **358 operations** across every slice. API subsystem **A (100.0)**. |
+| `core/conductor.py` → `core/conductor_tools/*` (Phase 2) | 62 `tool_*` functions into `read`/`action`/`external_read`/`terminal` + `common`. **3,121 → 1,702 LOC (−45%)**. Tool-registry parity **IDENTICAL** (62 tools = 27 read + 2 optional + 33 act). 11 conductor/chat suites green. |
+| `core/model_router.py` → `core/llm_clients/*` (Phase 4a) | 6 provider clients extracted. **1,040 → 495 LOC (−52%)**. Parity identical for MRO, method sets, `provider_catalog`, and the shared usage ContextVar. |
+
+Grouping for conductor/model_router was derived from an **AST call-graph**, not greps —
+only symbols referenced by ≥1 tool moved to `common`; `_resolve_or_create_project`
+stayed with the action tools because it calls `tool_create_project` (would have created
+a `common → tool` cycle).
+
+### Frontend (Phase 5)
+| Slice | Result |
+|---|---|
+| `dashboard/src/api.ts` | **1,248 → 23 LOC**: a pure barrel that declares nothing and re-exports 19 domain modules. New `apiVault.ts` holds the vault session state + `vreq` (single mutable instance, kept out of the public surface, mirroring `apiCore.ts`). |
+| `pages/Developer.tsx` | **1,579 → 336 LOC (−79%)** → `pages/developer/*` (format, WorkflowHeader, CodingLoop, WorkersView, SystemView, GoalsView). |
+| `pages/BrainV2.tsx` | **1,046 → 414** → `pages/brainv2/*`. |
+| `pages/Office.tsx` | **865 → 327** → `pages/office/*`. |
+| Import repointing | 97 files / 819 specifiers now import from the defining module instead of the barrel. |
+
+**The decisive finding was coupling, not size.** The doctor's Frontend deficit was 73%
+a *capped* 22-point god-module penalty on `api.ts` — the graph reported fan-in 43, but
+98 files actually imported the barrel (threshold is 26). Splitting more files could
+never have fixed that. A fan-in/fan-out audit after the first repointing pass caught
+that `api.office.ts` had merely **inherited** the hub role (degree 28), so Office V3
+was split out too. Final degrees, all under threshold: `api.office` 22, `api.ts` 21,
+`api.chat` 20, `api.pm` 17, `api.tasks` 14, `api.developer` 14.
+
+### Gates used
+Backend: pyflakes (zero undefined names) → `import` smoke → openapi route parity →
+TestClient smoke → affected suites. Frontend: `tsc --noEmit` → `vite build` → an
+**export-surface diff** (573 symbols, none added or missing). `dashboard/dist` is
+tracked, so it was rebuilt to match.
+
+### Grade
+**D → B− (80.1)** as measured. The stored graph is **246 commits stale**, so the doctor
+still charges the old `api.ts` god-module penalty; on the refreshed graph the same code
+projects to **≈91.2**.
+
+### Remaining to reach A (≥93)
+1. **Refresh Graphify** (`/graphify --update`) — also #21 T00. Without it the coupling
+   win is invisible and the grade understates reality.
+2. **"Other" 81.7** (5,995 LOC): `core/database.py` 1,790 → `core/schema/*`,
+   `core/telegram_bot.py` 1,306, `main.py` 948.
+3. **Conductor & Chat 89.6**: `core/conductor.py` still 1,732.
+   Doing 2 + 3 projects overall to **≈94 (A)** — `Chat.tsx` is *not* required for it.
+4. `core/brain.py` 1,435, `core/graph_engine.py` 954, `core/integrations.py` 859,
+   `core/vault.py` 808 trim the remainder.
+
+### Deliberately not done
+- **`pages/Chat.tsx` (1,537)** is a *single* function — the TypeScript AST shows one
+  top-level statement, `Chat` (44–1537); the `SessionMenu` at column 0 is a nested
+  declaration the author simply didn't indent. It cannot be split by moving
+  declarations; it needs real component decomposition with prop threading, which is a
+  behavior-risk change and wants visual verification. Same for `ArchitectureV2` (611
+  lines inside `Architecture.tsx`).
+- **Dead code found, not deleted:** `CodingLoop`, `GoalsView`, `WorkersView`
+  (~658 lines) in the old `Developer.tsx` are referenced by nothing, and already were
+  at HEAD. They look like staged #18 work, so they were preserved in
+  `pages/developer/*` — **owner decision whether to delete**.
+- Phase 3 (#22 coding-agent stores) is still gated on #22 stability.
