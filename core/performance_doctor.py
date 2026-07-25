@@ -72,7 +72,16 @@ _HUGE_FILE = 1800        # LOC above which it's a high-severity split candidate
 # only when BOTH directions are high) is a separate rubric change, deliberately not
 # bundled with this recalibration.
 _GOD_DEGREE = 40
-_TODO_RE = re.compile(r"\b(TODO|FIXME|HACK|XXX)\b")
+# An actionable debt marker lives in a COMMENT. Anchoring the match to a comment opener
+# stops the metric counting the bare word where it appears as code, data or prose.
+#
+# The bare-word version scored 14 markers across the whole codebase and 13 of them were
+# in THIS file — the marker regex itself, plus the findings text that reports on marker
+# debt. The doctor was billing its own rubric as the codebase's only TODO debt (10.2 pts
+# off Storage & Usage, the subsystem that owns this module). Real application code has
+# none. KNOWN LIMITATION: a marker written in a docstring rather than a `#` comment is
+# no longer counted, and prose *about* markers inside a comment still is.
+_TODO_RE = re.compile(r"(?:#|//|/\*)[^\n]*?\b(TODO|FIXME|HACK|XXX)\b")
 _CODE_EXT = (".py", ".ts", ".tsx", ".js", ".jsx")
 
 
