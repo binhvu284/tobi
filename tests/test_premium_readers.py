@@ -172,9 +172,17 @@ ok("timeout notice payload", pr.notice_payload(_to)["items"][0]["state"] == "tim
 
 # ── 5. Hermes skill parser (read-only) ───────────────────────────────────────────
 report = hs.skills_report()
-ok("parses 3 repo skill files", report["count"] == 3, str(report["count"]))
+# Derived from disk rather than pinned. This was hard-coded to 3 and went stale the
+# moment skill_controlled_coding.md shipped with the coding agent, so the suite failed
+# for a reason that had nothing to do with the parser. The real parsing guarantees are
+# the id/name/description assertions below.
+on_disk = sorted(p.stem for p in hs.SKILLS_DIR.glob("*.md"))
+ok(f"parses every repo skill file ({len(on_disk)})",
+   report["count"] == len(on_disk), f"{report['count']} vs {on_disk}")
 ids = {s["id"] for s in report["items"]}
-ok("known skill ids present", {"skill_ceo_agent", "skill_self_improve", "skill_research_pm_learning"} <= ids)
+ok("known skill ids present",
+   {"skill_ceo_agent", "skill_self_improve", "skill_research_pm_learning",
+    "skill_controlled_coding"} <= ids, str(sorted(ids)))
 ceo = next(s for s in report["items"] if s["id"] == "skill_ceo_agent")
 ok("name from first heading", ceo["name"] == "CEO Agent Skill")
 ok("description non-empty", bool(ceo["description"]))
