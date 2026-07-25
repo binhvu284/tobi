@@ -142,6 +142,14 @@ from api.routers.pm import router as pm_router
 app.include_router(pm_router)
 from api.routers.genesis import router as genesis_router
 app.include_router(genesis_router)
+# The integration/OAuth handlers moved into routers/genesis.py during the Phase 1 split,
+# but callers outside the app reach them as attributes of this module (tests import the
+# handler directly to exercise it without a live HTTP client). Re-exported so the split
+# stays a pure relocation — see tests/test_awakening_route.py.
+from api.routers.genesis import (  # noqa: F401
+    IntegrationConnectReq, connect_integration, google_oauth_callback,
+    test_integration_endpoint,
+)
 from api.routers.abilities import router as abilities_router
 app.include_router(abilities_router)
 from api.routers.evolution import router as evolution_router

@@ -23,6 +23,7 @@ from core.database import get_connection, init_database  # noqa: E402
 init_database()
 
 from api import dashboard  # noqa: E402
+from api.routers import genesis  # noqa: E402
 from core import awakening, integrations, vault  # noqa: E402
 
 
@@ -38,11 +39,19 @@ def ok(name: str, condition: bool, detail: str = "") -> None:
 
 
 # Keep the test hermetic: exercise route behavior without setting up real vault crypto.
-original_guard = dashboard._vault_guard
+#
+# The guard is patched on api.routers.genesis because that is the module whose globals
+# the handlers below actually resolve. The handlers are still called as dashboard.* —
+# they are re-exported there — but since the Phase 1 split they are DEFINED in genesis
+# and bind _vault_guard from api.deps at import time, so rebinding the (now unused) name
+# in dashboard's namespace would silently leave the real guard in place.
+# The vault.* and dashboard.registry.* patches below need no such change: those mutate
+# attributes on a shared module object, which every importer sees.
+original_guard = genesis._vault_guard
 original_key = vault._key
 original_encrypt = vault._encrypt
 original_inject = vault.inject_env
-dashboard._vault_guard = lambda _session: None
+genesis._vault_guard = lambda _session: None
 vault._key = b"test-key"
 vault._encrypt = lambda key, name, value: (b"cipher", b"nonce")
 vault.inject_env = lambda conn: 0
@@ -114,7 +123,7 @@ try:
     ok("successful OAuth callback records fresh verified evidence",
        len(rows) == 2 and all(r[0] == "ok" and r[1] is not None for r in rows))
 finally:
-    dashboard._vault_guard = original_guard
+    genesis._vault_guard = original_guard
     vault._key = original_key
     vault._encrypt = original_encrypt
     vault.inject_env = original_inject
