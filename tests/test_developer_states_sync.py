@@ -23,7 +23,7 @@ if str(ROOT) not in sys.path:
 from core import coding_completion, coding_loop  # noqa: E402
 from core.coding_states import (  # noqa: E402
     ACTIVE_STATES, CLEANUP_ELIGIBLE_STATES, FAULT_STATES, STAGES, STATE_KIND, SUCCESS_STATES,
-    TERMINAL_STATES, permitted_stages, state_in_clause,
+    TERMINAL_STATES, permitted_stages, state_in_clause, workflow_progress,
 )
 
 FAILURES: list[str] = []
@@ -87,6 +87,26 @@ ok("a github-disabled policy permits exactly the seven local gates",
 ok("enabling github reopens push and pull_request",
    set(permitted_stages({"github": True})) - set(sandbox) == {"push", "pull_request"})
 ok("permitted_stages tolerates a missing capability map", permitted_stages(None) == sandbox)
+
+# --- progress is measured against what the policy permits, and gated on delivery ---------
+LOCAL = {"github": False, "merge": False, "deploy": False}
+all_local_gates = {gate: "completed" for gate in sandbox}
+
+ok("every permitted gate green plus a reachable result is 100%",
+   workflow_progress(all_local_gates, LOCAL, delivered=True) == 100)
+ok("every permitted gate green with nothing reachable stops at 99",
+   workflow_progress(all_local_gates, LOCAL, delivered=False) == 99,
+   str(workflow_progress(all_local_gates, LOCAL, delivered=False)))
+ok("a run stopped early reports its share of the permitted gates",
+   workflow_progress({"prepare": "completed", "index": "completed"}, LOCAL, delivered=False) == 29,
+   str(workflow_progress({"prepare": "completed", "index": "completed"}, LOCAL, delivered=False)))
+ok("progress never counts a gate the policy forbids",
+   workflow_progress({**all_local_gates, "push": "completed"}, LOCAL, delivered=False) ==
+   workflow_progress(all_local_gates, LOCAL, delivered=False))
+ok("enabling github lowers the same run's progress, because more is now expected",
+   workflow_progress(all_local_gates, {"github": True}, delivered=False) <
+   workflow_progress(all_local_gates, LOCAL, delivered=False))
+ok("a run with no gates yet is 0%", workflow_progress({}, LOCAL, delivered=False) == 0)
 
 # --- the SQL helper binds rather than interpolates ------------------------------------
 clause, params = state_in_clause("state", ACTIVE_STATES)

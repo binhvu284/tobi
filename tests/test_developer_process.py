@@ -5,6 +5,7 @@ import tempfile
 import threading
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 from core import owner_flags
 from core.coding_agent import CodingAgent
@@ -42,6 +43,9 @@ store.update_session(int(session["id"]), state="canceled", completed_at="2026-07
 
 agent = CodingAgent.__new__(CodingAgent)
 agent.store = store
+# get_workflow reports progress against the gates the policy permits, so even this partial
+# agent needs a capability map. An empty one means the sandbox set: the seven local gates.
+agent.policy = SimpleNamespace(data={"capabilities": {}})
 agent._event = CodingAgent._event.__get__(agent, CodingAgent)
 archived = CodingAgent.command(agent, int(session["id"]), "remove")
 ok("remove archives a terminal Process workflow", bool(archived["archived_at"]))

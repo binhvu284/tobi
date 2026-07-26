@@ -240,6 +240,23 @@ terminal_overview = client.get("/api/developer/overview").json()
 ok("a locally-complete run is not the active workflow", terminal_overview["active_workflow"] is None,
    str((terminal_overview.get("active_workflow") or {}).get("state")))
 store.update_session(int(workflow["id"]), state=workflow["state"], completed_at=None)
+
+# Delivery is keyed on the commit gate, never on head_sha. `prepare` seeds head_sha with the
+# branch point, so every run carries one from the moment its worktree exists -- three runs
+# canceled during coding held a head_sha identical to their base_sha. Reading it as "work
+# exists" reported them 100% delivered.
+live = agent.get_workflow(int(workflow["id"]))
+stage_map = {item["node_id"]: item["status"] for item in live["stages"]}
+ok("an uncommitted run is not deliverable even though head_sha is set",
+   agent._delivery(live, {**stage_map, "commit": "pending"})["reachable"] is False,
+   f"head_sha={live.get('head_sha')}")
+delivered = agent._delivery(live, {**stage_map, "commit": "completed"})
+ok("a committed run is deliverable as a local branch",
+   delivered["reachable"] and delivered["kind"] == "local_branch", str(delivered))
+ok("get_workflow exposes a delivery block", isinstance(live.get("delivery"), dict))
+ok("progress never claims 100 without a reachable result",
+   agent._delivery(live, stage_map)["reachable"] or int(live["progress"]) < 100,
+   f"progress={live['progress']}")
 event_response = client.get(f"/api/developer/events?workflow_id={workflow['id']}&after=0")
 ok("event trace endpoint works", event_response.status_code == 200 and len(event_response.json()["events"]) >= 10)
 goal_response = client.post("/api/developer/goals", json={

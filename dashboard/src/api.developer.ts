@@ -28,6 +28,17 @@ export type DeveloperWorkflow = {
   pull_request?: { number?: number | null; url?: string | null; draft?: number; ci_state?: string | null } | null
   owner_state?: string; readiness?: { id: number; status: string; payload: DeveloperReadiness } | null
   evidence?: Array<Record<string, unknown>>; scorecard?: { payload: DeveloperScorecard } | null
+  delivery?: DeveloperDelivery
+}
+/** Whether this run produced a result the owner can open, and how to reach it. Keyed on the
+ *  commit gate server-side -- head_sha alone is only the branch point. */
+export type DeveloperDelivery = {
+  reachable: boolean; kind: 'pull_request' | 'local_branch' | 'none'
+  branch?: string | null; head_sha?: string | null; url?: string | null
+}
+export type DeveloperChanges = {
+  files: Array<{ path?: string; status?: string; insertions?: number; deletions?: number } | string>
+  stat: string; head_sha?: string | null
 }
 export type DeveloperCheckpoint = {
   id: number; session_id: number; worker_session_id?: number | null; sequence: number
@@ -206,6 +217,13 @@ export async function getDeveloperHistory(signal?: AbortSignal): Promise<{ workf
 }
 export async function getDeveloperScorecard(workflowId: number): Promise<DeveloperScorecard> {
   return vreq(`/api/developer/workflows/${workflowId}/scorecard`)
+}
+/** The diff a finished run produced. Fetched on demand rather than embedded in the workflow,
+ *  because it shells out to git and the overview listing builds every workflow at once. */
+export async function getDeveloperChanges(
+  workflowId: number, signal?: AbortSignal,
+): Promise<DeveloperChanges> {
+  return vreq(`/api/developer/workflows/${workflowId}/changes`, { signal })
 }
 export async function commandDeveloperWorkflow(
   workflowId: number, command: 'pause' | 'resume' | 'cancel' | 'retry' | 'remove',

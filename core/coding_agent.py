@@ -17,6 +17,7 @@ from core.coding_contracts import SprintBudget, WorkerProfile, build_handoff
 from core.coding_completion import CodingCompletionService
 from core.coding_states import (  # noqa: F401  (STAGES is re-exported for tests and callers)
     ACTIVE_STATES, CLEANUP_ELIGIBLE_STATES, STAGES, TERMINAL_STATES, state_in_clause,
+    workflow_progress,
 )
 from core.coding_learning import CodingLearningService
 from core.coding_policy import CodingPolicy, PolicyDenied
@@ -286,7 +287,6 @@ class CodingAgent:
             session_id,
             state="paused" if session.get("worktree") else "approved",
             stage="code" if session.get("worktree") else "approved",
-            progress=18 if session.get("worktree") else 0,
             policy_hash=self.policy.hash,
             plan_hash_snapshot=task["plan_hash"],
             criteria_snapshot_json=json.dumps(criteria, separators=(",", ":")),
@@ -297,6 +297,7 @@ class CodingAgent:
             cancel_requested=0,
             completed_at=None,
         )
+        self._sync_progress(session_id)
         self._event(session_id, "workflow_restarted", {
             "same_run": True,
             "reason": error_code,
@@ -331,6 +332,15 @@ class CodingAgent:
             session["pull_request"] = dict(pr) if pr else None
         finally:
             conn.close()
+        statuses = {item["node_id"]: item["status"] for item in session["stages"]}
+        session["delivery"] = self._delivery(session, statuses)
+        # Derived here as well as stored by _sync_progress. The stored column is only written
+        # on a state transition, so a run that finished under the old hardcoded scheme would
+        # otherwise keep reporting the gate number it stopped at.
+        session["progress"] = workflow_progress(
+            statuses, self.policy.data.get("capabilities", {}),
+            delivered=bool(session["delivery"]["reachable"]),
+        )
         return session
 
     def list_workflows(self, limit: int = 50) -> list[dict[str, Any]]:
@@ -683,12 +693,54 @@ class CodingAgent:
             evidence=_safe(evidence or {}),
         )
 
-    def _stage_start(self, session_id: int, node_id: str, state: str, progress: int) -> None:
+    def _delivery(self, session: dict[str, Any], stage_statuses: dict[str, str]) -> dict[str, Any]:
+        """Whether this run produced something the owner can open, and how to reach it.
+
+        Keyed on the commit gate, not on `head_sha`: `prepare` seeds `head_sha` with the
+        branch point, so every run has one from the moment its worktree exists. Three runs
+        canceled during coding still carried a `head_sha` identical to their `base_sha`.
+        Only a completed commit gate means this run's work is in the object store.
+
+        Reads no git and no network. `get_workflow` calls this once per workflow in the
+        overview listing, so anything expensive here would be paid fifty times over; the
+        diff is fetched lazily by the Delivery panel from /workflows/{id}/changes.
+        """
+        # `pull_request` is attached by get_workflow, not by store.get_session, so it only
+        # describes the result. Reachability comes from the stage table, which both have.
+        pull_request = session.get("pull_request") or {}
+        branch, head_sha = session.get("branch"), session.get("head_sha")
+        committed = stage_statuses.get("commit") == "completed" or session.get("state") == "completed"
+        if pull_request.get("url") and committed:
+            return {"reachable": True, "kind": "pull_request", "branch": branch,
+                    "head_sha": head_sha, "url": pull_request.get("url")}
+        # A committed local branch is reachable: the worktree shares the repository's object
+        # store, so the commit survives whether or not the worktree directory does.
+        if committed:
+            return {"reachable": True, "kind": "local_branch", "branch": branch,
+                    "head_sha": head_sha, "url": None}
+        return {"reachable": False, "kind": "none", "branch": branch, "head_sha": None, "url": None}
+
+    def _sync_progress(self, session_id: int) -> None:
+        """Recompute stored progress from the gates the policy permits.
+
+        Stored rather than derived on read because the History tab reads raw session rows
+        while the Process tab reads get_workflow(); deriving in only one of them is how the
+        two ended up disagreeing about the same field.
+        """
+        session = self.store.get_session(session_id) or {}
+        statuses = {item["node_id"]: item["status"] for item in self.store.list_stages(session_id)}
+        progress = workflow_progress(
+            statuses, self.policy.data.get("capabilities", {}),
+            delivered=bool(self._delivery(session, statuses)["reachable"]),
+        )
+        self.store.update_session(session_id, progress=progress)
+
+    def _stage_start(self, session_id: int, node_id: str, state: str) -> None:
         stage = next((s for s in self.store.list_stages(session_id) if s["node_id"] == node_id), None)
         attempts = int(stage["attempts"] if stage else 0) + 1
         self.store.update_stage(session_id, node_id, status="running", attempts=attempts, started_at=utc_now())
-        self.store.update_session(session_id, state=state, stage=node_id, progress=progress,
-                                  blocker=None, error_code=None)
+        self.store.update_session(session_id, state=state, stage=node_id, blocker=None, error_code=None)
+        self._sync_progress(session_id)
         session = self.store.get_session(session_id) or {}
         self.store.start_stage_attempt(
             session_id, node_id, attempts, str(session.get("worker_profile_slug") or "") or None
@@ -700,6 +752,7 @@ class CodingAgent:
         safe_result = _safe(result or {})
         self.store.update_stage(session_id, node_id, status="completed", result_json=safe_result, completed_at=utc_now())
         self.store.finish_stage_attempt(session_id, node_id, status="completed", result=safe_result)
+        self._sync_progress(session_id)
         session = self.store.get_session(session_id)
         if session:
             self.completion.record_stage_evidence(session, node_id, safe_result)
@@ -745,6 +798,7 @@ class CodingAgent:
         reason = str(_safe(reason))
         self.store.update_session(session_id, state="locally_complete", stage="push",
                                   blocker=reason, error_code=code, completed_at=utc_now())
+        self._sync_progress(session_id)
         session = self.store.get_session(session_id) or {}
         self._set_task_owner_state(int(session.get("task_id") or 0), "Ready")
         self._event(session_id, "workflow_locally_complete",
@@ -860,7 +914,7 @@ class CodingAgent:
                 return self._deploy_merged_release(session_id)
 
             if statuses.get("prepare") != "completed":
-                self._stage_start(session_id, "prepare", "preparing", 5)
+                self._stage_start(session_id, "prepare", "preparing")
                 prepared = self.git.prepare(session_id, session.get("target_version") or "3.0.0", session["title"])
                 self.store.update_session(session_id, **prepared)
                 self._stage_complete(session_id, "prepare", prepared)
@@ -868,14 +922,14 @@ class CodingAgent:
             session = self.get_workflow(session_id)
             statuses = {item["node_id"]: item["status"] for item in session["stages"]}
             if statuses.get("index") != "completed":
-                self._stage_start(session_id, "index", "preparing", 12)
+                self._stage_start(session_id, "index", "preparing")
                 snapshot = self.index.build(Path(session["worktree"]))
                 self._stage_complete(session_id, "index", snapshot)
 
             session = self.get_workflow(session_id)
             statuses = {item["node_id"]: item["status"] for item in session["stages"]}
             if statuses.get("code") != "completed":
-                self._stage_start(session_id, "code", "coding", 20)
+                self._stage_start(session_id, "code", "coding")
                 task = self.store.get_task(task_id=int(session["task_id"])) or {}
                 criteria = json.loads(session.get("criteria_snapshot_json") or task.get("acceptance_criteria_json") or "[]")
                 validation_commands = json.loads(session.get("validation_commands_json") or "[]")
@@ -986,7 +1040,7 @@ class CodingAgent:
             session = self.get_workflow(session_id)
             statuses = {item["node_id"]: item["status"] for item in session["stages"]}
             if statuses.get("review") != "completed":
-                self._stage_start(session_id, "review", "reviewing", 66)
+                self._stage_start(session_id, "review", "reviewing")
                 diff = self.git.diff_summary(session["worktree"])
                 secret_findings = self.git.scan_secrets(session["worktree"])
                 if secret_findings:
@@ -1040,7 +1094,7 @@ class CodingAgent:
                                        "review_failed")
                 self._stage_complete(session_id, "review", {**diff, **review})
             if statuses.get("commit") != "completed":
-                self._stage_start(session_id, "commit", "reviewing", 72)
+                self._stage_start(session_id, "commit", "reviewing")
                 special = self.store.has_approval(session_id, "special_paths", self.policy.hash)
                 head = self.git.commit(session["worktree"], f"feat: implement queue item #{session['queue_id']}",
                                        special_approval=special)
@@ -1056,7 +1110,7 @@ class CodingAgent:
             session = self.get_workflow(session_id)
             statuses = {item["node_id"]: item["status"] for item in session["stages"]}
             if statuses.get("scan") != "completed":
-                self._stage_start(session_id, "scan", "validating", 78)
+                self._stage_start(session_id, "scan", "validating")
                 findings = self.git.scan_secrets(session["worktree"], base_ref=session["base_sha"])
                 if findings:
                     return self._pause(session_id, "scan", "Remove probable secrets and request a clean rescan.", "secret_found")
@@ -1074,11 +1128,11 @@ class CodingAgent:
                     return self._local_complete(session_id,
                                                 "Local branch is validated. Enable the GitHub capability in reviewed policy to push and create a draft PR.",
                                                 "github_disabled")
-                self._stage_start(session_id, "push", "pushed", 84)
+                self._stage_start(session_id, "push", "pushed")
                 self.git.push(session["worktree"], session["branch"])
                 self._stage_complete(session_id, "push", {"branch": session["branch"]})
             if statuses.get("pull_request") != "completed":
-                self._stage_start(session_id, "pull_request", "pushed", 88)
+                self._stage_start(session_id, "pull_request", "pushed")
                 pr = self.github.create_draft_pr(
                     session["branch"], f"#{session['queue_id']} {session['title']}", self._pull_request_body(session_id),
                 )
@@ -1088,8 +1142,9 @@ class CodingAgent:
             session = self.get_workflow(session_id)
             pr = session.get("pull_request") or {}
             self.store.update_session(session_id, state="awaiting_merge_deploy_approval",
-                                      stage="merge_deploy", progress=90,
+                                      stage="merge_deploy",
                                       blocker="Owner re-authentication is required to merge and deploy.")
+            self._sync_progress(session_id)
             self._event(session_id, "approval_required", {"purpose": "merge_deploy", "pull_request": pr})
             self._record_learning(
                 session_id, outcome="draft_pr", stage="pull_request",
@@ -1151,10 +1206,10 @@ class CodingAgent:
             review_cycles=0,
             state="approved",
             stage="code",
-            progress=20,
             blocker=None,
             error_code=None,
         )
+        self._sync_progress(session_id)
         self._event(session_id, "sprint_started", {
             "sprint_id": next_sprint["id"],
             "sequence": next_sprint["sequence"],
@@ -1184,7 +1239,7 @@ class CodingAgent:
         return ""
 
     def _run_checks(self, session_id: int, worktree: Path) -> list[dict[str, Any]]:
-        self._stage_start(session_id, "validate", "validating", 50)
+        self._stage_start(session_id, "validate", "validating")
         results: list[dict[str, Any]] = []
         timeout = self.policy.limit("command_timeout_seconds", 900)
         session = self.get_workflow(session_id)
@@ -1318,9 +1373,10 @@ class CodingAgent:
         finally:
             conn.close()
         self.store.update_session(
-            session_id, state="paused", stage="code", progress=18, blocker=None,
+            session_id, state="paused", stage="code", blocker=None,
             error_code=None, completed_at=None, cancel_requested=0,
         )
+        self._sync_progress(session_id)
         self._event(session_id, "approval_rejected", {
             "purpose": purpose, "instruction": instruction, "restored_paths": restored,
         }, actor="owner")
@@ -1405,7 +1461,7 @@ class CodingAgent:
         if not pr or not pr["number"]:
             raise RuntimeError("Workflow has no pull request to merge.")
         try:
-            self._stage_start(session_id, "merge_deploy", "merging", 92)
+            self._stage_start(session_id, "merge_deploy", "merging")
             remote = self.github.get_pr(int(pr["number"]))
             if remote.get("merged") and remote.get("merge_commit_sha"):
                 merged = {"merged": True, "sha": remote["merge_commit_sha"], "reconciled": True}
@@ -1448,7 +1504,8 @@ class CodingAgent:
         if not self.policy.feature_enabled("deploy"):
             return self._pause(session_id, "health", "Merge completed; deployment is disabled by reviewed policy.",
                                "deploy_disabled")
-        self.store.update_session(session_id, state="deploying", stage="health", progress=96)
+        self.store.update_session(session_id, state="deploying", stage="health")
+        self._sync_progress(session_id)
         self.releases.set_status(session["target_version"], "deploying", commit_sha=release["commit_sha"])
         if latest and latest["status"] == "healthy" and latest["new_sha"] == release["commit_sha"]:
             deployment = {"id": latest["id"], "status": "healthy", "reconciled": True}
@@ -1470,8 +1527,9 @@ class CodingAgent:
         self._stage_complete(session_id, "health", {"deployment": deployment, "tag": tag})
         self.releases.set_status(session["target_version"], "released", commit_sha=release["commit_sha"],
                                  tag=tag["tag"])
-        self.store.update_session(session_id, state="completed", stage="completed", progress=100,
+        self.store.update_session(session_id, state="completed", stage="completed",
                                   blocker=None, completed_at=utc_now())
+        self._sync_progress(session_id)
         self._mark_task_completed(int(session["task_id"]))
         self._event(session_id, "workflow_completed", {"version": session["target_version"],
                                                         "sha": release["commit_sha"], "tag": tag["tag"]})

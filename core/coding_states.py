@@ -94,6 +94,33 @@ def permitted_stages(capabilities: dict[str, bool] | None) -> tuple[str, ...]:
     )
 
 
+def workflow_progress(
+    stage_statuses: dict[str, str],
+    capabilities: dict[str, bool] | None,
+    *,
+    delivered: bool,
+) -> int:
+    """How far this run is toward a result the owner can actually use.
+
+    Progress used to be a hardcoded integer written at the start of each stage, so it
+    measured position in the eleven-gate DAG. That made a run whose every permitted gate had
+    passed report 78% while its badge said complete -- two surfaces answering two different
+    questions with one number.
+
+    It is now measured against the gates the policy permits, and it may only reach 100 when
+    `delivered` is true: the work is reachable, either as a pull request or as a committed
+    branch Mission Control can hand over. A run with every local gate green but nothing the
+    owner can open is not finished work, so it stops at 99.
+    """
+    if delivered:
+        return 100
+    permitted = permitted_stages(capabilities)
+    if not permitted:
+        return 0
+    done = sum(1 for stage_id in permitted if stage_statuses.get(stage_id) == "completed")
+    return min(99, round(done / len(permitted) * 100))
+
+
 def state_in_clause(column: str, states: frozenset[str]) -> tuple[str, list[str]]:
     """Build a bound `IN (...)` fragment so SQL cannot fall behind the vocabulary.
 

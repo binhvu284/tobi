@@ -311,7 +311,7 @@ export default function Developer() {
                 </section>
               </div>
             </div>}
-            {tab === 'loop' && <DeveloperProcess workflow={active} events={events} workers={workers} queue={queue.items} busy={busy}
+            {tab === "loop" && <DeveloperProcess workflow={active} events={events} workers={workers} queue={queue.items} capabilities={overview?.policy.capabilities} busy={busy}
               autoQueue={autoQueuePending ?? overview?.process?.auto_queue ?? false} autoQueueBusy={autoQueuePending !== null} streamState={streamState} streamIssue={streamIssue}
               onAutoQueue={setAutoQueue} onCommand={command} onApprove={approve} onReject={rejectApproval} />}
             {tab === 'work' && <div className="space-y-8"><DevelopmentGoals goals={goals} busy={busy} onCreate={createGoal} onCommand={goalCommand} onCreateItem={goalId => setQueueGoalDraft({ goalId, requestId: Date.now() })} /><DeveloperQueue state={queue} active={active} busy={busy} goals={goals} createForGoalId={queueGoalDraft?.goalId} createRequestId={queueGoalDraft?.requestId}

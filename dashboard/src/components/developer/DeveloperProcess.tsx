@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   AlertTriangle, BadgeCheck, Check, CheckCheck, CheckCircle2, ChevronDown, Circle, Clock3, Copy,
-  GripVertical, LoaderCircle, Pause, Play, Radio, ShieldAlert, Square, TerminalSquare, Trash2, XCircle,
+  Github, GripVertical, LoaderCircle, Package, Pause, Play, Radio, ShieldAlert, Square, TerminalSquare, Trash2, XCircle,
 } from 'lucide-react'
 import LlmLogo from '../LlmLogo'
 import AutoQueueToggle from './AutoQueueToggle'
-import type { DeveloperEvent, DeveloperQueueItem, DeveloperWorkerProfile, DeveloperWorkflow } from '../../api.developer'
+import { getDeveloperChanges, type DeveloperChanges, type DeveloperEvent, type DeveloperQueueItem, type DeveloperWorkerProfile, type DeveloperWorkflow } from '../../api.developer'
 
-import { TERMINAL_STATES, stateKind } from '../../developer.states'
+import { TERMINAL_STATES, permittedStages, stateKind } from '../../developer.states'
 
 type WorkflowCommand = 'pause' | 'resume' | 'cancel' | 'retry' | 'remove'
 type ApprovalPurpose = 'special_paths' | 'merge_deploy'
@@ -18,6 +18,9 @@ type Props = {
   events: DeveloperEvent[]
   workers: DeveloperWorkerProfile[]
   queue: DeveloperQueueItem[]
+  /** Reviewed policy capabilities. Decides which gates this run was ever allowed to reach,
+   *  so the rail can separate "not done" from "not permitted". */
+  capabilities?: Record<string, boolean>
   busy: boolean
   autoQueue: boolean
   autoQueueBusy?: boolean
@@ -119,6 +122,76 @@ function latestCheckpoint(workflow: DeveloperWorkflow) {
   return [...(workflow.checkpoints ?? [])].sort((a, b) => b.sequence - a.sequence)[0] ?? null
 }
 
+function changedPath(entry: DeveloperChanges['files'][number]) {
+  return typeof entry === 'string' ? entry : String(entry.path ?? '')
+}
+
+/** Where a finished run's work actually is, and how to get at it.
+ *
+ *  Until this existed a locally-complete run left its branch inside .tobi/developer/worktrees
+ *  with nothing in Mission Control pointing at it, so "complete" was not something the owner
+ *  could act on. Progress is gated on the same signal that fills this panel: a run is only
+ *  100% once there is a result here to open. */
+function DeliverySection({ workflow }: { workflow: DeveloperWorkflow }) {
+  const delivery = workflow.delivery
+  const [changes, setChanges] = useState<DeveloperChanges | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    if (!delivery?.reachable) return
+    const controller = new AbortController()
+    setLoading(true); setFailed(false)
+    getDeveloperChanges(workflow.id, controller.signal)
+      .then(result => { if (!controller.signal.aborted) setChanges(result) })
+      .catch(() => { if (!controller.signal.aborted) setFailed(true) })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    return () => controller.abort()
+  }, [workflow.id, delivery?.reachable])
+
+  if (!delivery?.reachable) return null
+  const checkout = `git checkout ${delivery.branch ?? ''}`
+  const files = changes?.files ?? []
+  const copyCheckout = () => {
+    void navigator.clipboard.writeText(checkout).then(() => {
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    })
+  }
+
+  return (
+    <section className="overflow-hidden rounded-md border border-success/35 bg-success/[0.03]">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-success/20 px-4 py-3 sm:px-5">
+        <div className="flex items-center gap-2">
+          <Package size={14} className="text-success" />
+          <h3 className="text-xs font-semibold text-text">Delivery</h3>
+          <span className="text-[10px] text-muted">
+            {delivery.kind === 'pull_request' ? 'Pushed for review' : 'Committed on this machine'}
+          </span>
+        </div>
+        {delivery.kind === 'pull_request' && delivery.url
+          ? <a href={delivery.url} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-success/35 px-2.5 text-[10px] font-medium text-success hover:bg-success/10"><Github size={13} /> Open pull request</a>
+          : <button type="button" onClick={copyCheckout} className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[10px] font-medium transition-colors ${copied ? 'border-success/45 bg-success/10 text-success' : 'border-border text-muted hover:border-success/35 hover:text-text'}`}>{copied ? <CheckCheck size={12} /> : <Copy size={12} />}{copied ? 'Copied' : 'Copy checkout'}</button>}
+      </header>
+      <div className="grid gap-4 px-4 py-4 sm:px-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+        <div className="min-w-0 space-y-3">
+          <div><div className="text-[9px] uppercase text-muted">Branch</div><div className="mt-1 break-all font-mono text-[10px] text-text">{delivery.branch || 'unknown'}</div></div>
+          <div><div className="text-[9px] uppercase text-muted">Commit</div><div className="mt-1 font-mono text-[10px] text-accent">{delivery.head_sha?.slice(0, 12) || 'unknown'}</div></div>
+          {changes?.stat && <div><div className="text-[9px] uppercase text-muted">Diff</div><div className="mt-1 font-mono text-[10px] text-muted">{changes.stat.trim().split('\n').slice(-1)[0]}</div></div>}
+        </div>
+        <div className="min-w-0">
+          <div className="text-[9px] uppercase text-muted">Changed files{files.length ? ` (${files.length})` : ''}</div>
+          {loading ? <div className="mt-2 flex items-center gap-2 text-[10px] text-muted"><LoaderCircle size={12} className="animate-spin" /> Reading the worktree...</div>
+            : failed ? <p className="mt-2 text-[10px] leading-5 text-muted">The diff is unavailable -- the worktree may have been reclaimed. The commit itself is still on the branch above.</p>
+            : !files.length ? <p className="mt-2 text-[10px] text-muted">No file-level detail was recorded for this run.</p>
+            : <ul className="mt-2 max-h-32 space-y-0.5 overflow-y-auto pr-1">{files.slice(0, 40).map((entry, index) => <li key={`${changedPath(entry)}-${index}`} className="truncate font-mono text-[10px] text-text">{changedPath(entry)}</li>)}</ul>}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function nextEligibleItem(queue: DeveloperQueueItem[], currentQueueId?: number) {
   const completed = new Set(queue.filter(item => item.status === 'completed').map(item => item.queue_id))
   return queue.find(item => {
@@ -210,7 +283,7 @@ function ApprovalCard({ workflow, busy, onApprove, onReject, onCommand }: {
 }
 
 export default function DeveloperProcess({
-  workflow, events, workers, queue, busy, autoQueue, autoQueueBusy, streamState, streamIssue,
+  workflow, events, workers, queue, capabilities, busy, autoQueue, autoQueueBusy, streamState, streamIssue,
   onAutoQueue, onCommand, onApprove, onReject,
 }: Props) {
   const [split, setSplit] = useState(58)
@@ -287,6 +360,9 @@ export default function DeveloperProcess({
   const planCriteria = sprintCriteria.length ? sprintCriteria : criteria
   let handoff: Record<string, unknown> = {}
   try { handoff = checkpoint ? JSON.parse(checkpoint.handoff_json) : {} } catch { /* legacy checkpoint */ }
+  // Gates this policy allows. A gate outside this set was never attempted, so it is neither
+  // pending nor failed -- reporting it either way misdescribes a clean run.
+  const permittedGates = useMemo(() => new Set(permittedStages(capabilities)), [capabilities])
   const activeStageIndex = Math.max(0, workflow.stages.findIndex(stage => stage.node_id === workflow.stage || stage.status === 'running'))
   const lastCompletedIndex = workflow.stages.reduce((last, stage, index) => stage.status === 'completed' ? index : last, 0)
   const progressStageIndex = TERMINAL.has(workflow.state) ? lastCompletedIndex : activeStageIndex
@@ -323,9 +399,12 @@ export default function DeveloperProcess({
         </div>
         {currentTone === 'crashed' && <div className="flex items-start gap-2 border-t border-danger/25 bg-danger/5 px-4 py-3 text-[10px] leading-5 text-danger sm:px-5"><AlertTriangle size={13} className="mt-0.5 shrink-0" /><div><span className="font-semibold">{titleCase(workflow.error_code || 'workflow_failed')}:</span> <span className="text-muted">{workflow.blocker || streamIssue || 'Open Live activities for the latest failure evidence.'}</span></div></div>}
         {currentTone === 'local' && <div className="flex items-start gap-2 border-t border-success/25 bg-success/5 px-4 py-3 text-[10px] leading-5 text-success sm:px-5"><BadgeCheck size={13} className="mt-0.5 shrink-0" /><div><span className="font-semibold">Finished locally:</span> <span className="text-muted">{workflow.blocker || 'Every stage the reviewed policy permits has passed. The branch is committed but nothing has left this machine.'}</span></div></div>}
+        {!TERMINAL.has(workflow.state) && !workflow.delivery?.reachable && <div className="border-t border-border/70 px-4 py-2 text-[9px] leading-4 text-muted sm:px-5">Progress counts the {permittedGates.size} gates this policy permits. It reaches 100% once there is a result you can open.</div>}
       </section>
 
       <ApprovalCard workflow={workflow} busy={busy} onApprove={onApprove} onReject={onReject} onCommand={onCommand} />
+
+      <DeliverySection workflow={workflow} />
 
       <section className="overflow-hidden rounded-md border border-border bg-surface/30">
         <header className="flex items-center justify-between gap-4 border-b border-border/70 px-4 py-3 sm:px-5"><div><div className="text-[9px] font-semibold uppercase text-accent">Run brief</div><h3 className="mt-0.5 text-xs font-semibold text-text">{workflow.sprint?.title || workflow.title}</h3></div><span className="max-w-[45%] truncate font-mono text-[9px] text-muted">{workflow.plan_path}</span></header>
@@ -350,7 +429,7 @@ export default function DeveloperProcess({
         </article>
         <button type="button" onPointerDown={event => { event.preventDefault(); setDragging(true) }} title="Drag to resize Process panels" className="hidden cursor-col-resize items-center justify-center border-x border-border/70 bg-background/50 text-muted/50 hover:bg-accent/10 hover:text-accent lg:flex"><GripVertical size={12} /></button>
         <article className="min-w-0 border-t border-border lg:border-t-0">
-          <header className="flex h-12 items-center justify-between gap-3 border-b border-border/70 px-4"><div className="flex items-center gap-2"><CheckCircle2 size={14} className="text-accent" /><h3 className="text-xs font-semibold text-text">Sprint</h3></div><span className="text-[9px] text-muted">{workflow.stages.filter(stage => stage.status === 'completed').length}/{workflow.stages.length} gates</span></header>
+          <header className="flex h-12 items-center justify-between gap-3 border-b border-border/70 px-4"><div className="flex items-center gap-2"><CheckCircle2 size={14} className="text-accent" /><h3 className="text-xs font-semibold text-text">Sprint</h3></div><span className="text-[9px] text-muted">{workflow.stages.filter(stage => stage.status === 'completed').length}/{permittedGates.size} gates{workflow.stages.length > permittedGates.size && <span className="text-muted/60"> · {workflow.stages.length - permittedGates.size} not permitted</span>}</span></header>
           <div className="relative h-[380px] overflow-y-auto px-4 py-3">
             <div className="absolute bottom-5 left-[34px] top-5 w-px bg-border" />
             <div className="developer-sprint-line absolute left-[34px] top-5 w-px bg-accent transition-[height] duration-700" style={{ height: stageProgress > 0 ? `calc(${stageProgress}% - 8px)` : 0 }} />
@@ -359,7 +438,7 @@ export default function DeveloperProcess({
               const done = stage.status === 'completed'
               // A locally-complete run stopped at a gate the reviewed policy does not permit.
               // Those gates were never attempted, so they are not failures.
-              const unreachable = !done && workflow.state === 'locally_complete'
+              const unreachable = !done && !permittedGates.has(stage.node_id)
               const failed = !unreachable && (stage.status === 'failed' || stage.status === 'paused')
               return <div key={stage.node_id} className={`relative flex min-h-10 items-center gap-3 overflow-hidden rounded-md px-1.5 py-1.5 ${current ? 'developer-sprint-current' : ''}`}><span className={`relative z-[2] flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${done ? 'developer-sprint-complete-marker border-success/45 bg-success/10 text-success' : failed ? 'border-danger bg-danger/10 text-danger' : current ? 'developer-sprint-active-marker border-accent bg-background text-accent' : 'border-border bg-background text-muted'}`}>{done ? <BadgeCheck size={15} strokeWidth={2.25} /> : failed ? <XCircle size={11} /> : current ? <LoaderCircle size={13} className="animate-spin" /> : <Circle size={10} />}</span><div className="relative z-[1] min-w-0 flex-1"><div className={`truncate text-[10px] font-medium ${current ? 'text-accent' : done ? 'text-text' : 'text-muted'}`}>{stage.node_id === 'code' ? 'Run selected developer agent' : stage.title}</div><div className="mt-0.5 text-[8px] uppercase text-muted/70">{current ? 'In progress' : done ? 'Evidence saved' : unreachable ? 'Not permitted by policy' : failed ? titleCase(stage.status) : 'Pending'}</div></div></div>
             })}</div>
