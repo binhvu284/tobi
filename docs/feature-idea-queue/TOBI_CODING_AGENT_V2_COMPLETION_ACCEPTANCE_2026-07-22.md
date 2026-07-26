@@ -408,3 +408,35 @@ Options for the owner, none of which are code defects:
    would need a fresh run.
 3. Enable github + merge + deploy and accept that each acceptance run merges to main and
    deploys. Faithful to the matrix as written, and a large blast radius for ten test items.
+
+### Run 10, second retry — the first recorded non-failure completion
+
+Owner chose option 1. `_local_complete()` was added and both push-gate branches now use it
+instead of `_pause`. Retrying #26 from the paused push gate reached it, because retry does
+not reset stages when the error code is `github_disabled`, and `policy_hash` was untouched
+(the change was code, not policy). The run therefore walked the seven completed stages and
+re-entered the gate directly, with no worker re-run.
+
+Result, read from `coding_sessions` / `coding_run_scorecards`:
+
+- `state='locally_complete'`, `completed_at` set, `head_sha=e2cb314`
+- a scorecard exists with `"outcome":"locally_complete"`, 11 attempts, 4 retries, 0 tool
+  failures, and the real check output (compileall clean, `test_coding_agent.py` 45 PASS)
+- 6 stage evidence records
+
+The two scorecards that existed before this one both read `"state":"canceled"`. **This is
+the first run in the system's history to be persisted as finished without having failed.**
+
+#### D10 — a terminal state that only half the UI knew about
+
+`components/developer/DeveloperProcess.tsx` keeps its own `TERMINAL` set and `processTone`
+map, separate from `pages/developer/format.tsx`. Only `format.tsx` was updated, so this
+component saw an unknown state and fell through to `cooking`: the card animated, the stop
+control stayed armed, the stream read Live, and the push gate — whose `node_id` equals
+`workflow.stage` — rendered "In progress" indefinitely. The run had finished 9 minutes
+earlier. Fixed, along with a fourth inlined copy of the same set in the `remove` guard in
+`coding_agent.py` that would have refused to archive a locally-complete workflow.
+
+The lesson is the same one the `brain_memory_v2` DDL guard exists for: a constant duplicated
+across modules will drift, and here the drift was invisible because the failure mode was a
+plausible-looking "still running" rather than an error.
