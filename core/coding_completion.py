@@ -10,7 +10,7 @@ from typing import Any
 
 from core.coding_contracts import ReadinessIssue, ReadinessReport, WorkerProfile
 from core.coding_queue import REPO_ROOT
-from core.coding_states import ACTIVE_STATES
+from core.coding_states import ACTIVE_STATES, workflow_progress
 from core.development_store import DevelopmentStore, utc_now
 
 
@@ -377,4 +377,37 @@ class CodingCompletionService:
                 continue
             item["scorecard"] = self.store.get_scorecard(int(item["id"]))
             result.append(item)
+        if result:
+            stages = self._stages_by_session([int(item["id"]) for item in result])
+            capabilities = self.policy.data.get("capabilities", {})
+            for item in result:
+                status_map = stages.get(int(item["id"]), {})
+                item["progress"] = workflow_progress(
+                    status_map, capabilities,
+                    # Matches CodingAgent._delivery: the commit gate, never head_sha.
+                    delivered=status_map.get("commit") == "completed" or item.get("state") == "completed",
+                )
         return result
+
+    def _stages_by_session(self, session_ids: list[int]) -> dict[int, dict[str, str]]:
+        """Stage statuses for a whole listing in one query rather than one per session.
+
+        History reads raw session rows, so without this it would show whatever the `progress`
+        column last stored -- the hardcoded stage number for any run that finished before
+        progress became delivery-anchored. Two surfaces disagreeing about one field is the
+        defect this whole consolidation exists to end, so History derives progress from the
+        same function get_workflow uses, off the same stage data.
+        """
+        placeholders = ",".join("?" * len(session_ids))
+        conn = self.store.connect()
+        try:
+            rows = conn.execute(
+                f"SELECT session_id, node_id, status FROM coding_stages "
+                f"WHERE session_id IN ({placeholders})", session_ids,
+            ).fetchall()
+        finally:
+            conn.close()
+        stages: dict[int, dict[str, str]] = {session_id: {} for session_id in session_ids}
+        for row in rows:
+            stages[int(row["session_id"])][str(row["node_id"])] = str(row["status"])
+        return stages
