@@ -9,7 +9,7 @@ import type { DeveloperEvent, DeveloperQueueItem, DeveloperWorkerProfile, Develo
 
 type WorkflowCommand = 'pause' | 'resume' | 'cancel' | 'retry' | 'remove'
 type ApprovalPurpose = 'special_paths' | 'merge_deploy'
-type ProcessTone = 'cooking' | 'paused' | 'completed' | 'canceled' | 'crashed' | 'waiting'
+type ProcessTone = 'cooking' | 'paused' | 'completed' | 'canceled' | 'crashed' | 'waiting' | 'local'
 
 type Props = {
   workflow: DeveloperWorkflow | null
@@ -27,7 +27,10 @@ type Props = {
   onReject: (purpose: ApprovalPurpose) => void
 }
 
-const TERMINAL = new Set(['completed', 'canceled', 'failed', 'rolled_back'])
+// Mirrors TERMINAL_STATES in core/coding_completion.py. A state missing here does not
+// degrade gracefully: the run reads as active forever, so the card animates, the stop
+// control stays armed, and the gate it stopped at renders "In progress".
+const TERMINAL = new Set(['completed', 'locally_complete', 'canceled', 'failed', 'rolled_back'])
 
 function titleCase(value: string) {
   return value.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase())
@@ -35,6 +38,7 @@ function titleCase(value: string) {
 
 function processTone(workflow: DeveloperWorkflow): ProcessTone {
   if (workflow.state === 'completed') return 'completed'
+  if (workflow.state === 'locally_complete') return 'local'
   if (workflow.state === 'canceled') return 'canceled'
   if (workflow.state === 'failed' || workflow.state === 'rolled_back') return 'crashed'
   if (workflow.state === 'awaiting_merge_deploy_approval' || workflow.error_code === 'special_approval_required') return 'waiting'
@@ -51,6 +55,9 @@ const TONE = {
   },
   completed: {
     label: 'Completed', bar: 'bg-success', text: 'text-success', border: 'developer-process-completed border-success/40',
+  },
+  local: {
+    label: 'Locally Complete', bar: 'bg-success', text: 'text-success', border: 'developer-process-completed border-success/40',
   },
   canceled: {
     label: 'Canceled', bar: 'bg-muted', text: 'text-muted', border: 'border-border',
@@ -147,7 +154,7 @@ function ProcessActions({ workflow, busy, onCommand }: {
       {resumable && <button disabled={busy} onClick={() => onCommand(workflow.error_code ? 'retry' : 'resume')} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[10px] font-semibold text-background disabled:opacity-45"><Play size={13} />{workflow.error_code ? 'Retry' : 'Resume'}</button>}
       {active && !resumable && workflow.state !== 'awaiting_merge_deploy_approval' && <button disabled={busy} onClick={() => onCommand('pause')} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-[10px] font-medium text-text hover:bg-overlay/5 disabled:opacity-45"><Pause size={13} /> Pause</button>}
       {active && <button disabled={busy} onClick={() => onCommand('cancel')} title="Cancel process" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-danger/30 text-danger hover:bg-danger/5 disabled:opacity-45"><Square size={12} /></button>}
-      {(tone === 'canceled' || tone === 'completed') && <button disabled={busy} onClick={() => onCommand('remove')} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-[10px] font-medium text-muted hover:border-danger/35 hover:text-danger disabled:opacity-45"><Trash2 size={13} /> Remove</button>}
+      {(tone === 'canceled' || tone === 'completed' || tone === 'local') && <button disabled={busy} onClick={() => onCommand('remove')} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-[10px] font-medium text-muted hover:border-danger/35 hover:text-danger disabled:opacity-45"><Trash2 size={13} /> Remove</button>}
     </div>
   )
 }
@@ -301,6 +308,7 @@ export default function DeveloperProcess({
           </div>
         </div>
         {currentTone === 'crashed' && <div className="flex items-start gap-2 border-t border-danger/25 bg-danger/5 px-4 py-3 text-[10px] leading-5 text-danger sm:px-5"><AlertTriangle size={13} className="mt-0.5 shrink-0" /><div><span className="font-semibold">{titleCase(workflow.error_code || 'workflow_failed')}:</span> <span className="text-muted">{workflow.blocker || streamIssue || 'Open Live activities for the latest failure evidence.'}</span></div></div>}
+        {currentTone === 'local' && <div className="flex items-start gap-2 border-t border-success/25 bg-success/5 px-4 py-3 text-[10px] leading-5 text-success sm:px-5"><BadgeCheck size={13} className="mt-0.5 shrink-0" /><div><span className="font-semibold">Finished locally:</span> <span className="text-muted">{workflow.blocker || 'Every stage the reviewed policy permits has passed. The branch is committed but nothing has left this machine.'}</span></div></div>}
       </section>
 
       <ApprovalCard workflow={workflow} busy={busy} onApprove={onApprove} onReject={onReject} onCommand={onCommand} />
@@ -335,8 +343,11 @@ export default function DeveloperProcess({
             <div className="space-y-1">{workflow.stages.map(stage => {
               const current = !TERMINAL.has(workflow.state) && (stage.node_id === workflow.stage || stage.status === 'running')
               const done = stage.status === 'completed'
-              const failed = stage.status === 'failed' || stage.status === 'paused'
-              return <div key={stage.node_id} className={`relative flex min-h-10 items-center gap-3 overflow-hidden rounded-md px-1.5 py-1.5 ${current ? 'developer-sprint-current' : ''}`}><span className={`relative z-[2] flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${done ? 'developer-sprint-complete-marker border-success/45 bg-success/10 text-success' : failed ? 'border-danger bg-danger/10 text-danger' : current ? 'developer-sprint-active-marker border-accent bg-background text-accent' : 'border-border bg-background text-muted'}`}>{done ? <BadgeCheck size={15} strokeWidth={2.25} /> : failed ? <XCircle size={11} /> : current ? <LoaderCircle size={13} className="animate-spin" /> : <Circle size={10} />}</span><div className="relative z-[1] min-w-0 flex-1"><div className={`truncate text-[10px] font-medium ${current ? 'text-accent' : done ? 'text-text' : 'text-muted'}`}>{stage.node_id === 'code' ? 'Run selected developer agent' : stage.title}</div><div className="mt-0.5 text-[8px] uppercase text-muted/70">{current ? 'In progress' : done ? 'Evidence saved' : failed ? titleCase(stage.status) : 'Pending'}</div></div></div>
+              // A locally-complete run stopped at a gate the reviewed policy does not permit.
+              // Those gates were never attempted, so they are not failures.
+              const unreachable = !done && workflow.state === 'locally_complete'
+              const failed = !unreachable && (stage.status === 'failed' || stage.status === 'paused')
+              return <div key={stage.node_id} className={`relative flex min-h-10 items-center gap-3 overflow-hidden rounded-md px-1.5 py-1.5 ${current ? 'developer-sprint-current' : ''}`}><span className={`relative z-[2] flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${done ? 'developer-sprint-complete-marker border-success/45 bg-success/10 text-success' : failed ? 'border-danger bg-danger/10 text-danger' : current ? 'developer-sprint-active-marker border-accent bg-background text-accent' : 'border-border bg-background text-muted'}`}>{done ? <BadgeCheck size={15} strokeWidth={2.25} /> : failed ? <XCircle size={11} /> : current ? <LoaderCircle size={13} className="animate-spin" /> : <Circle size={10} />}</span><div className="relative z-[1] min-w-0 flex-1"><div className={`truncate text-[10px] font-medium ${current ? 'text-accent' : done ? 'text-text' : 'text-muted'}`}>{stage.node_id === 'code' ? 'Run selected developer agent' : stage.title}</div><div className="mt-0.5 text-[8px] uppercase text-muted/70">{current ? 'In progress' : done ? 'Evidence saved' : unreachable ? 'Not permitted by policy' : failed ? titleCase(stage.status) : 'Pending'}</div></div></div>
             })}</div>
           </div>
         </article>

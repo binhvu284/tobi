@@ -14,7 +14,7 @@ from typing import Any
 
 from core.coding_assessment import CodingTaskAssessor
 from core.coding_contracts import SprintBudget, WorkerProfile, build_handoff
-from core.coding_completion import ACTIVE_STATES, CodingCompletionService
+from core.coding_completion import ACTIVE_STATES, TERMINAL_STATES, CodingCompletionService
 from core.coding_learning import CodingLearningService
 from core.coding_policy import CodingPolicy, PolicyDenied
 from core.coding_quality import CodingQualityGate
@@ -1266,7 +1266,7 @@ class CodingAgent:
             self.completion.build_scorecard(session_id)
             return self.get_workflow(session_id)
         if command == "remove":
-            if session["state"] not in {"completed", "canceled", "failed", "rolled_back"}:
+            if session["state"] not in TERMINAL_STATES:
                 raise RuntimeError("Only a finished workflow can be removed from Process.")
             self.store.update_session(session_id, archived_at=utc_now())
             self._event(session_id, "workflow_archived", {"state": session["state"]}, actor="owner")
