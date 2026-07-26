@@ -136,3 +136,49 @@ Additional blockers for run 1 specifically:
 4. Provide or scope a Ready Queue item small enough for one continuous session.
 
 After steps 1–4 the run can be re-attempted with no code change.
+
+#### Run 1 — blockers resolved 2026-07-26, armed and awaiting Start
+
+Owner unlocked the vault and authorized the Codex CLI. `mc-native` re-probed from
+`needs_auth` to **`health=ready`** ("Executable and configured authentication source are
+available"), so the authorization reached it — no further auth work needed.
+
+**The "Coding worker must reference an available reviewer profile" toast was correct
+behavior, not a defect.** `api/developer.py:569` applies that guard only when
+`adapter != "model_review"`, so it never blocks the reviewer itself — it fired because a
+*coding worker* was saved while the reviewer was still off. It is an ordering
+requirement: **the reviewer must be enabled first.**
+
+Enabled in that order — `reviewer-default`, then `mc-native` — through the same three
+guards and the same `store.upsert_worker_profile()` call `save_worker` uses, with only
+`enabled` changed and every other field round-tripped. Not a column flip behind the
+validation, which the Closure Rule would have invalidated.
+
+**Root-cause finding on the 2026-07-18 disable:** `upsert_worker_profile` has exactly one
+caller in the entire codebase — `api/developer.py:584`, the save endpoint. Every other
+`disabled` reference is a read-side check that *raises*, never a write. There is no
+auto-disable path, so the three profiles were switched off through the UI or a scripted
+API call, and **re-enabling will hold** — nothing will silently revert it.
+
+Preflight after the fix:
+
+| Queue item | Agent | Ready | Blockers |
+|---|---|---|---|
+| #24 `testing` | `mc-native` | **True** | none |
+| #24 `testing` | `codex-chatgpt` | **True** | none |
+| #22 (self) | `mc-native` | False | `scope_too_large`, `protected_scope_approval` (correct — it is an epic) |
+
+Run 1 is armed: item #24 pinned to `worker=mc-native`, `reviewer=reviewer-default`,
+`owner_state=Ready`, readiness snapshot **id=8** (`status=ready`), validation commands
+`compileall core api` / `tests/test_coding_agent.py` / `npm run build --prefix dashboard`.
+
+**Start deliberately left to the MC UI.** `start_background()` runs the agent on a daemon
+thread inside the *calling* process, so launching it from a short-lived script would kill
+the run on exit, and a mid-run timeout would leave a half-finished workflow indistinguishable
+from a hung worker — corrupting both this run and scenario 8's evidence. The long-lived
+server must own the run, and pressing Start in the browser also produces the Owner Browser
+Acceptance evidence this document requires.
+
+Still disabled: `opencode-glm` (`health=ready`, `auth_mode=vault_env`,
+`credential_env=ZAI_API_KEY`) — that is **scenario 3's** agent, not run 1's, and it is left
+off pending an owner decision on the vault-backed credential.
