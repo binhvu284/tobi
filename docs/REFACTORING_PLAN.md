@@ -448,3 +448,51 @@ Unchanged owner decisions: `database.py` coupling (capped 22 on `Other`), `Chat.
 Two test-infrastructure gaps, neither actioned (both change the environment or pre-existing
 behavior): pytest is not installed, so one suite has never run; and
 `test_news_v2_ranking` races on `after == before + 1` immediately after `run_job`.
+
+## Round 5 — Developer page backend/frontend contract sync (stage 1)
+
+Driven by two defects in two days with one root cause: the coding-workflow state vocabulary
+was copied into seven places and nothing detected drift. Adding `locally_complete` to some
+copies and not others made the API serve a finished run as active, and made the Process tab
+render it as still running.
+
+**Single source.** `core/coding_states.py` is now authoritative. States are classified by
+kind (active/success/fault/waiting/idle) and every set is derived from that classification,
+so a state cannot be terminal in one module and unknown in another. `STAGES` moved here too,
+each gate declaring the policy capability it requires — which is what lets a caller separate
+"not reached" from "not permitted". `scripts/generate_developer_states.py` projects the
+vocabulary into `dashboard/src/developer.states.ts`; `tests/test_developer_states_sync.py`
+fails while the generated file is stale.
+
+**Bugs the collapse exposed**, none of which had a test:
+
+| Where | What |
+|---|---|
+| `api/developer.py` | inline terminal set predated `locally_complete`, so `active_workflow` stayed pinned to a finished run |
+| `coding_agent.storage/cleanup` (×4 queries) | matched only `('completed','canceled')`, so a locally-complete worktree was never reclaimable and accumulated against the 10 GB gate |
+| `coding_agent`, `development_store` | one-active-workflow guards inlined the active states as SQL text and had silently kept their old meaning |
+| `pages/developer/SystemView.tsx` | rendered `progress * 100`, so a run stored at 78 displayed as **7800%** |
+| `format.tsx` / `DeveloperProcess.tsx` | per-name tone maps had no entry for approved/pushed/merging/deploying/rolled_back — active runs rendered muted |
+
+**Progress redefined.** It was a hardcoded integer written at each `_stage_start`, measuring
+position in the eleven-gate DAG; a run with every permitted gate green reported 78% beside a
+badge reading complete. It is now computed from the gates the policy permits and may only
+reach 100 when the result is reachable. The first implementation keyed reachability on
+`head_sha` and was wrong — `prepare` seeds `head_sha` with the branch point, so three runs
+canceled during coding reported 100% delivered. Caught against the live database before
+shipping; delivery is now keyed on the commit gate and both halves are pinned by tests.
+
+**Delivery.** A locally-complete run used to leave its branch inside
+`.tobi/developer/worktrees` with nothing in Mission Control pointing at it. The new Delivery
+section shows the branch, commit, diffstat, changed files and a checkout command, wiring
+`/workflows/{id}/changes` — an endpoint that had existed and never been called.
+
+**Deleted** 696 LOC with zero importers (`CodingLoop.tsx`, `GoalsView.tsx`,
+`WorkersView.tsx`) and moved `format.tsx` into `components/developer/`, removing the split
+tree that made a component copy constants rather than import them.
+
+**Stage 2 (deferred until #22 acceptance closes)** — measured, not estimated:
+`/api/developer/overview` returns **~4.4 MB** over **~500 queries and 50 sqlite connections**,
+every 5 seconds, idle or not. `checkpoints` is 4.35 MB of it because one `handoff_json` blob
+is **1.13 MB**; the frontend reads one field from one checkpoint and never touches
+`overview.workflows` or `overview.summary` at all.

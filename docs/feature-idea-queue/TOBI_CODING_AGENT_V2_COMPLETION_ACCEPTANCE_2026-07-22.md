@@ -440,3 +440,21 @@ earlier. Fixed, along with a fourth inlined copy of the same set in the `remove`
 The lesson is the same one the `brain_memory_v2` DDL guard exists for: a constant duplicated
 across modules will drift, and here the drift was invisible because the failure mode was a
 plausible-looking "still running" rather than an error.
+
+#### D11 — progress and completion answered different questions
+
+With #26 recorded as the first non-failure completion, the card still read 78%. Both numbers
+were correct and that was the problem: the badge reported completion against what the policy
+permits, the bar reported position in the eleven-gate DAG, and nothing said which was which.
+
+Progress is now measured against the permitted gates and gated on delivery — it reaches 100
+only when the run has produced something the owner can open. #26 moves 78 → 100 with a
+Delivery section carrying its branch, commit and diff. Full write-up in
+`docs/REFACTORING_PLAN.md` Round 5.
+
+Two acceptance consequences worth recording. First, the storage-cleanup queries never matched
+`locally_complete`, so every run that finishes at this boundary would have retained its
+worktree and artifacts indefinitely — the ten-run matrix would have accumulated ten
+unreclaimable worktrees against the 10 GB gate. Second, `/overview` served the finished run
+as `active_workflow`, which would have blocked a clean read of "no run is active" between
+acceptance scenarios.
