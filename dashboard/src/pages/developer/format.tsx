@@ -16,13 +16,17 @@ export type LiveEventKind = 'stage' | 'tool' | 'worker' | 'checkpoint' | 'succes
 export type LiveEventPresentation = { title: string; detail?: string; kind: LiveEventKind }
 
 export const LOAD_TIMEOUT_MS = 15_000
-export const TERMINAL_STATES = new Set(['completed', 'canceled', 'failed', 'rolled_back'])
+// Mirrors TERMINAL_STATES in core/coding_completion.py — keep the two in step.
+// 'locally_complete' is a success, not a stop: every stage the reviewed policy allows has
+// passed and the branch is committed, but remote mutation is disabled.
+export const TERMINAL_STATES = new Set(['completed', 'locally_complete', 'canceled', 'failed', 'rolled_back'])
 export const STREAM_REFRESH_EVENTS = new Set([
   'checkpoint_created', 'quality_gate_completed', 'worker_switched',
   'workflow_blocked', 'workflow_completed', 'workflow_paused',
 ])
 export const STATE_TONE: Record<string, string> = {
   completed: 'text-success border-success/30 bg-success/10',
+  locally_complete: 'text-success border-success/30 bg-success/10',
   released: 'text-success border-success/30 bg-success/10',
   coding: 'text-accent border-accent/30 bg-accent/10',
   validating: 'text-accent border-accent/30 bg-accent/10',

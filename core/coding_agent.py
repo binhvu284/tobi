@@ -735,6 +735,40 @@ class CodingAgent:
         )
         return self.get_workflow(session_id)
 
+    def _local_complete(self, session_id: int, reason: str, code: str) -> dict[str, Any]:
+        """Terminal success at the GitHub boundary — every stage the policy allows has passed.
+
+        Distinct from `_pause` because nothing failed and nothing is waiting on the owner:
+        the reviewed policy simply does not permit remote mutation, so this workflow is
+        finished rather than interrupted. Treating it as a pause made a clean local run
+        indistinguishable from a fault in the stored data, since both wrote `state=paused`
+        with an `error_code` and neither produced a scorecard.
+
+        It is genuinely terminal. Granting the missing capability edits the policy, which
+        changes `policy_hash`, and `_run_to_gate` refuses to resume any workflow whose
+        stored hash no longer matches — so continuing this same run was never reachable
+        from here. The owner picks the work back up with a fresh workflow.
+
+        A scorecard is written, which previously only existed for merged-and-deployed runs.
+        The queue item is returned to `Ready` rather than `Done`: the branch is committed
+        locally but nothing has shipped, so the item must stay visible and actionable.
+        """
+        reason = str(_safe(reason))
+        self.store.update_session(session_id, state="locally_complete", stage="push",
+                                  blocker=reason, error_code=code, completed_at=utc_now())
+        session = self.store.get_session(session_id) or {}
+        self._set_task_owner_state(int(session.get("task_id") or 0), "Ready")
+        self._event(session_id, "workflow_locally_complete",
+                    {"stage": "push", "error_code": code, "action": reason})
+        self._checkpoint(session_id, status="locally_complete", next_action=reason)
+        self._record_learning(
+            session_id, outcome="locally_complete", stage="push", error_code=code,
+            evidence={"reason": reason, "head_sha": session.get("head_sha"),
+                      "branch": session.get("branch")},
+        )
+        self.completion.build_scorecard(session_id)
+        return self.get_workflow(session_id)
+
     def _block(self, session_id: int, stage: str, blocker: str, code: str) -> dict[str, Any]:
         blocker = str(_safe(blocker))
         self.store.update_stage(session_id, stage, status="failed", result_json={"error_code": code})
@@ -1044,13 +1078,13 @@ class CodingAgent:
             if statuses.get("push") != "completed":
                 goal = self.store.get_goal(int(session["goal_id"])) if session.get("goal_id") else None
                 if goal and goal["autonomy"] == "sandbox":
-                    return self._pause(session_id, "push",
-                                       "Goal met the local acceptance standard. Sandbox autonomy stops before GitHub mutation.",
-                                       "autonomy_boundary")
+                    return self._local_complete(session_id,
+                                                "Goal met the local acceptance standard. Sandbox autonomy stops before GitHub mutation.",
+                                                "autonomy_boundary")
                 if not self.policy.feature_enabled("github"):
-                    return self._pause(session_id, "push",
-                                       "Local branch is validated. Enable the GitHub capability in reviewed policy to push and create a draft PR.",
-                                       "github_disabled")
+                    return self._local_complete(session_id,
+                                                "Local branch is validated. Enable the GitHub capability in reviewed policy to push and create a draft PR.",
+                                                "github_disabled")
                 self._stage_start(session_id, "push", "pushed", 84)
                 self.git.push(session["worktree"], session["branch"])
                 self._stage_complete(session_id, "push", {"branch": session["branch"]})
