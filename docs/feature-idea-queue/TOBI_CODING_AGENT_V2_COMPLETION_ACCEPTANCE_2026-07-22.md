@@ -236,3 +236,73 @@ repo's own findings — the `test_news_v2_ranking` race (`after == before + 1` a
 immediately after `run_job`, documented in REFACTORING_PLAN.md round 4). It is one file,
 one subsystem, has a deterministic pass criterion, and fits the sprint budget
 (`max_files=5`, `max_changed_lines=450`, `max_subsystems=1`).
+
+### Coding run #9 — queue #25 — `codex-chatgpt` — 2026-07-26 — cancelled by owner at ~80%
+
+| | |
+|---|---|
+| Run ID | **9** |
+| Queue item | #25 Awakening external read requires verified test evidence |
+| Branch / worktree | `v3.25.0/awakening-external-read-requires-verified-test-e` (retained) |
+| Outcome | `state=canceled`, `error_code=owner_paused`, `completed_at` set |
+| Work produced | `core/awakening.py` **+24 / −28**, compiles clean, still in the worktree |
+
+Not a pass, but a large step up from run #8. The worker correctly located the defect in
+`_connector_states`, found the right evidence model (`vault_secrets.test_status == "ok"`
+plus a fresh `last_tested_at`), reused the existing `_connector_test_fresh` helper, kept
+env/vault presence for the `partial` vs `setup_needed` distinction, handled GitHub's
+app-credential trio alongside `GITHUB_TOKEN`, and rewrote the docstring that stated the
+old rule. It was about to run `compileall` and both awakening suites when it was stopped.
+
+**`coding_run_scorecards` moved off zero for the first time** — two rows now, sessions 8
+and 9 — but both record `state: "canceled"`. A happy-path scorecard remains unproven.
+
+## Defects found during acceptance
+
+Recorded per the Closure Rule (fix, or consciously accept as non-blocking).
+
+**D1 — a cancelled Queue item cannot be returned to the Queue.** Cancelling leaves the
+task at `status=approved, owner_state=Canceled`, which the Work list hides. Both
+`restore_task()` and `remove_task()` begin with `if task["status"] != "completed": raise`,
+so neither accepts a cancelled item — the "push back to queue" action cannot reach it.
+The item is not deleted and no data is lost, but it is unreachable from the UI. Owner
+expectation: **cancel should return the item to the Queue; only an explicit delete should
+remove it.** Worked around for #25 by re-running the agent-level preflight, which calls
+`configure_task(..., owner_state="Ready")` — a supported path, but not a discoverable one.
+
+**D2 — Pause is persisted as Cancel.** The owner pressed Pause. The run recorded
+`cancel_requested=1`, wrote a scorecard with `state: "canceled"`, and set `completed_at`,
+while the blocker text still read "Paused by owner. Resume when ready." A run that says it
+is resumable but is persisted as terminal will block scenarios 6 and 7.
+
+**D3 — the Process log renders every command twice.** Each command appears once for
+`item.started` and again for `item.completed`, so a healthy run looks like it is looping on
+the same three commands. Confirmed against `development_events`: `item_60`/`item_61` have
+one `started` and one `completed` each — the commands execute once. Display only, but it
+directly undermines the browser-acceptance requirement that run states be understandable
+without reading raw payloads.
+
+**D4 — the Agents page overwrites server state with stale local state.** Enabling a profile
+outside an open Agents tab is silently reverted when that tab saves; there is no version or
+conflict check. Evidence: `reviewer-default` had `last_probed_at=08:56:38` but
+`updated_at=08:56:45`, and `set_worker_health()` only ever writes health columns — so a
+second write hit `enabled`, and `upsert_worker_profile` (the save endpoint) is its only
+caller. This is also the most likely explanation for the 2026-07-18 disable recorded above.
+
+**D5 — agent health is stored globally but computed from the probing process's
+environment.** `mc-native` uses `auth_mode=native_login`; the probe shells out to the codex
+CLI, which resolves its login through `CODEX_HOME`. That variable is set in the owner's
+shell but not in the MC server process, and `.env` does not define it, so the server reports
+`needs_auth` while a CLI probe reports `ready`. Whichever probed last wins the stored value,
+making the badge appear to flicker. Proven by probing the same profile twice in one process,
+with and without the variable. Fix is environmental: give the server
+`CODEX_HOME=<repo>/.codex-home` and restart.
+
+**D6 — worker environment friction on Windows (non-blocking, costs run time).** Two issues
+cost run #9 roughly four of its nine minutes: the bracketed repository path
+(`[PERSONAL PROJECT FILES]`) prevented the worker's `workdir` from applying until it
+switched every command to `Set-Location -LiteralPath`; and its file reads go through
+PowerShell `Get-Content`, which defaults to the ANSI codepage, so the UTF-8 punctuation in
+`core/awakening.py` comments arrived corrupted and its patch anchors repeatedly missed —
+briefly leaving an unreachable placeholder in the file. The file itself is valid UTF-8 with
+zero mojibake; the corruption is in the reader, not the repository.
