@@ -182,3 +182,57 @@ Acceptance evidence this document requires.
 Still disabled: `opencode-glm` (`health=ready`, `auth_mode=vault_env`,
 `credential_env=ZAI_API_KEY`) — that is **scenario 3's** agent, not run 1's, and it is left
 off pending an owner decision on the vault-backed credential.
+
+### Coding run #8 — queue #24 — `codex-chatgpt` — 2026-07-26 — NOT A PASS (`no_changes`)
+
+First real run ever executed. Started from the MC UI, which ran its own preflight
+(readiness snapshot **10**) with its own selected agent — that superseded the `mc-native`
+pin on snapshot 8, so this run is **scenario 2 (Codex happy path)** evidence, not
+scenario 1.
+
+| | |
+|---|---|
+| Workflow / run ID | **8** |
+| Queue item | #24 `testing` (`docs/feature-idea-queue/TESTING_PLAN.md`) |
+| Agent / reviewer | `codex-chatgpt` / `reviewer-default` |
+| Branch / worktree | `v3.24.0/testing` · `.tobi/developer/worktrees/8-testing` |
+| Duration | 06:35:24 → 06:42:41 (~7 min) |
+| Outcome | `state=paused`, `error_code=no_changes`, progress 20% |
+| Result | **FAIL** — did not reach verified completion |
+
+**Why it is not a pass.** Scenario 2 requires the session to complete on one durable run
+with owner-gated draft delivery. The worker session completed, but the workflow paused at
+the `code` stage: `stage_completed {"stage":"code","result":{"changed_files":[],
+"event_count":175}}` → `workflow_paused {"error_code":"no_changes"}`. No scorecard was
+produced (`coding_run_scorecards` is still 0) and 8 of the 11 stages remain `pending`.
+
+**Root cause is the input, not the runtime.** Queue #24's plan is a stub — its entire
+objective is "testing developer feature" and its only criterion is "Must all process of
+developer worked". There is nothing implementable in it, so the worker ran for seven
+minutes, emitted 175 adapter events, and correctly changed zero files. `no_changes` is the
+right verdict for that input. **The ten-run matrix needs a queue item with concrete,
+implementable scope; #24 cannot produce a happy-path pass no matter which agent runs it.**
+
+**What this run does prove** — substantial machinery validated end to end for the first
+time:
+
+- `prepare` → `index` → `code` stages all completed; branch and isolated worktree created.
+- Codex adapter started, ran, and reported completion with an external session id.
+- **`coding_evidence_records` went 0 → 3** and `coding_stage_attempts` 0 → 3. The evidence
+  path works; it had never been exercised before today.
+- Worker artifact retained (3.7 MB) via `artifact_retained`.
+- **Two checkpoints** written, each carrying a `next_action`.
+- Failure handling is clean and structured: paused with a specific `error_code` and an
+  actionable owner message rather than crashing or hanging.
+- **Repository safety confirmed**: `base_sha == head_sha == 36fa8a5`, `main` clean, the
+  worktree clean. A failed run left no residue.
+- The paused run correctly stopped blocking afterwards — #24 now preflights `ready=True`
+  for both `mc-native` and `codex-chatgpt`, so no manual recovery was required.
+- While it was running, a second Start attempt was correctly refused with `run_active`
+  ("Coding run #8 is already active") — duplicate-run protection works.
+
+**Next**: point a run at an item with real scope. A good candidate already exists in this
+repo's own findings — the `test_news_v2_ranking` race (`after == before + 1` asserted
+immediately after `run_job`, documented in REFACTORING_PLAN.md round 4). It is one file,
+one subsystem, has a deterministic pass criterion, and fits the sprint budget
+(`max_files=5`, `max_changed_lines=450`, `max_subsystems=1`).
