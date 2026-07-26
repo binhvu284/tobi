@@ -20,7 +20,7 @@ import { approveDeveloperWorkflow, assessDeveloperGoal, commandDeveloperGoal, co
 
 import { HistoryView, SystemView } from './developer/SystemView'
 import { DeveloperSkeleton, WorkflowHeader } from './developer/WorkflowHeader'
-import { DeveloperLoadError, DeveloperStreamState, LOAD_TIMEOUT_MS, STREAM_REFRESH_EVENTS, TERMINAL_STATES, Tab, label, tone } from './developer/format'
+import { DeveloperLoadError, DeveloperStreamState, LOAD_TIMEOUT_MS, STREAM_REFRESH_EVENTS, TERMINAL_STATES, Tab, label, tone } from '../components/developer/format'
 export default function Developer() {
   const { toast } = useToast()
   const vaultSession = useVaultSession()

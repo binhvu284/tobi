@@ -7,6 +7,8 @@ import LlmLogo from '../LlmLogo'
 import AutoQueueToggle from './AutoQueueToggle'
 import type { DeveloperEvent, DeveloperQueueItem, DeveloperWorkerProfile, DeveloperWorkflow } from '../../api.developer'
 
+import { TERMINAL_STATES, stateKind } from '../../developer.states'
+
 type WorkflowCommand = 'pause' | 'resume' | 'cancel' | 'retry' | 'remove'
 type ApprovalPurpose = 'special_paths' | 'merge_deploy'
 type ProcessTone = 'cooking' | 'paused' | 'completed' | 'canceled' | 'crashed' | 'waiting' | 'local'
@@ -27,23 +29,35 @@ type Props = {
   onReject: (purpose: ApprovalPurpose) => void
 }
 
-// Mirrors TERMINAL_STATES in core/coding_completion.py. A state missing here does not
-// degrade gracefully: the run reads as active forever, so the card animates, the stop
-// control stays armed, and the gate it stopped at renders "In progress".
-const TERMINAL = new Set(['completed', 'locally_complete', 'canceled', 'failed', 'rolled_back'])
+// Generated from core/coding_states.py. This used to be a hand-written copy, and a state
+// missing from it did not degrade gracefully: the run read as active forever, so the card
+// animated, the stop control stayed armed, and the gate it stopped at showed "In progress".
+const TERMINAL = TERMINAL_STATES
 
 function titleCase(value: string) {
   return value.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase())
 }
 
+// The two states this card distinguishes by name rather than by kind: both are successes,
+// but one shipped and one stopped at a gate the policy forbids, and the owner needs to see
+// the difference. Everything else is classified by the shared kind, so a state added to
+// core/coding_states.py can never again fall through to "still running".
+const TONE_BY_STATE: Partial<Record<string, ProcessTone>> = {
+  completed: 'completed',
+  locally_complete: 'local',
+  canceled: 'canceled',
+}
+const TONE_BY_KIND: Record<string, ProcessTone> = {
+  active: 'cooking', success: 'completed', fault: 'crashed', waiting: 'paused', idle: 'canceled',
+}
+
 function processTone(workflow: DeveloperWorkflow): ProcessTone {
-  if (workflow.state === 'completed') return 'completed'
-  if (workflow.state === 'locally_complete') return 'local'
-  if (workflow.state === 'canceled') return 'canceled'
-  if (workflow.state === 'failed' || workflow.state === 'rolled_back') return 'crashed'
+  const named = TONE_BY_STATE[workflow.state]
+  if (named) return named
   if (workflow.state === 'awaiting_merge_deploy_approval' || workflow.error_code === 'special_approval_required') return 'waiting'
+  // A pause carrying an error code is a fault the owner must act on; a bare pause is theirs.
   if (workflow.state === 'paused' || workflow.state === 'blocked') return workflow.error_code && workflow.error_code !== 'owner_paused' ? 'crashed' : 'paused'
-  return 'cooking'
+  return TONE_BY_KIND[stateKind(workflow.state)] ?? 'cooking'
 }
 
 const TONE = {
