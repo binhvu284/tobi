@@ -26,7 +26,7 @@ os.environ["TOBI_CODING_WORKERS"] = "hermes"
 from core.coding_agent import CodingAgent  # noqa: E402
 from core.coding_policy import CodingPolicy, PolicyDenied, find_probable_secrets  # noqa: E402
 from core.coding_queue import parse_queue  # noqa: E402
-from core.development_store import DevelopmentStore  # noqa: E402
+from core.development_store import DevelopmentStore, utc_now  # noqa: E402
 from core.hermes_worker import HermesWorker  # noqa: E402
 
 
@@ -231,6 +231,15 @@ app.dependency_overrides[developer.require_owner] = lambda: "test-owner"
 response = client.get("/api/developer/overview")
 ok("authenticated overview works", response.status_code == 200, response.text[:200])
 ok("overview returns policy fingerprint", response.json()["policy"]["hash"] == policy.hash)
+
+# A terminal run must not be served as the active workflow. The overview endpoint used to
+# carry its own copy of the terminal-state set; when `locally_complete` was added the copy
+# was missed, so a finished run stayed "active" and the Developer page kept rendering it.
+store.update_session(int(workflow["id"]), state="locally_complete", completed_at=utc_now())
+terminal_overview = client.get("/api/developer/overview").json()
+ok("a locally-complete run is not the active workflow", terminal_overview["active_workflow"] is None,
+   str((terminal_overview.get("active_workflow") or {}).get("state")))
+store.update_session(int(workflow["id"]), state=workflow["state"], completed_at=None)
 event_response = client.get(f"/api/developer/events?workflow_id={workflow['id']}&after=0")
 ok("event trace endpoint works", event_response.status_code == 200 and len(event_response.json()["events"]) >= 10)
 goal_response = client.post("/api/developer/goals", json={

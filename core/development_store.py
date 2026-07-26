@@ -10,6 +10,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from core.coding_states import ACTIVE_STATES, state_in_clause
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -770,8 +772,9 @@ class DevelopmentStore:
                     raise RuntimeError("Idempotency key was already used for another development task.")
                 conn.commit()
                 return dict(existing)
+            clause, params = state_in_clause("state", ACTIVE_STATES)
             active = conn.execute(
-                "SELECT id FROM coding_sessions WHERE state IN ('approved','preparing','coding','validating','reviewing','pushed','merging','deploying') LIMIT 1"
+                f"SELECT id FROM coding_sessions WHERE {clause} LIMIT 1", params
             ).fetchone()
             if active:
                 raise RuntimeError(f"Coding workflow {active['id']} is already active.")

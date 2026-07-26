@@ -14,7 +14,10 @@ from typing import Any
 
 from core.coding_assessment import CodingTaskAssessor
 from core.coding_contracts import SprintBudget, WorkerProfile, build_handoff
-from core.coding_completion import ACTIVE_STATES, TERMINAL_STATES, CodingCompletionService
+from core.coding_completion import CodingCompletionService
+from core.coding_states import (  # noqa: F401  (STAGES is re-exported for tests and callers)
+    ACTIVE_STATES, CLEANUP_ELIGIBLE_STATES, STAGES, TERMINAL_STATES, state_in_clause,
+)
 from core.coding_learning import CodingLearningService
 from core.coding_policy import CodingPolicy, PolicyDenied
 from core.coding_quality import CodingQualityGate
@@ -29,20 +32,6 @@ from core.coding_tools import resolve_runtime_command
 from core.release_manager import ReleaseManager
 from core.repo_index import RepositoryIndex
 
-
-STAGES = [
-    {"id": "prepare", "title": "Create isolated worktree", "depends": []},
-    {"id": "index", "title": "Build scoped repository context", "depends": ["prepare"]},
-    {"id": "code", "title": "Run selected coding worker", "depends": ["index"]},
-    {"id": "validate", "title": "Run mandatory checks", "depends": ["code"]},
-    {"id": "review", "title": "Review scope, policy, and evidence", "depends": ["validate"]},
-    {"id": "commit", "title": "Create logical checkpoint", "depends": ["review"]},
-    {"id": "scan", "title": "Perform final secret scan", "depends": ["commit"]},
-    {"id": "push", "title": "Push feature branch", "depends": ["scan"]},
-    {"id": "pull_request", "title": "Create draft pull request", "depends": ["push"]},
-    {"id": "merge_deploy", "title": "Owner merge and deploy gate", "depends": ["pull_request"]},
-    {"id": "health", "title": "Verify release health", "depends": ["merge_deploy"]},
-]
 
 STALE_SNAPSHOT_ERRORS = {"policy_changed", "plan_changed"}
 
@@ -1278,11 +1267,10 @@ class CodingAgent:
                 raise RuntimeError(f"Workflow cannot {command} from state {session['state']}.")
             conn = self.store.connect()
             try:
+                clause, params = state_in_clause("state", ACTIVE_STATES)
                 active = conn.execute(
-                    """SELECT id FROM coding_sessions
-                       WHERE id<>? AND state IN ('approved','preparing','coding','validating','reviewing','pushed','merging','deploying')
-                       LIMIT 1""",
-                    (session_id,),
+                    f"SELECT id FROM coding_sessions WHERE id<>? AND {clause} LIMIT 1",
+                    (session_id, *params),
                 ).fetchone()
                 if active:
                     raise RuntimeError(f"Coding workflow {active['id']} is already active.")
@@ -1556,14 +1544,16 @@ class CodingAgent:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=usage["retention_days"])).isoformat()
         conn = self.store.connect()
         try:
+            artifact_clause, states = state_in_clause("s.state", CLEANUP_ELIGIBLE_STATES)
+            session_clause, _ = state_in_clause("state", CLEANUP_ELIGIBLE_STATES)
             usage["cleanup_eligible_artifacts"] = int(conn.execute(
-                """SELECT COUNT(*) FROM coding_artifacts a JOIN coding_sessions s ON s.id=a.session_id
-                   WHERE a.retain_until<=? AND a.cleanup_eligible=0 AND s.state IN ('completed','canceled')""",
-                (datetime.now(timezone.utc).isoformat(),),
+                f"""SELECT COUNT(*) FROM coding_artifacts a JOIN coding_sessions s ON s.id=a.session_id
+                    WHERE a.retain_until<=? AND a.cleanup_eligible=0 AND {artifact_clause}""",
+                (datetime.now(timezone.utc).isoformat(), *states),
             ).fetchone()[0])
             usage["cleanup_eligible_worktrees"] = int(conn.execute(
-                """SELECT COUNT(*) FROM coding_sessions WHERE state IN ('completed','canceled') AND completed_at<=?
-                   AND worktree IS NOT NULL""", (cutoff,)
+                f"""SELECT COUNT(*) FROM coding_sessions WHERE {session_clause} AND completed_at<=?
+                    AND worktree IS NOT NULL""", (*states, cutoff),
             ).fetchone()[0])
         finally:
             conn.close()
@@ -1576,14 +1566,16 @@ class CodingAgent:
         now = datetime.now(timezone.utc).isoformat()
         conn = self.store.connect()
         try:
+            artifact_clause, states = state_in_clause("s.state", CLEANUP_ELIGIBLE_STATES)
+            session_clause, _ = state_in_clause("state", CLEANUP_ELIGIBLE_STATES)
             artifacts = conn.execute(
-                """SELECT a.* FROM coding_artifacts a JOIN coding_sessions s ON s.id=a.session_id
-                   WHERE a.retain_until<=? AND a.cleanup_eligible=0 AND s.state IN ('completed','canceled')""",
-                (now,),
+                f"""SELECT a.* FROM coding_artifacts a JOIN coding_sessions s ON s.id=a.session_id
+                    WHERE a.retain_until<=? AND a.cleanup_eligible=0 AND {artifact_clause}""",
+                (now, *states),
             ).fetchall()
             sessions = conn.execute(
-                """SELECT * FROM coding_sessions WHERE state IN ('completed','canceled') AND completed_at<=?
-                   AND worktree IS NOT NULL""", (cutoff,)
+                f"""SELECT * FROM coding_sessions WHERE {session_clause} AND completed_at<=?
+                    AND worktree IS NOT NULL""", (*states, cutoff),
             ).fetchall()
         finally:
             conn.close()

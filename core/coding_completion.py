@@ -10,17 +10,10 @@ from typing import Any
 
 from core.coding_contracts import ReadinessIssue, ReadinessReport, WorkerProfile
 from core.coding_queue import REPO_ROOT
+from core.coding_states import ACTIVE_STATES
 from core.development_store import DevelopmentStore, utc_now
 
 
-ACTIVE_STATES = {
-    "approved", "preparing", "coding", "validating", "reviewing", "pushed", "merging", "deploying",
-}
-# "locally_complete" is a success: every stage the reviewed policy permits has passed and
-# the branch is committed, but capabilities.github is off so the run stops before any
-# remote mutation. Terminal because granting the capability changes policy_hash, and a
-# workflow whose stored hash no longer matches cannot be resumed.
-TERMINAL_STATES = {"completed", "locally_complete", "canceled", "failed", "rolled_back"}
 PASSING_EVIDENCE = {"passed", "success", "ok", "approved", "completed"}
 _PATH_RE = re.compile(r"(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+)")
 

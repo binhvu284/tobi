@@ -10,6 +10,7 @@ import uuid
 from typing import Any
 
 from core.coding_agent import CodingAgent, STALE_SNAPSHOT_ERRORS
+from core.coding_states import ACTIVE_STATES
 from core.development_store import utc_now
 
 
@@ -25,7 +26,6 @@ CONFIG_ERRORS = {
     "worker_unavailable", "github_disabled", "deploy_disabled", "special_approval_required",
     "external_reconciliation_required", "policy_changed", "plan_changed", "autonomy_boundary",
 }
-ACTIVE_STATES = {"approved", "preparing", "coding", "validating", "reviewing", "pushed", "merging", "deploying"}
 
 
 class CodingLoopService:

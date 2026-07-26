@@ -21,6 +21,7 @@ from core.coding_learning import CodingLearningService
 from core.coding_loop import CodingLoopService
 from core.coding_policy import PolicyDenied
 from core.coding_queue_authoring import create_queue_item
+from core.coding_states import TERMINAL_STATES
 from core.coding_workers import _platform_cli_command
 
 
@@ -212,7 +213,7 @@ def _error(exc: Exception) -> HTTPException:
 @router.get("/overview", dependencies=[Owner])
 def overview() -> dict[str, Any]:
     workflows = agent.list_workflows(50)
-    active = next((item for item in workflows if item["state"] not in {"completed", "canceled", "failed", "rolled_back"}), None)
+    active = next((item for item in workflows if item["state"] not in TERMINAL_STATES), None)
     return {
         "active_workflow": active,
         "workflows": workflows,
