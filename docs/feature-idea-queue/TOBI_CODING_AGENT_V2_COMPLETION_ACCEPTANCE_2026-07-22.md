@@ -306,3 +306,54 @@ PowerShell `Get-Content`, which defaults to the ANSI codepage, so the UTF-8 punc
 `core/awakening.py` comments arrived corrupted and its patch anchors repeatedly missed —
 briefly leaving an unreachable placeholder in the file. The file itself is valid UTF-8 with
 zero mojibake; the corruption is in the reader, not the repository.
+
+### Coding run #10 — queue #26 — `codex-chatgpt` — 2026-07-26 — work COMPLETE, blocked by the harness
+
+The furthest any run has reached. The worker finished its sprint correctly and the
+Code stage completed; the run then died inside Mission Control's own validation.
+
+| | |
+|---|---|
+| Run ID | **10** |
+| Queue item | #26 Regression suite for the chat task classifier |
+| Branch / worktree | `v3.26.0/regression-suite-for-the-chat-task-classifier` (retained) |
+| Outcome | `state=paused`, `stage=validate`, `error_code=external_step_failed` |
+| Blocker | `[WinError 2] The system cannot find the file specified` |
+
+**The delivered work satisfies every acceptance criterion.** `tests/test_task_classifier.py`,
+61 lines, **21/21 checks green** when run directly: one ASCII-only case per classifier
+outcome, the 59/60-character smalltalk boundary, and the coding-outranks-project precedence
+case. It even asserts its own fixtures are ASCII-only. `git status --untracked-files=all` in
+the worktree reports exactly one entry — the new file — so "every existing file stays
+byte-identical" holds. Stage evidence: `prepare`, `index` and `code` all completed, artifact
+retained, five checkpoints written.
+
+**D7 — the third mandatory check cannot pass on Windows, for two independent reasons.**
+This is the wall that has kept every run from completing, and neither reason is the
+worker's fault.
+
+1. **`npm` is never resolved to its Windows shim.** Every check runs through
+   `resolve_runtime_command` (`core/coding_tools.py:19`), whose entire body maps `python`
+   to `sys.executable` and returns everything else untouched. On Windows `npm` exists only
+   as `npm.cmd`, so `subprocess.run(["npm", ...])` without `shell=True` raises
+   `FileNotFoundError [WinError 2]`. Checks 1 and 2 are `python` commands and both passed —
+   `tests/test_coding_agent.py` returned all 45 checks green. Check 3 is the only non-Python
+   entry and it is unrunnable. The repository already contains the fix:
+   `_platform_cli_command()` in `core/coding_workers.py`, documented as "Launch executable
+   aliases and .cmd shims reliably from Windows services" — it is simply not applied to
+   validation commands. The worker itself hit this and worked around it by calling
+   `npm.cmd`; the harness does not.
+2. **`dashboard/node_modules` does not exist in the worktree.** It is present in the main
+   checkout but git worktrees do not carry ignored directories, so even with `npm` resolved
+   the build has no local `tsc` or `vite`. A full dashboard build is also pure waste for a
+   Python-only item like #26.
+
+**D8 — a missing executable is raised, not recorded as a failed check.** The validate loop
+calls `subprocess.run` unguarded, so a missing binary propagates as an exception and pauses
+the workflow with a bare `external_step_failed`. No `check_completed` row is written for the
+offending command, so neither the Process log nor the event trace says which check died —
+identifying it required reading `coding_agent.py` and the policy file. Contrast the two
+checks that did run, both of which recorded full `argv`, `exit_code` and output.
+
+Retried three times from the UI with identical results, which is correct behaviour for a
+deterministic environment fault, but it means Retry can never clear this class of blocker.
