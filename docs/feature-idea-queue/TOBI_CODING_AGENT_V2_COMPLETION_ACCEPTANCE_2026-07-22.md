@@ -357,3 +357,54 @@ checks that did run, both of which recorded full `argv`, `exit_code` and output.
 
 Retried three times from the UI with identical results, which is correct behaviour for a
 deterministic environment fault, but it means Retry can never clear this class of blocker.
+
+#### Run #10 after the D7/D8 fix — 7/11 gates, stopped at the GitHub boundary
+
+Mission Control was restarted with the fix and the Validate stage was retried. The wall
+cleared and the run advanced four more stages in fourteen seconds:
+
+```
+Stage Completed Validate → Review → Commit → Scan
+Local branch is validated. Enable the GitHub capability in reviewed policy
+to push and create a draft PR.
+```
+
+| | |
+|---|---|
+| State | `paused`, `stage=push`, `progress=78`, `error_code=github_disabled` |
+| Gates | **7 of 11**, each with evidence saved |
+| Commit | `base_sha 1078ade` → **`head_sha e2cb314`** — the work is committed to the branch |
+| Evidence | 6 records, 7 checkpoints, 11 stage attempts for this session |
+
+This is a deliberate policy stop, not a fault: `capabilities.github`, `merge` and `deploy`
+are all `false`. Every local stage the policy permits has now passed, and the acceptance
+criteria render as met in the UI.
+
+**D9 — "verified completion" is not reachable by a local run.** `state="completed"` is
+assigned in exactly one place, at the end of the `health` stage, and
+`completion.build_scorecard()` is called only there. Reaching it requires the full chain:
+`push` → `pull_request` → owner re-authentication → `merge_deploy` → deploy → tag. Each
+link is capability-gated, and even with `merge` enabled a disabled `deploy` pauses at
+health with "Merge completed; deployment is disabled by reviewed policy."
+
+So with the reviewed policy as shipped, the furthest any run can go is the 7/11 boundary
+reached here. **The ten-run matrix asks for "verified completion with criterion evidence
+and scorecard", but completion as implemented means merged to main, deployed and tagged —
+which is not a local operation.** The matrix and the code disagree about what finishing
+means, and that has to be resolved before any of the ten scenarios can be marked Pass.
+
+The code already contains a name for the weaker, local bar. The sibling branch of the same
+gate pauses sandbox-autonomy goals with "**Goal met the local acceptance standard.** Sandbox
+autonomy stops before GitHub mutation." That phrasing implies the designers intended a local
+run to be *finished* at this point — but it is still persisted as `paused`, and no scorecard
+is written, so nothing distinguishes it from a failure in the data.
+
+Options for the owner, none of which are code defects:
+1. Redefine local completion as this boundary, and have the workflow write a scorecard and
+   a terminal non-failure state when it stops here. Keeps the ten runs genuinely local.
+2. Enable `capabilities.github` so runs reach push and a draft PR (9/11), leaving merge
+   owner-gated. Note this changes `policy_hash`, and `_run_to_gate` refuses to resume any
+   workflow whose stored hash no longer matches — run #10 would be unresumable and #26
+   would need a fresh run.
+3. Enable github + merge + deploy and accept that each acceptance run merges to main and
+   deploys. Faithful to the matrix as written, and a large blast radius for ten test items.
