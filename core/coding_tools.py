@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -17,13 +18,29 @@ class CodingToolError(RuntimeError):
 
 
 def resolve_runtime_command(argv: Sequence[str]) -> list[str]:
-    """Run configured Python checks with the interpreter hosting Mission Control."""
+    """Resolve a configured check to something subprocess can actually launch.
+
+    Python checks run under the interpreter hosting Mission Control, so a check keeps
+    working regardless of what `python` means on the host's PATH.
+
+    Everything else is resolved through PATH on Windows. Node tooling ships as `npm.cmd`
+    with no `npm.exe`, and `subprocess.run` without `shell=True` will not find a `.cmd`
+    shim by bare name — it raises `FileNotFoundError [WinError 2]`. That made the
+    configured `npm run build` check unrunnable on Windows, which blocked the validate
+    stage of every run on this host. `shutil.which` honours PATHEXT and returns the shim's
+    full path. Left untouched when nothing is found, so the caller still gets the original
+    argv in the failure it records.
+    """
     resolved = [str(part) for part in argv]
     if not resolved:
         return resolved
     executable = Path(resolved[0]).name.lower()
     if executable in {"python", "python.exe", "python3", "python3.exe"}:
         resolved[0] = sys.executable
+    elif os.name == "nt" and not Path(resolved[0]).is_absolute():
+        found = shutil.which(resolved[0])
+        if found:
+            resolved[0] = found
     return resolved
 
 

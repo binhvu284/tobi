@@ -1,6 +1,7 @@
 """Trusted coding-tool diagnostics and runtime command tests."""
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -61,7 +62,25 @@ class CodingToolDiagnosticTests(unittest.TestCase):
 
     def test_python_checks_use_mission_control_interpreter(self) -> None:
         self.assertEqual(resolve_runtime_command(["python", "-V"])[0], sys.executable)
-        self.assertEqual(resolve_runtime_command(["npm", "run", "build"])[0], "npm")
+
+    def test_non_python_checks_resolve_windows_shims(self) -> None:
+        """A non-Python check must be launchable by subprocess without shell=True.
+
+        This assertion previously required `npm` to come back unchanged. That was the
+        cause of a real blocker: on Windows npm ships only as npm.cmd, subprocess cannot
+        find a .cmd shim by bare name, and the configured `npm run build` check therefore
+        raised WinError 2 and failed the validate stage of every run on that host.
+        """
+        resolved = resolve_runtime_command(["npm", "run", "build"])[0]
+        expected = shutil.which("npm") if os.name == "nt" else None
+        self.assertEqual(resolved, expected or "npm")
+
+        # An unresolvable tool is never rewritten, so a launch failure still reports the
+        # command the owner actually configured.
+        self.assertEqual(
+            resolve_runtime_command(["definitely-not-installed-xyz", "--v"])[0],
+            "definitely-not-installed-xyz",
+        )
 
     def test_broker_executes_python_check_with_mission_control_interpreter(self) -> None:
         policy = FakePolicy(self.root)

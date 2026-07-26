@@ -1140,6 +1140,26 @@ class CodingAgent:
         })
         return True
 
+    @staticmethod
+    def _check_unavailable(argv: list[str], worktree: Path) -> str:
+        """Reason to skip a check whose prerequisites cannot exist in a worktree, else ''.
+
+        A git worktree does not carry ignored directories, so `dashboard/node_modules` is
+        absent from every run even though it exists in the main checkout. Running the node
+        build there fails for want of a local `tsc`/`vite` no matter what the change was —
+        and for a backend-only item it is wasted effort regardless. Skipping is recorded as
+        an explicit `check_skipped` event so the gap is visible in the trace rather than
+        silently counted as a pass.
+        """
+        if not argv:
+            return ""
+        tool = Path(argv[0]).name.lower().removesuffix(".cmd").removesuffix(".exe")
+        if tool in {"npm", "npx", "pnpm", "yarn"}:
+            if not (worktree / "dashboard" / "node_modules").is_dir():
+                return ("skipped: dashboard/node_modules is absent from this worktree "
+                        "(git worktrees do not carry ignored directories)")
+        return ""
+
     def _run_checks(self, session_id: int, worktree: Path) -> list[dict[str, Any]]:
         self._stage_start(session_id, "validate", "validating", 50)
         results: list[dict[str, Any]] = []
@@ -1157,10 +1177,28 @@ class CodingAgent:
                 unique.append(argv)
         for argv in unique:
             self.policy.assert_command(argv)
-            completed = subprocess.run(
-                resolve_runtime_command(argv), cwd=str(worktree), capture_output=True,
-                text=True, timeout=timeout,
-            )
+            skip = self._check_unavailable(argv, worktree)
+            if skip:
+                result = _safe({"argv": argv, "ok": True, "exit_code": 0, "skipped": True,
+                                "output": skip})
+                results.append(result)
+                self._event(session_id, "check_skipped", result)
+                continue
+            try:
+                completed = subprocess.run(
+                    resolve_runtime_command(argv), cwd=str(worktree), capture_output=True,
+                    text=True, timeout=timeout,
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                # The command could not be launched at all (missing binary, bad shim).
+                # Record it as a failed check naming the argv — raising here pauses the
+                # workflow with a bare error and no check_completed row, so the owner
+                # cannot tell which check died.
+                result = _safe({"argv": argv, "ok": False, "exit_code": None,
+                                "output": f"{type(exc).__name__}: {exc}"})
+                results.append(result)
+                self._event(session_id, "check_completed", result)
+                break
             result = _safe({"argv": argv, "ok": completed.returncode == 0, "exit_code": completed.returncode,
                             "output": (completed.stdout + completed.stderr)[-20_000:]})
             results.append(result)
