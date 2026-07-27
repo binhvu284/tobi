@@ -3,6 +3,7 @@ import {
   Plus, X, Save, Trash2, Calendar, Target, ChevronDown, ChevronUp, Search,
   CheckCircle2, AlertTriangle, Gauge, ListChecks,
 } from 'lucide-react'
+import { ActionButton } from '../async-ui'
 import { pmCreateGoal, pmPatchGoal, pmDeleteGoal, pmLinkGoalTask, pmUnlinkGoalTask, type PMGoal } from '../../api.pm'
 import type { TaskItem } from '../../api.tasks'
 import { useToast } from '../../context/ToastProvider'
@@ -200,7 +201,7 @@ function GoalCard({ projectId, g, subs, tasks, onRefresh }: {
           {confirmDel ? (
             <span className="flex items-center gap-1.5 rounded-lg border border-danger/40 bg-danger/10 px-2 py-1">
               <span className="text-[10px] text-danger">Delete?</span>
-              <button onClick={async () => { await pmDeleteGoal(projectId, g.id); onRefresh() }} className="text-[10px] font-medium text-danger hover:underline">Yes</button>
+              <ActionButton onAction={async () => { await pmDeleteGoal(projectId, g.id); onRefresh() }} className="text-[10px] font-medium text-danger hover:underline">Yes</ActionButton>
               <button onClick={() => setConfirmDel(false)} className="text-[10px] text-muted hover:text-text">No</button>
             </span>
           ) : (
@@ -218,8 +219,9 @@ function GoalCard({ projectId, g, subs, tasks, onRefresh }: {
             <div key={t.id} className="group/lt flex items-center gap-2 rounded-lg border border-border/60 bg-surface px-2 py-1.5">
               <CheckCircle2 size={13} className={t.status === 'done' ? 'text-success' : 'text-muted/40'} />
               <span className={`min-w-0 flex-1 truncate text-[12px] ${t.status === 'done' ? 'text-muted line-through' : 'text-text'}`}>{t.title}</span>
-              <button onClick={async () => { await pmUnlinkGoalTask(projectId, g.id, t.id); onRefresh() }}
-                className="text-muted opacity-0 transition-opacity hover:text-danger group-hover/lt:opacity-100"><X size={12} /></button>
+              <ActionButton onAction={async () => { await pmUnlinkGoalTask(projectId, g.id, t.id); onRefresh() }}
+                icon={<X size={12} />}
+                className="text-muted opacity-0 transition-opacity hover:text-danger group-hover/lt:opacity-100" />
             </div>
           ))}
           <div className="flex gap-1.5">

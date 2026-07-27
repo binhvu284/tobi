@@ -12,6 +12,7 @@ import {
   AlertTriangle, ChevronRight, ExternalLink, Github, Loader2, RefreshCw, Search,
   Sparkles, Star, StickyNote, ThumbsDown, ThumbsUp, TrendingUp, Undo2, Wrench,
 } from 'lucide-react'
+import { ActionButton } from '../async-ui'
 import { getNewsV2Feed, getNewsV2TrendingGithub, getNewsV2TrendingSources, getNewsV2TrendingTools, patchNewsV2Interaction, postNewsV2Event, putNewsV2Note, type NewsV2GithubEntry, type NewsV2Interaction, type NewsV2ItemEntry } from '../../api.explore'
 import { useToast } from '../../context/ToastProvider'
 import SourceLogo from '../SourceLogo'
@@ -110,7 +111,7 @@ export default function TrendingTab({ reloadKey }: { reloadKey: number }) {
         <AlertTriangle size={18} className="mx-auto text-danger" />
         <p className="mt-2 text-sm text-text">Trending data is unavailable.</p>
         <p className="mt-1 text-xs text-muted">{error}</p>
-        <button onClick={() => void load(window_, query, topic)} className="mt-4 inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 text-xs text-text hover:bg-overlay/5"><RefreshCw size={13} /> Retry</button>
+        <ActionButton onAction={() => load(window_, query, topic)} icon={<RefreshCw size={13} />} className="mt-4 inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 text-xs text-text hover:bg-overlay/5"> Retry</ActionButton>
       </section>
     )
   }

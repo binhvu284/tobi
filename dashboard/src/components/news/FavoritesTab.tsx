@@ -6,6 +6,7 @@
 // loaded rows client-side and say so.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Loader2, RefreshCw, Search, Star } from 'lucide-react'
+import { ActionButton } from '../async-ui'
 import { getNewsV2Feed, type NewsV2ItemEntry } from '../../api.explore'
 import NewsCard, { type CardOverride } from './NewsCard'
 
@@ -104,7 +105,7 @@ export default function FavoritesTab() {
           <AlertTriangle size={18} className="mx-auto text-danger" />
           <p className="mt-2 text-sm text-text">Favorites are unavailable.</p>
           <p className="mt-1 text-xs text-muted">{error}</p>
-          <button onClick={() => void load(true)} className="mt-4 inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 text-xs text-text hover:bg-overlay/5"><RefreshCw size={13} /> Retry</button>
+          <ActionButton onAction={() => load(true)} icon={<RefreshCw size={13} />} className="mt-4 inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 text-xs text-text hover:bg-overlay/5"> Retry</ActionButton>
         </section>
       ) : view.length === 0 ? (
         <section className="rounded-lg border border-dashed border-border bg-surface/30 px-6 py-12 text-center">
@@ -126,7 +127,7 @@ export default function FavoritesTab() {
             {loadingMore ? (
               <span className="inline-flex items-center gap-2 text-xs text-muted"><Loader2 size={13} className="animate-spin" /> Loading more…</span>
             ) : cursor ? (
-              <button onClick={() => void load(false, cursor)} className="inline-flex h-8 items-center rounded-md border border-border px-4 text-xs text-text hover:border-accent/40">Load more</button>
+              <ActionButton onAction={() => load(false, cursor)} className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-4 text-xs text-text hover:border-accent/40">Load more</ActionButton>
             ) : null}
           </div>
         </>

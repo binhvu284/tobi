@@ -12,6 +12,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   AlertTriangle, ArrowUp, Brain, Loader2, RefreshCw, Rss, SlidersHorizontal, Sparkles, X,
 } from 'lucide-react'
+import { ActionButton } from '../async-ui'
 import { getNewsV2Feed, getNewsV2Profile, getNewsV2TrendingSources, type NewsV2ItemEntry } from '../../api.explore'
 import SourceLogo from '../SourceLogo'
 import NewsCard, { type CardOverride } from './NewsCard'
@@ -176,7 +177,7 @@ export default function FeedTab({ reloadKey }: { reloadKey: number }) {
             <AlertTriangle size={18} className="mx-auto text-danger" />
             <p className="mt-2 text-sm text-text">The feed is unavailable.</p>
             <p className="mt-1 text-xs text-muted">{error}</p>
-            <button onClick={() => void load(mode, source)} className="mt-4 inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 text-xs text-text hover:bg-overlay/5"><RefreshCw size={13} /> Retry</button>
+            <ActionButton onAction={() => load(mode, source)} icon={<RefreshCw size={13} />} className="mt-4 inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 text-xs text-text hover:bg-overlay/5"> Retry</ActionButton>
           </section>
         ) : entries.length === 0 ? (
           <section className="rounded-lg border border-dashed border-border bg-surface/30 px-6 py-12 text-center">
@@ -200,7 +201,7 @@ export default function FeedTab({ reloadKey }: { reloadKey: number }) {
               {loadingMore ? (
                 <span className="inline-flex items-center gap-2 text-xs text-muted"><Loader2 size={13} className="animate-spin" /> Loading more…</span>
               ) : cursor ? (
-                <button onClick={() => void loadMore()} className="inline-flex h-8 items-center rounded-md border border-border px-4 text-xs text-text hover:border-accent/40">Load more</button>
+                <ActionButton onAction={() => loadMore()} className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-4 text-xs text-text hover:border-accent/40">Load more</ActionButton>
               ) : (
                 <span className="text-[11px] text-muted">End of this snapshot.</span>
               )}

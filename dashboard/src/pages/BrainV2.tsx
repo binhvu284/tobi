@@ -6,6 +6,7 @@ import {
   ChevronRight, Loader2, ShieldAlert, Search, Database, GitMerge, Eye, Play,
   X, Filter, CheckSquare, Square, Plus, CalendarClock, TrendingUp, ArrowDownAZ, Eraser, Pencil,
 } from 'lucide-react'
+import { ActionButton } from '../components/async-ui'
 import {
   type V2Memory, type V2Stats, type V2JobStatus, type V2Candidate,
   type V2MigrationStatus, type V2MigrationItem, type V2RecallItem,
@@ -194,7 +195,7 @@ export default function BrainV2() {
             className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted hover:text-text"><Eraser size={13} /> Clean</button>
           <button onClick={() => { setTab('library'); setShowAdd(true) }}
             className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent/20"><Plus size={13} /> Add</button>
-          <button onClick={() => void reload()} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted hover:text-text"><RefreshCw size={13} /> Refresh</button>
+          <ActionButton onAction={() => reload()} icon={<RefreshCw size={13} />} className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted hover:text-text"> Refresh</ActionButton>
         </div>
       </div>
 

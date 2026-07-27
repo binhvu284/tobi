@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { X } from 'lucide-react'
+import { ActionButton } from './async-ui'
 import type { TaskAgent, TaskItem, TaskPriority, TaskStatus } from '../api.tasks'
 import TaskCommandBox from './TaskCommandBox'
 import OwnerInputChecklist from './OwnerInputChecklist'
@@ -124,17 +125,20 @@ export default function TaskDetailPanel({
           className="w-full rounded border border-border bg-surface px-2 py-1.5 text-xs text-text"
         />
         <div className="mt-2 flex justify-end">
-          <button
-            onClick={async () => {
+          {/* Adding a note is a mutation. Without a pending state an impatient second click
+              posted the same note twice. */}
+          <ActionButton
+            disabled={!note.trim()}
+            onAction={async () => {
               const value = note.trim()
               if (!value) return
               await onAddNote(task.id, value)
               setNote('')
             }}
-            className="rounded border border-accent/40 bg-accent/10 px-3 py-1 text-xs text-accent"
+            className="inline-flex items-center gap-1.5 rounded border border-accent/40 bg-accent/10 px-3 py-1 text-xs text-accent"
           >
             Add note
-          </button>
+          </ActionButton>
         </div>
       </div>
 
