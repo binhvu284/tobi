@@ -36,6 +36,7 @@ init_database()
 from core import awakening as A  # noqa: E402
 from core import brain  # noqa: E402
 from core import conductor as C  # noqa: E402
+from core.conductor_tools import external_read_tools as _ert  # noqa: E402
 
 PASS = 0
 
@@ -400,8 +401,16 @@ class _CapFake:
         return self.lines.pop(0) if self.lines else "Summarized, sir."
 
 
-_orig_rg = C.tool_read_github
-C.tool_read_github = lambda **kw: {"available": True, "repo": kw.get("repo"), "description": "stub repo"}
+# Patch where the function is DEFINED, not only where conductor re-exports it. The conductor
+# tool extraction moved tool_read_github into core.conductor_tools.external_read_tools, and
+# tool_summarize_repo calls its module-local neighbour — so rebinding only C.tool_read_github
+# left the stub unused and sent this check at a real GitHub call. Rebinding a name only
+# affects the namespace you rebind it in; a re-export restores attribute access, never a
+# monkeypatch seam.
+_stub_rg = lambda **kw: {"available": True, "repo": kw.get("repo"), "description": "stub repo"}
+_orig_rg, _orig_ert_rg = C.tool_read_github, _ert.tool_read_github
+C.tool_read_github = _stub_rg
+_ert.tool_read_github = _stub_rg
 _fake = _CapFake(['{"tool":"summarize_repo","args":{"repo":"octocat/Hello-World"}}', "Here's the summary, sir."])
 _orig_get_llm = mr.get_llm
 mr.get_llm = lambda *a, **k: _fake
@@ -409,6 +418,7 @@ try:
     C.answer("summarize the github repo octocat/Hello-World for me", chat_id=-7788, surface="mc")
 finally:
     C.tool_read_github = _orig_rg
+    _ert.tool_read_github = _orig_ert_rg
     mr.get_llm = _orig_get_llm
 conn = get_connection()
 rec = conn.execute("SELECT status FROM tobi_actions WHERE tool='summarize_repo' AND chat_id=-7788 ORDER BY id DESC LIMIT 1").fetchone()
