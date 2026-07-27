@@ -7,6 +7,7 @@ import os
 import socket
 import subprocess
 import threading
+import traceback
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1238,8 +1239,17 @@ class CodingAgent:
         except (GitCommandError, GitHubCodingError, subprocess.SubprocessError, OSError) as exc:
             return self._pause(session_id, self.get_workflow(session_id)["stage"], str(exc)[:1000], "external_step_failed")
         except Exception as exc:
+            # The name of the exception class is not a diagnosis. Run 15 reported only
+            # "TypeError" and finding it cost a full agent run; the traceback names the line
+            # in one read. Kept as an event and an artifact so it survives in the trace.
+            trace = traceback.format_exc()
+            self._event(session_id, "internal_error", _safe({
+                "error": f"{type(exc).__name__}: {exc}"[:2000], "traceback": trace[-8000:],
+            }))
+            self._artifact(session_id, "internal_error", {"traceback": trace[-20_000:]})
             return self._pause(session_id, self.get_workflow(session_id)["stage"],
-                               f"Workflow stopped safely: {type(exc).__name__}", "internal_error")
+                               f"Workflow stopped safely: {type(exc).__name__}: {exc}"[:500],
+                               "internal_error")
 
     def _advance_sprint(self, session_id: int, checkpoint_sha: str) -> bool:
         session = self.store.get_session(session_id) or {}
@@ -1344,7 +1354,7 @@ class CodingAgent:
             try:
                 completed = subprocess.run(
                     resolve_runtime_command(argv), cwd=str(worktree), capture_output=True,
-                    text=True, timeout=timeout,
+                    text=True, encoding="utf-8", errors="replace", timeout=timeout,
                 )
             except (OSError, subprocess.SubprocessError) as exc:
                 # The command could not be launched at all (missing binary, bad shim).
@@ -1356,8 +1366,10 @@ class CodingAgent:
                 results.append(result)
                 self._event(session_id, "check_completed", result)
                 break
+            # A reader thread that died mid-decode leaves the stream as None rather than "".
+            # Concatenating that is the TypeError that killed run 15 after every check passed.
             result = _safe({"argv": argv, "ok": completed.returncode == 0, "exit_code": completed.returncode,
-                            "output": (completed.stdout + completed.stderr)[-20_000:]})
+                            "output": ((completed.stdout or "") + (completed.stderr or ""))[-20_000:]})
             results.append(result)
             self._event(session_id, "check_completed", result)
             if not result["ok"]:

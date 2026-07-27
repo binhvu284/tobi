@@ -33,21 +33,27 @@ class GitWorkspaceManager:
         cwd: Path | None = None,
         timeout: int = 120,
         allow_network: bool = False,
+        strip: bool = True,
     ) -> str:
         self.policy.assert_command(argv, allow_network=allow_network)
+        # Decode git's bytes as UTF-8 rather than the console codepage. On this host the
+        # locale is cp1258, which cannot decode a diff, a filename, or a commit message that
+        # carries any non-Latin byte: the reader thread dies and the stream comes back None.
         result = subprocess.run(
             list(argv), cwd=str(cwd or self.repo_root), capture_output=True, text=True,
-            timeout=timeout, env=os.environ.copy(),
+            encoding="utf-8", errors="replace", timeout=timeout, env=os.environ.copy(),
         )
         if result.returncode != 0:
             message = (result.stderr or result.stdout or "Git command failed.").strip()
             if len(message) > 2000:
                 message = f"[earlier command output omitted]\n{message[-1967:]}"
             raise GitCommandError(message)
-        return result.stdout.strip()
+        return (result.stdout or "").strip() if strip else (result.stdout or "")
 
-    def git(self, *args: str, cwd: Path | None = None, timeout: int = 120, allow_network: bool = False) -> str:
-        return self._run(["git", *args], cwd=cwd, timeout=timeout, allow_network=allow_network)
+    def git(self, *args: str, cwd: Path | None = None, timeout: int = 120,
+            allow_network: bool = False, strip: bool = True) -> str:
+        return self._run(["git", *args], cwd=cwd, timeout=timeout,
+                         allow_network=allow_network, strip=strip)
 
     def _assert_worktree(self, worktree: Path | str) -> Path:
         root = Path(worktree).resolve()
@@ -131,7 +137,13 @@ class GitWorkspaceManager:
 
     def changed_files(self, worktree: Path | str) -> list[str]:
         root = self._assert_worktree(worktree)
-        output = self.git("status", "--porcelain=v1", "-z", "--untracked-files=all", cwd=root)
+        # `strip=False` matters: a porcelain record is "XY PATH", and an unstaged edit -- the
+        # normal state after an agent writes -- has status " M", so stripping ate the leading
+        # space of the first record and every path lost its first character. Run 15 reported
+        # "ore/awakening.py". That path is then what the quality gate checks against the
+        # protected-path list, so a truncated "core/coding_agent.py" would no longer match it.
+        output = self.git("status", "--porcelain=v1", "-z", "--untracked-files=all",
+                          cwd=root, strip=False)
         records = output.split("\0")
         files: set[str] = set()
         index = 0

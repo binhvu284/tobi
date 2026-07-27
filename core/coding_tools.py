@@ -188,9 +188,12 @@ class CodingToolBroker:
             cwd=str(self.worktree),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=self.policy.limit("command_timeout_seconds", 900),
         )
-        output = (completed.stdout + completed.stderr).encode("utf-8", errors="replace")[-self.max_output_bytes:]
+        output = ((completed.stdout or "") + (completed.stderr or "")).encode(
+            "utf-8", errors="replace")[-self.max_output_bytes:]
         result = {
             "index": index,
             "argv": argv,

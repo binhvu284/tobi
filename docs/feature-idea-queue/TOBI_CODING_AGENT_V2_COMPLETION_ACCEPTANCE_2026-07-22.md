@@ -517,3 +517,34 @@ Fixed in `core/coding_criteria.py`, called from `CodingCompletionService.preflig
 
 **Acceptance consequence:** every run recorded before this fix was judged against an incomplete
 evidence set. Run 10's pass should not be carried forward as scenario coverage.
+
+**D17 — a passing check killed the run that produced it.** Run 15 (#25) was the first run to
+execute the check its criteria named, and it passed: `python tests/test_awakening.py` exited 0
+with `ALL 73 CHECKS PASSED`. The workflow then died with `internal_error: TypeError`.
+
+The console locale on this host is cp1258. `subprocess.run(text=True)` decodes a child's output
+with it, and `tests/test_awakening.py` ends with an emoji whose UTF-8 bytes cp1258 cannot decode.
+The reader thread raised `UnicodeDecodeError` and died, leaving `completed.stdout` as `None`;
+`(None + "")` is the TypeError. A character in a success message was fatal.
+
+The same unpinned decode sat under `GitWorkspace._run`, so any diff, filename, or commit message
+carrying a non-Latin byte would have ended a run identically. Fixed by pinning
+`encoding="utf-8", errors="replace"` in the agent's check runner, the worker's check runner, and
+every git call, and by treating a lost stream as empty rather than concatenating `None`.
+
+Two defects found alongside it, both from the same run's trace:
+
+- **Every changed path lost its first character.** `git status --porcelain=v1 -z` emits
+  `"XY PATH"`; an unstaged edit -- what a worktree always holds after an agent writes -- has
+  status `" M"`, and `_run` returned `stdout.strip()`, so the first record's leading space was
+  eaten. Run 15 recorded `ore/awakening.py`. This is not cosmetic: `changed_files()` feeds
+  `CodingQualityGate.evaluate`, which passes those paths to `assert_write_paths`, so a truncated
+  `core/coding_agent.py` no longer matches the protected entry that guards it. `changed_files`
+  now requests the unstripped output.
+- **`internal_error` discarded the traceback.** The handler reported only
+  `type(exc).__name__`, so the owner and the next session saw the word "TypeError" and nothing
+  else; locating it cost this run. The traceback is now kept as an event and an artifact, and
+  the blocker text carries the message.
+
+**Acceptance consequence:** run 15 is the first run whose criteria-named check actually
+executed, and it passed. The failure was in the harness reading the result, not in the work.
