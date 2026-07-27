@@ -12,6 +12,7 @@ import {
   Trash2, Upload, X,
 } from 'lucide-react'
 import { createDeveloperQueueItem, getDeveloperQueue, getDeveloperQueuePlan, preflightDeveloperQueueItem, removeDeveloperQueueItem, restoreDeveloperQueueItem, setDeveloperQueueOrder, type DeveloperGoal, type DeveloperQueueItem, type DeveloperQueuePlan, type DeveloperQueueState, type DeveloperReadiness, type DeveloperWorkflow } from '../../api.developer'
+import { TERMINAL_STATES } from '../../developer.states'
 import { useToast } from '../../context/ToastProvider'
 import MarkdownView from '../chat/MarkdownView'
 import AutoQueueToggle from './AutoQueueToggle'
@@ -22,6 +23,16 @@ function label(value: string) {
 
 function deps(item: DeveloperQueueItem): number[] {
   try { return JSON.parse(item.dependencies_json) as number[] } catch { return [] }
+}
+
+/** Why an item is off the queue. `status` alone cannot say: a locally-complete run, a
+ *  canceled run and a failed run all leave the task at 'approved', and only owner_state
+ *  distinguishes them. */
+function offQueueReason(item: DeveloperQueueItem): string {
+  if (item.status === 'completed') return 'Shipped'
+  const owner = item.owner_state
+  if (owner && owner !== 'Ready') return label(owner)
+  return item.status === 'approved' ? 'Ran, not shipped' : label(item.status)
 }
 
 /** One-line item card used in the Next slot and the priority list. */
@@ -89,7 +100,14 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
 
   const byId = useMemo(() => new Map(state.items.map(item => [item.queue_id, item])), [state.items])
   const nextItem = state.next_queue_id != null ? byId.get(state.next_queue_id) ?? null : null
-  const completed = useMemo(() => state.items.filter(item => item.status === 'completed'), [state.items])
+  // Everything that is off the queue, not only what shipped. Starting a run moves an item to
+  // 'approved' and nothing moves it back unless the run merges and deploys, so a run that
+  // finished locally, was canceled, or failed left its item in neither list -- visible only
+  // as a History row with no action on it. The live run is excluded because it is not idle.
+  const offQueue = useMemo(() => state.items.filter(item =>
+    item.status !== 'planned' && item.status !== 'deleted' &&
+    !(active && !TERMINAL_STATES.has(active.state) && active.queue_id === item.queue_id),
+  ), [state.items, active])
 
   // Priority list = saved order first, then any planned item the order does not
   // know yet (new QUEUE.md rows), excluding the Next slot.
@@ -286,7 +304,7 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
             </button>
             <button onClick={() => setCompletedOpen(true)}
               className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-[11px] text-muted hover:text-text">
-              <Archive size={12} /> Completed · {completed.length}
+              <Archive size={12} /> Off queue · {offQueue.length}
             </button>
           </div>
         </div>
@@ -315,7 +333,7 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
       </section>
 
       <CompletedModal open={completedOpen} onClose={() => { setCompletedOpen(false); setConfirmRemove(null) }}
-        items={completed} rowBusy={rowBusy} confirmRemove={confirmRemove}
+        items={offQueue} rowBusy={rowBusy} confirmRemove={confirmRemove}
         onOpenPlan={item => setPlanFor(item)} onRestore={restore}
         onAskRemove={setConfirmRemove} onRemove={remove} />
       <AddItemModal open={addOpen} goals={goals} initialGoalId={createForGoalId} onClose={() => setAddOpen(false)} onSubmit={createItem} />
@@ -353,7 +371,7 @@ function CompletedModal({ open, onClose, items, rowBusy, confirmRemove, onOpenPl
             transition={{ duration: 0.16 }}
             className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-surface shadow-2xl">
             <header className="flex items-center justify-between border-b border-border px-5 py-4">
-              <div><h2 className="font-semibold text-text">Completed items</h2><p className="mt-0.5 text-xs text-muted">Push an item back into the queue, or remove it from the list.</p></div>
+              <div><h2 className="font-semibold text-text">Items off the queue</h2><p className="mt-0.5 text-xs text-muted">Everything that shipped, stopped, or was canceled. Push one back into the queue to run it again, or remove it from the list.</p></div>
               <button onClick={onClose} title="Close" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-overlay/10 hover:text-text"><X size={17} /></button>
             </header>
             <div className="border-b border-border px-5 py-3">
@@ -365,13 +383,13 @@ function CompletedModal({ open, onClose, items, rowBusy, confirmRemove, onOpenPl
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
               {filtered.length === 0 ? (
-                <p className="py-8 text-center text-xs text-muted">{items.length === 0 ? 'Nothing is completed yet.' : 'No completed item matches the search.'}</p>
+                <p className="py-8 text-center text-xs text-muted">{items.length === 0 ? 'Every item is still in the queue.' : 'No item off the queue matches the search.'}</p>
               ) : filtered.map(item => (
                 <div key={item.queue_id} className="flex items-center gap-2.5 border-b border-border/60 py-2.5 last:border-b-0">
-                  <CheckCircle2 size={14} className="shrink-0 text-success" />
+                  <CheckCircle2 size={14} className={`shrink-0 ${item.status === 'completed' ? 'text-success' : 'text-muted'}`} />
                   <button onClick={() => onOpenPlan(item)} className="min-w-0 flex-1 text-left">
                     <span className="text-sm font-medium text-text">#{item.queue_id} {item.title}</span>
-                    <span className="ml-2 hidden text-[11px] text-muted sm:inline">{item.queue_status ?? ''}</span>
+                    <span className="ml-2 hidden text-[11px] text-muted sm:inline">{offQueueReason(item)}</span>
                   </button>
                   <button disabled={rowBusy != null} onClick={() => onRestore(item.queue_id)} title="Push back to queue"
                     className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-[11px] text-muted hover:text-accent disabled:opacity-40">

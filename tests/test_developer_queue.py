@@ -78,16 +78,29 @@ done = completed[0]
 state = agent.restore_task(done)
 ok("restore: completed -> planned", any(
     t["queue_id"] == done and t["status"] == "planned" for t in state["items"]))
+state = agent.restore_task(done)                     # already planned -> idempotent
+ok("restore of an already-queued item is a no-op, not an error",
+   sum(1 for t in state["items"] if t["queue_id"] == done and t["status"] == "planned") == 1)
 try:
-    agent.restore_task(done)                        # now planned -> guard fires
-    raise AssertionError("restore of planned item accepted")
-except ValueError:
-    ok("restore guards non-completed items", True)
-try:
-    agent.remove_task(done)                          # planned -> remove refused
+    agent.remove_task(done)                          # planned -> remove still refused
     raise AssertionError("remove of planned item accepted")
 except ValueError:
-    ok("remove guards non-completed items", True)
+    ok("remove still guards an item that is in the queue", True)
+
+# Starting a run moves a task to 'approved', and nothing moves it back unless that run
+# merges and deploys. restore/remove used to accept 'completed' only, so a run that finished
+# locally, was canceled, or failed left its item reachable from neither the queue nor the
+# completed list -- a History row with no action on it.
+store.set_task_status(done, "approved")
+state = agent.restore_task(done)
+ok("an item stranded at approved can be pushed back to the queue", any(
+    t["queue_id"] == done and t["status"] == "planned" for t in state["items"]))
+ok("requeue clears a stale owner state", (store.get_task(queue_id=done) or {})["owner_state"] == "Ready")
+store.set_task_status(done, "approved")
+state = agent.remove_task(done)
+ok("an item stranded at approved can also be removed",
+   all(t["queue_id"] != done for t in state["items"]))
+store.set_task_status(done, "planned")
 store.set_task_status(done, "completed")             # put it back
 state = agent.remove_task(done)
 ok("remove: completed -> hidden from queue", all(t["queue_id"] != done for t in state["items"]))

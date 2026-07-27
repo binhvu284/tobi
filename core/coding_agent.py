@@ -492,13 +492,41 @@ class CodingAgent:
         return self.queue_state()
 
     def restore_task(self, queue_id: int) -> dict[str, Any]:
-        """Completed → planned (Queue tab 'push back to queue')."""
+        """Any item that is off the queue → planned ('push back to queue').
+
+        This used to accept `completed` only, which left a dead zone. Starting a run moves a
+        task to `approved`, and nothing moves it back unless the run merges and deploys. A
+        run that finished locally, was canceled, or failed therefore left its item invisible:
+        gone from the Queue, absent from the Completed list, and refused by this method --
+        reachable only as a History row with no action on it.
+
+        The live-run guard replaces the status check. Requeueing a task while its workflow is
+        still executing would let the owner start a second run against the same item.
+        """
         task = self.store.get_task(queue_id=int(queue_id))
         if not task:
             raise KeyError(f"Queue item #{queue_id} was not found.")
-        if task["status"] != "completed":
-            raise ValueError(f"Queue item #{queue_id} is {task['status']}, not completed.")
+        if task["status"] == "planned":
+            return self.queue_state()
+        if task["status"] == "deleted":
+            raise ValueError(f"Queue item #{queue_id} was deleted. Restore it from QUEUE.md.")
+        conn = self.store.connect()
+        try:
+            clause, params = state_in_clause("state", ACTIVE_STATES)
+            live = conn.execute(
+                f"SELECT id FROM coding_sessions WHERE task_id=? AND {clause} LIMIT 1",
+                (int(task["id"]), *params),
+            ).fetchone()
+        finally:
+            conn.close()
+        if live:
+            raise ValueError(
+                f"Queue item #{queue_id} has workflow {live['id']} running. Stop it before requeueing."
+            )
         self.store.set_task_status(int(queue_id), "planned", override_source=True)
+        # Clear the owner state too. A canceled item kept owner_state='Canceled', so even once
+        # it was back in the queue the Work list would still label it as stopped.
+        self._set_task_owner_state(int(task["id"]), "Ready")
         return self.queue_state()
 
     def remove_task(self, queue_id: int) -> dict[str, Any]:
@@ -507,8 +535,28 @@ class CodingAgent:
         task = self.store.get_task(queue_id=int(queue_id))
         if not task:
             raise KeyError(f"Queue item #{queue_id} was not found.")
-        if task["status"] != "completed":
-            raise ValueError(f"Only completed items can be removed (#{queue_id} is {task['status']}).")
+        # Mirrors restore_task: any item that is off the queue can be removed, gated on there
+        # being no live run rather than on the status being exactly 'completed'. Requiring
+        # 'completed' meant an item stranded at 'approved' could be neither requeued nor
+        # deleted -- it simply stayed in the list forever. An item still in the queue is
+        # deliberately still refused; removing it is the queue owner's edit, not this action.
+        if task["status"] == "deleted":
+            return self.queue_state()
+        if task["status"] == "planned":
+            raise ValueError(f"Queue item #{queue_id} is still in the queue. Requeue is for items that left it.")
+        conn = self.store.connect()
+        try:
+            clause, params = state_in_clause("state", ACTIVE_STATES)
+            live = conn.execute(
+                f"SELECT id FROM coding_sessions WHERE task_id=? AND {clause} LIMIT 1",
+                (int(task["id"]), *params),
+            ).fetchone()
+        finally:
+            conn.close()
+        if live:
+            raise ValueError(
+                f"Queue item #{queue_id} has workflow {live['id']} running. Stop it before removing."
+            )
         self.store.set_task_status(int(queue_id), "deleted", override_source=True)
         return self.queue_state()
 
