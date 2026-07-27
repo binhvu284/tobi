@@ -43,6 +43,12 @@ class FakeClient:
 class FakePolicy:
     data = {"workers": {"llm_tool_steps": 4}}
 
+    def limit(self, name: str, default: int) -> int:
+        return default
+
+    def feature_enabled(self, name: str) -> bool:
+        return True
+
 
 class FakeBroker:
     def __init__(self, *args, **kwargs) -> None:
@@ -169,6 +175,62 @@ class WorkerLaunchSizeTests(unittest.TestCase):
         # Asserting the helper alone still passed with the raw handoff wired straight in.
         source = (ROOT / "core" / "coding_workers.py").read_text(encoding="utf-8")
         self.assertIn('brief["checkpoint_handoff"] = _actionable_handoff(', source)
+
+    def test_a_failed_resume_falls_back_to_a_fresh_session(self) -> None:
+        """An unreplayable transcript must not strand the item.
+
+        Codex reports `Orphan function call output` when a session was interrupted mid tool
+        call. Every retry resumed that same session, so the run was as stuck as it had been
+        behind the launch bug -- just with a different error. Resuming is an optimisation:
+        the worktree holds the code and the handoff holds the next action.
+        """
+        attempts: list[str | None] = []
+
+        class Runner:
+            def run(self, workflow_id, argv, **kwargs):
+                resumed = "resume" in [str(part) for part in argv]
+                attempts.append("resume" if resumed else "fresh")
+                if resumed:
+                    return 1, "", "ERROR codex_core::util: Orphan function call output for call id:"
+                return 0, '{"type":"item.completed"}', ""
+
+        worker = CodexCLIWorker(FakePolicy(), Runner())
+        events: list[tuple[str, dict]] = []
+        # Bypass the Windows launcher so argv stays readable; its encoding is covered by
+        # test_codex_sends_the_prompt_on_stdin_so_size_cannot_block_launch.
+        with patch("core.coding_workers._platform_cli_command", side_effect=lambda argv, **_: argv),              patch.object(CodexCLIWorker, "probe", return_value={"status": "ready", "detail": "ok"}):
+            result = worker.run(
+                11, "code", ROOT, {"objective": "continue"},
+                profile=WorkerProfile(slug="codex-chatgpt", name="Codex", adapter="codex"),
+                external_session_id="poisoned-session",
+                on_event=lambda kind, payload: events.append((kind, payload)),
+            )
+
+        self.assertEqual(attempts, ["resume", "fresh"], "did not retry without the session id")
+        self.assertTrue(result["ok"])
+        self.assertIn("resume_failed", [kind for kind, _ in events])
+        # A first-attempt failure with no session to blame must still surface.
+        self.assertNotIn("<Objs", str(events))
+
+    def test_a_first_run_failure_is_not_retried_as_a_resume_fallback(self) -> None:
+        calls: list[int] = []
+
+        class Runner:
+            def run(self, workflow_id, argv, **kwargs):
+                calls.append(1)
+                return 1, "", "#< CLIXML\nreal failure\n<Objs Version='1.1.0.1'><S>noise</S></Objs>"
+
+        worker = CodexCLIWorker(FakePolicy(), Runner())
+        with patch("core.coding_workers._platform_cli_command", side_effect=lambda argv, **_: argv),              patch.object(CodexCLIWorker, "probe", return_value={"status": "ready", "detail": "ok"}):
+            with self.assertRaises(RuntimeError) as captured:
+                worker.run(
+                    11, "code", ROOT, {"objective": "start"},
+                    profile=WorkerProfile(slug="codex-chatgpt", name="Codex", adapter="codex"),
+                    external_session_id=None,
+                )
+        self.assertEqual(len(calls), 1, "a fresh run must not be retried")
+        self.assertIn("real failure", str(captured.exception))
+        self.assertNotIn("<Objs", str(captured.exception))
 
     def test_an_adapter_without_stdin_fails_with_the_real_reason(self) -> None:
         if os.name != "nt":

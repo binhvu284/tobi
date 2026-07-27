@@ -306,6 +306,34 @@ def _actionable_handoff(handoff: dict[str, Any]) -> dict[str, Any]:
     return trimmed
 
 
+_CLIXML_MARKER = "#< CLIXML"
+_CLIXML_OBJS = re.compile(r"<Objs\b.*?</Objs>", re.S)
+_CLIXML_STRING = re.compile(r"<S(?:\s[^>]*)?>(.*?)</S>", re.S)
+
+
+def _readable_stderr(text: str) -> str:
+    """Strip PowerShell's CLIXML wrapper so the owner reads the error, not the transport.
+
+    The Windows launcher runs the CLI under powershell.exe, which serializes its own stderr
+    records as CLIXML. A genuine one-line failure reached the Process tab as a wall of
+    `<Objs Version="1.1.0.1" xmlns=...>` with the real message buried in it -- twice now that
+    has cost time during diagnosis.
+    """
+    if not text or _CLIXML_MARKER not in text:
+        return text
+    recovered: list[str] = []
+    for block in _CLIXML_OBJS.findall(text):
+        for fragment in _CLIXML_STRING.findall(block):
+            cleaned = (
+                fragment.replace("_x000D__x000A_", "\n").replace("_x000A_", "\n")
+                .replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&").strip()
+            )
+            if cleaned:
+                recovered.append(cleaned)
+    plain = _CLIXML_OBJS.sub("", text).replace(_CLIXML_MARKER, "").strip()
+    return "\n".join(part for part in (plain, *recovered) if part).strip() or text
+
+
 def _platform_cli_command(
     argv: list[str],
     *,
@@ -498,12 +526,7 @@ class ExternalCLIWorker:
         root = Path(worktree).resolve()
         prompt = self._prompt(brief)
         stdin_text = prompt if self.prompt_on_stdin else None
-        argv = self.command(
-            profile, self.STDIN_PROMPT if self.prompt_on_stdin else prompt,
-            root, external_session_id,
-        )
-        if stdin_text is None:
-            self._assert_launchable(argv)
+        prompt_argument = self.STDIN_PROMPT if self.prompt_on_stdin else prompt
         if on_event:
             on_event("adapter_started", {
                 "adapter": self.adapter, "profile": profile.slug,
@@ -520,26 +543,47 @@ class ExternalCLIWorker:
             if on_event:
                 on_event("adapter_event", event)
 
-        try:
-            returncode, stdout, stderr = self.runner.run(
-                workflow_id,
-                argv,
-                cwd=root,
-                timeout=self.policy.limit("worker_timeout_seconds", 1800),
-                allowed_env=[profile.credential_env] if profile.credential_env else [],
-                on_output=output,
-                adapter=self.adapter,
-                max_output_bytes=self.policy.limit("worker_output_bytes", 2_097_152),
-                stdin_text=stdin_text,
-            )
-        except RunnerError as exc:
-            raise CodingWorkerUnavailable(str(exc)) from exc
+        def launch(resume_id: str | None) -> tuple[int, str, str]:
+            argv = self.command(profile, prompt_argument, root, resume_id)
+            if stdin_text is None:
+                self._assert_launchable(argv)
+            try:
+                return self.runner.run(
+                    workflow_id,
+                    argv,
+                    cwd=root,
+                    timeout=self.policy.limit("worker_timeout_seconds", 1800),
+                    allowed_env=[profile.credential_env] if profile.credential_env else [],
+                    on_output=output,
+                    adapter=self.adapter,
+                    max_output_bytes=self.policy.limit("worker_output_bytes", 2_097_152),
+                    stdin_text=stdin_text,
+                )
+            except RunnerError as exc:
+                raise CodingWorkerUnavailable(str(exc)) from exc
+
+        returncode, stdout, stderr = launch(external_session_id)
+        if returncode != 0 and external_session_id:
+            # Resuming is an optimisation, never a requirement: the worktree holds the code
+            # and the checkpoint handoff holds the next action, so a fresh session picks the
+            # work up from the same place. A transcript can be left unreplayable by an
+            # interrupted run -- codex reports "Orphan function call output" -- and treating
+            # that as terminal stranded the item exactly as the launch bug did, since every
+            # retry resumed the same poisoned session.
+            if on_event:
+                on_event("resume_failed", {
+                    "adapter": self.adapter, "external_session_id": external_session_id,
+                    "detail": _readable_stderr(stderr or stdout)[-600:],
+                    "action": "Starting a fresh agent session against the same worktree.",
+                })
+            lines.clear()
+            returncode, stdout, stderr = launch(None)
         session_identifier = None
         for event in lines:
             session_identifier = _nested_identifier(event) or session_identifier
         if returncode != 0:
-            message = (stderr or stdout or f"{self.adapter} exited with {returncode}")[-2000:]
-            raise RuntimeError(message)
+            message = _readable_stderr(stderr or stdout or f"{self.adapter} exited with {returncode}")
+            raise RuntimeError(message[-2000:])
         completed = {
             "type": "complete",
             "adapter": self.adapter,
