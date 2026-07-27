@@ -485,3 +485,35 @@ reason and the numbers rather than a Windows error code.
 **Acceptance consequence:** the correction-pass path has never actually been exercised on this
 host. Scenario coverage that assumed a retry after `review_failed` was reachable should be
 re-run rather than carried forward.
+
+**D16 — an acceptance criterion could demand evidence the run was never going to produce.**
+Criteria are authored from the plan; validation commands come from `policy.mandatory_checks()`.
+Nothing reconciled the two. Session 14's third criterion — *"Must leave `tests/test_awakening.py`
+fully green"* — was judged against a run whose commands were `compileall`, `tests/test_coding_agent.py`,
+and `npm run build`. The named test was never executed, so the reviewer was asked to qualify the
+work against evidence that could not exist. Its verdict says exactly that: the patch *"correctly
+ties verified status to a fresh successful connection test, satisfying the first two acceptance
+criteria. However, no evidence is provided that the test suite tests/test_awakening.py remains
+green."* The code was right; the item was unpassable from authoring.
+
+Replaying the derivation over the stored `criteria_snapshot_json` of every run shows this is
+systemic, not one item: **runs 9, 10, 11, 12, 13, and 14 all name a test the run never ran.**
+Run 10 (#26) carried the identical gap and its reviewer passed it anyway — so the single recorded
+non-failure completion rests on an inconsistent verdict, not on evidence.
+
+Fixed in `core/coding_criteria.py`, called from `CodingCompletionService.preflight`:
+
+- **Named checks become commands.** A criterion naming a test path adds that test to the run's
+  validation commands, so the checks artifact the reviewer reads contains the result the
+  criterion asks about. Replay confirms all six historical runs are corrected, with no duplicates
+  where the check was already configured.
+- **Unprovable items are refused before a run is spent.** A named check that no permitted command
+  can run — outside the repository, or denied by policy — blocks Start with
+  `criterion_not_verifiable`, the same shape as `scope_too_large`. Zero agent time.
+- **An item whose deliverable is the test is still allowed to start.** Run 10's criteria named a
+  file that did not exist yet because creating it *was* the work. That case warns
+  (`criterion_check_pending`) instead of blocking, and the check failing until the file exists is
+  the feedback the run needs.
+
+**Acceptance consequence:** every run recorded before this fix was judged against an incomplete
+evidence set. Run 10's pass should not be carried forward as scenario coverage.

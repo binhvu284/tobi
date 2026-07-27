@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from core.coding_contracts import ReadinessIssue, ReadinessReport, WorkerProfile
+from core.coding_criteria import derive_checks
 from core.coding_queue import REPO_ROOT
 from core.coding_states import ACTIVE_STATES, workflow_progress
 from core.development_store import DevelopmentStore, utc_now
@@ -124,6 +125,30 @@ class CodingCompletionService:
             blockers.append(ReadinessIssue(
                 "criteria_missing", "Add measurable acceptance criteria to the plan before Start.", "criteria"
             ))
+
+        # A criterion that names a test is asking for that test's result. Runs 9-14 each named
+        # one the validation commands never executed, so the reviewer was asked to qualify work
+        # against evidence the run could not produce. Every named check now becomes a command,
+        # and a check no permitted command can run blocks Start instead of costing an agent run.
+        derived = derive_checks(
+            criteria, commands, repo_root=REPO_ROOT, assert_command=self.policy.assert_command,
+        )
+        commands.extend(derived["add"])
+        for relative, reason in derived["unverifiable"]:
+            blockers.append(ReadinessIssue(
+                "criterion_not_verifiable",
+                f"An acceptance criterion requires {relative} to pass, but no permitted check "
+                f"can run it: {reason}",
+                "criteria",
+            ))
+        for relative in derived["pending"]:
+            warnings.append(ReadinessIssue(
+                "criterion_check_pending",
+                f"An acceptance criterion requires {relative} to pass; this run must create it "
+                f"before validation can produce that evidence.",
+                "criteria",
+            ))
+
         for dependency in _json(task.get("dependencies_json"), []):
             dep = self.store.get_task(queue_id=int(dependency))
             if not dep or dep.get("status") != "completed":
