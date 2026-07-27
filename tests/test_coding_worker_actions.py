@@ -1,6 +1,8 @@
 """Coding-model action parsing, repair, escalation, and active probe contracts."""
 from __future__ import annotations
 
+import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -11,10 +13,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from core.coding_contracts import WorkerProfile  # noqa: E402
 from core.coding_workers import (  # noqa: E402
     BrokeredLLMWorker,
+    CodexCLIWorker,
     CodingWorkerRouter,
     CodingWorkerUnavailable,
+    ExternalCLIWorker,
+    _actionable_handoff,
     _failure_detail,
     _json_object,
 )
@@ -115,6 +121,63 @@ class CodingWorkerActionTests(unittest.TestCase):
 
         self.assertEqual(status, "ready")
         self.assertIn("handshake passed", detail)
+
+
+class WorkerLaunchSizeTests(unittest.TestCase):
+    """A resuming run must be able to start whatever its checkpoint contains.
+
+    Windows caps a command line at 32,767 characters and `_platform_cli_command` inflates the
+    prompt about 3.7x, so a brief over roughly 8,800 characters could not launch at all -- it
+    raised `[WinError 206] The filename or extension is too long` before the agent ran. The
+    checkpoint handoff is what pushed it over: 41,318 of its 43,612 characters were
+    `recent_events`, mostly heartbeat lines. The mechanism that exists to make a run resumable
+    was the reason resuming was impossible; five identical retries died two seconds in.
+    """
+
+    def test_codex_sends_the_prompt_on_stdin_so_size_cannot_block_launch(self) -> None:
+        self.assertTrue(CodexCLIWorker.prompt_on_stdin)
+        worker = CodexCLIWorker.__new__(CodexCLIWorker)
+        for prompt_size in (1_000, 200_000):
+            argv = worker.command(
+                WorkerProfile(slug="codex-chatgpt", name="Codex", adapter="codex", model="gpt-5.6"),
+                CodexCLIWorker.STDIN_PROMPT, Path(ROOT), "session-id",
+            )
+            length = sum(len(str(part)) + 1 for part in argv)
+            self.assertLess(length, 32_767, f"{prompt_size}-char prompt produced {length} chars")
+            self.assertNotIn("x" * 50, " ".join(str(part) for part in argv))
+
+    def test_the_handoff_given_to_the_agent_drops_the_event_log(self) -> None:
+        handoff = {
+            "status": "paused", "stage": "code", "next_action": "Correct the unmet criteria.",
+            "head_sha": "a" * 40, "changed_files": ["core/awakening.py"],
+            "worker_profile": "codex-chatgpt", "sprint": None,
+            "recent_events": [{"event_type": "worker_heartbeat", "payload": {"noise": "x" * 200}}
+                              for _ in range(200)],
+            "checks": [{"argv": ["python", "-m", "compileall"], "ok": True, "output": "y" * 5000},
+                       {"argv": ["npm", "run", "build"], "ok": False, "output": "z" * 5000}],
+        }
+        trimmed = _actionable_handoff(handoff)
+
+        self.assertNotIn("recent_events", trimmed)
+        self.assertEqual(trimmed["next_action"], "Correct the unmet criteria.")
+        # Which check failed is actionable; five thousand characters of its output is not.
+        self.assertEqual(trimmed["failed_checks"], "npm run build")
+        self.assertNotIn("zzzz", json.dumps(trimmed))
+        self.assertLess(len(json.dumps(trimmed)), 2_000, "handoff is still large enough to hurt")
+
+        # The trimming has to be on the path that builds the brief, not merely available.
+        # Asserting the helper alone still passed with the raw handoff wired straight in.
+        source = (ROOT / "core" / "coding_workers.py").read_text(encoding="utf-8")
+        self.assertIn('brief["checkpoint_handoff"] = _actionable_handoff(', source)
+
+    def test_an_adapter_without_stdin_fails_with_the_real_reason(self) -> None:
+        if os.name != "nt":
+            self.skipTest("the command-line ceiling is a Windows limit")
+        with self.assertRaises(CodingWorkerUnavailable) as captured:
+            ExternalCLIWorker._assert_launchable(["opencode", "run", "x" * 40_000])
+        self.assertIn("Windows limit", str(captured.exception))
+        # A launchable command must not be refused.
+        ExternalCLIWorker._assert_launchable(["codex", "exec", "-"])
 
 
 if __name__ == "__main__":

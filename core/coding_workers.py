@@ -275,6 +275,37 @@ def _nested_identifier(value: Any) -> str | None:
     return None
 
 
+# What a resuming agent can act on. The stored checkpoint keeps everything -- it is the
+# recovery record and the Process tab reads it -- but only these fields are worth handing to
+# the agent. `recent_events` was 41,318 of a 43,612-character handoff on one real run, almost
+# all of it "Worker Heartbeat" lines: no help to the agent, and the reason resuming a run
+# could not launch a process at all.
+_HANDOFF_PROMPT_KEYS = (
+    "status", "stage", "next_action", "head_sha", "changed_files", "worker_profile", "sprint",
+)
+_HANDOFF_VALUE_LIMIT = 600
+
+
+def _actionable_handoff(handoff: dict[str, Any]) -> dict[str, Any]:
+    """Trim a stored checkpoint down to what a resuming agent needs to read."""
+    trimmed: dict[str, Any] = {}
+    for key in _HANDOFF_PROMPT_KEYS:
+        if key not in handoff:
+            continue
+        value = handoff[key]
+        text = value if isinstance(value, str) else json.dumps(value, default=str)
+        trimmed[key] = text if len(text) <= _HANDOFF_VALUE_LIMIT else text[:_HANDOFF_VALUE_LIMIT] + "…"
+    checks = handoff.get("checks")
+    if isinstance(checks, list) and checks:
+        # Which checks failed, not their output. The full text is already in the artifacts.
+        trimmed["failed_checks"] = ", ".join(
+            " ".join(str(part) for part in (item.get("argv") or []))
+            for item in checks
+            if isinstance(item, dict) and not item.get("ok")
+        ) or "none"
+    return trimmed
+
+
 def _platform_cli_command(
     argv: list[str],
     *,
@@ -411,6 +442,33 @@ class ExternalCLIWorker:
             "executable": executable,
         }
 
+    #: Windows caps a process command line at 32,767 characters, and the PowerShell launch
+    #: wrapper in `_platform_cli_command` inflates the prompt about 3.7x (base64, then
+    #: UTF-16LE, then base64 again). A prompt over roughly 8,800 characters therefore could
+    #: not start a process at all -- it failed with WinError 206 before the agent ever ran.
+    #: Adapters whose CLI reads the prompt from stdin set this and have no ceiling.
+    prompt_on_stdin = False
+    #: Placeholder the CLI understands as "the prompt arrives on stdin".
+    STDIN_PROMPT = "-"
+
+    @staticmethod
+    def _assert_launchable(argv: list[str]) -> None:
+        """Fail with the real reason instead of a Windows error code.
+
+        An over-long command line surfaces as `[WinError 206] The filename or extension is
+        too long`, which names neither the prompt nor the limit and sent five identical
+        retries into the same wall. Adapters that cannot use stdin at least say why.
+        """
+        if os.name != "nt":
+            return
+        length = sum(len(str(part)) + 1 for part in argv)
+        if length > 32_000:
+            raise CodingWorkerUnavailable(
+                f"The launch command is {length:,} characters, over the {32_767:,} Windows "
+                "limit, so this adapter cannot start. Its brief is too large to pass on the "
+                "command line and its CLI cannot read the prompt from stdin."
+            )
+
     def command(
         self,
         profile: WorkerProfile,
@@ -439,7 +497,13 @@ class ExternalCLIWorker:
             raise RuntimeError("Coding worker was canceled by the owner.")
         root = Path(worktree).resolve()
         prompt = self._prompt(brief)
-        argv = self.command(profile, prompt, root, external_session_id)
+        stdin_text = prompt if self.prompt_on_stdin else None
+        argv = self.command(
+            profile, self.STDIN_PROMPT if self.prompt_on_stdin else prompt,
+            root, external_session_id,
+        )
+        if stdin_text is None:
+            self._assert_launchable(argv)
         if on_event:
             on_event("adapter_started", {
                 "adapter": self.adapter, "profile": profile.slug,
@@ -466,6 +530,7 @@ class ExternalCLIWorker:
                 on_output=output,
                 adapter=self.adapter,
                 max_output_bytes=self.policy.limit("worker_output_bytes", 2_097_152),
+                stdin_text=stdin_text,
             )
         except RunnerError as exc:
             raise CodingWorkerUnavailable(str(exc)) from exc
@@ -545,6 +610,9 @@ class ExternalCLIWorker:
 class CodexCLIWorker(ExternalCLIWorker):
     adapter = "codex"
     executable = "codex"
+    # `codex exec [-]` and `codex exec resume <id> [-]` both read the prompt from stdin when
+    # the argument is `-`, so the brief never touches the command line.
+    prompt_on_stdin = True
 
     def native_auth_command(self) -> list[str]:
         return ["codex", "login", "status"]
@@ -650,7 +718,7 @@ class CodingWorkerRouter:
                 brief["preferred_models"] = [selected_model]
         checkpoint = self.store.latest_checkpoint(workflow_id) if self.store else None
         if checkpoint:
-            brief["checkpoint_handoff"] = checkpoint.get("handoff") or {}
+            brief["checkpoint_handoff"] = _actionable_handoff(checkpoint.get("handoff") or {})
         previous = self.store.latest_worker_session(workflow_id) if self.store else None
         resumable_id = (
             str(previous.get("external_session_id") or "")

@@ -106,6 +106,7 @@ class IsolatedProcessRunner:
         adapter: str = "external",
         max_output_bytes: int = 2_097_152,
         env_overrides: dict[str, str] | None = None,
+        stdin_text: str | None = None,
     ) -> tuple[int, str, str]:
         if not argv or not str(argv[0]).strip():
             raise RunnerError("External worker command is empty.")
@@ -124,6 +125,9 @@ class IsolatedProcessRunner:
             [str(item) for item in argv],
             cwd=str(Path(cwd).resolve()),
             env=environment,
+            # Only claim stdin when there is something to send. Left inherited otherwise, so
+            # adapters that read the terminal keep behaving as they did.
+            stdin=subprocess.PIPE if stdin_text is not None else None,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -166,6 +170,20 @@ class IsolatedProcessRunner:
         )
         stdout_thread.start()
         stderr_thread.start()
+        if stdin_text is not None and process.stdin is not None:
+            # Written after the drain threads are running: a large prompt can exceed the pipe
+            # buffer, and the child may block writing output until we read it, so writing
+            # first would deadlock. A child that exits before reading gives a broken pipe,
+            # which is its own failure to report -- not this write's.
+            try:
+                process.stdin.write(stdin_text)
+            except (BrokenPipeError, OSError):
+                pass
+            finally:
+                try:
+                    process.stdin.close()
+                except (BrokenPipeError, OSError):
+                    pass
         deadline = time.monotonic() + max(1, timeout)
         try:
             while process.poll() is None:
@@ -215,9 +233,19 @@ class QueuedProcessRunner:
         on_output: Callable[[str], None] | None = None,
         adapter: str = "external",
         max_output_bytes: int = 2_097_152,
+        stdin_text: str | None = None,
     ) -> tuple[int, str, str]:
         if not argv or not str(argv[0]).strip():
             raise RunnerError("External worker command is empty.")
+        if stdin_text is not None:
+            # Jobs are handed to a separate service process through the database, which has
+            # nowhere to carry stdin. Refusing is the only safe answer: dropping it silently
+            # would launch the CLI with a `-` placeholder and no prompt behind it, and the
+            # agent would run against an empty brief.
+            raise RunnerError(
+                "Service runner mode cannot deliver a stdin prompt. Run with "
+                "TOBI_CODING_RUNNER_MODE=local, or extend the runner job schema to carry it."
+            )
         job = self.store.submit_runner_job(
             workflow_id=workflow_id,
             adapter=adapter,
