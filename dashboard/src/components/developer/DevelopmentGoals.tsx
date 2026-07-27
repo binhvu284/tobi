@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { ActionButton } from '../async-ui'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Archive, ChevronDown, CircleAlert, FilePlus2, MoreHorizontal,
@@ -71,8 +72,11 @@ function GoalActions({ goal, busy, onCommand }: {
 
   const run = async (command: GoalCommand) => {
     if (command === 'delete' && !window.confirm(`Delete goal "${goal.title}"? Historical run evidence remains stored.`)) return
-    setOpen(false)
+    // The menu used to close before awaiting, so the whole action -- an evaluate that reruns
+    // evidence, an archive, a delete -- happened with nothing on screen indicating it. It now
+    // stays open while the item spins, and closes once the work has actually landed.
     await onCommand(goal.id, command)
+    setOpen(false)
   }
 
   return (
@@ -84,9 +88,9 @@ function GoalActions({ goal, busy, onCommand }: {
       {createPortal(<AnimatePresence>{open && (
         <motion.div ref={menuRef} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
           style={position} className="fixed z-[100] w-48 rounded-md border border-border bg-surface p-1 shadow-2xl">
-          <button type="button" onClick={() => void run('evaluate')} className="flex h-9 w-full items-center gap-2 rounded px-2 text-xs text-text hover:bg-overlay/10"><RefreshCw size={14} /> Re-evaluate evidence</button>
-          {goal.status !== 'archived' && <button type="button" onClick={() => void run('archive')} className="flex h-9 w-full items-center gap-2 rounded px-2 text-xs text-text hover:bg-overlay/10"><Archive size={14} /> Archive goal</button>}
-          <button type="button" onClick={() => void run('delete')} className="flex h-9 w-full items-center gap-2 rounded px-2 text-xs text-danger hover:bg-danger/10"><Trash2 size={14} /> Delete goal</button>
+          <ActionButton onAction={() => run('evaluate')} icon={<RefreshCw size={14} />} className="flex h-9 w-full items-center gap-2 rounded px-2 text-xs text-text hover:bg-overlay/10"> Re-evaluate evidence</ActionButton>
+          {goal.status !== 'archived' && <ActionButton onAction={() => run('archive')} icon={<Archive size={14} />} className="flex h-9 w-full items-center gap-2 rounded px-2 text-xs text-text hover:bg-overlay/10"> Archive goal</ActionButton>}
+          <ActionButton onAction={() => run('delete')} icon={<Trash2 size={14} />} className="flex h-9 w-full items-center gap-2 rounded px-2 text-xs text-danger hover:bg-danger/10"> Delete goal</ActionButton>
         </motion.div>
       )}</AnimatePresence>, document.body)}
     </>
@@ -178,7 +182,7 @@ export default function DevelopmentGoals({ goals, busy, onCreate, onCommand, onC
           </summary>
           <div className="grid border-t border-border lg:grid-cols-[minmax(0,1fr)_320px]">
             <div className="px-4 py-4 lg:border-r lg:border-border">
-              <div className="mb-3 flex items-center justify-between"><h3 className="text-[10px] font-semibold uppercase text-muted">Evidence matrix</h3><button type="button" onClick={() => void onCommand(goal.id, 'evaluate')} disabled={busy} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-text hover:bg-overlay/10 disabled:opacity-40"><RefreshCw size={13} /> Evaluate</button></div>
+              <div className="mb-3 flex items-center justify-between"><h3 className="text-[10px] font-semibold uppercase text-muted">Evidence matrix</h3><ActionButton onAction={() => onCommand(goal.id, 'evaluate')} busy={busy} icon={<RefreshCw size={13} />} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-text hover:bg-overlay/10"> Evaluate</ActionButton></div>
               <div className="space-y-2">{criteria.map((criterion, index) => {
                 const row = evidence.find(item => Number(item.index) === index || String(item.criterion) === criterion)
                 const passed = String(row?.status ?? '') === 'passed'

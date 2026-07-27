@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  Check, CheckCircle2, ChevronDown, Clipboard, ExternalLink, Loader2,
+  Check, CheckCheck, CheckCircle2, ChevronDown, Clipboard, ExternalLink, Loader2,
   Pencil, Play, RefreshCw, Save, TerminalSquare, UserRound, X,
 } from 'lucide-react'
+import { ActionButton } from '../async-ui'
 import type { AvailableModel, LlmProvider } from '../../api.chat'
 import type { DeveloperWorkerLogin, DeveloperWorkerModels, DeveloperWorkerProfile } from '../../api.developer'
 import LlmLogo, { BRAND_META, brandForModel, brandForProvider } from '../LlmLogo'
@@ -52,6 +53,14 @@ function AgentRow({ profile, models, providers, routing, busy, onSave, onProbe, 
   const [auth, setAuth] = useState<DeveloperWorkerLogin | null>(null)
   const [cliCatalog, setCliCatalog] = useState<DeveloperWorkerModels | null>(null)
   const [localBusy, setLocalBusy] = useState<'save' | 'test' | 'auth' | 'models' | 'toggle' | null>(null)
+  // Clipboard writes are async and can be refused by the browser. Without a confirmation the
+  // owner cannot tell a successful copy from a silently denied one.
+  const [commandCopied, setCommandCopied] = useState(false)
+  const copyCommand = async (value: string) => {
+    await navigator.clipboard.writeText(value)
+    setCommandCopied(true)
+    window.setTimeout(() => setCommandCopied(false), 1500)
+  }
   const reviewer = profile.adapter === 'model_review'
 
   useEffect(() => { setDraft(profile) }, [profile.slug])
@@ -220,7 +229,9 @@ function AgentRow({ profile, models, providers, routing, busy, onSave, onProbe, 
             <AnimatePresence>
               {auth && <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 4 }} className="mt-5 overflow-hidden rounded-md border border-border bg-background/80 font-mono text-xs">
                 <div className="flex items-center justify-between border-b border-border px-3 py-2 text-muted"><span className="inline-flex items-center gap-2"><TerminalSquare size={13} /> Authorization terminal</span><button title="Close terminal" onClick={() => setAuth(null)}><X size={14} /></button></div>
-                <div className="space-y-3 px-3 py-3"><div className="flex items-start gap-2 text-text"><span className="text-success">$</span><code className="min-w-0 flex-1 break-all">{auth.command?.join(' ') || 'Provider login is managed externally.'}</code>{auth.command && <button title="Copy command" onClick={() => void navigator.clipboard.writeText(auth.command!.join(' '))} className="text-muted hover:text-text"><Clipboard size={13} /></button>}</div><div className="text-[10px] leading-5 text-muted">{auth.detail}</div>{auth.steps?.map((step, index) => <div key={step} className="flex gap-2 text-[10px] text-muted"><span className="text-accent">{index + 1}.</span><span>{step}</span></div>)}<div className="flex flex-wrap gap-2 pt-1"><button onClick={() => void test()} disabled={working} className="inline-flex h-8 items-center gap-2 rounded border border-accent/40 px-2.5 text-[10px] text-accent">{localBusy === 'test' ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />} Check authorization</button></div></div>
+                <div className="space-y-3 px-3 py-3"><div className="flex items-start gap-2 text-text"><span className="text-success">$</span><code className="min-w-0 flex-1 break-all">{auth.command?.join(' ') || 'Provider login is managed externally.'}</code>{auth.command && <ActionButton title="Copy command" onAction={() => copyCommand(auth.command!.join(' '))}
+                  icon={commandCopied ? <CheckCheck size={13} className="text-success" /> : <Clipboard size={13} />}
+                  className="text-muted hover:text-text" />}</div><div className="text-[10px] leading-5 text-muted">{auth.detail}</div>{auth.steps?.map((step, index) => <div key={step} className="flex gap-2 text-[10px] text-muted"><span className="text-accent">{index + 1}.</span><span>{step}</span></div>)}<div className="flex flex-wrap gap-2 pt-1"><button onClick={() => void test()} disabled={working} className="inline-flex h-8 items-center gap-2 rounded border border-accent/40 px-2.5 text-[10px] text-accent">{localBusy === 'test' ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />} Check authorization</button></div></div>
               </motion.div>}
             </AnimatePresence>
 

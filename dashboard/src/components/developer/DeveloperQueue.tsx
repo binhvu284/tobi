@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { createDeveloperQueueItem, getDeveloperQueue, getDeveloperQueuePlan, preflightDeveloperQueueItem, removeDeveloperQueueItem, restoreDeveloperQueueItem, setDeveloperQueueOrder, type DeveloperGoal, type DeveloperQueueItem, type DeveloperQueuePlan, type DeveloperQueueState, type DeveloperReadiness, type DeveloperWorkflow } from '../../api.developer'
 import { TERMINAL_STATES } from '../../developer.states'
+import { ActionButton } from '../async-ui'
 import { useToast } from '../../context/ToastProvider'
 import MarkdownView from '../chat/MarkdownView'
 import AutoQueueToggle from './AutoQueueToggle'
@@ -526,11 +527,14 @@ function AddItemModal({ open, goals, initialGoalId, onClose, onSubmit }: {
               <span className="text-[11px] text-muted">Creates one Draft item. Preflight is still required.</span>
               <div className="flex items-center gap-2">
                 <button onClick={onClose} className="inline-flex h-8 items-center rounded-md border border-border px-3 text-xs text-text hover:bg-overlay/5">Cancel</button>
-                <button disabled={name.trim().length < 3 || description.trim().length < 10 || !criteria.trim()}
-                  onClick={() => onSubmit({ title: name, objective: description, acceptance_criteria: criteria.split('\n').map(item => item.trim()).filter(Boolean), goal_ids: selGoals, plan_markdown: planMarkdown })}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-semibold text-background transition-[filter] hover:brightness-110 disabled:opacity-40">
-                  <Plus size={13} /> Create item
-                </button>
+                {/* Creating an item runs plan authoring server-side and is among the slowest
+                    actions here. Validation-only disabling let it be fired repeatedly. */}
+                <ActionButton disabled={name.trim().length < 3 || description.trim().length < 10 || !criteria.trim()}
+                  onAction={() => onSubmit({ title: name, objective: description, acceptance_criteria: criteria.split('\n').map(item => item.trim()).filter(Boolean), goal_ids: selGoals, plan_markdown: planMarkdown })}
+                  icon={<Plus size={13} />}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-semibold text-background transition-[filter] hover:brightness-110">
+                  Create item
+                </ActionButton>
               </div>
             </footer>
           </motion.section>
@@ -557,8 +561,8 @@ function ReadinessModal({ item, report, busy, onClose, onRefresh, onStart }: {
           {!busy && report && <>
             <div className={`flex items-center gap-3 rounded-md border px-3 py-3 ${report.ready ? 'border-success/30 bg-success/5' : 'border-warning/30 bg-warning/5'}`}><span className={`flex h-8 w-8 items-center justify-center rounded-md ${report.ready ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>{report.ready ? <CheckCircle2 size={16} /> : <Target size={16} />}</span><div><div className="text-xs font-semibold text-text">{report.ready ? 'Ready to start one durable run' : `${report.blockers.length} blocker${report.blockers.length === 1 ? '' : 's'} must be resolved`}</div><div className="mt-0.5 text-[11px] text-muted">{report.selected_agent} · reviewer {report.reviewer}</div></div></div>
             {report.blockers.length > 0 && <div className="space-y-2">{report.blockers.map(issue => <div key={`${issue.code}-${issue.message}`} className="rounded-md border border-danger/25 bg-danger/5 px-3 py-2"><div className="text-[10px] font-semibold uppercase text-danger">{label(issue.code)}</div><div className="mt-1 text-xs leading-5 text-text">{issue.message}</div></div>)}</div>}
-            {report.blockers.some(issue => issue.code === 'protected_scope_approval') && <button onClick={() => onRefresh({ protected_paths_approved: true })} className="inline-flex h-8 items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 text-xs font-medium text-warning"><CheckCircle2 size={13} /> Acknowledge protected scope</button>}
-            {!report.ready && report.alternatives.length > 0 && <div><div className="mb-2 text-[10px] font-semibold uppercase text-muted">Healthy agent alternatives</div><div className="flex flex-wrap gap-2">{report.alternatives.map(agent => <button key={agent.slug} onClick={() => onRefresh({ selected_agent: agent.slug })} className="rounded-md border border-border px-3 py-2 text-left hover:border-accent/40"><div className="text-xs font-medium text-text">{agent.name}</div><div className="mt-0.5 text-[10px] text-muted">{agent.adapter}{agent.model ? ` · ${agent.model}` : ''}</div></button>)}</div></div>}
+            {report.blockers.some(issue => issue.code === 'protected_scope_approval') && <ActionButton onAction={() => onRefresh({ protected_paths_approved: true })} icon={<CheckCircle2 size={13} />} className="inline-flex h-8 items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 text-xs font-medium text-warning"> Acknowledge protected scope</ActionButton>}
+            {!report.ready && report.alternatives.length > 0 && <div><div className="mb-2 text-[10px] font-semibold uppercase text-muted">Healthy agent alternatives</div><div className="flex flex-wrap gap-2">{report.alternatives.map(agent => <ActionButton key={agent.slug} onAction={() => onRefresh({ selected_agent: agent.slug })} className="rounded-md border border-border px-3 py-2 text-left hover:border-accent/40"><div className="text-xs font-medium text-text">{agent.name}</div><div className="mt-0.5 text-[10px] text-muted">{agent.adapter}{agent.model ? ` · ${agent.model}` : ''}</div></ActionButton>)}</div></div>}
             {report.warnings.length > 0 && <details><summary className="cursor-pointer text-xs text-warning">{report.warnings.length} warning{report.warnings.length === 1 ? '' : 's'}</summary><div className="mt-2 space-y-1">{report.warnings.map(issue => <p key={issue.code + issue.message} className="text-[11px] text-muted">{issue.message}</p>)}</div></details>}
           </>}
         </div>

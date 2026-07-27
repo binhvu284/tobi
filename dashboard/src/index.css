@@ -670,6 +670,23 @@
 }
 @keyframes tobi-text-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 
+/* Async affordances shared by components/async-ui.tsx. Kept here beside the loader so every
+   pending state in the app animates on the same timing. */
+@keyframes tobi-activity-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.tobi-activity-bar { animation: tobi-activity-slide 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+
+@keyframes tobi-skeleton-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.75; } }
+.tobi-skeleton { animation: tobi-skeleton-pulse 1.4s ease-in-out infinite; }
+
+/* Respect a reduced-motion preference: keep the state visible, drop the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .tobi-activity-bar { animation: none; width: 100%; }
+  .tobi-skeleton { animation: none; opacity: 0.5; }
+}
+
 .tobi-loader { position: relative; display: inline-grid; place-items: center; }
 .tobi-loader-ring {
   position: absolute; inset: 0; border-radius: 9999px;

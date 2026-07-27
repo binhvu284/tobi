@@ -6,6 +6,7 @@ import {
   TerminalSquare, TestTube2, Trash2, Upload, WifiOff, Wrench, XCircle,
 } from 'lucide-react'
 import AmbientField from '../components/motion/AmbientField'
+import { ActivityBar, SectionSkeleton } from '../components/async-ui'
 import LlmLogo, { BRAND_META, brandForModel, brandForProvider } from '../components/LlmLogo'
 import ModelMenu from '../components/chat/ModelMenu'
 import DeveloperAgents from '../components/developer/DeveloperAgents'
@@ -283,6 +284,11 @@ export default function Developer() {
 
   return (
     <div className="relative min-h-full"><AmbientField tone="rgb(var(--accent))" variant="grid" />
+      {/* Page-scoped work: every owner action refetches the whole Developer state, and until
+          now nothing said so. Sections kept showing correct-but-stale data with no motion
+          anywhere, which reads as a frozen screen. A bar rather than a skeleton because the
+          content is still valid -- replacing it would cost the reader their place. */}
+      <ActivityBar pending={busy || (loading && !!overview)} label={busy ? 'Applying…' : 'Refreshing…'} />
       {headerCollapsed ? <div className="sticky top-0 z-30 flex justify-end border-b border-border/60 bg-background/85 px-4 py-2 backdrop-blur sm:px-6"><button onClick={() => setDeveloperHeaderCollapsed(false)} title="Expand Developer header" className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-surface px-3 text-xs font-medium text-text shadow-lg"><Code2 size={15} className="text-accent" /> Developer <ChevronDown size={14} className="text-muted" /></button></div> : <header className="sticky top-0 z-30 border-b border-border bg-background/90 backdrop-blur-xl">
         <div className="flex items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <div className="flex min-w-0 items-center gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-accent/30 bg-accent/10 text-accent"><Code2 size={19} /></div><div className="min-w-0"><h1 className="truncate text-lg font-semibold text-text">Developer</h1><p className="mt-0.5 truncate text-[11px] text-muted">Controlled self-development</p></div></div>
@@ -318,8 +324,10 @@ export default function Developer() {
               autoQueue={autoQueuePending ?? overview?.process?.auto_queue ?? queue.auto_queue} autoQueueBusy={autoQueuePending !== null} onAutoQueue={setAutoQueue}
               onStart={(id, readinessId) => { void act(() => startDeveloperWorkflow(id, readinessId), `Queue #${id} started`) }} onOpenProcess={() => setTab('loop')} onState={setQueue} /></div>}
             {tab === 'workers' && <DeveloperAgents workers={workers} models={workerModels} providers={workerProviders} routing={modelRouting} busy={busy} onSave={saveWorker} onProbe={probeWorker} onLogin={loginWorker} onModels={loadWorkerModels} />}
-            {tab === 'history' && <HistoryView workflows={history} />}
-            {tab === 'system' && <SystemView storage={storage} learning={learning} releases={releases} busy={busy} onReplay={replayLearning} onCleanup={master => act(() => cleanupDeveloperStorage(master), 'Developer cleanup completed')} />}
+            {/* History and System hold no data until the first load resolves. Rendering their
+                empty state during a refresh reads as "nothing here" rather than "not yet". */}
+            {tab === 'history' && (loading && !history.length ? <SectionSkeleton rows={6} /> : <HistoryView workflows={history} />)}
+            {tab === 'system' && (loading && !storage ? <SectionSkeleton rows={5} /> : <SystemView storage={storage} learning={learning} releases={releases} busy={busy} onReplay={replayLearning} onCleanup={master => act(() => cleanupDeveloperStorage(master), 'Developer cleanup completed')} />)}
           </main>
         </>}
     </div>
