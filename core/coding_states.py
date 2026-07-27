@@ -94,6 +94,19 @@ def permitted_stages(capabilities: dict[str, bool] | None) -> tuple[str, ...]:
     )
 
 
+# Failures the agent can only clear by producing different code. Retrying one of these has to
+# hand the run back to the code stage; re-running the failed gate alone re-judges an unchanged
+# worktree and returns the same verdict forever. `quality_gate_failed` and `secret_found` were
+# missing, so an owner retrying either got an identical failure every time with no way out.
+CORRECTABLE_BY_RECODE = frozenset({
+    "validation_failed",
+    "review_failed",
+    "review_unavailable",
+    "quality_gate_failed",
+    "secret_found",
+})
+
+
 def workflow_progress(
     stage_statuses: dict[str, str],
     capabilities: dict[str, bool] | None,

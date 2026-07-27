@@ -22,7 +22,8 @@ if str(ROOT) not in sys.path:
 
 from core import coding_completion, coding_loop  # noqa: E402
 from core.coding_states import (  # noqa: E402
-    ACTIVE_STATES, CLEANUP_ELIGIBLE_STATES, FAULT_STATES, STAGES, STATE_KIND, SUCCESS_STATES,
+    ACTIVE_STATES, CLEANUP_ELIGIBLE_STATES, CORRECTABLE_BY_RECODE, FAULT_STATES, STAGES,
+    STATE_KIND, SUCCESS_STATES,
     TERMINAL_STATES, permitted_stages, state_in_clause, workflow_progress,
 )
 
@@ -107,6 +108,24 @@ ok("enabling github lowers the same run's progress, because more is now expected
    workflow_progress(all_local_gates, {"github": True}, delivered=False) <
    workflow_progress(all_local_gates, LOCAL, delivered=False))
 ok("a run with no gates yet is 0%", workflow_progress({}, LOCAL, delivered=False) == 0)
+
+# --- retrying a failure must be able to change the outcome -----------------------------
+# Three separate dead-end loops shipped in this workflow: an over-long launch command, a
+# poisoned resume session, and a gate that re-judged an unchanged worktree. All three looked
+# identical to the owner -- press Retry, get the same failure, forever. A verdict on the
+# produced code can only be cleared by producing different code, so retrying one of these has
+# to hand the run back to the code stage rather than re-running the gate alone.
+for code in ("quality_gate_failed", "secret_found"):
+    ok(f"retrying {code} re-opens the code stage", code in CORRECTABLE_BY_RECODE)
+ok("a stale-snapshot error is not treated as a code problem",
+   not (CORRECTABLE_BY_RECODE & {"policy_changed", "plan_changed"}))
+
+agent_source = (ROOT / "core" / "coding_agent.py").read_text(encoding="utf-8")
+ok("the retry path reads the shared set instead of an inline literal",
+   "in CORRECTABLE_BY_RECODE" in agent_source
+   and '{"validation_failed", "review_failed", "review_unavailable"}' not in agent_source)
+reset_clause = agent_source[agent_source.index("in CORRECTABLE_BY_RECODE"):][:400]
+ok("the reset returns the run to the code stage", "'code'" in reset_clause, reset_clause[:160])
 
 # --- the SQL helper binds rather than interpolates ------------------------------------
 clause, params = state_in_clause("state", ACTIVE_STATES)

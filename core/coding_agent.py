@@ -16,8 +16,8 @@ from core.coding_assessment import CodingTaskAssessor
 from core.coding_contracts import SprintBudget, WorkerProfile, build_handoff
 from core.coding_completion import CodingCompletionService
 from core.coding_states import (  # noqa: F401  (STAGES is re-exported for tests and callers)
-    ACTIVE_STATES, CLEANUP_ELIGIBLE_STATES, STAGES, TERMINAL_STATES, state_in_clause,
-    workflow_progress,
+    ACTIVE_STATES, CLEANUP_ELIGIBLE_STATES, CORRECTABLE_BY_RECODE, STAGES, TERMINAL_STATES,
+    state_in_clause, workflow_progress,
 )
 from core.coding_learning import CodingLearningService
 from core.coding_policy import CodingPolicy, PolicyDenied
@@ -1377,7 +1377,7 @@ class CodingAgent:
                 ).fetchone()
                 if active:
                     raise RuntimeError(f"Coding workflow {active['id']} is already active.")
-                if session.get("error_code") in {"validation_failed", "review_failed", "review_unavailable"}:
+                if session.get("error_code") in CORRECTABLE_BY_RECODE:
                     conn.execute(
                         """UPDATE coding_stages SET status='pending',started_at=NULL,completed_at=NULL
                            WHERE session_id=? AND node_id IN ('code','validate','review','commit','scan','push','pull_request')""",
