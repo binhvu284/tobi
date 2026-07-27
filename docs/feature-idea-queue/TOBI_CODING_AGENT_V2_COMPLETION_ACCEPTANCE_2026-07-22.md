@@ -458,3 +458,30 @@ worktree and artifacts indefinitely — the ten-run matrix would have accumulate
 unreclaimable worktrees against the 10 GB gate. Second, `/overview` served the finished run
 as `active_workflow`, which would have blocked a clean read of "no run is active" between
 acceptance scenarios.
+
+#### D12 — the durable checkpoint made the run unresumable (Windows)
+
+Run #11 (item #25) did its work, passed all 50 validate checks, and was correctly rejected by
+the acceptance review — a normal, recoverable outcome. Every retry then died two seconds in
+with `[WinError 206] The filename or extension is too long`, five times identically.
+
+The prompt was passed as a command-line argument. Windows caps a command line at 32,767
+characters and `_platform_cli_command` inflates it ~3.7× (base64 → UTF-16LE → base64), so any
+brief over roughly 8,800 characters could not launch a process. The checkpoint handoff pushed
+it over: 43,612 characters, of which **41,318 were `recent_events`** — almost all heartbeat
+lines. The mechanism that exists to make a run resumable was the reason resuming was
+impossible.
+
+This was never specific to #25. The first code stage always succeeds because no checkpoint
+exists yet; every retry after the first checkpoint is a deterministic failure. **No item could
+ever survive a failed review**, which explains the shape of the whole run log to date.
+
+Fixed in two places: the Codex adapter sends the prompt on stdin (`codex exec -`), making the
+launch command a fixed ~1,400 characters regardless of brief size; and the handoff given to
+the agent is trimmed to what it can act on (44,387 → 285 characters on the real checkpoint).
+The stored checkpoint is unchanged. Adapters that cannot use stdin now fail with the real
+reason and the numbers rather than a Windows error code.
+
+**Acceptance consequence:** the correction-pass path has never actually been exercised on this
+host. Scenario coverage that assumed a retry after `review_failed` was reachable should be
+re-run rather than carried forward.
