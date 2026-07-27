@@ -21,7 +21,6 @@ from core.coding_learning import CodingLearningService
 from core.coding_loop import CodingLoopService
 from core.coding_policy import PolicyDenied
 from core.coding_queue_authoring import create_queue_item
-from core.coding_states import TERMINAL_STATES
 from core.coding_workers import _platform_cli_command
 
 
@@ -212,11 +211,14 @@ def _error(exc: Exception) -> HTTPException:
 
 @router.get("/overview", dependencies=[Owner])
 def overview() -> dict[str, Any]:
-    workflows = agent.list_workflows(50)
-    active = next((item for item in workflows if item["state"] not in TERMINAL_STATES), None)
+    # Builds one workflow, not fifty. This endpoint is polled every five seconds; loading
+    # every session in full to pick the active one made it 5.2 MB over ~500 queries and 50
+    # sqlite connections, and the page began timing out against its own 15-second limit. The
+    # `workflows` array it returned had no reader -- the History tab has its own endpoint.
+    active_id = agent.store.active_session_id()
+    active = agent.get_workflow(active_id) if active_id else None
     return {
         "active_workflow": active,
-        "workflows": workflows,
         "summary": agent.store.overview(),
         "policy": {
             "version": agent.policy.version,

@@ -311,12 +311,43 @@ class CodingAgent:
     def _next_version(queue_id: int) -> str:
         return "3.0.0" if queue_id == 18 else f"3.{queue_id}.0"
 
+    def _latest_checkpoint_summary(self, session_id: int) -> list[dict[str, Any]]:
+        """The newest checkpoint only, with its handoff reduced to the readable fields.
+
+        Twenty checkpoints per workflow were being returned in full, and a handoff carries a
+        `recent_events` dump -- the largest one in this database is 1.13 MB. That made the
+        overview response 5.2 MB, growing with every run, until the page could not finish
+        loading inside its own timeout. Mission Control renders one checkpoint and reads four
+        fields off it: sequence, status, head_sha, and the handoff's next_action.
+
+        Still a list, because that is the shape callers expect. The complete history stays at
+        GET /workflows/{id}/checkpoints for anyone who needs it.
+        """
+        latest = self.store.latest_checkpoint(session_id)
+        if not latest:
+            return []
+        handoff = latest.get("handoff")
+        if not isinstance(handoff, dict):
+            try:
+                handoff = json.loads(latest.get("handoff_json") or "{}")
+            except (TypeError, ValueError):
+                handoff = {}
+        summary = {key: handoff.get(key) for key in ("status", "stage", "next_action")
+                   if handoff.get(key) is not None}
+        return [{
+            "id": latest.get("id"), "session_id": session_id,
+            "worker_session_id": latest.get("worker_session_id"),
+            "sequence": latest.get("sequence"), "status": latest.get("status"),
+            "head_sha": latest.get("head_sha"), "created_at": latest.get("created_at"),
+            "handoff_json": json.dumps(summary, ensure_ascii=True, separators=(",", ":")),
+        }]
+
     def get_workflow(self, session_id: int) -> dict[str, Any]:
         session = self.store.get_session(session_id)
         if not session:
             raise KeyError(session_id)
         session["stages"] = self.store.list_stages(session_id)
-        session["checkpoints"] = self.store.list_checkpoints(session_id, 20)
+        session["checkpoints"] = self._latest_checkpoint_summary(session_id)
         session["worker_session"] = self.store.latest_worker_session(session_id)
         session["sprint"] = self.store.get_sprint(int(session["current_sprint_id"])) if session.get("current_sprint_id") else None
         session["assessment"] = self.store.get_assessment(int(session["assessment_id"])) if session.get("assessment_id") else None

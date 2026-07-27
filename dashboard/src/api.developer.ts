@@ -97,7 +97,9 @@ export type DeveloperRelease = {
 }
 export type DeveloperOverview = {
   active_workflow: DeveloperWorkflow | null
-  workflows: DeveloperWorkflow[]
+  /** No longer sent. The array held every session in full and had no reader — it made this
+   *  endpoint 5.2 MB on a 5-second poll. Run history has its own endpoint. */
+  workflows?: DeveloperWorkflow[]
   summary: { states: Record<string, number>; releases: DeveloperRelease[]; deployments: unknown[] }
   policy: {
     version: number; hash: string; capabilities: Record<string, boolean>

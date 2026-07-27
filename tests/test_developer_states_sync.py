@@ -70,9 +70,17 @@ ok("a locally-complete run's worktree becomes reclaimable",
    "locally_complete" in CLEANUP_ELIGIBLE_STATES)
 ok("a faulted run is never auto-reclaimed", not (CLEANUP_ELIGIBLE_STATES & FAULT_STATES))
 
+# The overview endpoint once carried its own copy of the terminal set, went stale, and served
+# a finished run as the active workflow. It now asks the store, which derives the set. The
+# guard follows the logic rather than the file it used to live in.
+store_src = (ROOT / "core" / "development_store.py").read_text(encoding="utf-8")
+active_query = store_src[store_src.index("def active_session_id"):][:700]
+ok("the active-workflow lookup excludes terminal states from the shared set",
+   "state_in_clause(\"state\", TERMINAL_STATES)" in active_query and "NOT {clause}" in active_query,
+   active_query[:200])
 overview_src = (ROOT / "api" / "developer.py").read_text(encoding="utf-8")
-ok("overview derives active_workflow from TERMINAL_STATES",
-   'item["state"] not in TERMINAL_STATES' in overview_src)
+ok("overview asks the store instead of scanning every workflow",
+   "agent.store.active_session_id()" in overview_src and "agent.list_workflows(50)" not in overview_src)
 
 # --- stage vocabulary ----------------------------------------------------------------
 ok("every stage declares whether it needs a capability",

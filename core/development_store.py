@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from core.coding_states import ACTIVE_STATES, state_in_clause
+from core.coding_states import ACTIVE_STATES, TERMINAL_STATES, state_in_clause
 
 
 def utc_now() -> str:
@@ -805,6 +805,24 @@ class DevelopmentStore:
                 (session_id,),
             ).fetchone()
             return self._row(row)
+        finally:
+            conn.close()
+
+    def active_session_id(self) -> int | None:
+        """The one workflow the owner is watching, found without building the other fifty.
+
+        The overview endpoint used to load every session in full and pick the first
+        non-terminal one from the result, which cost ~500 queries to answer a question that
+        is a single indexed lookup.
+        """
+        clause, params = state_in_clause("state", TERMINAL_STATES)
+        conn = self.connect()
+        try:
+            row = conn.execute(
+                f"SELECT id FROM coding_sessions WHERE archived_at IS NULL AND NOT {clause} "
+                "ORDER BY updated_at DESC LIMIT 1", params,
+            ).fetchone()
+            return int(row["id"]) if row else None
         finally:
             conn.close()
 
