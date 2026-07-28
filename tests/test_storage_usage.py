@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import tempfile
+from pathlib import Path
 
 # isolated DB before any core import
 _TMP = tempfile.mkdtemp(prefix="tobi_t10_")
@@ -39,11 +40,28 @@ ok("table→feature map", ss.feature_for_table("brain_memories") == "Brain"
    and ss.feature_for_table("pm_projects") == "Projects"
    and ss.feature_for_table("pm_files") == "Documents"
    and ss.feature_for_table("chat_messages") == "Chat"
+   and ss.feature_for_table("agent_runs") == "Agent"
+   and ss.feature_for_table("developer_schema_migrations") == "Developer"
+   and ss.feature_for_table("coding_sessions") == "Developer"
+   and ss.feature_for_table("development_goals") == "Developer"
+   and ss.feature_for_table("news_items") == "News"
+   and ss.feature_for_table("office_artifacts") == "Office"
+   and ss.feature_for_table("skill_metrics") == "Abilities"
    and ss.feature_for_table("vault_secrets") == "Vault"
    and ss.feature_for_table("mcp_tools") == "MCP"
    and ss.feature_for_table("tasks") == "Tasks"
    and ss.feature_for_table("llm_usage") == "System"
    and ss.feature_for_table("weird_table") == "Other")
+
+data_root = Path(os.environ["DB_PATH"]).parent
+(data_root / "developer" / "artifacts").mkdir(parents=True)
+(data_root / "news_media").mkdir()
+(data_root / "review-build").mkdir()
+target_features = {Path(t["path"]).name: t["feature"] for t in ss._fs_targets()}
+ok("data dir→module map", target_features.get("developer") == "Developer"
+   and target_features.get("review-build") == "Developer"
+   and target_features.get("news_media") == "News"
+   and all(t["label"] != "Agent data dir" for t in ss._fs_targets()))
 
 db = ss.scan_db()
 ok("scan_db per-table", db["db_size_bytes"] > 0 and len(db["tables"]) > 20

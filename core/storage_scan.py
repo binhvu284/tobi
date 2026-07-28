@@ -8,8 +8,8 @@ Answers "where is my disk going?" for every TOBI data resource:
 - **Data dirs** (``~/.mmo_agent`` artifacts, ``~/.hermes`` memory/skills/SOUL),
   **code + deps** (repo · venv · node_modules · dist), **vector index / graph /
   logs** — each walked and attributed [S5].
-- Everything rolls up **by feature** (Brain / Graph / Office / Tasks / Projects /
-  Documents / Chat / Codebase / Vault / MCP) with dev bulk in a separate
+- Everything rolls up **by feature** (Brain / Graph / Developer / Office / Tasks /
+  Projects / Documents / Chat / News / Codebase / Vault / MCP) with dependency bulk in a separate
   **System** bucket so deps never drown real data [S6][S7].
 - Each scan writes **``storage_snapshots``** rows → growth charts + "what grew
   this week" [S8][S22]. Dependency dirs are walked once and cached for a week
@@ -27,25 +27,33 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
-FEATURES = ["Brain", "Graph", "Office", "Tasks", "Projects", "Documents",
-            "Chat", "Codebase", "Vault", "MCP", "System", "Other"]
+FEATURES = ["Brain", "Graph", "Chat", "Agent", "Developer", "Office", "Tasks",
+            "Projects", "Documents", "News", "Evolution", "Abilities", "Health",
+            "Codebase", "Backups", "Vault", "MCP", "System", "Other"]
 
 # ── table → feature map [S6] (prefix match, longest wins; unmapped → Other) ──
 TABLE_FEATURES: dict[str, str] = {
     "brain_": "Brain",
     "graph_": "Graph",
+    "chat_": "Chat", "conversations": "Chat", "tobi_actions": "Chat",
+    "agent_run": "Agent", "terminal_": "Agent", "installed_tools": "Agent",
+    "developer_": "Developer", "development_": "Developer", "coding_": "Developer",
+    "repo_snapshots": "Developer", "releases": "Developer", "deployments": "Developer",
     "agents": "Office", "agent_state": "Office", "missions": "Office",
     "mission_steps": "Office", "workflows": "Office", "reports": "Office",
     "lessons": "Office", "revenue": "Office", "strategy": "Office",
-    "skills": "Office", "skill_": "Office",
+    "office_": "Office",
     "tasks": "Tasks", "task_": "Tasks",
     "projects": "Projects", "pm_": "Projects",
     "pm_files": "Documents",
-    "chat_": "Chat", "conversations": "Chat", "tobi_actions": "Chat",
+    "news_": "News", "explore_": "News",
+    "awakening_": "Evolution", "evolution_": "Evolution",
+    "skills": "Abilities", "skill_": "Abilities",
+    "performance_": "Health",
     "vault_": "Vault",
-    "mcp_": "MCP",
+    "mcp_": "MCP", "a2a_": "MCP",
     "llm_": "System", "usage_budget": "System", "storage_snapshots": "System",
-    "owner_settings": "System", "sqlite_": "System",
+    "owner_settings": "System", "schema_migrations": "System", "sqlite_": "System",
 }
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -57,6 +65,26 @@ DEP_DIRS: list[tuple[str, Path]] = [
 ]
 _DEP_CACHE_DAYS = 7
 _SKIP_WALK = {".git", "venv", "node_modules", "dist", "__pycache__"}
+_DATA_DIR_FEATURES: dict[str, tuple[str, str]] = {
+    "developer": ("Developer runtime", "Developer"),
+    "news_media": ("News media", "News"),
+    "projects": ("Project resources drive", "Projects"),
+    "backups": ("Data backups", "Backups"),
+    "runtime": ("Runtime state", "System"),
+    "local-mc": ("Local Mission Control state", "System"),
+}
+
+
+def _data_dir_target(child: Path) -> tuple[str, str]:
+    """Return an owner-facing label and module for one top-level data entry."""
+    configured = _DATA_DIR_FEATURES.get(child.name)
+    if configured:
+        return configured
+    if child.name.startswith(("review-", "test-")):
+        return "Developer test and review data", "Developer"
+    if child.name == "tobi.pid" or child.name == "tmp" or child.name.startswith("tmp"):
+        return "Temporary runtime data", "System"
+    return "Unclassified application data", "Other"
 
 
 def _conn() -> sqlite3.Connection:
@@ -168,17 +196,25 @@ def _fs_targets() -> list[dict]:
     from core.database import DB_PATH
     home = Path.home()
     data_dir = Path(DB_PATH).parent          # ~/.mmo_agent
-    return [
+    targets = [
         {"label": "Repo code & docs", "path": PROJECT_DIR, "feature": "Codebase",
          "skip": _SKIP_WALK | {"graphify-out", "logs"}},
         {"label": "Knowledge graph index", "path": PROJECT_DIR / "graphify-out", "feature": "Codebase"},
         {"label": "Logs", "path": PROJECT_DIR / "logs", "feature": "System"},
-        {"label": "Agent data dir", "path": data_dir, "feature": "Office",
-         "skip": {"projects"}, "exclude_files": {Path(DB_PATH).name}},
-        {"label": "Project resources drive", "path": data_dir / "projects", "feature": "Projects"},
         {"label": "Hermes memory & skills", "path": home / ".hermes", "feature": "Brain"},
         {"label": "Embeddings cache", "path": home / ".cache" / "fastembed", "feature": "Brain"},
     ]
+    try:
+        children = sorted(data_dir.iterdir(), key=lambda item: item.name.lower())
+    except OSError:
+        children = []
+    db_name = Path(DB_PATH).name
+    for child in children:
+        if child.name == db_name:
+            continue
+        label, feature = _data_dir_target(child)
+        targets.append({"label": label, "path": child, "feature": feature})
+    return targets
 
 
 def scan_fs() -> dict:

@@ -43,8 +43,9 @@ function useChartColors() {
 }
 
 // Fixed entity→hue order so colors follow the entity, not its rank [dataviz rule]
-const FEATURE_ORDER = ['Brain', 'Graph', 'Office', 'Tasks', 'Projects', 'Documents',
-  'Chat', 'Codebase', 'Vault', 'MCP', 'System', 'Other']
+const FEATURE_ORDER = ['Brain', 'Graph', 'Chat', 'Agent', 'Developer', 'Office',
+  'Tasks', 'Projects', 'Documents', 'News', 'Evolution', 'Abilities', 'Health',
+  'Codebase', 'Backups', 'Vault', 'MCP', 'System', 'Other']
 const SURFACE_ORDER = ['chat', 'agent', 'office', 'research', 'brain', 'ceo', 'classifier', 'terminal']
 function entityColor(name: string, order: string[], cat: string[]): string {
   const i = order.indexOf(name)

@@ -548,3 +548,40 @@ Two defects found alongside it, both from the same run's trace:
 
 **Acceptance consequence:** run 15 is the first run whose criteria-named check actually
 executed, and it passed. The failure was in the harness reading the result, not in the work.
+
+### Run 15 — #25 via Codex — 2026-07-28 — first end-to-end local completion
+
+The first run in this acceptance to execute the check its own acceptance criteria named, and
+the first to pass every policy-permitted gate. Seven of eleven gates are permitted while
+`github`, `merge`, and `deploy` are all false; all seven completed, and the run stopped at
+`push` with `github_disabled`, which is the designed sandbox boundary rather than a failure.
+
+What makes it different from run 10: the criteria named `tests/test_awakening.py`, the
+preflight derived `python tests/test_awakening.py` into the run's validation commands, the
+check ran and exited 0, and the reviewer qualified the run **citing that evidence** — "leaves
+the existing test suite (tests/test_awakening.py) fully passing". Run 10 passed the same
+reviewer without that evidence existing, which is why it was not counted.
+
+Verified independently of the run's own reporting, against the worktree and the merged main:
+
+- `git show 8fa0a54` — one file, `core/awakening.py`, +13/-11; worktree clean.
+- `tests/test_awakening.py` re-run by hand: 73 checks green. `test_awakening_route`,
+  `test_coding_agent` green.
+- A four-case probe of `_connector_states` through the real `vault.list_secrets` and
+  `integrations.get_integration` seams: token untested → `partial`, fresh successful test →
+  `verified`, stale test → `partial`, failed test → `partial`.
+- `changed_files` reported `core/awakening.py`, confirming the D17 porcelain-truncation fix in
+  a live run.
+
+Merged to main as `e4f1c4a` after the suites passed on the merge result.
+
+**Scenario coverage.** This is evidence for scenario 2 (Codex happy path), not scenario 1: the
+implementer was `codex-chatgpt`. It covers the whole scenario except draft delivery, which
+cannot occur while `github` is false. Recorded as a partial pass; the draft-PR half needs the
+GitHub capability enabled and a re-run.
+
+**Closure-rule note.** The merge was performed by the owner's agent at the owner's instruction
+rather than by the run's own `merge_deploy` gate. That is not the manual workaround the closure
+rule forbids — it is the documented consequence of a sandbox policy, and `_local_complete` says
+so in the message it returns. Scenario 2 still needs a run with `github: true` before the
+delivery path itself can be called proven.
