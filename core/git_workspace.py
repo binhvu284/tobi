@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -309,11 +310,60 @@ class GitWorkspaceManager:
         if root.exists():
             self.git("worktree", "remove", str(root), *( ["--force"] if force else [] ))
 
-    def storage(self) -> dict[str, Any]:
-        def size(path: Path) -> int:
-            if not path.exists():
-                return 0
-            return sum(item.stat().st_size for item in path.rglob("*") if item.is_file())
-        return {"worktree_root": str(self.worktree_root), "worktree_bytes": size(self.worktree_root),
-                "worktree_count": len([p for p in self.worktree_root.glob("*") if p.is_dir()]) if self.worktree_root.exists() else 0,
-                "git_available": bool(shutil.which("git"))}
+    _STORAGE_TTL_SECONDS = 120.0
+    _storage_cache: tuple[float, dict[str, Any]] | None = None
+
+    @staticmethod
+    def _tree_bytes(path: Path) -> int:
+        """Total size below `path`, walked with scandir rather than rglob.
+
+        Every worktree is a full checkout, `dashboard/dist` is tracked, and this host holds
+        fourteen of them -- 410 MB and roughly 100k entries. `rglob` builds a Path object per
+        entry and issues a separate `stat` for each; `os.scandir` reuses the directory entry
+        the OS already returned, which is the difference between seconds and a fraction of one
+        on Windows.
+        """
+        total = 0
+        stack = [str(path)]
+        while stack:
+            current = stack.pop()
+            try:
+                with os.scandir(current) as entries:
+                    for entry in entries:
+                        try:
+                            if entry.is_dir(follow_symlinks=False):
+                                stack.append(entry.path)
+                            elif entry.is_file(follow_symlinks=False):
+                                total += entry.stat(follow_symlinks=False).st_size
+                        except OSError:
+                            continue  # vanished mid-walk, or denied
+            except OSError:
+                continue
+        return total
+
+    def storage(self, *, refresh: bool = False) -> dict[str, Any]:
+        """Developer disk usage, cached briefly.
+
+        `GET /api/developer/storage` is one of eight calls the Developer page makes on every
+        load and every five-second poll, and it was the only one that walked the filesystem.
+        At fourteen worktrees it took 9.7 seconds to return 421 bytes, which on its own put
+        the page over its fifteen-second budget -- the "Developer data unavailable" the owner
+        kept having to retry through.
+
+        Disk usage does not change meaningfully between polls, so a short TTL removes the cost
+        from every call but the first. `refresh=True` is for after a cleanup, where the owner
+        is specifically asking whether the space came back.
+        """
+        cached = type(self)._storage_cache
+        if not refresh and cached and (time.monotonic() - cached[0]) < self._STORAGE_TTL_SECONDS:
+            return dict(cached[1])
+        root = self.worktree_root
+        exists = root.exists()
+        usage = {
+            "worktree_root": str(root),
+            "worktree_bytes": self._tree_bytes(root) if exists else 0,
+            "worktree_count": len([p for p in root.glob("*") if p.is_dir()]) if exists else 0,
+            "git_available": bool(shutil.which("git")),
+        }
+        type(self)._storage_cache = (time.monotonic(), usage)
+        return dict(usage)

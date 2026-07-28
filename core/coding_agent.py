@@ -1678,10 +1678,9 @@ class CodingAgent:
             return {"files": [], "stat": "", "head_sha": session.get("head_sha")}
         return self.git.diff_summary(session["worktree"])
 
-    def storage(self) -> dict[str, Any]:
-        usage = self.git.storage()
-        def tree_size(path: Path) -> int:
-            return sum(item.stat().st_size for item in path.rglob("*") if item.is_file()) if path.exists() else 0
+    def storage(self, *, refresh: bool = False) -> dict[str, Any]:
+        usage = self.git.storage(refresh=refresh)
+        tree_size = self.git._tree_bytes  # scandir-based; see GitWorkspace._tree_bytes
         artifact_root = self.policy.repo_path("artifact_root")
         index_root = self.policy.repo_path("index_root")
         usage["artifact_bytes"] = tree_size(artifact_root)
@@ -1752,4 +1751,6 @@ class CodingAgent:
             except (PolicyDenied, GitCommandError):
                 continue
         return {"removed_artifacts": removed_artifacts, "removed_worktrees": removed_worktrees,
-                "remaining": self.storage()}
+                # Fresh, not cached: the owner just deleted worktrees and is asking whether the
+                # space came back. A stale reading here would report the pre-cleanup total.
+                "remaining": self.storage(refresh=True)}
