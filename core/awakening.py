@@ -221,25 +221,27 @@ def _connector_states(conn) -> tuple[list[str], list[str]]:
     """(verified, configured) read-safe connectors.
 
     **verified** = the integration object reports ready (is_available/is_connected
-    returns True) — this is sufficient evidence that credentials are present and
-    functional. A cached vault test receipt adds recency confidence but is NOT
-    required (OAuth-connected integrations like Google never go through the vault
-    Test button, and GitHub/Notion tokens are validated by the integration's own
-    test() during the connect flow).
+    returns True) AND the vault has fresh cached evidence from a successful
+    integration test. Token presence alone is never evidence of usable read access:
+    a dummy, expired, or revoked token can make a connector look configured.
 
-    **configured** = credentials present in the vault but the integration object
-    doesn't report ready (partial setup — e.g. Google OAuth credentials saved but
-    user hasn't clicked 'Connect with Google' yet).
+    **configured** = credentials are detected in the vault or connector state, but
+    the connector doesn't have fresh successful-test evidence (partial setup -
+    e.g. credentials saved but untested, expired evidence, or Google OAuth not
+    completed yet).
     """
     verified: list[str] = []
     configured: list[str] = []
     configured_ids: set[str] = set()
+    fresh_test_ids: set[str] = set()
     try:
         from core import vault
         for s in vault.list_secrets(conn):
             iid = (s.get("integration_id") or "").lower()
             if iid:
                 configured_ids.add(iid)
+                if s.get("test_status") == "ok" and _connector_test_fresh(s.get("last_tested_at")):
+                    fresh_test_ids.add(iid)
     except Exception:
         pass
     try:
@@ -256,10 +258,10 @@ def _connector_states(conn) -> tuple[list[str], list[str]]:
         except Exception:
             ready = False
         if ready:
-            # Integration reports ready → verified (credentials are present and functional)
+            configured_ids.add(iid)
+        if ready and iid in fresh_test_ids:
             verified.append(label)
         elif iid in configured_ids:
-            # Credentials in vault but integration not ready → configured (needs activation)
             configured.append(label)
     return verified, configured
 
