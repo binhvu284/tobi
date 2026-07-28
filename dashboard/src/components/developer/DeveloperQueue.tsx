@@ -8,7 +8,7 @@ import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Archive, ArrowUpFromLine, CheckCircle2, ChevronRight, FileText, GripVertical,
-  Loader2, Maximize2, Minimize2, Play, Plus, RotateCcw, Search, Sparkles, Target,
+  Loader2, Maximize2, Minimize2, Play, Plus, RotateCcw, Search, Sparkles, Target, TestTube2,
   Trash2, Upload, X,
 } from 'lucide-react'
 import { createDeveloperQueueItem, getDeveloperQueue, getDeveloperQueuePlan, preflightDeveloperQueueItem, removeDeveloperQueueItem, restoreDeveloperQueueItem, setDeveloperQueueOrder, type DeveloperGoal, type DeveloperQueueItem, type DeveloperQueuePlan, type DeveloperQueueState, type DeveloperReadiness, type DeveloperWorkflow } from '../../api.developer'
@@ -69,17 +69,19 @@ function ItemCard({ item, badge, draggable, busy, prominent, onDragStart, onDrag
   )
 }
 
-export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBusy, goals, createForGoalId, createRequestId, onAutoQueue, onStart, onOpenProcess, onState }: {
+export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBusy, acceptanceMode, goals, createForGoalId, createRequestId, onAutoQueue, onStart, onPrepare, onOpenProcess, onState }: {
   state: DeveloperQueueState
   active: DeveloperWorkflow | null
   busy: boolean
   autoQueue: boolean
   autoQueueBusy: boolean
+  acceptanceMode: boolean
   goals: DeveloperGoal[]
   createForGoalId?: number | null
   createRequestId?: number
   onAutoQueue: (enabled: boolean) => void
   onStart: (queueId: number, readinessId: number) => void
+  onPrepare: (queueId: number, readinessId: number) => void
   onOpenProcess: () => void
   onState: (next: DeveloperQueueState) => void
 }) {
@@ -339,8 +341,14 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
         onAskRemove={setConfirmRemove} onRemove={remove} />
       <AddItemModal open={addOpen} goals={goals} initialGoalId={createForGoalId} onClose={() => setAddOpen(false)} onSubmit={createItem} />
       <ReadinessModal item={preflightFor} report={readiness} busy={preflightBusy}
+        allowPrepare={acceptanceMode}
         onClose={() => { setPreflightFor(null); setReadiness(null) }}
         onRefresh={options => preflightFor && reviewStart(preflightFor, options)}
+        onPrepare={() => {
+          if (!preflightFor || !readiness?.ready) return
+          onPrepare(preflightFor.queue_id, readiness.readiness_id)
+          setPreflightFor(null); setReadiness(null)
+        }}
         onStart={() => {
           if (!preflightFor || !readiness?.ready) return
           onStart(preflightFor.queue_id, readiness.readiness_id)
@@ -546,10 +554,12 @@ function AddItemModal({ open, goals, initialGoalId, onClose, onSubmit }: {
 }
 
 // ── 6. Plan Detail modal ─────────────────────────────────────────────────────
-function ReadinessModal({ item, report, busy, onClose, onRefresh, onStart }: {
+function ReadinessModal({ item, report, busy, allowPrepare, onClose, onRefresh, onPrepare, onStart }: {
   item: DeveloperQueueItem | null; report: DeveloperReadiness | null; busy: boolean
+  allowPrepare: boolean
   onClose: () => void
   onRefresh: (options: { protected_paths_approved?: boolean; selected_agent?: string }) => void
+  onPrepare: () => void
   onStart: () => void
 }) {
   return createPortal(
@@ -566,7 +576,7 @@ function ReadinessModal({ item, report, busy, onClose, onRefresh, onStart }: {
             {report.warnings.length > 0 && <details><summary className="cursor-pointer text-xs text-warning">{report.warnings.length} warning{report.warnings.length === 1 ? '' : 's'}</summary><div className="mt-2 space-y-1">{report.warnings.map(issue => <p key={issue.code + issue.message} className="text-[11px] text-muted">{issue.message}</p>)}</div></details>}
           </>}
         </div>
-        <footer className="flex items-center justify-between border-t border-border px-5 py-3"><span className="text-[11px] text-muted">Bound to the current plan and policy hash.</span><div className="flex gap-2"><button onClick={onClose} className="h-8 rounded-md border border-border px-3 text-xs text-text">Cancel</button><button disabled={!report?.ready || busy} onClick={onStart} className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-xs font-semibold text-background disabled:opacity-40"><Play size={13} /> Start run</button></div></footer>
+        <footer className="flex items-center justify-between border-t border-border px-5 py-3"><span className="text-[11px] text-muted">Bound to the current plan and policy hash.</span><div className="flex gap-2"><button onClick={onClose} className="h-8 rounded-md border border-border px-3 text-xs text-text">Cancel</button>{allowPrepare && <button disabled={!report?.ready || busy} onClick={onPrepare} className="inline-flex h-8 items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 text-xs font-semibold text-warning disabled:opacity-40"><TestTube2 size={13} /> Prepare test</button>}<button disabled={!report?.ready || busy} onClick={onStart} className="inline-flex h-8 items-center gap-2 rounded-md bg-accent px-3 text-xs font-semibold text-background disabled:opacity-40"><Play size={13} /> Start run</button></div></footer>
       </motion.section>
     </motion.div>}</AnimatePresence>,
     document.body,

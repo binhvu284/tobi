@@ -227,6 +227,11 @@ export async function startDeveloperWorkflow(queueId: number, readinessId?: numb
     method: 'POST', body: JSON.stringify({ queue_id: queueId, readiness_id: readinessId, idempotency_key: crypto.randomUUID(), start: true }),
   })
 }
+export async function prepareDeveloperWorkflow(queueId: number, readinessId?: number): Promise<DeveloperWorkflow> {
+  return vreq('/api/developer/workflows', {
+    method: 'POST', body: JSON.stringify({ queue_id: queueId, readiness_id: readinessId, idempotency_key: crypto.randomUUID(), start: false }),
+  })
+}
 export async function getDeveloperHistory(signal?: AbortSignal): Promise<{ workflows: DeveloperWorkflow[] }> {
   return vreq('/api/developer/workflows/history', { signal })
 }
