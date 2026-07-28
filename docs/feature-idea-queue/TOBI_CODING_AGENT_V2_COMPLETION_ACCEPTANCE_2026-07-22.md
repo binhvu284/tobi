@@ -740,11 +740,30 @@ library client the reviewer uses carried the bug.
 so the two cannot diverge again. Verified live against the owner's subscription:
 `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.5`, and `gpt-5.4-mini` all complete and report usage.
 
-**One catalog caveat, not a bug we can fix here.** `codex:gpt-5.6` is offered by
+**Resolved in the Codex continuation.** `codex:gpt-5.6` was offered by
 `available_models()` but the backend answers *"The 'gpt-5.6' model is not supported when using
 Codex with a ChatGPT account."* — it is a platform-API-only model. The owner had selected
 exactly that one as the default. `reviewer_model_problem` validates against the catalog, so it
-cannot catch this without a live call per preflight, which is not worth the cost. The error is
-at least legible now.
+could not catch this. Subscription routing now filters that platform-only model before it
+reaches the Models picker, while platform API authentication can still use it.
 
-**Owner action:** change the default model from `codex:gpt-5.6` to `codex:gpt-5.6-sol`.
+**D20 — a frozen vault token shadowed the rotating Codex login.** The CLI implementer and the
+in-process reviewer used different auth sources. The CLI read its current `auth.json`; the
+server received an older `CODEX_ACCESS_TOKEN` from vault injection, and the constructor chose
+that environment value first. The token looked configured but could still 401 at review.
+
+The repair has three layers:
+
+1. Decode expiry metadata without printing or persisting credentials and select the later
+   subscription token. Explicit platform `sk-*` keys retain precedence.
+2. On a 401, refresh from `codex login` once. Never retry after visible stream output.
+3. Active preflight sends an eight-token reviewer probe and blocks
+   `reviewer_probe_failed` before any workflow is created.
+
+The guard suite was run against the pre-fix source and failed all three original auth cases.
+After the repair: auth guards 4/4, backend dialect 23/23, routing 5/5, Coding Agent V2 48/48,
+targeted acceptance 36/36, and focused Developer regressions all pass. The bounded live
+reviewer probe also returns ready with the configured `codex:gpt-5.6-sol`.
+
+**Live evidence outstanding:** backend restart and Retry #26 through review, commit, push, and
+draft PR. Until that trace is recorded, scenario 2 stays Partial and #22 stays In Progress.

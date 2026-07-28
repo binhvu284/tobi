@@ -651,6 +651,7 @@ class CodingAgent:
                         "run_active", "plan_changed", "agent_disabled", "agent_unhealthy",
                         "reviewer_unavailable", "reviewer_unhealthy", "check_denied",
                         "github_app_unconfigured", "reviewer_model_unconfigured",
+                        "reviewer_probe_failed",
                     }
                     if codes & system_blockers:
                         owner_flags.set_bool("developer.auto_queue", False)

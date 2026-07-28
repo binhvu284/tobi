@@ -69,6 +69,18 @@ class ModelRoutingUsageTests(unittest.TestCase):
         self.assertEqual(len(client.clients), 2)
         self.assertEqual(builder.call_count, 2)
 
+    def test_subscription_catalog_hides_platform_only_codex_models(self):
+        provider = {
+            "id": "codex", "label": "OpenAI Codex", "enabled": True,
+            "needs_key": True, "key_present": True,
+            "models": ["gpt-5.6-sol", "gpt-5.6"],
+        }
+        with patch("core.model_router.provider_catalog", return_value=[provider]), \
+             patch.object(model_router.CodexClient, "uses_subscription_auth", return_value=True):
+            models = {item["id"] for item in model_router.available_models()}
+        self.assertIn("codex:gpt-5.6-sol", models)
+        self.assertNotIn("codex:gpt-5.6", models)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,6 +7,30 @@
 
 ---
 
+## Codex continuation — 2026-07-28
+
+The Section 4 auth-source hypothesis is now closed in source and guarded:
+
+- `CodexClient` compares JWT expiry metadata and prefers the rotating `codex login`
+  credential when it is newer than a copied vault token.
+- A 401 refreshes from the Codex login exactly once. A response that already emitted text is
+  never replaced or concatenated.
+- Active Developer preflight sends a bounded reviewer readiness probe and blocks with
+  `reviewer_probe_failed` before creating a run.
+- The ChatGPT-subscription catalog no longer offers the known platform-only `gpt-5.6`; the
+  verified subscription models remain available.
+
+Verification: the new guard was proven red before the fix, then passed 4/4; existing Codex
+backend checks passed 23/23; Coding Agent V2 passed 48/48; targeted pytest passed 36/36; the
+Developer recovery, criteria-evidence, state-sync, loading-state, and core Coding Agent suites
+all passed. A bounded live probe against the configured `codex:gpt-5.6-sol` reviewer also
+returned ready through the rotating Codex login.
+
+**Still live-only:** restart the MC backend, Retry #26, and record review → commit → push →
+draft-PR evidence. Scenario 2 remains Partial until that owner-visible run completes.
+
+---
+
 ## 0. Read this first
 
 **One live blocker stands between #26 and the first real delivery.** Section 4 has it, with a

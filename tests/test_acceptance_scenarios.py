@@ -120,6 +120,9 @@ def _reviewer_model_is_configured(monkeypatch):
     about reviewer models re-patch this themselves.
     """
     monkeypatch.setattr(coding_completion, "reviewer_model_problem", lambda model=None: "")
+    monkeypatch.setattr(
+        coding_completion, "reviewer_model_auth_problem", lambda model=None: ""
+    )
 
 
 # --- Scenario 4: protected-path approval ------------------------------------------------
@@ -319,6 +322,27 @@ def test_the_preflight_check_and_the_reviewer_resolve_the_model_the_same_way(tmp
     assert "not available" in reviewer_model_problem("definitely-not-a-real-model-id")
 
 
+def test_reviewer_authentication_is_proved_before_the_run_starts(
+    tmp_path, monkeypatch
+) -> None:
+    """A configured reviewer that cannot authenticate must not spend an implementer."""
+    store = DevelopmentStore(tmp_path / "developer.db")
+    task = _task(store, tmp_path)
+    monkeypatch.setattr(coding_completion, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(
+        coding_completion,
+        "reviewer_model_auth_problem",
+        lambda model=None: "The acceptance reviewer could not authenticate during preflight.",
+    )
+    service = _service(store, tmp_path)
+
+    report = service.preflight(int(task["queue_id"]), active_probe=True)
+
+    assert not report["ready"]
+    assert "reviewer_probe_failed" in _codes(report)
+    assert store.list_sessions(10) == []
+
+
 def test_an_unavailable_reviewer_blocks_the_run(tmp_path, monkeypatch) -> None:
     """No independent reviewer means no acceptance evidence, so the run must not start."""
     store = DevelopmentStore(tmp_path / "developer.db")
@@ -341,6 +365,7 @@ SYSTEM_BLOCKERS = {
     "run_active", "plan_changed", "agent_disabled", "agent_unhealthy",
     "reviewer_unavailable", "reviewer_unhealthy", "check_denied",
     "github_app_unconfigured", "reviewer_model_unconfigured",
+    "reviewer_probe_failed",
 }
 
 

@@ -475,7 +475,13 @@ def available_models() -> list[dict]:
             continue
         if p["needs_key"] and not p["key_present"]:
             continue
-        for m in p["models"]:
+        models = list(p["models"])
+        if p["id"] == "codex" and CodexClient.uses_subscription_auth():
+            models = [
+                model for model in models
+                if model not in CodexClient.SUBSCRIPTION_UNSUPPORTED_MODELS
+            ]
+        for m in models:
             mid = f"{p['id']}:{m}"
             out.append({"id": mid, "provider": p["id"], "model": m,
                         "label": f"{p['label']} · {m}", "context": context_limit(mid)})

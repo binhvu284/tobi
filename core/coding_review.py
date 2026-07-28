@@ -11,6 +11,15 @@ class CodingReviewError(RuntimeError):
     pass
 
 
+def _selected_reviewer_model(model: str | None, config: dict[str, Any]) -> str:
+    return str(
+        model
+        or (config.get("task_overrides") or {}).get("coding_review")
+        or config.get("default_model")
+        or ""
+    ).strip()
+
+
 def reviewer_model_problem(model: str | None = None) -> str:
     """Why acceptance review could not be given a model, or "" when it can.
 
@@ -31,12 +40,7 @@ def reviewer_model_problem(model: str | None = None) -> str:
         config = load_llm_config()
     except Exception as exc:
         return f"Model routing configuration could not be read: {type(exc).__name__}: {exc}"
-    selected = str(
-        model
-        or (config.get("task_overrides") or {}).get("coding_review")
-        or config.get("default_model")
-        or ""
-    ).strip()
+    selected = _selected_reviewer_model(model, config)
     if not selected:
         # A fallback chain is not a default. The router refuses to pick one on the owner's
         # behalf by design -- which model judges the owner's code is the owner's choice.
@@ -48,6 +52,61 @@ def reviewer_model_problem(model: str | None = None) -> str:
         return f"The Models catalog could not be read: {type(exc).__name__}: {exc}"
     if selected not in catalog:
         return f"Reviewer model {selected} is not available from an enabled Models provider."
+    if selected.startswith("codex:"):
+        try:
+            from core.llm_clients.codex import CodexClient
+
+            problem = CodexClient.authentication_problem()
+        except Exception as exc:
+            return f"Codex authentication could not be checked: {type(exc).__name__}"
+        if problem:
+            return problem
+    return ""
+
+
+def reviewer_model_auth_problem(model: str | None = None) -> str:
+    """Actively prove the reviewer can answer before an implementer is started."""
+    problem = reviewer_model_problem(model)
+    if problem:
+        return problem
+    try:
+        from core.model_router import (
+            get_llm,
+            load_llm_config,
+            restore_usage_context,
+            set_usage_context,
+        )
+
+        selected = _selected_reviewer_model(model, load_llm_config())
+        previous = set_usage_context(
+            "agent",
+            "coding_review_preflight",
+            purpose="health_probe",
+            source="developer_preflight",
+            is_background=True,
+            requested_model=selected,
+        )
+        try:
+            response = get_llm("coding_review", model=model).complete(
+                [{"role": "user", "content": "Reply with OK."}],
+                system="This is a readiness probe. Reply only with OK.",
+                max_tokens=8,
+            )
+        finally:
+            restore_usage_context(previous)
+    except ModuleNotFoundError as exc:
+        dependency = str(getattr(exc, "name", "") or "unknown")
+        return (
+            f"The acceptance reviewer runtime is missing dependency '{dependency}'. "
+            "Repair the server environment before starting."
+        )
+    except Exception as exc:
+        return (
+            "The acceptance reviewer could not authenticate during preflight "
+            f"({type(exc).__name__}). Re-authorize its provider before starting."
+        )
+    if not str(response or "").strip():
+        return "The acceptance reviewer returned no readiness response."
     return ""
 
 

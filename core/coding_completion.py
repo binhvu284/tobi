@@ -12,7 +12,7 @@ from core.coding_contracts import ReadinessIssue, ReadinessReport, WorkerProfile
 from core.coding_criteria import derive_checks
 from core.coding_policy import PolicyDenied
 from core.coding_queue import REPO_ROOT
-from core.coding_review import reviewer_model_problem
+from core.coding_review import reviewer_model_auth_problem, reviewer_model_problem
 from core.coding_states import ACTIVE_STATES, workflow_progress
 from core.development_store import DevelopmentStore, utc_now
 from core.github_coding import GitHubCodingError, GitHubCodingService
@@ -238,10 +238,16 @@ class CodingCompletionService:
                 # The probe answers "is this profile enabled and reachable", which a reviewer
                 # with no model passes. Review is the last gate before delivery, so that gap
                 # costs a whole implementer sprint before it shows -- run 16 spent two.
-                model_problem = reviewer_model_problem(str(reviewer_row.get("model") or "") or None)
+                reviewer_model = str(reviewer_row.get("model") or "") or None
+                model_problem = reviewer_model_problem(reviewer_model)
                 if model_problem:
                     blockers.append(ReadinessIssue(
                         "reviewer_model_unconfigured", model_problem, "reviewer"))
+                elif active_probe and not blockers:
+                    auth_problem = reviewer_model_auth_problem(reviewer_model)
+                    if auth_problem:
+                        blockers.append(ReadinessIssue(
+                            "reviewer_probe_failed", auth_problem, "reviewer"))
 
         valid_fallbacks: list[str] = []
         for slug in fallbacks:
