@@ -20,7 +20,12 @@ TEST_ROOT.mkdir(parents=True, exist_ok=True)
 TMP = Path(tempfile.mkdtemp(prefix="developer_recovery_", dir=TEST_ROOT))
 os.environ["DB_PATH"] = str(TMP / "recovery.db")
 
+from core import coding_completion  # noqa: E402
 from core.coding_agent import CodingAgent, STAGES  # noqa: E402
+
+# Preflight asks whether acceptance review can be given a model, which depends on the machine's
+# own Models page. Recovery is about resuming a run, so it assumes that question is answered.
+coding_completion.reviewer_model_problem = lambda model=None: ""  # noqa: E731
 from core.coding_loop import CodingLoopService  # noqa: E402
 from core.coding_policy import CodingPolicy  # noqa: E402
 from core.development_store import DevelopmentStore  # noqa: E402

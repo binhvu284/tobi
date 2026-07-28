@@ -684,3 +684,38 @@ set it themselves.
 **Next:** #26 is the natural candidate for the first delivering run — it already reached
 `locally_complete` under the old policy, so a re-run exercises push and draft PR without new
 implementation risk. That converts scenario 2 from partial to a full pass.
+
+**D18 — the acceptance reviewer had no model, and nothing checked until the work was done.**
+Run 16 (#26) produced `tests/test_task_classifier.py` covering all seven classify outcomes, the
+60-character smalltalk boundary, and coding-over-project precedence. All four validation
+commands passed, including the criteria-derived `python tests/test_task_classifier.py` (22
+checks). The run then paused at review with `ModelRoutingNotConfigured`.
+
+Retry could not clear it: nothing about the code was wrong, so the second Codex sprint rewrote
+nothing and simply re-ran every validation before hitting the identical wall. **Two full
+implementer sprints were spent on a run that was unreviewable from the moment it started.**
+
+The reviewer resolves its model from three places, and all three were empty: the
+`reviewer-default` profile's `model` column, `task_overrides["coding_review"]`, and
+`default_model`. A `fallback` chain of eight OpenRouter models is configured, but the OpenRouter
+provider is disabled and the router refuses to promote a fallback to primary by design — which
+model judges the owner's code is the owner's choice, not a silent one.
+
+`reviewer_unhealthy` did not catch it because the probe answers "is this profile enabled and
+reachable", which a reviewer with no model passes. Review is the last gate before delivery, so
+the gap cannot surface until an implementer has produced the entire change.
+
+`reviewer_model_problem()` now owns the resolution order, `review()` calls it instead of keeping
+its own copy, and preflight calls it with the reviewer profile's model — blocking
+`reviewer_model_unconfigured` before a run is created. Classified as a system blocker so Auto
+stops rather than spending an implementer on every queue item in turn. A test asserts `review()`
+holds no second copy of the order, so the check and the run cannot disagree.
+
+**Test-fixture consequence.** Three suites began reporting the developer's local Models page
+instead of the behaviour they cover. They now stub the question explicitly, the same way the
+capability pinning works; the two tests that are genuinely about reviewer models set it
+themselves.
+
+**Owner action outstanding:** no default model is set. `available_models()` returns six
+`codex:*` ids from the enabled ChatGPT subscription provider; every other provider is disabled.
+Choosing one on the Models page unblocks review for every future run.

@@ -12,6 +12,7 @@ from core.coding_contracts import ReadinessIssue, ReadinessReport, WorkerProfile
 from core.coding_criteria import derive_checks
 from core.coding_policy import PolicyDenied
 from core.coding_queue import REPO_ROOT
+from core.coding_review import reviewer_model_problem
 from core.coding_states import ACTIVE_STATES, workflow_progress
 from core.development_store import DevelopmentStore, utc_now
 from core.github_coding import GitHubCodingError, GitHubCodingService
@@ -233,6 +234,14 @@ class CodingCompletionService:
                     "reviewer_unhealthy", str(reviewer_health.get("health_detail") or "Reviewer is unavailable."),
                     "reviewer",
                 ))
+            else:
+                # The probe answers "is this profile enabled and reachable", which a reviewer
+                # with no model passes. Review is the last gate before delivery, so that gap
+                # costs a whole implementer sprint before it shows -- run 16 spent two.
+                model_problem = reviewer_model_problem(str(reviewer_row.get("model") or "") or None)
+                if model_problem:
+                    blockers.append(ReadinessIssue(
+                        "reviewer_model_unconfigured", model_problem, "reviewer"))
 
         valid_fallbacks: list[str] = []
         for slug in fallbacks:

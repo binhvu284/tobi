@@ -109,6 +109,19 @@ def _codes(report: dict) -> set[str]:
     return {str(item.get("code") or "") for item in report.get("blockers") or []}
 
 
+@pytest.fixture(autouse=True)
+def _reviewer_model_is_configured(monkeypatch):
+    """Assume a working Models configuration unless a test is specifically about it.
+
+    Preflight asks whether acceptance review can be given a model. That question depends on
+    the machine's own Models page, so without this every scenario here would start reporting
+    the developer's local configuration instead of the behaviour it claims to cover -- the
+    same trap the capability pinning in `_policy` exists to avoid. The two tests that *are*
+    about reviewer models re-patch this themselves.
+    """
+    monkeypatch.setattr(coding_completion, "reviewer_model_problem", lambda model=None: "")
+
+
 # --- Scenario 4: protected-path approval ------------------------------------------------
 
 def test_protected_path_blocks_start_until_the_owner_approves_it(tmp_path, monkeypatch) -> None:
@@ -262,6 +275,50 @@ def test_the_reviewed_policy_grants_delivery_but_not_merge_or_deploy(tmp_path) -
     assert capabilities["deploy"] is False, "deploying is not an agent decision yet"
 
 
+def test_a_reviewer_with_no_model_blocks_before_an_implementer_is_spent(
+    tmp_path, monkeypatch
+) -> None:
+    """The probe says "enabled and reachable", which a reviewer with no model passes.
+
+    Review is the last gate before delivery, so this gap does not surface until an implementer
+    has produced the entire change. Run 16 spent two full Codex sprints -- writing the suite,
+    then re-running every validation on retry -- before pausing on ModelRoutingNotConfigured,
+    and Retry could never clear it because nothing about the code was wrong.
+    """
+    store = DevelopmentStore(tmp_path / "developer.db")
+    task = _task(store, tmp_path)
+    monkeypatch.setattr(coding_completion, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(coding_completion, "reviewer_model_problem",
+                        lambda model=None: "No model is configured for acceptance review.")
+    service = _service(store, tmp_path)
+
+    report = service.preflight(int(task["queue_id"]), active_probe=False)
+
+    assert not report["ready"]
+    assert "reviewer_model_unconfigured" in _codes(report)
+    assert store.list_sessions(10) == [], "no implementer time may be spent on an unreviewable run"
+    assert _auto_decision(_codes(report)) == "stop"
+
+    monkeypatch.setattr(coding_completion, "reviewer_model_problem", lambda model=None: "")
+    cleared = service.preflight(int(task["queue_id"]), active_probe=False)
+    assert cleared["ready"], _codes(cleared)
+
+
+def test_the_preflight_check_and_the_reviewer_resolve_the_model_the_same_way(tmp_path) -> None:
+    """One resolution order, so a run cannot be admitted and then fail on the same question."""
+    source = (Path(__file__).resolve().parents[1] / "core" / "coding_review.py").read_text(
+        encoding="utf-8")
+    review_body = source[source.index("    def review("):]
+    assert "reviewer_model_problem(model)" in review_body, \
+        "review() must ask the same helper preflight asks"
+    assert "config.get(\"default_model\")" not in review_body, \
+        "review() must not keep a second copy of the resolution order"
+
+    from core.coding_review import reviewer_model_problem
+    # The order itself: an explicit model wins over configuration, and is validated.
+    assert "not available" in reviewer_model_problem("definitely-not-a-real-model-id")
+
+
 def test_an_unavailable_reviewer_blocks_the_run(tmp_path, monkeypatch) -> None:
     """No independent reviewer means no acceptance evidence, so the run must not start."""
     store = DevelopmentStore(tmp_path / "developer.db")
@@ -283,7 +340,7 @@ def test_an_unavailable_reviewer_blocks_the_run(tmp_path, monkeypatch) -> None:
 SYSTEM_BLOCKERS = {
     "run_active", "plan_changed", "agent_disabled", "agent_unhealthy",
     "reviewer_unavailable", "reviewer_unhealthy", "check_denied",
-    "github_app_unconfigured",
+    "github_app_unconfigured", "reviewer_model_unconfigured",
 }
 
 

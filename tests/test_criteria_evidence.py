@@ -26,6 +26,11 @@ if str(ROOT) not in sys.path:
 
 from core import coding_completion  # noqa: E402
 from core.coding_completion import CodingCompletionService  # noqa: E402
+
+# Preflight asks whether acceptance review can be given a model, which depends on the machine's
+# own Models page. This suite is about criteria evidence, so it assumes that question is already
+# answered rather than reporting the developer's local configuration.
+coding_completion.reviewer_model_problem = lambda model=None: ""  # noqa: E731
 from core.coding_criteria import (  # noqa: E402
     command_for, covered_by, derive_checks, is_test_path, referenced_checks,
 )
