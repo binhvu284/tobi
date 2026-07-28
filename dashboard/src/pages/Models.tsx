@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
   Cpu, Lock, Unlock, RefreshCw, Save, Plus, ArrowUp, ArrowDown, Trash2,
-  CheckCircle2, Circle, Zap, Server, BarChart3, Send,
+  CheckCircle2, Circle, Zap, Server, BarChart3, Send, AlertTriangle,
 } from 'lucide-react'
-import { type LlmConfig, type LlmProvider, type AvailableModel, type HermesPush, getLlmConfig, saveLlmConfig } from '../api.chat'
+import { type LlmConfig, type LlmProvider, type AvailableModel, type HermesPush, type LlmRoutingStatus, getLlmConfig, saveLlmConfig } from '../api.chat'
 import { type UsageSummary, discoverLlmModels, pushHermesConfig, getLlmUsage } from '../api.keys'
 import { type VaultStatus, getVaultStatus, vaultUnlock } from '../api.genesis'
 import { useToast } from '../context/ToastProvider'
@@ -20,6 +20,8 @@ const TASKS: { id: string; label: string }[] = [
   { id: 'writing', label: 'Writing' },
   { id: 'planning', label: 'Planning' },
   { id: 'ceo_review', label: 'CEO review' },
+  { id: 'classify', label: 'Classification' },
+  { id: 'background', label: 'Background work' },
 ]
 
 export default function Models() {
@@ -36,10 +38,11 @@ export default function Models() {
   const [hermes, setHermes] = useState<HermesPush | null>(null)
   const [usage, setUsage] = useState<UsageSummary | null>(null)
   const [usageDays, setUsageDays] = useState(7)
+  const [routing, setRouting] = useState<LlmRoutingStatus | null>(null)
 
   const load = async () => {
     try {
-      const r = await getLlmConfig(); setCfg(r.config); setProviders(r.providers); setModels(r.models)
+      const r = await getLlmConfig(); setCfg(r.config); setProviders(r.providers); setModels(r.models); setRouting(r.routing || null)
       setBaseUrls(Object.fromEntries(r.providers.map(p => [p.id, p.base_url])))
     } catch (e) { toast({ kind: 'error', title: 'Could not load config', detail: (e as Error).message }) }
     try { setVault(await getVaultStatus()) } catch { /* ignore */ }
@@ -90,7 +93,7 @@ export default function Models() {
     setSaving(true)
     try {
       const r = await saveLlmConfig(newCfg)
-      setCfg(r.config); setProviders(r.providers); setModels(r.models)
+      setCfg(r.config); setProviders(r.providers); setModels(r.models); setRouting(r.routing || null)
       toast({ kind: 'success', title: currentlyEnabled ? 'Provider disabled' : 'Provider enabled' })
     } catch (e) {
       setCfg(prev)
@@ -114,7 +117,7 @@ export default function Models() {
     setSaving(true)
     try {
       const r = await saveLlmConfig({ ...cfg, providers: provs })
-      setCfg(r.config); setProviders(r.providers); setModels(r.models); setHermes(r.hermes || null)
+      setCfg(r.config); setProviders(r.providers); setModels(r.models); setRouting(r.routing || null); setHermes(r.hermes || null)
       toast({ kind: 'success', title: 'Saved', detail: r.hermes?.detail })
     } catch (e) { toast({ kind: 'error', title: 'Save failed', detail: (e as Error).message }) }
     finally { setSaving(false) }
@@ -156,6 +159,16 @@ export default function Models() {
               <input type="password" value={master} onChange={e => setMaster(e.target.value)} onKeyDown={e => e.key === 'Enter' && unlock()}
                 placeholder="Master password" className="rounded-lg border border-border bg-bg px-2.5 py-1.5 text-xs text-text outline-none focus:border-accent/50" />
               <button onClick={unlock} className="flex items-center gap-1.5 rounded-lg border border-accent/50 bg-accent/15 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/25"><Unlock size={13} /> Unlock</button>
+            </div>
+          </div>
+        )}
+
+        {routing && !routing.ready && (
+          <div className="mb-5 flex items-start gap-2.5 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2.5">
+            <AlertTriangle size={15} className="mt-0.5 shrink-0 text-warning" />
+            <div>
+              <div className="text-xs font-semibold text-warning">Model routing needs configuration</div>
+              <div className="mt-0.5 text-[11px] leading-5 text-muted">{routing.issues.join(' ')}</div>
             </div>
           </div>
         )}
@@ -216,7 +229,7 @@ export default function Models() {
             <span className="mb-1 block text-xs font-medium text-text">Default model</span>
             <select value={cfg?.default_model || ''} onChange={e => patchCfg({ default_model: e.target.value })}
               className="w-full rounded-lg border border-border bg-bg px-2.5 py-2 text-sm text-text outline-none focus:border-accent/50">
-              <option value="">— Legacy env (PRIMARY_MODEL) —</option>
+              <option value="">Select a default model (required)</option>
               {models.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
             </select>
           </label>
@@ -238,12 +251,15 @@ export default function Models() {
           </div>
 
           <div>
-            <span className="mb-1.5 block text-xs font-medium text-text">Fallback chain <span className="font-normal text-muted">(try in order on error/rate-limit)</span></span>
+            <span className="mb-1.5 block text-xs font-medium text-text">Fallback priority <span className="font-normal text-muted">(one available fallback per call; every switch is disclosed)</span></span>
             <div className="space-y-1.5">
               {(cfg?.fallback || []).map((m, i) => (
                 <div key={m} className="flex items-center gap-2 rounded-lg border border-border bg-bg px-2.5 py-1.5">
                   <span className="flex h-5 w-5 items-center justify-center rounded bg-accent/10 text-[10px] font-bold text-accent">{i + 1}</span>
                   <span className="min-w-0 flex-1 truncate text-xs text-text">{modelLabel(m)}</span>
+                  {!models.some(available => available.id === m) && (
+                    <span className="rounded border border-warning/30 px-1.5 py-0.5 text-[9px] text-warning">Unavailable</span>
+                  )}
                   <button onClick={() => moveFallback(i, -1)} disabled={i === 0} className="text-muted hover:text-accent disabled:opacity-30"><ArrowUp size={13} /></button>
                   <button onClick={() => moveFallback(i, 1)} disabled={i === (cfg?.fallback.length || 0) - 1} className="text-muted hover:text-accent disabled:opacity-30"><ArrowDown size={13} /></button>
                   <button onClick={() => removeFallback(i)} className="text-muted hover:text-danger"><Trash2 size={13} /></button>

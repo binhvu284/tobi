@@ -11,7 +11,7 @@ import { AmbientField, CountUp, SpotlightCard } from '../components/motion'
 import { useTheme } from '../context/ThemeProvider'
 import { useToast } from '../context/ToastProvider'
 import { useReducedMotionPref } from '../context/MotionProvider'
-import { getStorageOverview, getStorageCategory, runStorageScan, getUsageOverview, getUsageCalls, getUsagePlans, setUsagePlans, getUsageBudget, setUsageBudget, type StorageOverview, type StorageCategoryDetail, type UsageOverview, type UsageCall, type UsagePlan, type UsageBudget, type UsageBucket } from '../api.storage'
+import { getStorageOverview, getStorageCategory, runStorageScan, getUsageOverview, getUsageCalls, getUsagePlans, setUsagePlans, getUsageBudget, setUsageBudget, type StorageOverview, type StorageCategoryDetail, type UsageOverview, type UsageCall, type UsagePlan, type UsageBudget, type UsageBucket, type UsageMetric } from '../api.storage'
 import PageLoader from '../components/PageLoader'
 import { fmtBytes, fmtUsd, fmtTok } from '../lib/format'
 
@@ -139,13 +139,14 @@ export default function Storage() {
   const [drillFor, setDrillFor] = useState<string>('')
 
   const [range, setRange] = useState<'day' | 'week' | 'month' | 'all'>('month')
+  const [usageMetric, setUsageMetric] = useState<UsageMetric>('tokens')
   const [uo, setUo] = useState<UsageOverview | null>(null)
   const [budget, setBudget] = useState<UsageBudget | null>(null)
   const [plans, setPlans] = useState<UsagePlan[]>([])
   const warned = useRef(false)
 
   useEffect(() => { getStorageOverview().then(setOv).catch(() => {}) }, [])
-  useEffect(() => { getUsageOverview(range).then(setUo).catch(() => {}) }, [range])
+  useEffect(() => { getUsageOverview(range, usageMetric).then(setUo).catch(() => {}) }, [range, usageMetric])
   useEffect(() => {
     getUsagePlans().then(r => setPlans(r.plans)).catch(() => {})
     getUsageBudget().then(b => {
@@ -294,6 +295,7 @@ export default function Storage() {
             treeData={treeData} treeMax={treeMax} dataFeatures={dataFeatures}
             drill={drill} drillFor={drillFor} openDrill={openDrill} />
         : <UsageTab uo={uo} colors={colors} animate={animate} range={range} setRange={setRange}
+            metric={usageMetric} setMetric={setUsageMetric}
             plans={plans} setPlansState={setPlans} budget={budget} setBudgetState={setBudget} />}
     </div>
   )
@@ -468,13 +470,15 @@ function StorageTab({ ov, colors, animate, donutData, treeData, treeMax, dataFea
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-function UsageTab({ uo, colors, animate, range, setRange, plans, setPlansState,
+function UsageTab({ uo, colors, animate, range, setRange, metric, setMetric, plans, setPlansState,
   budget, setBudgetState }: {
   uo: UsageOverview | null
   colors: ReturnType<typeof useChartColors>
   animate: boolean
   range: 'day' | 'week' | 'month' | 'all'
   setRange: (r: 'day' | 'week' | 'month' | 'all') => void
+  metric: UsageMetric
+  setMetric: (m: UsageMetric) => void
   plans: UsagePlan[]
   setPlansState: (p: UsagePlan[]) => void
   budget: UsageBudget | null
@@ -489,12 +493,13 @@ function UsageTab({ uo, colors, animate, range, setRange, plans, setPlansState,
   const [callTotal, setCallTotal] = useState(0)
   const [q, setQ] = useState('')
   const [sFilter, setSFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
   const loadCalls = useCallback((offset = 0, append = false) => {
-    getUsageCalls({ limit: 25, offset, q, surface: sFilter }).then(r => {
+    getUsageCalls({ limit: 25, offset, q, surface: sFilter, status: statusFilter }).then(r => {
       setCallTotal(r.total)
       setCalls(prev => append ? [...prev, ...r.calls] : r.calls)
     }).catch(() => {})
-  }, [q, sFilter])
+  }, [q, sFilter, statusFilter])
   useEffect(() => { const t = setTimeout(() => loadCalls(0), 250); return () => clearTimeout(t) }, [loadCalls])
 
   // plan / budget editors
@@ -525,13 +530,23 @@ function UsageTab({ uo, colors, animate, range, setRange, plans, setPlansState,
     { title: 'By model', data: uo.by_model.slice(0, 8), key: 'model' },
     { title: 'By provider', data: uo.by_provider.slice(0, 6), key: 'provider' },
     { title: 'By feature / engine', data: uo.by_surface.slice(0, 8), key: 'surface' },
-    { title: 'By agent', data: uo.by_agent.slice(0, 6), key: 'agent' },
+    { title: 'By purpose', data: uo.by_purpose.slice(0, 8), key: 'purpose' },
   ]
+  const metricValue = (bucket: UsageBucket) =>
+    metric === 'cost' ? bucket.cost
+      : metric === 'requests' ? bucket.requests
+        : metric === 'latency' ? bucket.avg_latency_ms
+          : bucket.tokens
+  const metricText = (bucket: UsageBucket) =>
+    metric === 'cost' ? fmtUsd(bucket.cost)
+      : metric === 'requests' ? `${bucket.requests} calls`
+        : metric === 'latency' ? `${bucket.avg_latency_ms}ms`
+          : `${fmtTok(bucket.tokens)} tokens`
 
   return (
     <div className="space-y-4">
-      {/* range selector [S19] */}
-      <div className="flex items-center justify-between">
+      {/* range and metric selectors [S19] */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex rounded-lg border border-border bg-bg p-0.5 text-xs">
           {(['day', 'week', 'month', 'all'] as const).map(r => (
             <button key={r} onClick={() => setRange(r)}
@@ -541,10 +556,65 @@ function UsageTab({ uo, colors, animate, range, setRange, plans, setPlansState,
             </button>
           ))}
         </div>
-        <span className="text-[11px] text-muted">
-          {uo.requests.toLocaleString()} calls · avg {uo.avg_latency_ms}ms
-        </span>
+        <div className="flex rounded-lg border border-border bg-bg p-0.5 text-xs" aria-label="Usage ranking metric">
+          {(['tokens', 'requests', 'cost', 'latency'] as UsageMetric[]).map(item => (
+            <button key={item} onClick={() => setMetric(item)}
+              className={`rounded-md px-2.5 py-1 font-medium capitalize transition-colors ${
+                metric === item ? 'bg-accent/15 text-accent' : 'text-muted hover:text-text'}`}>
+              {item === 'requests' ? 'Calls' : item}
+            </button>
+          ))}
+        </div>
       </div>
+
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
+        {[
+          ['Model calls', uo.requests.toLocaleString(), `${uo.attempts.toLocaleString()} provider attempts`],
+          ['Failed attempts', uo.failed_attempts.toLocaleString(), 'Provider/API failures'],
+          ['Fallbacks', uo.fallback_calls.toLocaleString(), 'Completed by another model'],
+          ['Attribution', `${uo.coverage.attribution_pct}%`, `${uo.coverage.attributed_calls} calls identified`],
+          ['Calls / turn', uo.calls_per_turn == null ? '—' : String(uo.calls_per_turn), 'New attributed turns only'],
+          ['Developer sessions', uo.developer_sessions.total.toLocaleString(), 'External CLI work'],
+        ].map(([label, value, detail]) => (
+          <div key={label} className="rounded-lg border border-border bg-surface/40 px-3 py-2">
+            <div className="text-[9px] font-semibold uppercase tracking-wider text-muted">{label}</div>
+            <div className="mt-0.5 text-base font-semibold text-heading">{value}</div>
+            <div className="truncate text-[10px] text-muted">{detail}</div>
+          </div>
+        ))}
+      </div>
+
+      <Section title="Workload coverage" icon={<Layers size={13} />}>
+        <div className="grid gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-2 lg:grid-cols-4">
+          {uo.workloads.map(workload => (
+            <div key={workload.workload} className="bg-bg px-3 py-2.5">
+              <div className="text-xs font-medium text-text">{workload.workload}</div>
+              <div className="mt-1 text-sm font-semibold text-heading">
+                {workload.model_calls == null ? `${workload.sessions || 0} sessions` : `${workload.model_calls} calls`}
+              </div>
+              <div className="mt-0.5 text-[10px] text-muted">
+                {workload.usage_reported
+                  ? `${fmtTok(workload.tokens || 0)} tokens · ${fmtUsd(workload.cost || 0)}`
+                  : 'External CLI token usage not reported'}
+              </div>
+            </div>
+          ))}
+        </div>
+        {uo.developer_agents.length > 0 && (
+          <div className="mt-3 divide-y divide-border/60 border-t border-border">
+            {uo.developer_agents.map(agent => (
+              <div key={agent.profile_slug} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 py-2 text-xs">
+                <div className="min-w-0">
+                  <div className="truncate font-medium text-text">{agent.agent}</div>
+                  <div className="truncate text-[10px] text-muted">{agent.adapter} · {agent.model || 'CLI managed model'}</div>
+                </div>
+                <span className="text-muted">{agent.sessions} sessions</span>
+                <span className="text-muted">{agent.completed} completed · {agent.failed} failed</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
 
       {/* spend over time, stacked by surface [S19] */}
       <Section title="Spend over time" icon={<Coins size={13} />}
@@ -580,17 +650,17 @@ function UsageTab({ uo, colors, animate, range, setRange, plans, setPlansState,
               <div className="space-y-2">
                 {dim.data.map(b => {
                   const label = String(b[dim.key] ?? '?')
-                  const max = Math.max(...dim.data.map(x => x.cost), 0.000001)
+                  const max = Math.max(...dim.data.map(metricValue), 0.000001)
                   return (
                     <div key={label} className="text-xs">
                       <div className="mb-0.5 flex items-baseline justify-between gap-2">
                         <span className="truncate font-mono text-text">{label}</span>
                         <span className="shrink-0 text-muted">
-                          {fmtUsd(b.cost)} · {fmtTok(b.tokens)} tok · {b.requests} req · {b.avg_latency_ms}ms
+                          {metricText(b)}
                         </span>
                       </div>
                       <div className="h-1.5 overflow-hidden rounded-full bg-bg">
-                        <div className="h-full rounded-full bg-accent" style={{ width: `${Math.max(2, b.cost / max * 100)}%` }} />
+                        <div className="h-full rounded-full bg-accent" style={{ width: `${Math.max(2, metricValue(b) / max * 100)}%` }} />
                       </div>
                     </div>
                   )
@@ -706,7 +776,7 @@ function UsageTab({ uo, colors, animate, range, setRange, plans, setPlansState,
 
       {/* per-call log [S20] */}
       <Section title="Call log" icon={<Search size={13} />}
-        right={<span className="text-[10px] text-muted">{callTotal.toLocaleString()} calls</span>}>
+        right={<span className="text-[10px] text-muted">{callTotal.toLocaleString()} attempts</span>}>
         <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
           <div className="relative">
             <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted" />
@@ -718,6 +788,12 @@ function UsageTab({ uo, colors, animate, range, setRange, plans, setPlansState,
             <option value="">all surfaces</option>
             {surfaces.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+            className="rounded-md border border-border bg-bg px-2 py-1.5 text-text">
+            <option value="">all attempts</option>
+            <option value="succeeded">succeeded</option>
+            <option value="failed">failed</option>
+          </select>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -725,7 +801,8 @@ function UsageTab({ uo, colors, animate, range, setRange, plans, setPlansState,
               <tr className="border-b border-border text-[10px] uppercase tracking-wider text-muted">
                 <th className="py-1.5 pr-3 font-semibold">Time</th>
                 <th className="py-1.5 pr-3 font-semibold">Surface</th>
-                <th className="py-1.5 pr-3 font-semibold">Model</th>
+                <th className="py-1.5 pr-3 font-semibold">Requested → actual</th>
+                <th className="py-1.5 pr-3 font-semibold">Attempt</th>
                 <th className="py-1.5 pr-3 text-right font-semibold">Tokens</th>
                 <th className="py-1.5 pr-3 text-right font-semibold">Cost</th>
                 <th className="py-1.5 text-right font-semibold">Latency</th>
@@ -733,7 +810,7 @@ function UsageTab({ uo, colors, animate, range, setRange, plans, setPlansState,
             </thead>
             <tbody className="divide-y divide-border/50">
               {calls.length === 0 ? (
-                <tr><td colSpan={6} className="py-6 text-center text-muted">No calls match.</td></tr>
+                <tr><td colSpan={7} className="py-6 text-center text-muted">No calls match.</td></tr>
               ) : calls.map(c => (
                 <tr key={c.id} className="hover:bg-overlay/5">
                   <td className="whitespace-nowrap py-1.5 pr-3 font-mono text-muted">
@@ -746,7 +823,19 @@ function UsageTab({ uo, colors, animate, range, setRange, plans, setPlansState,
                       {c.feature && <span className="text-muted">· {c.feature}</span>}
                     </span>
                   </td>
-                  <td className="max-w-[220px] truncate py-1.5 pr-3 font-mono text-text">{c.model}</td>
+                  <td className="max-w-[260px] py-1.5 pr-3 font-mono text-text">
+                    <div className="truncate">{c.requested_model || c.actual_model || c.model}</div>
+                    {c.requested_model && c.actual_model && c.requested_model !== c.actual_model && (
+                      <div className="truncate text-[10px] text-warning">→ {c.actual_model}</div>
+                    )}
+                    {c.error_code && <div className="truncate text-[10px] text-danger">{c.error_code}</div>}
+                  </td>
+                  <td className="py-1.5 pr-3">
+                    <span className={`rounded border px-1.5 py-0.5 text-[10px] ${
+                      c.status === 'failed' ? 'border-danger/30 text-danger' : 'border-success/30 text-success'}`}>
+                      {c.status} · {c.attempt}
+                    </span>
+                  </td>
                   <td className="py-1.5 pr-3 text-right font-mono text-muted">{fmtTok((c.prompt_tokens || 0) + (c.completion_tokens || 0))}</td>
                   <td className="py-1.5 pr-3 text-right font-mono text-text">{fmtUsd(c.cost_est || 0)}</td>
                   <td className="py-1.5 text-right font-mono text-muted">{c.latency_ms || 0}ms</td>

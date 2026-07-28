@@ -377,7 +377,12 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                 meta=json.dumps(turn_meta) if turn_meta else None))
             await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", report))
             usage = {"prompt_tokens": model_router.estimate_tokens(message + dr_ctx),
-                     "completion_tokens": ctok, "model": model or sess.get("model") or "default",
+                     "completion_tokens": ctok,
+                     "model": dr.get("actual_model") or dr.get("requested_model") or model or "not_used",
+                     "requested_model": dr.get("requested_model") or model,
+                     "actual_model": dr.get("actual_model"),
+                     "fallback_reason": dr.get("fallback_reason"),
+                     "attempts": dr.get("model_attempts") or 0,
                      "latency_ms": round((_time.time() - t0) * 1000)}
             yield f"event: usage\ndata: {json.dumps(usage)}\n\n"
             if recorder:
@@ -412,14 +417,21 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             if pctx["context_text"]:
                 v_ctx = (v_ctx + "\n\n" if v_ctx else "") + pctx["context_text"]
             vtext = message + (("\n\n" + v_ctx) if v_ctx else "")
-            _prev = model_router.set_usage_context("chat", "vision")
             try:
                 reply = await loop.run_in_executor(
-                    None, lambda: model_router.vision_complete(vision_model, system, vtext, img_urls, history=history))
+                    None, lambda: model_router.run_with_usage_context(
+                        "chat", "vision", model_router.vision_complete,
+                        vision_model, system, vtext, img_urls, history=history,
+                        usage_metadata={
+                            "requested_model": vmodel,
+                            "turn_id": (recorder.turn_id if recorder else ""),
+                            "agent_id": "tobi-vision", "purpose": "owner_turn",
+                            "source": "chat_vision", "is_background": False,
+                            "fallback_reason": "vision_capability" if borrowed else "",
+                        },
+                    ))
             except Exception as e:
                 reply = f"I couldn't read that image, sir — {str(e)[:160]}"
-            finally:
-                model_router.set_usage_context(_prev["surface"], _prev["feature"])
             reply = reply or "I couldn't make out the image, sir."
             if borrowed:  # be transparent about which model actually read the image
                 short = vision_model.split(":", 1)[-1]
@@ -431,8 +443,16 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                 sid, "assistant", reply, model=vision_model, tokens=ctok, thinking="Looked at image",
                 meta=json.dumps(turn_meta) if turn_meta else None))
             await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", reply))
-            usage = {"prompt_tokens": model_router.estimate_tokens(vtext), "completion_tokens": ctok,
-                     "model": vision_model, "latency_ms": round((_time.time() - t0) * 1000)}
+            usage = {
+                "prompt_tokens": model_router.estimate_tokens(vtext),
+                "completion_tokens": ctok,
+                "model": vision_model,
+                "requested_model": vmodel or None,
+                "actual_model": vision_model,
+                "fallback_reason": "vision_capability" if borrowed else None,
+                "attempts": 1,
+                "latency_ms": round((_time.time() - t0) * 1000),
+            }
             yield f"event: usage\ndata: {json.dumps(usage)}\n\n"
             if recorder:
                 yield runtime_frame("step_completed", "vision", {"model": vision_model})
@@ -490,7 +510,17 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             except Exception:
                 pass
 
-        _prev = model_router.set_usage_context("chat", "")
+        requested_model = model or sess.get("model") or ""
+        _prev = model_router.set_usage_context(
+            ctx["mode"], "chat_runtime_v2",
+            requested_model=requested_model,
+            turn_id=(recorder.turn_id if recorder else ""),
+            run_id=str(run_id or ""),
+            agent_id="tobi-agent" if ctx["mode"] == "agent" else "tobi-chat",
+            purpose="owner_turn",
+            source="chat_runtime",
+            is_background=False,
+        )
         fut = loop.run_in_executor(chat_runtime.chat_executor(), lambda: conductor.answer(
             message or "(see attached)", cid, "mc", model=model, history=history,
             attachments_text=atext or None,
@@ -503,7 +533,15 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             max_tool_steps=(route_decision.max_tool_steps if runtime_active else None),
             step_tokens=(route_decision.step_tokens if runtime_active else None),
             final_tokens=(route_decision.final_tokens if runtime_active else None),
-            usage_context={"surface": ctx["mode"], "feature": "chat_runtime_v2"},
+            usage_context={
+                "surface": ctx["mode"], "feature": "chat_runtime_v2",
+                "requested_model": requested_model,
+                "turn_id": (recorder.turn_id if recorder else ""),
+                "run_id": str(run_id or ""),
+                "agent_id": "tobi-agent" if ctx["mode"] == "agent" else "tobi-chat",
+                "purpose": "owner_turn", "source": "chat_runtime",
+                "is_background": False,
+            },
             recovery_checkpoint=recovery_checkpoint,
             on_event=_emit, on_delta=lambda t: _emit({"type": "delta", "text": t})))
         seen_tools: list[str] = []
@@ -530,8 +568,10 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                 bg_thinking = bg_reasoning or (("Consulted: " + ", ".join(bg_tools)) if bg_tools else None)
                 bg_ctok = model_router.estimate_tokens(bg_reply)
                 await loop.run_in_executor(
-                    None, lambda: chat_store.add_message(sid, "assistant", bg_reply, model=model,
-                                                         tokens=bg_ctok, thinking=bg_thinking))
+                    None, lambda: chat_store.add_message(
+                        sid, "assistant", bg_reply,
+                        model=bg_res.get("actual_model") or bg_res.get("requested_model") or model,
+                        tokens=bg_ctok, thinking=bg_thinking))
                 await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", bg_reply))
             except Exception:
                 pass
@@ -615,7 +655,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             yield "event: done\ndata: {}\n\n"
             return
         finally:
-            model_router.set_usage_context(_prev["surface"], _prev["feature"])
+            model_router.restore_usage_context(_prev)
         reply = res.get("reply", "") or ""
         reasoning = res.get("reasoning") or None
         tools = list(dict.fromkeys([*seen_tools, *(res.get("tools_used") or [])]))
@@ -672,8 +712,13 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         ptok = model_router.estimate_tokens(message + (atext or "") + " ".join(m.get("content", "") for m in history))
         turn_meta["elapsedMs"] = round((_time.time() - t0) * 1000)
         _persisted = True  # normal path handles persistence; bg task (if any) will skip
+        actual_model = res.get("actual_model")
+        requested_model = res.get("requested_model") or requested_model or None
+        fallback_reason = res.get("fallback_reason")
+        if actual_model and requested_model and actual_model != requested_model and not res.get("model_escalated"):
+            yield f"event: notice\ndata: {json.dumps({'kind': 'model_fallback', 'from_model': requested_model, 'to_model': actual_model, 'reason': fallback_reason})}\n\n"
         mid = await loop.run_in_executor(
-            None, lambda: chat_store.add_message(sid, "assistant", reply, model=model,
+            None, lambda: chat_store.add_message(sid, "assistant", reply, model=actual_model or requested_model,
                                                  tokens=ctok, thinking=thinking_meta,
                                                  meta=json.dumps(turn_meta) if turn_meta else None))
         await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", reply))
@@ -703,20 +748,35 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         picker = res.get("pending_picker")
         if picker:
             yield f"event: picker\ndata: {json.dumps(picker)}\n\n"
-        usage = {"prompt_tokens": ptok, "completion_tokens": ctok,
-                 "model": model or sess.get("model") or "default",
-                 "latency_ms": round((_time.time() - t0) * 1000)}
+        usage = {
+            "prompt_tokens": ptok,
+            "completion_tokens": ctok,
+            "model": actual_model or requested_model or "not_used",
+            "requested_model": requested_model,
+            "actual_model": actual_model,
+            "fallback_reason": fallback_reason,
+            "attempts": res.get("model_attempts") or 0,
+            "latency_ms": round((_time.time() - t0) * 1000),
+        }
         yield f"event: usage\ndata: {json.dumps(usage)}\n\n"
         if recorder:
             final_status = ("waiting_user" if res.get("stopped_on_error")
                             else "waiting_approval" if pending
                             else "failed" if res.get("model_issue") else "done")
             yield runtime_frame("step_completed", "response", {
-                "tools": tools, "model": usage["model"], "latency_ms": usage["latency_ms"]})
+                "tools": tools, "model": usage["model"],
+                "requested_model": requested_model, "actual_model": actual_model,
+                "latency_ms": usage["latency_ms"]})
             recorder.complete(final_status)
             yield runtime_frame("turn_completed", "gateway", {"status": final_status, "run_id": run_id})
         # Trigger brain auto-learning sweep (non-blocking — runs in background thread)
-        loop.run_in_executor(None, lambda: brain.sweep_once())
+        loop.run_in_executor(None, lambda: model_router.run_with_usage_context(
+            "brain", "memory_sweep", brain.sweep_once,
+            usage_metadata={
+                "purpose": "background", "source": "brain",
+                "is_background": True, "agent_id": "tobi-memory",
+            },
+        ))
         yield "event: done\ndata: {}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream",
@@ -824,8 +884,17 @@ def chat_session_compact(sid: int, body: ChatCompactReq):
               "points that preserve names, numbers, decisions, and open threads, so the assistant can keep "
               "context. Be concise.\n\n" + transcript)
     try:
-        client = model_router.get_llm("simple", model=model) if model else model_router.get_llm("simple")
-        summary = client.complete([{"role": "user", "content": prompt}], max_tokens=500) or ""
+        summary = model_router.run_with_usage_context(
+            "chat", "compaction",
+            lambda: (
+                model_router.get_llm("simple", model=model)
+                if model else model_router.get_llm("simple")
+            ).complete([{"role": "user", "content": prompt}], max_tokens=500) or "",
+            usage_metadata={
+                "requested_model": model or "", "purpose": "owner_turn",
+                "source": "chat_compaction", "agent_id": "tobi-chat",
+            },
+        )
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Could not summarize: {str(e)[:160]}")
     msgs = chat_store.compact_session(sid, summary, keep=keep)

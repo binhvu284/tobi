@@ -1174,7 +1174,15 @@ def chat(message: str, chat_id: int = DASHBOARD_CHAT_ID) -> dict:
         system += f"\nRelevant memories:\n{mem_block}\n"
     convo = "\n".join(f"{m['role']}: {m['content']}" for m in history)
     prompt = (f"{convo}\nuser: {message}\nassistant:" if convo else message)
-    reply = _llm(prompt, system=system, max_tokens=900, task_type="simple")
+    from core.model_router import restore_usage_context, set_usage_context
+    previous_usage = set_usage_context(
+        "chat", "brain_chat", purpose="owner_turn",
+        source="brain_chat", agent_id="tobi-chat",
+    )
+    try:
+        reply = _llm(prompt, system=system, max_tokens=900, task_type="simple")
+    finally:
+        restore_usage_context(previous_usage)
     if reply is None:
         reply = "I can't reach my language model right now — check the LLM API key in Integrations."
     save_conversation_message(chat_id, "user", message)
@@ -1216,8 +1224,13 @@ def chat_stream(message: str, chat_id: int = DASHBOARD_CHAT_ID):
     prompt = (f"{convo}\nuser: {message}\nassistant:" if convo else message)
 
     pieces: list[str] = []
+    previous_usage = None
     try:
-        from core.model_router import get_llm
+        from core.model_router import get_llm, restore_usage_context, set_usage_context
+        previous_usage = set_usage_context(
+            "chat", "brain_chat", purpose="owner_turn",
+            source="brain_chat", agent_id="tobi-chat",
+        )
         client = get_llm("simple")
         for delta in client.complete_stream(
             [{"role": "user", "content": prompt}], system=system, max_tokens=900
@@ -1227,6 +1240,9 @@ def chat_stream(message: str, chat_id: int = DASHBOARD_CHAT_ID):
                 yield delta
     except Exception as e:
         logger.warning("Brain chat_stream failed: %s", e)
+    finally:
+        if previous_usage is not None:
+            restore_usage_context(previous_usage)
 
     reply = "".join(pieces).strip()
     if not reply:

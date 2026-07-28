@@ -103,9 +103,18 @@ ok("estimator uses table", usage.estimate_cost("claude-opus-4-8", 1_000_000, 0) 
    and usage.estimate_cost("nvidia/nemotron-3:free", 1e6, 1e6) == 0.0)
 
 # ── usage_meter: overview / calls ─────────────────────────────────────────────
-usage.log("anthropic", "claude-opus-4-8", 1000, 500, 800, surface="chat", feature="chat.reply")
+usage.log("anthropic", "claude-opus-4-8", 1000, 500, 800, surface="chat",
+          feature="chat.reply", requested_model="anthropic:claude-opus-4-8",
+          actual_model="anthropic:claude-opus-4-8", turn_id="turn-1",
+          purpose="owner_turn", source="chat_runtime")
 usage.log("anthropic", "claude-haiku-4-5", 400, 100, 200, surface="agent", feature="classifier")
-usage.log("openrouter", "nvidia/nemotron-3:free", 900, 300, 1500, surface="research")
+usage.log("openrouter", "nvidia/nemotron-3:free", 900, 300, 1500, surface="research",
+          requested_model="codex:gpt-5.6-sol",
+          actual_model="openrouter:nvidia/nemotron-3:free", attempt=2,
+          fallback_reason="codex:RateLimitError")
+usage.log_failure("codex", "gpt-5.6-sol", 50, error_code="RateLimitError",
+                  requested_model="codex:gpt-5.6-sol",
+                  actual_model="codex:gpt-5.6-sol", attempt=1)
 # legacy office-style row (no ts/surface → folds in via created_at with surface='office')
 conn = get_connection()
 conn.execute("INSERT INTO llm_usage (agent_id, provider, model, prompt_tokens, completion_tokens, "
@@ -114,6 +123,8 @@ conn.commit(); conn.close()
 
 uo = um.overview("month")
 ok("overview totals", uo["requests"] == 4 and uo["total_tokens"] == 3220)
+ok("attempt and fallback truth", uo["attempts"] == 5 and uo["failed_attempts"] == 1
+   and uo["fallback_calls"] == 1 and uo["calls_per_turn"] == 1)
 ok("all four dims", len(uo["by_provider"]) == 2 and len(uo["by_model"]) == 4
    and {b["surface"] for b in uo["by_surface"]} == {"chat", "agent", "research", "office"}
    and uo["by_agent"] and uo["by_agent"][0]["agent"] == "friday")
@@ -126,7 +137,9 @@ ok("range validation", um.overview("day")["requests"] == 4 and um.overview("all"
 calls = um.calls(q="opus")
 ok("call log search", calls["total"] == 1 and calls["calls"][0]["model"] == "claude-opus-4-8")
 ok("call log surface filter", um.calls(surface="office")["total"] == 1)
-ok("call log pagination", um.calls(limit=2)["total"] == 4 and len(um.calls(limit=2)["calls"]) == 2)
+ok("failed attempt filter", um.calls(status="failed")["total"] == 1
+   and um.calls(status="failed")["calls"][0]["error_code"] == "RateLimitError")
+ok("call log pagination", um.calls(limit=2)["total"] == 5 and len(um.calls(limit=2)["calls"]) == 2)
 
 # ── plans & budget ────────────────────────────────────────────────────────────
 plans = um.set_plans([{"provider": "anthropic", "plan_name": "Claude Max",

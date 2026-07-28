@@ -197,8 +197,11 @@ def _llm_judge(command: str) -> Optional[tuple[str, str]]:
     """Haiku-tier judge for ambiguous commands [D8]. Best-effort; any failure → None (keep the
     rules-based default). Only ever returns low/medium/high — never 'blocked' (rules own that)."""
     try:
-        from core.model_router import get_llm, set_usage_context
-        prev = set_usage_context("terminal", "risk_judge")
+        from core.model_router import get_llm, restore_usage_context, set_usage_context
+        prev = set_usage_context(
+            "terminal", "risk_judge", purpose="safety_check",
+            source="terminal", agent_id="tobi-terminal",
+        )
         try:
             client = get_llm("simple")
             out = client.complete(
@@ -211,7 +214,7 @@ def _llm_judge(command: str) -> Optional[tuple[str, str]]:
                 max_tokens=8,
             )
         finally:
-            set_usage_context(prev.get("surface", "agent"), prev.get("feature", ""))
+            restore_usage_context(prev)
         word = re.search(r"(low|medium|high)", (out or "").lower())
         if word:
             return word.group(1), "judged by the risk classifier"

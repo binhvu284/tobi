@@ -63,8 +63,25 @@ def _conn() -> sqlite3.Connection:
 
 # P3 (#8) extends the existing D34 `llm_usage` table (per-agent/mission, created by
 # database.init_database) with the columns we need, rather than a competing table.
-_P3_COLUMNS = [("ts", "TEXT"), ("surface", "TEXT"), ("feature", "TEXT"),
-               ("cost_est", "REAL"), ("latency_ms", "INTEGER")]
+_P3_COLUMNS = [
+    ("ts", "TEXT"),
+    ("surface", "TEXT"),
+    ("feature", "TEXT"),
+    ("cost_est", "REAL"),
+    ("latency_ms", "INTEGER"),
+    ("requested_model", "TEXT"),
+    ("actual_model", "TEXT"),
+    ("turn_id", "TEXT"),
+    ("run_id", "TEXT"),
+    ("worker_session_id", "INTEGER"),
+    ("purpose", "TEXT"),
+    ("source", "TEXT"),
+    ("is_background", "INTEGER DEFAULT 0"),
+    ("attempt", "INTEGER DEFAULT 1"),
+    ("status", "TEXT DEFAULT 'succeeded'"),
+    ("error_code", "TEXT"),
+    ("fallback_reason", "TEXT"),
+]
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
@@ -89,11 +106,19 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         if name not in cols:
             conn.execute(f"ALTER TABLE llm_usage ADD COLUMN {name} {ddl}")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_usage_ts ON llm_usage(ts)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_usage_turn ON llm_usage(turn_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_usage_run ON llm_usage(run_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_usage_status ON llm_usage(status)")
 
 
 def log(provider: str, model: str, prompt_tokens: int, completion_tokens: int,
         latency_ms: int, surface: str = "agent", feature: str = "",
-        cost_est: Optional[float] = None) -> None:
+        cost_est: Optional[float] = None, *, requested_model: str = "",
+        actual_model: str = "", turn_id: str = "", run_id: str = "",
+        worker_session_id: Optional[int] = None, agent_id: str = "",
+        purpose: str = "", source: str = "model_api", is_background: bool = False,
+        attempt: int = 1, status: str = "succeeded", error_code: str = "",
+        fallback_reason: str = "") -> None:
     """Record one LLM call. Best-effort — never raises into the caller."""
     try:
         if cost_est is None:
@@ -103,16 +128,34 @@ def log(provider: str, model: str, prompt_tokens: int, completion_tokens: int,
         try:
             ensure_schema(conn)
             conn.execute(
-                "INSERT INTO llm_usage (ts, surface, feature, provider, model, prompt_tokens, "
-                "completion_tokens, total_tokens, cost, cost_est, latency_ms) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (datetime.now(timezone.utc).isoformat(), surface, feature, provider, model,
-                 ptok, ctok, ptok + ctok, float(cost_est), float(cost_est), int(latency_ms or 0)),
+                """INSERT INTO llm_usage (
+                    ts, surface, feature, provider, model, requested_model, actual_model,
+                    turn_id, run_id, worker_session_id, agent_id, purpose, source,
+                    is_background, attempt, status, error_code, fallback_reason,
+                    prompt_tokens, completion_tokens, total_tokens, cost, cost_est, latency_ms
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    datetime.now(timezone.utc).isoformat(), surface, feature, provider, model,
+                    requested_model or None, actual_model or model or None, turn_id or None,
+                    run_id or None, worker_session_id, agent_id or None, purpose or None,
+                    source or "model_api", 1 if is_background else 0, max(1, int(attempt or 1)),
+                    status or "succeeded", error_code or None, fallback_reason or None,
+                    ptok, ctok, ptok + ctok, float(cost_est), float(cost_est),
+                    int(latency_ms or 0),
+                ),
             )
             conn.commit()
         finally:
             conn.close()
     except Exception:
         pass
+
+
+def log_failure(provider: str, model: str, latency_ms: int, *, error_code: str,
+                **metadata) -> None:
+    """Record a failed provider attempt without fabricating token or cost usage."""
+    log(provider, model, 0, 0, latency_ms, cost_est=0.0, status="failed",
+        error_code=error_code or "ProviderError", **metadata)
 
 
 def summary(days: int = 7) -> dict:
@@ -125,7 +168,8 @@ def summary(days: int = 7) -> dict:
         rows = conn.execute(
             "SELECT COALESCE(ts, created_at) AS ts, COALESCE(surface, 'office') AS surface, "
             "provider, model, prompt_tokens, completion_tokens, COALESCE(cost_est, cost) AS cost_est, "
-            "latency_ms FROM llm_usage WHERE COALESCE(ts, created_at) >= ? ORDER BY ts", (cutoff,)
+            "latency_ms FROM llm_usage WHERE COALESCE(ts, created_at) >= ? "
+            "AND COALESCE(status,'succeeded') != 'failed' ORDER BY ts", (cutoff,)
         ).fetchall()
     finally:
         conn.close()
@@ -178,8 +222,12 @@ def recent(limit: int = 50) -> list[dict]:
         ensure_schema(conn)
         rows = conn.execute(
             "SELECT COALESCE(ts, created_at) AS ts, COALESCE(surface, 'office') AS surface, feature, "
-            "provider, model, prompt_tokens, completion_tokens, COALESCE(cost_est, cost) AS cost_est, "
-            "latency_ms FROM llm_usage ORDER BY id DESC LIMIT ?", (max(1, min(limit, 500)),)
+            "provider, model, requested_model, COALESCE(actual_model, model) AS actual_model, "
+            "turn_id, run_id, worker_session_id, agent_id, purpose, source, is_background, "
+            "COALESCE(attempt,1) AS attempt, COALESCE(status,'succeeded') AS status, "
+            "error_code, fallback_reason, prompt_tokens, completion_tokens, "
+            "COALESCE(cost_est, cost) AS cost_est, latency_ms "
+            "FROM llm_usage ORDER BY id DESC LIMIT ?", (max(1, min(limit, 500)),)
         ).fetchall()
     finally:
         conn.close()

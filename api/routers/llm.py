@@ -45,6 +45,7 @@ def llm_config_get():
         "config": model_router.load_llm_config(),
         "providers": model_router.provider_catalog(),
         "models": model_router.available_models(),
+        "routing": model_router.routing_status(),
     }
 
 
@@ -65,7 +66,8 @@ def llm_config_save(body: LlmConfigReq):
     except Exception as e:  # never let a Hermes hiccup break the save
         hermes = {"ok": False, "detail": f"Hermes push skipped: {str(e)[:120]}"}
     return {"config": cfg, "providers": model_router.provider_catalog(),
-            "models": model_router.available_models(), "hermes": hermes}
+            "models": model_router.available_models(),
+            "routing": model_router.routing_status(cfg), "hermes": hermes}
 
 
 @router.post("/api/llm/provider/{pid}/key")

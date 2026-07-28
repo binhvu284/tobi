@@ -155,19 +155,39 @@ def _cutoff(range_key: str) -> Optional[str]:
     return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
 
-def overview(range_key: str = "month") -> dict:
-    """Totals + all four breakdown dims + per-day spend stacked by surface."""
+def overview(range_key: str = "month", metric: str = "tokens") -> dict:
+    """Truthful model-attempt analytics plus external Developer worker coverage."""
     from core import usage
+    metric = metric if metric in {"tokens", "requests", "cost", "latency"} else "tokens"
     cutoff = _cutoff(range_key)
     conn = _conn()
     try:
         usage.ensure_schema(conn)
         q = ("SELECT COALESCE(ts, created_at) AS ts, COALESCE(surface,'office') AS surface, "
-             "COALESCE(feature,'') AS feature, provider, model, agent_id, "
+             "COALESCE(feature,'') AS feature, provider, model, "
+             "COALESCE(actual_model, model) AS actual_model, requested_model, agent_id, "
+             "turn_id, run_id, worker_session_id, purpose, COALESCE(source,'model_api') AS source, "
+             "COALESCE(is_background,0) AS is_background, COALESCE(attempt,1) AS attempt, "
+             "COALESCE(status,'succeeded') AS status, error_code, fallback_reason, "
              "prompt_tokens, completion_tokens, COALESCE(cost_est, cost) AS cost_est, latency_ms "
              "FROM llm_usage")
         rows = (conn.execute(q + " WHERE COALESCE(ts, created_at) >= ? ORDER BY ts", (cutoff,))
                 if cutoff else conn.execute(q + " ORDER BY ts")).fetchall()
+        has_workers = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='coding_worker_sessions'"
+        ).fetchone()
+        worker_rows = []
+        if has_workers:
+            wq = (
+                "SELECT ws.id, ws.profile_slug, ws.adapter, ws.model, ws.status, ws.error_code, "
+                "ws.started_at, ws.completed_at, COALESCE(wp.name,ws.profile_slug) AS agent "
+                "FROM coding_worker_sessions ws "
+                "LEFT JOIN coding_worker_profiles wp ON wp.slug=ws.profile_slug"
+            )
+            worker_rows = list(conn.execute(
+                wq + (" WHERE ws.started_at >= ?" if cutoff else "") + " ORDER BY ws.started_at",
+                (cutoff,) if cutoff else (),
+            ).fetchall())
     finally:
         conn.close()
 
@@ -176,25 +196,53 @@ def overview(range_key: str = "month") -> dict:
                                       "prompt_tokens": 0, "completion_tokens": 0,
                                       "requests": 0, "latency_sum": 0})
 
-    tot = {"cost": 0.0, "prompt_tokens": 0, "completion_tokens": 0, "requests": 0, "latency_sum": 0}
+    tot = {"cost": 0.0, "prompt_tokens": 0, "completion_tokens": 0,
+           "requests": 0, "latency_sum": 0}
     by_provider: dict[str, dict] = {}
     by_model: dict[str, dict] = {}
     by_surface: dict[str, dict] = {}
+    by_purpose: dict[str, dict] = {}
     by_agent: dict[str, dict] = {}
     by_day: dict[str, dict] = {}
     surfaces: set[str] = set()
+    attempts = failed_attempts = fallback_calls = attributed_calls = 0
+    turns: set[str] = set()
+    turn_calls = 0
+    workload_counts = {
+        "owner": {"workload": "Owner conversations", "model_calls": 0, "tokens": 0, "cost": 0.0},
+        "background": {"workload": "Background intelligence", "model_calls": 0, "tokens": 0, "cost": 0.0},
+        "internal": {"workload": "Internal services", "model_calls": 0, "tokens": 0, "cost": 0.0},
+    }
 
     for r in rows:
+        attempts += 1
+        status = r["status"] or "succeeded"
+        if status == "failed":
+            failed_attempts += 1
+            continue
         pin, pout = r["prompt_tokens"] or 0, r["completion_tokens"] or 0
         cost, lat = r["cost_est"] or 0.0, r["latency_ms"] or 0
         surface = r["surface"] or "?"
+        actual_model = r["actual_model"] or r["model"] or "?"
+        purpose = r["purpose"] or r["feature"] or "unattributed"
         surfaces.add(surface)
         tot["cost"] += cost; tot["prompt_tokens"] += pin; tot["completion_tokens"] += pout
         tot["requests"] += 1; tot["latency_sum"] += lat
+        if r["requested_model"] and (
+            r["requested_model"] != actual_model or (r["attempt"] or 1) > 1
+            or r["fallback_reason"]
+        ):
+            fallback_calls += 1
+        if any((r["feature"], r["agent_id"], r["turn_id"], r["run_id"], r["purpose"])):
+            attributed_calls += 1
+        if r["turn_id"]:
+            turns.add(r["turn_id"])
+            turn_calls += 1
         for store, key, field in (
             (by_provider, r["provider"] or "?", "provider"),
-            (by_model, r["model"] or "?", "model"),
+            (by_model, actual_model, "model"),
             (by_surface, surface, "surface"),
+            (by_purpose, purpose, "purpose"),
         ):
             b = _bucket(store, key, field)
             b["cost"] += cost; b["tokens"] += pin + pout
@@ -205,6 +253,15 @@ def overview(range_key: str = "month") -> dict:
             b["cost"] += cost; b["tokens"] += pin + pout
             b["prompt_tokens"] += pin; b["completion_tokens"] += pout
             b["requests"] += 1; b["latency_sum"] += lat
+        if r["purpose"] == "owner_turn" or r["feature"] == "chat_runtime_v2":
+            workload = workload_counts["owner"]
+        elif r["is_background"] or r["purpose"] == "background":
+            workload = workload_counts["background"]
+        else:
+            workload = workload_counts["internal"]
+        workload["model_calls"] += 1
+        workload["tokens"] += pin + pout
+        workload["cost"] += cost
         day = (r["ts"] or "")[:10]
         d = by_day.setdefault(day, {"day": day, "cost": 0.0, "tokens": 0})
         d["cost"] = round(d["cost"] + cost, 6)
@@ -212,11 +269,30 @@ def overview(range_key: str = "month") -> dict:
         d[surface] = round(d.get(surface, 0.0) + cost, 6)
 
     def _final(store: dict) -> list[dict]:
-        out = sorted(store.values(), key=lambda b: b["cost"], reverse=True)
+        out = list(store.values())
         for b in out:
             b["cost"] = round(b["cost"], 4)
             b["avg_latency_ms"] = round(b.pop("latency_sum") / b["requests"]) if b["requests"] else 0
+        sort_field = "avg_latency_ms" if metric == "latency" else metric
+        out.sort(key=lambda b: b.get(sort_field, 0), reverse=True)
         return out
+
+    developer_agents: dict[str, dict] = {}
+    developer_completed = developer_failed = 0
+    for row in worker_rows:
+        slug = row["profile_slug"] or "unknown"
+        item = developer_agents.setdefault(slug, {
+            "agent": row["agent"], "profile_slug": slug, "adapter": row["adapter"],
+            "model": row["model"] or "", "sessions": 0, "completed": 0, "failed": 0,
+            "usage_reported": False,
+        })
+        item["sessions"] += 1
+        if row["status"] in ("completed", "succeeded", "done"):
+            item["completed"] += 1
+            developer_completed += 1
+        elif row["status"] in ("failed", "blocked", "crashed"):
+            item["failed"] += 1
+            developer_failed += 1
 
     # continuous day series (stacked by surface) so charts aren't gappy
     days_back = RANGES.get(range_key) or (
@@ -231,6 +307,7 @@ def overview(range_key: str = "month") -> dict:
 
     return {
         "range": range_key,
+        "metric": metric,
         "total_cost": round(tot["cost"], 4),
         "total_tokens": tot["prompt_tokens"] + tot["completion_tokens"],
         "prompt_tokens": tot["prompt_tokens"],
@@ -241,27 +318,73 @@ def overview(range_key: str = "month") -> dict:
         "by_model": _final(by_model),
         "by_surface": _final(by_surface),
         "by_agent": _final(by_agent),
+        "by_purpose": _final(by_purpose),
         "surfaces": sorted(surfaces),
         "by_day": series,
+        "attempts": attempts,
+        "failed_attempts": failed_attempts,
+        "fallback_calls": fallback_calls,
+        "calls_per_turn": round(turn_calls / len(turns), 2) if turns else None,
+        "coverage": {
+            "attributed_calls": attributed_calls,
+            "total_model_calls": tot["requests"],
+            "attribution_pct": round(attributed_calls / tot["requests"] * 100, 1)
+            if tot["requests"] else 0.0,
+            "developer_sessions": len(worker_rows),
+            "developer_usage_reported": 0,
+        },
+        "workloads": [
+            {**v, "cost": round(v["cost"], 4), "usage_reported": True}
+            for v in workload_counts.values()
+        ] + [{
+            "workload": "Developer agents",
+            "model_calls": None,
+            "sessions": len(worker_rows),
+            "tokens": None,
+            "cost": None,
+            "usage_reported": False,
+        }],
+        "developer_agents": sorted(
+            developer_agents.values(), key=lambda item: item["sessions"], reverse=True
+        ),
+        "developer_sessions": {
+            "total": len(worker_rows),
+            "completed": developer_completed,
+            "failed": developer_failed,
+            "usage_reported": 0,
+        },
     }
 
 
 def calls(limit: int = 50, offset: int = 0, q: str = "", surface: str = "",
-          model: str = "") -> dict:
+          model: str = "", status: str = "", source: str = "",
+          purpose: str = "") -> dict:
     """Searchable per-call log inspector [S20]."""
     from core import usage
     limit = max(1, min(int(limit or 50), 200))
     offset = max(0, int(offset or 0))
     where, params = [], []
     if q:
-        where.append("(model LIKE ? OR feature LIKE ? OR provider LIKE ?)")
-        params += [f"%{q}%"] * 3
+        where.append(
+            "(model LIKE ? OR feature LIKE ? OR provider LIKE ? OR requested_model LIKE ? "
+            "OR actual_model LIKE ? OR error_code LIKE ?)"
+        )
+        params += [f"%{q}%"] * 6
     if surface:
         where.append("COALESCE(surface,'office') = ?")
         params.append(surface)
     if model:
-        where.append("model LIKE ?")
+        where.append("COALESCE(actual_model,model) LIKE ?")
         params.append(f"%{model}%")
+    if status:
+        where.append("COALESCE(status,'succeeded') = ?")
+        params.append(status)
+    if source:
+        where.append("COALESCE(source,'model_api') = ?")
+        params.append(source)
+    if purpose:
+        where.append("COALESCE(purpose,'') = ?")
+        params.append(purpose)
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     conn = _conn()
     try:
@@ -269,7 +392,11 @@ def calls(limit: int = 50, offset: int = 0, q: str = "", surface: str = "",
         total = conn.execute(f"SELECT COUNT(*) FROM llm_usage{clause}", params).fetchone()[0]
         rows = conn.execute(
             "SELECT id, COALESCE(ts, created_at) AS ts, COALESCE(surface,'office') AS surface, "
-            "feature, provider, model, agent_id, prompt_tokens, completion_tokens, "
+            "feature, provider, model, requested_model, COALESCE(actual_model,model) AS actual_model, "
+            "turn_id, run_id, worker_session_id, agent_id, purpose, "
+            "COALESCE(source,'model_api') AS source, COALESCE(is_background,0) AS is_background, "
+            "COALESCE(attempt,1) AS attempt, COALESCE(status,'succeeded') AS status, "
+            "error_code, fallback_reason, prompt_tokens, completion_tokens, "
             f"COALESCE(cost_est, cost) AS cost_est, latency_ms FROM llm_usage{clause} "
             "ORDER BY id DESC LIMIT ? OFFSET ?", params + [limit, offset]
         ).fetchall()
@@ -287,7 +414,8 @@ def _month_usage(conn: sqlite3.Connection, provider: Optional[str] = None) -> di
                                                microsecond=0).isoformat()
     q = ("SELECT COALESCE(SUM(COALESCE(cost_est, cost)),0) AS usd, "
          "COALESCE(SUM(total_tokens),0) AS tokens, COUNT(*) AS requests "
-         "FROM llm_usage WHERE COALESCE(ts, created_at) >= ?")
+         "FROM llm_usage WHERE COALESCE(ts, created_at) >= ? "
+         "AND COALESCE(status,'succeeded') != 'failed'")
     params: list = [start]
     if provider:
         q += " AND provider = ?"

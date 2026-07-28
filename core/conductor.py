@@ -406,7 +406,14 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
     if usage_context:
         try:
             from core import model_router as _mr
-            _mr.set_usage_context(usage_context.get("surface", mode), usage_context.get("feature", ""))
+            _mr.set_usage_context(
+                usage_context.get("surface", mode),
+                usage_context.get("feature", ""),
+                **{
+                    key: value for key, value in usage_context.items()
+                    if key not in {"surface", "feature"}
+                },
+            )
         except Exception:
             pass
 
@@ -477,6 +484,25 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
         client = get_llm("simple", model=model) if model else get_llm("simple")
     except Exception as e:
         return {"reply": _LLM_DOWN, "tools_used": [], "intent": intent, "error": str(e)}
+
+    def _with_model_meta(payload: dict, *, actual_override: Optional[str] = None,
+                         reason_override: Optional[str] = None) -> dict:
+        requested = (
+            getattr(client, "requested_model", None)
+            or (model or "")
+            or (usage_context or {}).get("requested_model")
+            or None
+        )
+        actual = actual_override or getattr(client, "actual_model_id", None)
+        if not actual and getattr(client, "provider", None) and getattr(client, "model", None):
+            actual = f"{client.provider}:{client.model}"
+        payload.update({
+            "requested_model": requested,
+            "actual_model": actual,
+            "fallback_reason": reason_override or getattr(client, "fallback_reason", None),
+            "model_attempts": int(getattr(client, "attempt_count", 1) or 1),
+        })
+        return payload
 
     prior = history if history is not None else _history(chat_id, limit=6)
     msgs = list(prior) + [{"role": "user", "content": message}]
@@ -569,19 +595,47 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
                     retry_msgs = list(msgs) + [{"role": "user", "content":
                         "The previous model produced malformed internal output. Give the owner a complete "
                         "plain-language answer now. Do not emit a tool call or JSON."}]
-                    retry, retry_is_answer, _ = _gen_step(
-                        stronger, retry_msgs, system, final_tokens or FINAL_TOKENS, on_delta, on_reset)
+                    from core import model_router as _model_router
+                    previous_usage = _model_router.get_usage_context()
+                    _model_router.set_usage_context(
+                        previous_usage.get("surface", mode),
+                        previous_usage.get("feature", ""),
+                        **{
+                            **{
+                                key: value for key, value in previous_usage.items()
+                                if key not in {"surface", "feature"}
+                            },
+                            "requested_model": (
+                                getattr(client, "requested_model", None)
+                                or model or previous_usage.get("requested_model", "")
+                            ),
+                            "attempt": int(getattr(client, "attempt_count", 1) or 1) + 1,
+                            "fallback_reason": "malformed_output",
+                        },
+                    )
+                    try:
+                        retry, retry_is_answer, _ = _gen_step(
+                            stronger, retry_msgs, system, final_tokens or FINAL_TOKENS,
+                            on_delta, on_reset)
+                    finally:
+                        _model_router.restore_usage_context(previous_usage)
                     retry_clean, retry_reasoning = _strip_reasoning(retry)
                     if retry_is_answer and retry_clean and not _parse_tool_call(retry_clean):
-                        return {"reply": retry_clean, "reasoning": retry_reasoning,
-                                "tools_used": used, "intent": intent, "streamed": bool(on_delta),
-                                "model_escalated": stronger_id}
+                        return _with_model_meta({
+                            "reply": retry_clean, "reasoning": retry_reasoning,
+                            "tools_used": used, "intent": intent, "streamed": bool(on_delta),
+                            "model_escalated": stronger_id,
+                        }, actual_override=stronger_id, reason_override="malformed_output")
             except Exception as exc:
                 logger.warning("conductor model escalation failed: %s", exc)
-            return {"reply": _MODEL_STRUGGLING, "tools_used": used, "intent": intent,
-                    "model_issue": True, "streamed": False}
-        return {"reply": clean, "reasoning": reasoning, "tools_used": used,
-                "intent": intent, "streamed": bool(on_delta)}
+            return _with_model_meta({
+                "reply": _MODEL_STRUGGLING, "tools_used": used, "intent": intent,
+                "model_issue": True, "streamed": False,
+            })
+        return _with_model_meta({
+            "reply": clean, "reasoning": reasoning, "tools_used": used,
+            "intent": intent, "streamed": bool(on_delta),
+        })
 
     if not tools_enabled:
         _final_tokens = final_tokens or FINAL_TOKENS

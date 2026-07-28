@@ -363,7 +363,7 @@ def _quick_diagnosis(overall: dict, subs: list[dict], findings: list[dict], fres
 def _llm_diagnosis(result: dict, model: Optional[str]) -> Optional[str]:
     """Deep mode: ONE strict-budget LLM call over the computed summaries (never raw code)."""
     try:
-        from core.model_router import get_llm, set_usage_context
+        from core.model_router import get_llm, restore_usage_context, set_usage_context
     except Exception:
         return None
     subs = result["subsystems"]
@@ -384,7 +384,10 @@ def _llm_diagnosis(result: dict, model: Optional[str]) -> Optional[str]:
         "him as 'sir'. Base every claim ONLY on this data:\n\n"
         + json.dumps(summary, ensure_ascii=False)
     )
-    prev = set_usage_context("health", "performance")
+    prev = set_usage_context(
+        "health", "performance", purpose="diagnostic",
+        source="performance_doctor", agent_id="tobi-health",
+    )
     try:
         client = get_llm("simple", model=model) if model else get_llm("simple")
         # 900 gives a 4-6 sentence butler diagnosis comfortable headroom so it never
@@ -395,7 +398,7 @@ def _llm_diagnosis(result: dict, model: Optional[str]) -> Optional[str]:
     except Exception:
         return None
     finally:
-        set_usage_context(prev["surface"], prev["feature"])
+        restore_usage_context(prev)
 
 
 # ── persistence ──────────────────────────────────────────────────────────────────────

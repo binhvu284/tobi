@@ -21,20 +21,24 @@ class UsageBudgetReq(BaseModel):
 
 
 @router.get("/api/usage/overview")
-def usage_overview(range: str = "month"):
+def usage_overview(range: str = "month", metric: str = "tokens"):
     """Cost/tokens/requests/latency by provider·model·surface·agent + daily trend [S15][S19]."""
     from core import usage_meter
     if range not in usage_meter.RANGES:
         raise HTTPException(400, "range must be day | week | month | all")
-    return usage_meter.overview(range)
+    if metric not in {"tokens", "requests", "cost", "latency"}:
+        raise HTTPException(400, "metric must be tokens | requests | cost | latency")
+    return usage_meter.overview(range, metric)
 
 
 @router.get("/api/usage/calls")
 def usage_calls(limit: int = 50, offset: int = 0, q: str = "", surface: str = "",
-                model: str = ""):
+                model: str = "", status: str = "", source: str = "",
+                purpose: str = ""):
     """Paginated, filterable per-call log inspector [S20]."""
     from core import usage_meter
-    return usage_meter.calls(limit=limit, offset=offset, q=q, surface=surface, model=model)
+    return usage_meter.calls(limit=limit, offset=offset, q=q, surface=surface, model=model,
+                             status=status, source=source, purpose=purpose)
 
 
 @router.get("/api/usage/plans")

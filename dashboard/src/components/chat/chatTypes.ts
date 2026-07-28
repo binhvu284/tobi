@@ -11,6 +11,9 @@ export type Meta = {
   artifacts?: ChatArtifactEvent[]
   memoryChips?: MemoryChip[]   // #20: per-memory feedback chips (owner rates each recalled memory)
   turn_id?: string
+  requestedModel?: string | null
+  actualModel?: string | null
+  fallbackReason?: string | null
 }
 export type Msg = { id?: number; role: string; content: string; model?: string | null; meta?: Meta; thinking?: string | null; feedback?: number | null; created_at?: string }
 export type ChatMode = 'chat' | 'agent' | 'terminal' | 'research' | 'project'

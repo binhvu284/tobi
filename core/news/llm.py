@@ -120,14 +120,17 @@ def complete(system: str, user: str, feature: str, max_tokens: int) -> str | Non
         _log.warning("news content (%s): no usable model resolved — skipping", feature)
         return None
     try:
-        from core.model_router import get_llm, set_usage_context
-        prev = set_usage_context(_SURFACE, feature)
+        from core.model_router import get_llm, restore_usage_context, set_usage_context
+        prev = set_usage_context(
+            _SURFACE, feature, purpose="background", source="news",
+            agent_id="tobi-news", is_background=True,
+        )
         try:
             client = get_llm(model=model)
             text = client.complete([{"role": "user", "content": user}],
                                    system=system, max_tokens=max_tokens)
         finally:
-            set_usage_context(prev["surface"], prev["feature"])
+            restore_usage_context(prev)
     except Exception as exc:
         # Make silent content failures diagnosable (this was an unexplained empty card):
         # the MC console now names the model and the real transport/auth error.

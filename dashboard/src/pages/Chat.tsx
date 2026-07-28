@@ -402,6 +402,14 @@ export default function Chat() {
         onNotice: (n) => {
           if (n.kind === 'model_issue') setModelIssue(true)
           else if (n.kind === 'model_escalated') toast({ kind: 'info', title: 'Model escalated', detail: 'The selected model returned malformed output, so TOBI retried once with the configured fallback.' })
+          else if (n.kind === 'model_fallback') {
+            const route = n as ChatNotice & { from_model?: string; to_model?: string; reason?: string }
+            toast({
+              kind: 'info',
+              title: 'Fallback model used',
+              detail: `${route.from_model || 'Selected model'} failed; ${route.to_model || 'the configured fallback'} completed the turn.`,
+            })
+          }
           else if (n.kind === 'reader' && n.items) setReaderChips(n.items)
           else if (n.kind === 'run_paused') {
             const rid = Number((n as ChatNotice & { run_id?: number }).run_id)
@@ -449,6 +457,9 @@ export default function Chat() {
             mode: modeSeen, context: contextSeen, artifacts: artifactsSeen.length ? artifactsSeen : undefined,
             memoryChips: memoryChipsSeen.length ? memoryChipsSeen : undefined,
             turn_id: turnIdSeen,
+            requestedModel: u.requested_model,
+            actualModel: u.actual_model,
+            fallbackReason: u.fallback_reason,
           }
           setMessages(m => { const next = [...m]; const last = next[next.length - 1]; if (last && last.role === 'assistant') next[next.length - 1] = { ...last, meta: { ...last.meta, ...lastMetaRef.current } }; return next })
         },

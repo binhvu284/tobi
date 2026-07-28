@@ -597,14 +597,17 @@ def _summarize_iter(items: list[RawItem], pillar: str):
         yield {"done": 0, "total": total, "title": "", "skipped": "budget"}
         return
     try:
-        from core.model_router import set_usage_context, get_llm
+        from core.model_router import restore_usage_context, set_usage_context, get_llm
     except Exception:
         return
-    prev = set_usage_context(_SURFACE, f"{pillar}_summarize")
+    prev = set_usage_context(
+        _SURFACE, f"{pillar}_summarize", purpose="explore",
+        source="explore", agent_id="tobi-explore",
+    )
     try:
         client = get_llm("simple")
     except Exception:
-        set_usage_context(prev["surface"], prev["feature"])
+        restore_usage_context(prev)
         return
     sys = ("You are TOBI, an AI-news editor. Write ONE concise neutral sentence (<= 30 words) "
            "summarizing the item for a busy founder. No hype, no first person. English.")
@@ -624,7 +627,7 @@ def _summarize_iter(items: list[RawItem], pillar: str):
         ok, _s, _c = _budget_ok()
         if not ok:
             break
-    set_usage_context(prev["surface"], prev["feature"])
+    restore_usage_context(prev)
 
 
 def _summarize(items: list[RawItem], pillar: str) -> None:
@@ -981,10 +984,13 @@ def digest(days: int = 1) -> str:
     if not feed:
         return "No Explore items yet — run a refresh first."
     try:
-        from core.model_router import set_usage_context, get_llm
+        from core.model_router import restore_usage_context, set_usage_context, get_llm
     except Exception:
         return "Model router unavailable."
-    prev = set_usage_context(_SURFACE, "digest")
+    prev = set_usage_context(
+        _SURFACE, "digest", purpose="background", source="explore",
+        agent_id="tobi-explore", is_background=True,
+    )
     bullets = "\n".join(f"- [{it.get('source_name')}] {it.get('title')}" for it in feed[:20])
     sys = ("You are TOBI. Write a tight daily AI brief for your owner: 3-5 short themed bullets "
            "(Models / Tools / Social as they arise), each ≤ 25 words, neutral tone, with an optional "
@@ -993,10 +999,10 @@ def digest(days: int = 1) -> str:
     try:
         client = get_llm("default")
         out = client.complete([{"role": "user", "content": user}], system=sys, max_tokens=500)
-        set_usage_context(prev["surface"], prev["feature"])
+        restore_usage_context(prev)
         return (out or "").strip()
     except Exception as e:
-        set_usage_context(prev["surface"], prev["feature"])
+        restore_usage_context(prev)
         return f"Digest failed: {e}"
 
 

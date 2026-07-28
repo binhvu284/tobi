@@ -43,29 +43,15 @@ class OpenRouterClient(BaseLLMClient):
         if system:
             messages = [{"role": "system", "content": system}] + messages
         t0 = time.time()
-        try:
-            r = self.client.chat.completions.create(
-                model=self.model, messages=messages, max_tokens=max_tokens,
-                extra_headers=self._HEADERS,
-            )
-            self.last_usage = _usage_dict(r)
-            self.last_finish_reason = _norm_finish(r.choices[0].finish_reason)
-            text = r.choices[0].message.content
-            self._log_usage(t0, text)
-            return text
-        except Exception as e:
-            if "rate" in str(e).lower() or "429" in str(e):
-                fallback = self.FALLBACK_MODELS["default"]
-                r = self.client.chat.completions.create(
-                    model=fallback, messages=messages, max_tokens=max_tokens,
-                    extra_headers=self._HEADERS,
-                )
-                self.last_usage = _usage_dict(r)
-                self.last_finish_reason = _norm_finish(r.choices[0].finish_reason)
-                text = r.choices[0].message.content
-                self._log_usage(t0, text)
-                return text
-            raise
+        r = self.client.chat.completions.create(
+            model=self.model, messages=messages, max_tokens=max_tokens,
+            extra_headers=self._HEADERS,
+        )
+        self.last_usage = _usage_dict(r)
+        self.last_finish_reason = _norm_finish(r.choices[0].finish_reason)
+        text = r.choices[0].message.content
+        self._log_usage(t0, text)
+        return text
 
     def complete_stream(self, messages, system=None, max_tokens=2000):
         if system:
@@ -95,6 +81,4 @@ class OpenRouterClient(BaseLLMClient):
         except Exception:
             # Never append a fallback response after visible partial output. The runtime can
             # reset/recover the turn, but concatenating providers corrupts the answer.
-            if acc:
-                raise
-            yield self.complete(messages, max_tokens=max_tokens)
+            raise

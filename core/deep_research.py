@@ -142,13 +142,16 @@ EVIDENCE_JSON:
 def run(query: str, context_text: str = "", on_step: Optional[Callable[[str, str], None]] = None,
         model: Optional[str] = None) -> dict:
     """The full one-message workflow. Returns {report_md, sources, caveats, queries}."""
-    from core.model_router import set_usage_context
+    from core.model_router import restore_usage_context, set_usage_context
     query = (query or "").strip()
     caveats: list[str] = []
     if not os.getenv("TAVILY_API_KEY"):
         caveats.append("No web-search key is configured (TAVILY_API_KEY) — findings are limited "
                        "to placeholder/local context and should not be trusted as live research.")
-    prev = set_usage_context("chat", "deep_research")
+    prev = set_usage_context(
+        "chat", "deep_research", purpose="owner_turn",
+        source="deep_research", agent_id="tobi-research",
+    )
     try:
         try:
             client = _llm(model)
@@ -189,6 +192,12 @@ def run(query: str, context_text: str = "", on_step: Optional[Callable[[str, str
             ref = {"items": [{"title": s["title"], "url": s["url"], "snippet": s.get("snippet", "")[:200]}
                              for s in sources]}
             report += "\n\n```tobi:reference\n" + json.dumps(ref, ensure_ascii=False) + "\n```"
-        return {"report_md": report, "sources": sources, "caveats": caveats, "queries": queries}
+        return {
+            "report_md": report, "sources": sources, "caveats": caveats, "queries": queries,
+            "requested_model": getattr(client, "requested_model", None) or model,
+            "actual_model": getattr(client, "actual_model_id", None),
+            "fallback_reason": getattr(client, "fallback_reason", None),
+            "model_attempts": int(getattr(client, "attempt_count", 1) or 1),
+        }
     finally:
-        set_usage_context(prev["surface"], prev["feature"])
+        restore_usage_context(prev)

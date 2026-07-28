@@ -18,18 +18,36 @@ from typing import Optional  # noqa: F401 - used in signatures
 from core.env_utils import safe_load_dotenv
 
 safe_load_dotenv()
+_DEFAULT_USAGE_CTX = {
+    "surface": "agent",
+    "feature": "",
+    "requested_model": "",
+    "turn_id": "",
+    "run_id": "",
+    "worker_session_id": None,
+    "agent_id": "",
+    "purpose": "",
+    "source": "model_api",
+    "is_background": False,
+    "attempt": 1,
+    "fallback_reason": "",
+}
 _USAGE_CTX: ContextVar[dict] = ContextVar(
-    "tobi_llm_usage_context", default={"surface": "agent", "feature": ""}
+    "tobi_llm_usage_context",
+    default=_DEFAULT_USAGE_CTX,
 )
 
 
 DEFAULT_TIMEOUT_S = max(10, int(os.getenv("LLM_TIMEOUT_S", "60")))
 
 
-def set_usage_context(surface: str = "agent", feature: str = "") -> dict:
+def set_usage_context(surface: str = "agent", feature: str = "", **metadata) -> dict:
     """Set the usage tag for subsequent LLM calls; returns the previous tag (to restore)."""
     prev = dict(_USAGE_CTX.get())
-    _USAGE_CTX.set({"surface": surface or "agent", "feature": feature or ""})
+    next_ctx = dict(_DEFAULT_USAGE_CTX)
+    next_ctx.update({"surface": surface or "agent", "feature": feature or ""})
+    next_ctx.update({k: v for k, v in metadata.items() if v is not None})
+    _USAGE_CTX.set(next_ctx)
     return prev
 
 
@@ -37,13 +55,18 @@ def get_usage_context() -> dict:
     return dict(_USAGE_CTX.get())
 
 
-def run_with_usage_context(surface: str, feature: str, fn, *args, **kwargs):
+def restore_usage_context(context: dict) -> None:
+    _USAGE_CTX.set(dict(context or {}))
+
+
+def run_with_usage_context(surface: str, feature: str, fn, *args,
+                           usage_metadata: Optional[dict] = None, **kwargs):
     """Run a callable with isolated usage attribution inside the current worker thread."""
-    previous = set_usage_context(surface, feature)
+    previous = set_usage_context(surface, feature, **(usage_metadata or {}))
     try:
         return fn(*args, **kwargs)
     finally:
-        set_usage_context(previous["surface"], previous["feature"])
+        restore_usage_context(previous)
 
 
 def _norm_finish(raw) -> Optional[str]:
@@ -89,16 +112,53 @@ class BaseLLMClient(ABC):
             ]
         return "".join(parts)
 
-    def _log_usage(self, t0: float, text: str = "") -> None:
+    def _log_usage(self, t0: float, text: str = "", *, model: str = "",
+                   provider: str = "") -> None:
         """Auto-log this call to llm_usage (real provider tokens, else an estimate)."""
         try:
             from core import usage
             u = self.last_usage or {}
             ptok = u.get("prompt_tokens") or 0
             ctok = u.get("completion_tokens") or estimate_tokens(text)
-            usage.log(getattr(self, "provider", "?"), getattr(self, "model", "?"),
+            ctx = dict(_USAGE_CTX.get())
+            actual_provider = provider or getattr(self, "provider", "?")
+            actual_model = model or getattr(self, "model", "?")
+            usage.log(actual_provider, actual_model,
                       ptok, ctok, int((time.time() - t0) * 1000),
-                      surface=_USAGE_CTX.get()["surface"], feature=_USAGE_CTX.get()["feature"])
+                      surface=ctx.get("surface", "agent"), feature=ctx.get("feature", ""),
+                      requested_model=ctx.get("requested_model", ""),
+                      actual_model=f"{actual_provider}:{actual_model}",
+                      turn_id=ctx.get("turn_id", ""), run_id=ctx.get("run_id", ""),
+                      worker_session_id=ctx.get("worker_session_id"),
+                      agent_id=ctx.get("agent_id", ""), purpose=ctx.get("purpose", ""),
+                      source=ctx.get("source", "model_api"),
+                      is_background=bool(ctx.get("is_background")),
+                      attempt=int(ctx.get("attempt") or 1),
+                      fallback_reason=ctx.get("fallback_reason", ""))
+        except Exception:
+            pass
+
+    def _log_failure(self, t0: float, error: Exception, *, model: str = "",
+                     provider: str = "") -> None:
+        try:
+            from core import usage
+            ctx = dict(_USAGE_CTX.get())
+            actual_provider = provider or getattr(self, "provider", "?")
+            actual_model = model or getattr(self, "model", "?")
+            usage.log_failure(
+                actual_provider, actual_model, int((time.time() - t0) * 1000),
+                error_code=type(error).__name__,
+                surface=ctx.get("surface", "agent"), feature=ctx.get("feature", ""),
+                requested_model=ctx.get("requested_model", ""),
+                actual_model=f"{actual_provider}:{actual_model}",
+                turn_id=ctx.get("turn_id", ""), run_id=ctx.get("run_id", ""),
+                worker_session_id=ctx.get("worker_session_id"),
+                agent_id=ctx.get("agent_id", ""), purpose=ctx.get("purpose", ""),
+                source=ctx.get("source", "model_api"),
+                is_background=bool(ctx.get("is_background")),
+                attempt=int(ctx.get("attempt") or 1),
+                fallback_reason=ctx.get("fallback_reason", ""),
+            )
         except Exception:
             pass
 

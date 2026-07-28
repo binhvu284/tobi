@@ -22,21 +22,41 @@ export type StorageCategoryDetail = {
   note?: string
 }
 export type UsageBucket = {
-  provider?: string; model?: string; surface?: string; agent?: string
+  provider?: string; model?: string; surface?: string; agent?: string; purpose?: string
   cost: number; tokens: number; prompt_tokens: number; completion_tokens: number
   requests: number; avg_latency_ms: number
 }
+export type UsageMetric = 'tokens' | 'requests' | 'cost' | 'latency'
+export type UsageWorkload = {
+  workload: string; model_calls: number | null; sessions?: number
+  tokens: number | null; cost: number | null; usage_reported: boolean
+}
+export type DeveloperUsageAgent = {
+  agent: string; profile_slug: string; adapter: string; model: string
+  sessions: number; completed: number; failed: number; usage_reported: boolean
+}
 export type UsageOverview = {
-  range: string; total_cost: number; total_tokens: number; prompt_tokens: number
+  range: string; metric: UsageMetric; total_cost: number; total_tokens: number; prompt_tokens: number
   completion_tokens: number; requests: number; avg_latency_ms: number
   by_provider: UsageBucket[]; by_model: UsageBucket[]; by_surface: UsageBucket[]
-  by_agent: UsageBucket[]; surfaces: string[]
+  by_agent: UsageBucket[]; by_purpose: UsageBucket[]; surfaces: string[]
   by_day: ({ day: string; cost: number; tokens: number } & Record<string, number | string>)[]
+  attempts: number; failed_attempts: number; fallback_calls: number; calls_per_turn: number | null
+  coverage: {
+    attributed_calls: number; total_model_calls: number; attribution_pct: number
+    developer_sessions: number; developer_usage_reported: number
+  }
+  workloads: UsageWorkload[]
+  developer_agents: DeveloperUsageAgent[]
+  developer_sessions: { total: number; completed: number; failed: number; usage_reported: number }
 }
 export type UsageCall = {
   id: number; ts: string; surface: string; feature: string | null; provider: string
-  model: string; agent_id: string | null; prompt_tokens: number; completion_tokens: number
-  cost_est: number; latency_ms: number
+  model: string; requested_model: string | null; actual_model: string | null
+  turn_id: string | null; run_id: string | null; worker_session_id: number | null
+  agent_id: string | null; purpose: string | null; source: string; is_background: number
+  attempt: number; status: string; error_code: string | null; fallback_reason: string | null
+  prompt_tokens: number; completion_tokens: number; cost_est: number; latency_ms: number
 }
 export type UsagePlan = {
   id?: number; provider: string; plan_name: string; limit_type: 'usd' | 'tokens' | 'requests'
@@ -53,16 +73,19 @@ export async function getStorageCategory(feature: string, top = 12): Promise<Sto
 export async function runStorageScan(scope: 'db' | 'fs' | 'all' = 'all', forceDeps = false): Promise<{ scan: unknown; overview: StorageOverview }> {
   return request(`/api/storage/scan?scope=${scope}&force_deps=${forceDeps}`, { method: 'POST' })
 }
-export async function getUsageOverview(range: 'day' | 'week' | 'month' | 'all' = 'month'): Promise<UsageOverview> {
-  return get(`/api/usage/overview?range=${range}`)
+export async function getUsageOverview(range: 'day' | 'week' | 'month' | 'all' = 'month', metric: UsageMetric = 'tokens'): Promise<UsageOverview> {
+  return get(`/api/usage/overview?range=${range}&metric=${metric}`)
 }
-export async function getUsageCalls(opts: { limit?: number; offset?: number; q?: string; surface?: string; model?: string } = {}): Promise<{ total: number; limit: number; offset: number; calls: UsageCall[] }> {
+export async function getUsageCalls(opts: { limit?: number; offset?: number; q?: string; surface?: string; model?: string; status?: string; source?: string; purpose?: string } = {}): Promise<{ total: number; limit: number; offset: number; calls: UsageCall[] }> {
   const p = new URLSearchParams()
   if (opts.limit) p.set('limit', String(opts.limit))
   if (opts.offset) p.set('offset', String(opts.offset))
   if (opts.q) p.set('q', opts.q)
   if (opts.surface) p.set('surface', opts.surface)
   if (opts.model) p.set('model', opts.model)
+  if (opts.status) p.set('status', opts.status)
+  if (opts.source) p.set('source', opts.source)
+  if (opts.purpose) p.set('purpose', opts.purpose)
   return get(`/api/usage/calls?${p.toString()}`)
 }
 export async function getUsagePlans(): Promise<{ plans: UsagePlan[] }> { return get('/api/usage/plans') }

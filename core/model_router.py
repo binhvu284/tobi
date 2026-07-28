@@ -10,9 +10,9 @@ fallback chain).
 - **Routing prefs** (which model is default / per task / fallback order, plus each
   provider's base_url + chosen models) live in a small ``llm_config`` table — they
   are non-secret, so they don't need the vault to read.
-- Fully **backward compatible**: with no config saved, ``get_llm`` falls back to the
-  legacy ``PRIMARY_MODEL`` env behaviour (OpenRouter / Claude), so every existing
-  caller (``get_llm(task_type).complete(...)``) keeps working unchanged.
+- ``get_llm`` requires an explicit saved default or selected model. ``PRIMARY_MODEL``
+  remains available only through the legacy ``ModelRouter`` class; it is never an
+  implicit fallback for Mission Control requests.
 
 Model ids are ``"provider:model"`` (e.g. ``anthropic:claude-opus-4-8``).
 """
@@ -34,7 +34,8 @@ safe_load_dotenv()
 # process-global dictionary.
 from core.llm_clients.base import (  # noqa: F401,E402 - re-exported for callers
     DEFAULT_TIMEOUT_S, BaseLLMClient, _norm_finish, _usage_dict, _USAGE_CTX,
-    estimate_tokens, get_usage_context, run_with_usage_context, set_usage_context,
+    estimate_tokens, get_usage_context, restore_usage_context, run_with_usage_context,
+    set_usage_context,
 )
 from core.llm_clients.claude import ClaudeClient  # noqa: F401,E402
 from core.llm_clients.codex import CodexClient  # noqa: F401,E402
@@ -139,6 +140,15 @@ def context_limit(model_id: str) -> int:
 # Vault-backed routing config (llm_config table — non-secret routing prefs)
 # ════════════════════════════════════════════════════════════════════════════
 _DEFAULT_CONFIG = {"default_model": "", "task_overrides": {}, "fallback": [], "providers": {}}
+MAX_TRANSPORT_ATTEMPTS = 2
+
+
+class ModelRoutingNotConfigured(RuntimeError):
+    pass
+
+
+class ModelProviderDisabled(RuntimeError):
+    pass
 
 
 def _config_conn() -> sqlite3.Connection:
@@ -224,6 +234,7 @@ def _provider_of(model_id: str) -> tuple[str, str]:
 def _provider_settings(cfg: dict, provider: str) -> dict:
     spec = dict(PROVIDERS.get(provider, PROVIDERS["custom"]))
     saved = (cfg.get("providers") or {}).get(provider, {})
+    spec["enabled"] = saved.get("enabled", True)
     if saved.get("base_url"):
         spec["base_url"] = saved["base_url"]
     if saved.get("models"):
@@ -231,11 +242,16 @@ def _provider_settings(cfg: dict, provider: str) -> dict:
     return spec
 
 
-def build_client(model_id: str, cfg: Optional[dict] = None):
+def build_client(model_id: str, cfg: Optional[dict] = None, *,
+                 allow_disabled: bool = False):
     """Instantiate a client for a 'provider:model' id. Raises if the SDK can't build."""
     cfg = cfg if cfg is not None else load_llm_config()
     provider, model = _provider_of(model_id)
     spec = _provider_settings(cfg, provider)
+    if not allow_disabled and not spec.get("enabled", True):
+        raise ModelProviderDisabled(
+            f"{provider} is disabled. Enable it on the Models page before using {model_id}."
+        )
     if spec["kind"] == "anthropic":
         key = os.getenv(spec["key_env"]) if spec.get("key_env") else None
         return ClaudeClient(model, base_url=spec.get("base_url") or None, api_key=key, provider=provider)
@@ -250,6 +266,29 @@ def build_client(model_id: str, cfg: Optional[dict] = None):
 
 def _resolve_model_id(cfg: dict, task_type: str) -> str:
     return (cfg.get("task_overrides", {}) or {}).get(task_type) or cfg.get("default_model") or ""
+
+
+def routing_status(cfg: Optional[dict] = None) -> dict:
+    cfg = cfg if cfg is not None else load_llm_config()
+    default_model = str(cfg.get("default_model") or "").strip()
+    issues: list[str] = []
+    if not default_model:
+        issues.append("Choose a default model. Legacy PRIMARY_MODEL fallback is disabled.")
+    else:
+        provider, _ = _provider_of(default_model)
+        spec = next((p for p in provider_catalog() if p["id"] == provider), None)
+        if not spec or not spec.get("enabled"):
+            issues.append(f"The default provider '{provider}' is disabled.")
+        elif spec.get("needs_key") and not spec.get("key_present"):
+            issues.append(f"The default provider '{provider}' is not authenticated.")
+        elif default_model not in {m["id"] for m in available_models()}:
+            issues.append("The default model is not in the provider's available model list.")
+    return {
+        "ready": not issues,
+        "default_model": default_model or None,
+        "issues": issues,
+        "legacy_fallback_enabled": False,
+    }
 
 
 class ModelRouter:
@@ -296,36 +335,31 @@ def _legacy_client(task_type: str):
 
 
 def get_llm(task_type: str = "default", model: Optional[str] = None) -> BaseLLMClient:
-    """Return an LLM client, honouring the vault-backed config:
-      - explicit ``model`` ('provider:model') wins (the chat model picker);
-      - else per-task override → global default;
-      - else the legacy PRIMARY_MODEL env behaviour (nothing configured yet).
-    A configured default also appends the ordered fallback chain (+ legacy as a last
-    resort) so a single mis-set key never leaves the chat mute."""
+    """Return the selected model plus only explicitly configured fallbacks.
+
+    The chat picker wins, then a task override, then the saved global default. A
+    missing default is an actionable configuration error, never a hidden provider
+    switch through ``PRIMARY_MODEL``.
+    """
     cfg = load_llm_config()
     chosen = (model or "").strip() or _resolve_model_id(cfg, task_type)
     if not chosen:
-        return _router.get_client(task_type)
+        raise ModelRoutingNotConfigured(
+            "No default model is configured. Choose one on the Models page."
+        )
 
-    try:
-        primary = build_client(chosen, cfg)
-    except Exception:
-        primary = None
+    primary = build_client(chosen, cfg)
     chain = [primary]
     for fb in cfg.get("fallback", []):
         if fb and fb != chosen:
             try:
                 chain.append(build_client(fb, cfg))
+                if len(chain) >= MAX_TRANSPORT_ATTEMPTS:
+                    break
             except Exception:
                 pass
-    chain.append(_legacy_client(task_type))
     chain = [c for c in chain if c is not None]
-    if not chain:
-        # Last-ditch: surface the original build error by retrying it.
-        return build_client(chosen, cfg)
-    if len(chain) == 1:
-        return chain[0]
-    return FallbackClient(chain)
+    return FallbackClient(chain, requested_model=chosen)
 
 
 def get_escalation_llm(current_model: Optional[str] = None) -> tuple[Optional[BaseLLMClient], Optional[str]]:
@@ -482,7 +516,7 @@ def discover_models(provider: str) -> dict:
             r = requests.get("https://openrouter.ai/api/v1/models", timeout=8)
             models = [m["id"] for m in r.json().get("data", []) if m.get("id")][:120]
         else:
-            client = build_client(f"{provider}:_discover", cfg)
+            client = build_client(f"{provider}:_discover", cfg, allow_disabled=True)
             raw = client.client.models.list()
             models = [m.id for m in getattr(raw, "data", [])][:120]
     except Exception:

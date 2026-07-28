@@ -103,10 +103,13 @@ def _raw_transcript(video_id: str) -> tuple[Optional[str], str]:
 def _summarize(text: str, title: Optional[str]) -> Optional[str]:
     """Compact a long transcript via the configured model router (usage-logged)."""
     try:
-        from core.model_router import get_llm, set_usage_context
+        from core.model_router import get_llm, restore_usage_context, set_usage_context
     except Exception:
         return None
-    prev = set_usage_context("chat", "youtube")
+    prev = set_usage_context(
+        "chat", "youtube", purpose="owner_turn",
+        source="youtube_reader", agent_id="tobi-reader",
+    )
     try:
         client = get_llm("simple")
         payload = json.dumps({
@@ -128,7 +131,7 @@ def _summarize(text: str, title: Optional[str]) -> Optional[str]:
     except Exception:
         return None
     finally:
-        set_usage_context(prev["surface"], prev["feature"])
+        restore_usage_context(prev)
 
 
 _NOTE = {

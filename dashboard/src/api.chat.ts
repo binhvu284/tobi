@@ -89,7 +89,11 @@ export type ChatStoredMessage = {
   model?: string | null; tokens?: number | null; thinking?: string | null
   feedback?: number | null; meta?: string | null; created_at: string
 }
-export type ChatUsage = { prompt_tokens: number; completion_tokens: number; model: string; latency_ms: number }
+export type ChatUsage = {
+  prompt_tokens: number; completion_tokens: number; model: string; latency_ms: number
+  requested_model?: string | null; actual_model?: string | null
+  fallback_reason?: string | null; attempts?: number
+}
 export type ReaderChip = { url: string; state: string; title?: string | null }
 export type ChatNotice = { kind: 'model_issue' | 'reader' | string; reader?: string; items?: ReaderChip[]; run_id?: number }
 export type PickerQuestion = { question: string; options?: string[] }
@@ -215,7 +219,13 @@ export type LlmConfig = {
 }
 export type AvailableModel = { id: string; provider: string; model: string; label: string; context?: number }
 export type HermesPush = { ok: boolean; json?: boolean; yaml?: boolean; cli?: boolean; targets?: string[]; detail: string }
-export type LlmConfigResponse = { config: LlmConfig; providers: LlmProvider[]; models: AvailableModel[]; hermes?: HermesPush }
+export type LlmRoutingStatus = {
+  ready: boolean; default_model?: string | null; issues: string[]; legacy_fallback_enabled: boolean
+}
+export type LlmConfigResponse = {
+  config: LlmConfig; providers: LlmProvider[]; models: AvailableModel[]
+  routing?: LlmRoutingStatus; hermes?: HermesPush
+}
 
 export async function getLlmConfig(): Promise<LlmConfigResponse> { return get('/api/llm/config') }
 export async function getLlmModels(): Promise<{ models: AvailableModel[] }> { return get('/api/llm/models') }
