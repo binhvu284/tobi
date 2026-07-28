@@ -655,3 +655,32 @@ asserts the shipped policy still has all three of github/merge/deploy false.
 Integrations, then set `capabilities.github` to true. Preflight will confirm the prerequisite
 before the next run starts. Until then the local path is the honest one, and scenario 2 stays
 recorded as partial.
+
+### GitHub capability enabled — 2026-07-28
+
+The Coding App is configured and verified: all three credentials are in the vault with
+`test_status=ok`, and because `_test_github` only takes the App branch when all three are
+present, that verdict came from minting a real installation token rather than from the personal
+token fallback. `vault_autounlock` is armed, so the credentials re-inject on boot without a
+prompt and a restart does not silently disarm delivery.
+
+`capabilities.github` is now true. Permitted gates go from seven to nine — `push` and
+`pull_request` join the local set. Policy hash moved from `7545f59f…` to `69547069…`; no run
+was in flight, so nothing was invalidated.
+
+**`merge` and `deploy` stay false.** The three are separate flags so delivery can be earned one
+step at a time: `github` lets a run push its branch and open a *draft* PR, which the owner can
+read and close. `merge` would let it change `main` and `deploy` would let it ship, and neither
+has been demonstrated by a single run yet.
+
+**Test-hygiene fix found by the flip.** Five suites failed the moment the capability changed,
+because their policy fixtures loaded the shipped file and inherited whatever capabilities it
+carried. Preflight correctly blocked them with `github_app_unconfigured` — the test environment
+has no App credentials — but none of those suites is about delivery. They were reporting the
+owner's configuration instead of the behaviour they claim to cover. All four fixtures now pin
+`github`/`merge`/`deploy` to false explicitly, and the tests that do care about the capability
+set it themselves.
+
+**Next:** #26 is the natural candidate for the first delivering run — it already reached
+`locally_complete` under the old policy, so a re-run exercises push and draft PR without new
+implementation risk. That converts scenario 2 from partial to a full pass.

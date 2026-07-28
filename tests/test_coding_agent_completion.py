@@ -42,6 +42,10 @@ def _policy(root: Path) -> CodingPolicy:
     data["repository"]["allowed_repository"] = ""
     data["repository"]["allowed_remote_suffix"] = ""
     data["commands"]["mandatory_checks"] = [["python", "-m", "compileall", "-q", "core"]]
+    # Pinned: these contracts are not about delivery, so they must not start failing when the
+    # owner enables a capability. Preflight blocks an enabled github with no Coding App.
+    data["capabilities"] = {**data["capabilities"],
+                            "github": False, "merge": False, "deploy": False}
     return CodingPolicy(data, repo_root=root)
 
 

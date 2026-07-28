@@ -65,12 +65,21 @@ class _Worker:
         }
 
 
-def _policy(root: Path) -> CodingPolicy:
+def _policy(root: Path, **capabilities: bool) -> CodingPolicy:
+    """The shipped policy with its delivery capabilities pinned.
+
+    These scenarios are about protected paths, agent health, and queue classification -- none
+    of which is a statement about delivery. Inheriting whatever `capabilities` the owner
+    happens to have enabled made them fail the moment `github` was turned on, which is a test
+    reporting the owner's configuration rather than the behaviour it claims to cover.
+    """
     source = Path(__file__).resolve().parents[1] / "config" / "coding_policy.v1.json"
     data = json.loads(source.read_text(encoding="utf-8"))
     data["repository"]["allowed_repository"] = ""
     data["repository"]["allowed_remote_suffix"] = ""
     data["commands"]["mandatory_checks"] = [["python", "-m", "compileall", "-q", "core"]]
+    data["capabilities"] = {**data["capabilities"],
+                            "github": False, "merge": False, "deploy": False, **capabilities}
     return CodingPolicy(data, repo_root=root)
 
 
@@ -238,13 +247,19 @@ def test_enabling_github_without_the_coding_app_blocks_before_anything_is_pushed
     assert "github_app_unconfigured" not in _codes(cleared), _codes(cleared)
 
 
-def test_github_stays_disabled_in_the_reviewed_policy(tmp_path) -> None:
-    """The shipped policy keeps delivery local until the owner has the App configured."""
+def test_the_reviewed_policy_grants_delivery_but_not_merge_or_deploy(tmp_path) -> None:
+    """github went true on 2026-07-28 once the Coding App was configured and verified.
+
+    merge and deploy stay false deliberately. `github` lets a run push its branch and open a
+    *draft* PR -- work the owner can see and close. `merge` would let it change `main` and
+    `deploy` would let it ship, neither of which has been proven by a single run yet. The
+    three are separate flags precisely so delivery can be earned one step at a time.
+    """
     source = Path(__file__).resolve().parents[1] / "config" / "coding_policy.v1.json"
     capabilities = json.loads(source.read_text(encoding="utf-8"))["capabilities"]
-    assert capabilities["github"] is False
-    assert capabilities["merge"] is False
-    assert capabilities["deploy"] is False
+    assert capabilities["github"] is True
+    assert capabilities["merge"] is False, "merging main is not an agent decision yet"
+    assert capabilities["deploy"] is False, "deploying is not an agent decision yet"
 
 
 def test_an_unavailable_reviewer_blocks_the_run(tmp_path, monkeypatch) -> None:

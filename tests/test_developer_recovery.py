@@ -62,6 +62,10 @@ try:
     data = json.loads((ROOT / "config" / "coding_policy.v1.json").read_text(encoding="utf-8"))
     data["repository"]["allowed_repository"] = ""
     data["repository"]["allowed_remote_suffix"] = origin.name
+    # Pinned: recovery is about resuming a run, not about delivery. Preflight blocks an
+    # enabled github capability with no Coding App, which would fail this for another reason.
+    data["capabilities"] = {**data["capabilities"],
+                            "github": False, "merge": False, "deploy": False}
     policy = CodingPolicy(data, repo_root=repo)
     store = DevelopmentStore(TMP / "recovery.db")
     agent = CodingAgent(policy=policy, store=store)

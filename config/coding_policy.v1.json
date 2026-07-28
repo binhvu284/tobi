@@ -12,7 +12,7 @@
     "observe": true,
     "sandbox": true,
     "external_workers": true,
-    "github": false,
+    "github": true,
     "merge": false,
     "deploy": false
   },
