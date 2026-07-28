@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -23,6 +24,62 @@ def _b64url(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
 
 
+_PEM_RE = re.compile(
+    r"-{2,}\s*BEGIN\s+(?P<label>[A-Z ]+?)\s*-{2,}(?P<body>.*?)-{2,}\s*END\s+(?P=label)\s*-{2,}",
+    re.DOTALL,
+)
+
+
+def normalize_private_key(raw: str) -> str:
+    """Rebuild a PEM that lost its line structure on the way in.
+
+    The Coding App private key is entered in a single-line password field, and a `.pem` is
+    inherently multi-line. Depending on the browser, pasting one can arrive with its newlines
+    stripped, turned into spaces, or escaped as a literal backslash-n -- and an owner may
+    reasonably paste it wrapped in quotes. None of those are the owner making a mistake, so
+    none of them should read as "your key is invalid".
+
+    Reconstructs the canonical form from the base64 body: strip the wrapper, drop every
+    whitespace character, re-wrap at 64 columns. A value that carries no PEM envelope at all
+    is returned untouched, so the caller's error can say so rather than mangling it further.
+    """
+    text = (raw or "").strip()
+    if text[:1] in {'"', "'"} and text[-1:] == text[:1] and len(text) > 1:
+        text = text[1:-1].strip()
+    text = text.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\r\n", "\n")
+    match = _PEM_RE.search(text)
+    if not match:
+        return text
+    label = " ".join(match.group("label").split())
+    body = "".join(match.group("body").split())
+    lines = "\n".join(body[i:i + 64] for i in range(0, len(body), 64))
+    return f"-----BEGIN {label}-----\n{lines}\n-----END {label}-----\n"
+
+
+def describe_private_key(raw: str) -> str:
+    """Say what shape a rejected key has, without ever revealing the key.
+
+    Only structural facts: length, whether the PEM envelope is present, and which label it
+    carries. That is enough to separate the three things owners actually hit -- pasting the
+    Client ID instead of the key, pasting only part of the file, and an encrypted key.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return "the field is empty"
+    match = _PEM_RE.search(text.replace("\\n", "\n"))
+    if not match:
+        head = "-----BEGIN" in text
+        return (f"{len(text)} characters with a BEGIN line but no matching END line -- "
+                "the paste looks truncated" if head else
+                f"{len(text)} characters with no -----BEGIN/-----END envelope -- "
+                "this does not look like the .pem file (the Client ID is not the private key)")
+    label = " ".join(match.group("label").split())
+    body = "".join(match.group("body").split())
+    if "ENCRYPTED" in label:
+        return f"a passphrase-protected key ({label}) -- GitHub App keys must not be encrypted"
+    return f"a {label} block with {len(body)} base64 characters"
+
+
 @dataclass
 class InstallationToken:
     value: str
@@ -40,7 +97,7 @@ class GitHubCodingService:
             raise PolicyDenied("GitHub App repository does not match the repository allowed by coding policy.")
         self.app_id = os.getenv("GITHUB_APP_ID", "")
         self.installation_id = os.getenv("GITHUB_APP_INSTALLATION_ID", "")
-        self.private_key = os.getenv("GITHUB_APP_PRIVATE_KEY", "").replace("\\n", "\n")
+        self.private_key = normalize_private_key(os.getenv("GITHUB_APP_PRIVATE_KEY", ""))
         self._token: InstallationToken | None = None
 
     def configured(self) -> bool:
@@ -67,12 +124,31 @@ class GitHubCodingService:
             key = serialization.load_pem_private_key(self.private_key.encode("utf-8"), password=None)
             signature = key.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
         except Exception as exc:
-            raise GitHubCodingError("GitHub App private key is invalid.") from exc
+            raise GitHubCodingError(
+                f"GitHub App private key is invalid: the field holds "
+                f"{describe_private_key(os.getenv('GITHUB_APP_PRIVATE_KEY', ''))}. "
+                f"Paste the whole downloaded .pem, including its BEGIN and END lines."
+            ) from exc
         return f"{header}.{payload}.{_b64url(signature)}"
 
     def _installation_token(self) -> str:
         if self._token and self._token.expires_at > time.time() + 60:
             return self._token.value
+        # Both ids are numeric. The App page shows an "App ID", a "Client ID" (Iv23...) and a
+        # "Client secret" next to each other, and the installation id lives on a different
+        # page entirely -- so pasting the wrong one is the ordinary mistake, not the unusual
+        # one. Caught here it names the field; left to GitHub it returns an opaque 404.
+        for label, value, where in (
+            ("Coding App ID", self.app_id, "the App ID on the app's settings page"),
+            ("Coding App installation ID", self.installation_id,
+             "the number at the end of the /settings/installations/<id> URL"),
+        ):
+            if not value.strip().isdigit():
+                raise GitHubCodingError(
+                    f"{label} must be the numeric id -- it currently holds "
+                    f"{len(value.strip())} characters that are not all digits. Use {where}. "
+                    "The Client ID (Iv23...) is a different value and will not work here."
+                )
         response = requests.post(
             f"{self.API}/app/installations/{self.installation_id}/access_tokens",
             headers={"Authorization": f"Bearer {self._jwt()}", "Accept": "application/vnd.github+json",
