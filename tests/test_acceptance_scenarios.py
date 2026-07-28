@@ -200,6 +200,53 @@ def test_an_unhealthy_agent_is_refused_with_the_reason_the_probe_gave(
     assert store.list_sessions(10) == []
 
 
+def test_enabling_github_without_the_coding_app_blocks_before_anything_is_pushed(
+    tmp_path, monkeypatch
+) -> None:
+    """The capability must prove its prerequisite at Start, not halfway through delivery.
+
+    `push` and `pull_request` are gated by one flag but backed by two different credentials:
+    push rides the repository's own git auth, the draft PR needs a GitHub App. Turning the
+    flag on with no App configured is the worst ordering available -- the branch lands on the
+    real repository and *then* the PR raises, leaving a dead-ended run that has already
+    mutated GitHub. Stopping cleanly at `locally_complete` is strictly better than that.
+    """
+    store = DevelopmentStore(tmp_path / "developer.db")
+    task = _task(store, tmp_path)
+    monkeypatch.setattr(coding_completion, "REPO_ROOT", tmp_path)
+    for name in ("GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_PRIVATE_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    policy = _policy(tmp_path)
+    policy.data["capabilities"]["github"] = True
+    service = CodingCompletionService(
+        store=store, policy=policy, worker=_Worker(), assessor=_Assessor()
+    )
+
+    report = service.preflight(int(task["queue_id"]), active_probe=False)
+
+    assert not report["ready"]
+    assert "github_app_unconfigured" in _codes(report)
+    assert store.list_sessions(10) == []
+    # It rejects every item identically, so Auto stops rather than walking the whole queue.
+    assert _auto_decision(_codes(report)) == "stop"
+
+    # With the App present the capability stops being the thing standing in the way.
+    for name, value in (("GITHUB_APP_ID", "1"), ("GITHUB_APP_INSTALLATION_ID", "2"),
+                        ("GITHUB_APP_PRIVATE_KEY", "-----BEGIN PRIVATE KEY-----\nx\n")):
+        monkeypatch.setenv(name, value)
+    cleared = service.preflight(int(task["queue_id"]), active_probe=False)
+    assert "github_app_unconfigured" not in _codes(cleared), _codes(cleared)
+
+
+def test_github_stays_disabled_in_the_reviewed_policy(tmp_path) -> None:
+    """The shipped policy keeps delivery local until the owner has the App configured."""
+    source = Path(__file__).resolve().parents[1] / "config" / "coding_policy.v1.json"
+    capabilities = json.loads(source.read_text(encoding="utf-8"))["capabilities"]
+    assert capabilities["github"] is False
+    assert capabilities["merge"] is False
+    assert capabilities["deploy"] is False
+
+
 def test_an_unavailable_reviewer_blocks_the_run(tmp_path, monkeypatch) -> None:
     """No independent reviewer means no acceptance evidence, so the run must not start."""
     store = DevelopmentStore(tmp_path / "developer.db")
@@ -221,6 +268,7 @@ def test_an_unavailable_reviewer_blocks_the_run(tmp_path, monkeypatch) -> None:
 SYSTEM_BLOCKERS = {
     "run_active", "plan_changed", "agent_disabled", "agent_unhealthy",
     "reviewer_unavailable", "reviewer_unhealthy", "check_denied",
+    "github_app_unconfigured",
 }
 
 

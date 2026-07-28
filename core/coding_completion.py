@@ -10,9 +10,11 @@ from typing import Any
 
 from core.coding_contracts import ReadinessIssue, ReadinessReport, WorkerProfile
 from core.coding_criteria import derive_checks
+from core.coding_policy import PolicyDenied
 from core.coding_queue import REPO_ROOT
 from core.coding_states import ACTIVE_STATES, workflow_progress
 from core.development_store import DevelopmentStore, utc_now
+from core.github_coding import GitHubCodingError, GitHubCodingService
 
 
 PASSING_EVIDENCE = {"passed", "success", "ok", "approved", "completed"}
@@ -168,6 +170,29 @@ class CodingCompletionService:
             blockers.append(ReadinessIssue(
                 "run_active", f"Coding run #{active['id']} is already active.", "runtime"
             ))
+
+        # Enabling the GitHub capability without the coding App configured is the worst of
+        # both worlds: `push` succeeds and puts a branch on the real repository, then
+        # `create_draft_pr` raises for want of credentials and the run dead-ends having
+        # already mutated GitHub. A run that stops cleanly at `locally_complete` is strictly
+        # better than that, so the capability has to prove its prerequisite before Start
+        # rather than halfway through delivery. `configured()` is a presence check on the
+        # App credentials -- no network, no token minted, nothing logged.
+        if self.policy.feature_enabled("github"):
+            try:
+                app_ready = GitHubCodingService(self.policy).configured()
+                reason = "The GitHub coding App credentials are not configured."
+            except PolicyDenied as exc:
+                app_ready, reason = False, str(exc)
+            except GitHubCodingError as exc:
+                app_ready, reason = False, str(exc)
+            if not app_ready:
+                blockers.append(ReadinessIssue(
+                    "github_app_unconfigured",
+                    f"{reason} Configure the Coding App in Integrations, or turn the github "
+                    "capability off so the run completes locally instead.",
+                    "capabilities",
+                ))
 
         profiles = self.store.list_worker_profiles(enabled_only=False)
         for row in profiles:

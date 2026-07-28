@@ -625,3 +625,33 @@ one per scenario. A guard that cannot fail is not a guard.
 **Matrix now:** 2 partial (Codex, local half), 4/5/10 passed, six scenarios remaining. The six
 that remain all need a live worker and a real failure condition — mid-run agent switch, backend
 restart, hung worker, repository drift — and cannot be honestly proven this way.
+
+### Why the GitHub capability is still off — 2026-07-28
+
+Enabling `capabilities.github` was the intended next step to convert scenario 2 from partial to
+a full pass. Checking the prerequisite first showed that flipping it would have made things
+worse, so it stays off and the gap is now enforced instead.
+
+`push` and `pull_request` sit behind one flag but rest on two different credentials. `push` runs
+`git push` and rides the repository's own git auth. `create_draft_pr` needs a **GitHub App** —
+`GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, `GITHUB_APP_PRIVATE_KEY`. The vault holds a
+personal access token (`GITHUB_TOKEN`) and none of the three App credentials, and the App fields
+in Integrations are empty.
+
+So enabling the capability today produces the worst available ordering: the branch lands on
+`binhvu284/tobi`, and *then* `_jwt()` raises `GitHubCodingError("GitHub App credentials are not
+configured")`, which `_run_to_gate` converts to `external_step_failed`. The run dead-ends having
+already mutated the real repository. A run that stops cleanly at `locally_complete` is strictly
+better than one that pushes and then fails.
+
+Preflight now blocks this with `github_app_unconfigured` whenever the capability is on and the
+App is not configured — a presence check on the credentials, no network and no token minted. It
+is classified as a *system* blocker, so Auto stops rather than walking the queue reproducing the
+same failure on every item. `tests/test_acceptance_scenarios.py` covers both directions and
+asserts the shipped policy still has all three of github/merge/deploy false.
+
+**To finish scenario 2, the owner needs to:** create or install a GitHub App on
+`binhvu284/tobi` with contents and pull-request write, save the three credentials in
+Integrations, then set `capabilities.github` to true. Preflight will confirm the prerequisite
+before the next run starts. Until then the local path is the honest one, and scenario 2 stays
+recorded as partial.
