@@ -80,7 +80,7 @@ ok("developer schema migration is recorded", migration[0] == 1)
 conn = store.connect()
 versions = [row[0] for row in conn.execute("SELECT version FROM developer_schema_migrations ORDER BY version")]
 conn.close()
-ok("production schema migrations are recorded", versions == [1, 2, 3, 4, 5, 6, 7], str(versions))
+ok("production schema migrations are recorded", versions == [1, 2, 3, 4, 5, 6, 7, 8], str(versions))
 
 # Policy boundaries.
 ok("policy hash is stable", policy.hash == CodingPolicy(policy_data, repo_root=repo).hash)
@@ -177,13 +177,11 @@ ok("deployment checkout remains on main", git("branch", "--show-current", cwd=re
 ok("worktree branch uses target version", str(result["branch"]).startswith("v3.18.0/"), str(result["branch"]))
 
 other_task = store.get_task(queue_id=181)
-other = store.create_session(other_task["id"], policy.hash, "active-after-pause")
 try:
-    agent.command(workflow["id"], "resume")
-    raise AssertionError("paused workflow resumed beside another active workflow")
+    store.create_session(other_task["id"], policy.hash, "active-after-pause")
+    raise AssertionError("paused workflow released the foreground-run slot")
 except RuntimeError:
-    ok("resume preserves one-active-worker invariant", True)
-store.update_session(other["id"], state="canceled", completed_at="2026-01-01T00:00:00+00:00")
+    ok("paused workflow preserves one-foreground-run invariant", True)
 
 try:
     agent.releases.reserve("3.18.0", 181, risk="medium")
