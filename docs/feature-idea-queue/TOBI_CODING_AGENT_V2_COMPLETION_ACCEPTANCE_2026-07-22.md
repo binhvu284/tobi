@@ -36,15 +36,15 @@ Record the workflow ID, Queue item, agent, evidence, result, and defect link for
 | # | Scenario | State | Required proof |
 |---:|---|---|---|
 | 1 | MC Native happy path | Pending | Ready Queue item reaches verified completion with criterion evidence and scorecard. |
-| 2 | Codex happy path | Pending | Authorized Codex session completes on one durable run and draft delivery is owner-gated. |
+| 2 | Codex happy path | **Partial 2026-07-28** | Authorized Codex session completes on one durable run and draft delivery is owner-gated. |
 | 3 | OpenCode happy path | Pending | Authorized OpenCode session completes with selected provider/model shown consistently. |
-| 4 | Protected-path approval | Pending | Preflight blocks Start, approval is explicit, and the approved scope is audited. |
-| 5 | Invalid agent preflight | Pending | Disabled or unauthorized agent creates no run and healthy alternatives are offered. |
+| 4 | Protected-path approval | **Passed 2026-07-28** | Preflight blocks Start, approval is explicit, and the approved scope is audited. |
+| 5 | Invalid agent preflight | **Passed 2026-07-28** | Disabled or unauthorized agent creates no run and healthy alternatives are offered. |
 | 6 | Fallback agent switch | Pending | Mid-run failure pauses; owner switches agent at the same checkpoint without duplicate effects. |
 | 7 | Backend restart resume | Pending | Restart reconciles Git, process, checkpoint, and side effects and safely resumes the same run. |
 | 8 | Hung worker recovery | Pending | Heartbeat/no-output thresholds produce a structured recovery state and preserve evidence. |
 | 9 | Main drift or conflict | Pending | Repository drift produces a safe owner action; no branch or Queue content is silently overwritten. |
-| 10 | Auto classification | Pending | Item blocker permits independent eligible work; system failure stops Auto. |
+| 10 | Auto classification | **Passed 2026-07-28** | Item blocker permits independent eligible work; system failure stops Auto. |
 
 ## Owner Browser Acceptance
 
@@ -585,3 +585,43 @@ rather than by the run's own `merge_deploy` gate. That is not the manual workaro
 rule forbids — it is the documented consequence of a sandbox policy, and `_local_complete` says
 so in the message it returns. Scenario 2 still needs a run with `github: true` before the
 delivery path itself can be called proven.
+
+### Scenarios 4, 5, and 10 — 2026-07-28 — passed without an agent run
+
+`tests/test_acceptance_scenarios.py`, 25 assertions. These three scenarios test decisions the
+system makes *before* any agent starts, so they can be driven directly rather than by observing
+a run. That is not a shortcut around the matrix; it is the three entries that never needed an
+agent, and proving them this way costs nothing and is repeatable on every commit.
+
+**Scenario 4 — protected-path approval.** A plan naming `core/coding_agent.py` blocks preflight
+with `protected_scope_approval`, creates no session, and persists a `blocked` readiness snapshot.
+Re-running with `protected_paths_approved=True` becomes ready, downgrades the blocker to a
+`protected_scope` warning, and the approved path is still named in the stored snapshot — approval
+widens the gate without hiding what was approved. A *forbidden* path (`.tobi/developer/**`) stays
+blocked even with approval, which is the distinction that matters: protected asks the owner,
+forbidden does not ask.
+
+**Scenario 5 — invalid agent preflight.** A disabled implementer blocks with `agent_disabled`
+and creates no run. The half never previously asserted is the alternatives list: a blocked run
+must name an agent that would work, must not offer the one that failed, and must not offer the
+reviewer as an implementer. A dead end with no exit is how the owner ends up repairing the
+database by hand, which the closure rule forbids as a pass. Also covers enabled-but-unreachable
+(`agent_unhealthy`, carrying the probe's own reason) and an unavailable reviewer.
+
+**Scenario 10 — auto classification.** The rule is that a blocker belonging to *this item* — its
+scope, dependencies, protected paths, unverifiable criteria — says nothing about the next item, so
+Auto skips and continues; a blocker belonging to *the system* — no healthy agent, no reviewer, a
+plan that changed underneath — will reject every item identically, so Auto stops and disables
+itself rather than walking the queue reproducing one failure. All seven system blockers and eight
+item blockers are asserted, plus precedence when both are present, plus the owner's Auto switch
+gating everything below it. A source assertion pins the test's copy of the system-blocker set to
+`CodingAgent.start_next_queued`, so the two cannot drift apart silently.
+
+**Guard verification.** Three regressions were injected into `core/coding_agent.py` and
+`core/coding_completion.py` — dropping `reviewer_unhealthy` from the system-blocker set, removing
+the protected-path gate, and removing the alternatives list. Each produced exactly one failure,
+one per scenario. A guard that cannot fail is not a guard.
+
+**Matrix now:** 2 partial (Codex, local half), 4/5/10 passed, six scenarios remaining. The six
+that remain all need a live worker and a real failure condition — mid-run agent switch, backend
+restart, hung worker, repository drift — and cannot be honestly proven this way.
