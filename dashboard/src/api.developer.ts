@@ -25,7 +25,11 @@ export type DeveloperWorkflow = {
   sprint_budget_json?: string; v2_enabled?: number
   checkpoints?: DeveloperCheckpoint[]; worker_session?: DeveloperWorkerSession | null
   sprint?: DeveloperSprint | null; assessment?: { id: number; payload: DeveloperAssessment } | null
-  pull_request?: { number?: number | null; url?: string | null; draft?: number; ci_state?: string | null } | null
+  pull_request?: {
+    number?: number | null; url?: string | null; draft?: number; ci_state?: string | null
+    conflict_state?: string | null; merge_state?: string | null; merged_at?: string | null
+    merge_commit_sha?: string | null; updated_at?: string | null
+  } | null
   owner_state?: string; readiness?: { id: number; status: string; payload: DeveloperReadiness } | null
   evidence?: Array<Record<string, unknown>>; scorecard?: { payload: DeveloperScorecard } | null
   delivery?: DeveloperDelivery
@@ -35,6 +39,9 @@ export type DeveloperWorkflow = {
 export type DeveloperDelivery = {
   reachable: boolean; kind: 'pull_request' | 'local_branch' | 'none'
   branch?: string | null; head_sha?: string | null; url?: string | null
+  state?: string; draft?: boolean; merged?: boolean; merge_commit_sha?: string | null
+  ci_state?: string | null; conflict_state?: string | null; updated_at?: string | null
+  allowed_actions?: string[]
 }
 export type DeveloperChanges = {
   files: Array<{ path?: string; status?: string; insertions?: number; deletions?: number } | string>
@@ -106,6 +113,12 @@ export type DeveloperOverview = {
     github_configured: boolean; deployment_configured: boolean
   }
   process?: { auto_queue: boolean }
+  acceptance_mode?: boolean
+}
+export type DeveloperAcceptanceScenario = { id: string; label: string; description: string }
+export type DeveloperAcceptanceState = {
+  enabled: boolean; workflow_id?: number | null; scenarios: DeveloperAcceptanceScenario[]
+  faults: Array<Record<string, unknown>>
 }
 export type DeveloperStorage = {
   worktree_root: string; worktree_bytes: number; worktree_count: number; git_available: boolean
@@ -228,10 +241,24 @@ export async function getDeveloperChanges(
   return vreq(`/api/developer/workflows/${workflowId}/changes`, { signal })
 }
 export async function commandDeveloperWorkflow(
-  workflowId: number, command: 'pause' | 'resume' | 'cancel' | 'retry' | 'remove',
+  workflowId: number,
+  command: 'pause' | 'resume' | 'cancel' | 'retry' | 'remove' | 'sync_delivery' | 'reconcile_base',
 ): Promise<DeveloperWorkflow> {
   return vreq(`/api/developer/workflows/${workflowId}/commands`, {
     method: 'POST', body: JSON.stringify({ command, idempotency_key: crypto.randomUUID() }),
+  })
+}
+export async function getDeveloperAcceptance(
+  workflowId?: number, signal?: AbortSignal,
+): Promise<DeveloperAcceptanceState> {
+  const query = workflowId ? `?workflow_id=${workflowId}` : ''
+  return vreq(`/api/developer/acceptance${query}`, { signal })
+}
+export async function armDeveloperAcceptanceFault(
+  workflowId: number, scenario: string,
+): Promise<DeveloperAcceptanceState> {
+  return vreq(`/api/developer/workflows/${workflowId}/acceptance-faults`, {
+    method: 'POST', body: JSON.stringify({ scenario }),
   })
 }
 export async function switchDeveloperWorker(workflowId: number, profileSlug: string): Promise<DeveloperWorkflow> {

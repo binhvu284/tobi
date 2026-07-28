@@ -24,7 +24,7 @@ from core import coding_completion, coding_loop  # noqa: E402
 from core.coding_states import (  # noqa: E402
     ACTIVE_STATES, CLEANUP_ELIGIBLE_STATES, CORRECTABLE_BY_RECODE, FAULT_STATES, STAGES,
     STATE_KIND, SUCCESS_STATES,
-    TERMINAL_STATES, permitted_stages, state_in_clause, workflow_progress,
+    TERMINAL_STATES, effective_stages, permitted_stages, state_in_clause, workflow_progress,
 )
 
 FAILURES: list[str] = []
@@ -109,9 +109,8 @@ ok("every permitted gate green with nothing reachable stops at 99",
 ok("a run stopped early reports its share of the permitted gates",
    workflow_progress({"prepare": "completed", "index": "completed"}, LOCAL, delivered=False) == 29,
    str(workflow_progress({"prepare": "completed", "index": "completed"}, LOCAL, delivered=False)))
-ok("progress never counts a gate the policy forbids",
-   workflow_progress({**all_local_gates, "push": "completed"}, LOCAL, delivered=False) ==
-   workflow_progress(all_local_gates, LOCAL, delivered=False))
+ok("externally completed policy gates expand the effective denominator",
+   "merge_deploy" in effective_stages({"merge_deploy": "completed"}, LOCAL))
 ok("enabling github lowers the same run's progress, because more is now expected",
    workflow_progress(all_local_gates, {"github": True}, delivered=False) <
    workflow_progress(all_local_gates, LOCAL, delivered=False))
@@ -144,4 +143,7 @@ ok("state_in_clause interpolates no state names",
 
 print(f"\n{'ALL' if not FAILURES else str(len(FAILURES)) + ' OF'} "
       f"{'DEVELOPER STATE SYNC CHECKS PASSED' if not FAILURES else 'CHECKS FAILED: ' + ', '.join(FAILURES)}")
-raise SystemExit(1 if FAILURES else 0)
+if FAILURES:
+    raise AssertionError(", ".join(FAILURES))
+if __name__ == "__main__":
+    raise SystemExit(0)

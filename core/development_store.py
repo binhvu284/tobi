@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from core.coding_states import ACTIVE_STATES, TERMINAL_STATES, state_in_clause
+from core.coding_states import TERMINAL_STATES, state_in_clause
 
 
 def utc_now() -> str:
@@ -132,6 +132,9 @@ CREATE TABLE IF NOT EXISTS coding_pull_requests (
     ci_state TEXT,
     conflict_state TEXT,
     merge_state TEXT,
+    merged_at TEXT,
+    merge_commit_sha TEXT,
+    last_sync_status TEXT,
     updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS releases (
@@ -417,6 +420,16 @@ CREATE TABLE IF NOT EXISTS coding_run_scorecards (
     updated_at TEXT NOT NULL,
     FOREIGN KEY(session_id) REFERENCES coding_sessions(id)
 );
+CREATE TABLE IF NOT EXISTS coding_acceptance_faults (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    scenario TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'armed',
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    triggered_at TEXT,
+    cleared_at TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_development_events_session_seq ON development_events(session_id,sequence);
 CREATE INDEX IF NOT EXISTS idx_coding_sessions_state ON coding_sessions(state,updated_at);
 CREATE INDEX IF NOT EXISTS idx_coding_stages_session ON coding_stages(session_id,position);
@@ -432,6 +445,7 @@ CREATE INDEX IF NOT EXISTS idx_goal_task_links_task ON development_goal_task_lin
 CREATE INDEX IF NOT EXISTS idx_readiness_task_created ON coding_readiness_snapshots(task_id,created_at);
 CREATE INDEX IF NOT EXISTS idx_stage_attempts_session ON coding_stage_attempts(session_id,stage_id,attempt);
 CREATE INDEX IF NOT EXISTS idx_evidence_task_goal ON coding_evidence_records(task_id,goal_id,criterion_index);
+CREATE INDEX IF NOT EXISTS idx_acceptance_faults_session ON coding_acceptance_faults(session_id,state,id);
 """
 
 
@@ -607,6 +621,27 @@ class DevelopmentStore:
                     "INSERT INTO developer_schema_migrations(version,applied_at) VALUES (7,?)",
                     (now,),
                 )
+            migration_8 = conn.execute(
+                "SELECT 1 FROM developer_schema_migrations WHERE version=8"
+            ).fetchone()
+            if not migration_8:
+                pr_columns = {
+                    str(row[1]) for row in conn.execute("PRAGMA table_info(coding_pull_requests)")
+                }
+                pr_additions = {
+                    "merged_at": "TEXT",
+                    "merge_commit_sha": "TEXT",
+                    "last_sync_status": "TEXT",
+                }
+                for name, declaration in pr_additions.items():
+                    if name not in pr_columns:
+                        conn.execute(
+                            f"ALTER TABLE coding_pull_requests ADD COLUMN {name} {declaration}"
+                        )
+                conn.execute(
+                    "INSERT INTO developer_schema_migrations(version,applied_at) VALUES (8,?)",
+                    (now,),
+                )
             conn.commit()
         finally:
             conn.close()
@@ -772,9 +807,9 @@ class DevelopmentStore:
                     raise RuntimeError("Idempotency key was already used for another development task.")
                 conn.commit()
                 return dict(existing)
-            clause, params = state_in_clause("state", ACTIVE_STATES)
+            clause, params = state_in_clause("state", TERMINAL_STATES)
             active = conn.execute(
-                f"SELECT id FROM coding_sessions WHERE {clause} LIMIT 1", params
+                f"SELECT id FROM coding_sessions WHERE NOT {clause} LIMIT 1", params
             ).fetchone()
             if active:
                 raise RuntimeError(f"Coding workflow {active['id']} is already active.")
@@ -1351,6 +1386,102 @@ class DevelopmentStore:
                 (status, error_code, _json(result or {}), now, now, session_id, stage_id),
             )
             conn.commit()
+        finally:
+            conn.close()
+
+    def reconcile_stage_attempts(self, session_id: int) -> int:
+        """Close stale attempts when the durable stage already has a terminal result."""
+        now = utc_now()
+        conn = self.connect()
+        try:
+            cur = conn.execute(
+                """UPDATE coding_stage_attempts
+                   SET status=(
+                         SELECT CASE cs.status
+                           WHEN 'completed' THEN 'completed'
+                           WHEN 'failed' THEN 'failed'
+                           WHEN 'paused' THEN 'paused'
+                           ELSE coding_stage_attempts.status END
+                         FROM coding_stages cs
+                         WHERE cs.session_id=coding_stage_attempts.session_id
+                           AND cs.node_id=coding_stage_attempts.stage_id
+                       ),
+                       result_json=COALESCE(NULLIF(result_json,'{}'),(
+                         SELECT COALESCE(cs.result_json,'{}') FROM coding_stages cs
+                         WHERE cs.session_id=coding_stage_attempts.session_id
+                           AND cs.node_id=coding_stage_attempts.stage_id
+                       )),
+                       heartbeat_at=?,completed_at=?
+                   WHERE session_id=? AND status='running'
+                     AND EXISTS (
+                       SELECT 1 FROM coding_stages cs
+                       WHERE cs.session_id=coding_stage_attempts.session_id
+                         AND cs.node_id=coding_stage_attempts.stage_id
+                         AND cs.status IN ('completed','failed','paused')
+                     )""",
+                (now, now, session_id),
+            )
+            conn.commit()
+            return int(cur.rowcount)
+        finally:
+            conn.close()
+
+    def arm_acceptance_fault(
+        self, session_id: int, scenario: str, payload: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        now = utc_now()
+        conn = self.connect()
+        try:
+            conn.execute(
+                """UPDATE coding_acceptance_faults SET state='cleared',cleared_at=?
+                   WHERE session_id=? AND state='armed'""",
+                (now, session_id),
+            )
+            cur = conn.execute(
+                """INSERT INTO coding_acceptance_faults
+                   (session_id,scenario,state,payload_json,created_at)
+                   VALUES (?,?,'armed',?,?)""",
+                (session_id, scenario, _json(payload or {}), now),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT * FROM coding_acceptance_faults WHERE id=?", (cur.lastrowid,)
+            ).fetchone()
+            return dict(row)
+        finally:
+            conn.close()
+
+    def consume_acceptance_fault(self, session_id: int, scenario: str) -> dict[str, Any] | None:
+        now = utc_now()
+        conn = self.connect()
+        try:
+            row = conn.execute(
+                """SELECT * FROM coding_acceptance_faults
+                   WHERE session_id=? AND scenario=? AND state='armed'
+                   ORDER BY id DESC LIMIT 1""",
+                (session_id, scenario),
+            ).fetchone()
+            if not row:
+                return None
+            cur = conn.execute(
+                """UPDATE coding_acceptance_faults SET state='triggered',triggered_at=?
+                   WHERE id=? AND state='armed'""",
+                (now, row["id"]),
+            )
+            conn.commit()
+            return dict(row) if cur.rowcount == 1 else None
+        finally:
+            conn.close()
+
+    def list_acceptance_faults(self, session_id: int) -> list[dict[str, Any]]:
+        conn = self.connect()
+        try:
+            rows = conn.execute(
+                """SELECT * FROM coding_acceptance_faults
+                   WHERE session_id=? ORDER BY id DESC""",
+                (session_id,),
+            ).fetchall()
+            return [dict(row) for row in rows]
         finally:
             conn.close()
 

@@ -24,7 +24,8 @@ export type LiveEventPresentation = { title: string; detail?: string; kind: Live
 export const LOAD_TIMEOUT_MS = 15_000
 export const STREAM_REFRESH_EVENTS = new Set([
   'checkpoint_created', 'quality_gate_completed', 'worker_switched',
-  'workflow_blocked', 'workflow_completed', 'workflow_locally_complete', 'workflow_paused',
+  'delivery_synchronized', 'workflow_blocked', 'workflow_completed', 'workflow_merged',
+  'workflow_locally_complete', 'workflow_paused',
 ])
 
 const MUTED = 'text-muted border-border bg-overlay/5'

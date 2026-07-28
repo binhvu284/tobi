@@ -222,7 +222,7 @@ export default function Developer() {
       return null
     } finally { setBusy(false) }
   }
-  const command = (cmd: 'pause' | 'resume' | 'cancel' | 'retry' | 'remove') => active && act(() => commandDeveloperWorkflow(active.id, cmd), `Workflow ${cmd} accepted`)
+  const command = (cmd: 'pause' | 'resume' | 'cancel' | 'retry' | 'remove' | 'sync_delivery' | 'reconcile_base') => active && act(() => commandDeveloperWorkflow(active.id, cmd), `Workflow ${label(cmd)} accepted`)
   const approve = (purpose: 'special_paths' | 'merge_deploy', master: string) => active && act(() => approveDeveloperWorkflow(active.id, purpose, master), 'Approval accepted')
   const rejectApproval = (purpose: 'special_paths' | 'merge_deploy') => active && act(() => rejectDeveloperWorkflow(active.id, purpose), 'Approval rejected; agent revision started')
   const setAutoQueue = async (enabled: boolean) => {
@@ -276,6 +276,24 @@ export default function Developer() {
   }
   const replayLearning = () => act(() => replayDeveloperLearning(), 'Learning replay completed')
 
+  useEffect(() => {
+    if (active?.state !== 'awaiting_owner_merge') return
+    let stopped = false
+    const synchronize = async () => {
+      try {
+        await commandDeveloperWorkflow(active.id, 'sync_delivery')
+        if (!stopped) await load(true)
+      } catch {
+        // Explicit Sync status remains available in Process. Background polling is quiet.
+      }
+    }
+    const timer = window.setInterval(() => { void synchronize() }, 15_000)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+    }
+  }, [active?.id, active?.state, load])
+
   const capabilities = useMemo(() => Object.entries(overview?.policy.capabilities ?? {}), [overview])
   const tabs: { id: Tab; label: string }[] = [
     { id: 'overview', label: 'Overview' }, { id: 'work', label: 'Work' }, { id: 'loop', label: 'Process' },
@@ -327,7 +345,7 @@ export default function Developer() {
             {/* History and System hold no data until the first load resolves. Rendering their
                 empty state during a refresh reads as "nothing here" rather than "not yet". */}
             {tab === 'history' && (loading && !history.length ? <SectionSkeleton rows={6} /> : <HistoryView workflows={history} />)}
-            {tab === 'system' && (loading && !storage ? <SectionSkeleton rows={5} /> : <SystemView storage={storage} learning={learning} releases={releases} busy={busy} onReplay={replayLearning} onCleanup={master => act(() => cleanupDeveloperStorage(master), 'Developer cleanup completed')} />)}
+            {tab === 'system' && (loading && !storage ? <SectionSkeleton rows={5} /> : <SystemView storage={storage} learning={learning} releases={releases} workflowId={active?.id ?? null} acceptanceMode={Boolean(overview?.acceptance_mode)} busy={busy} onReplay={replayLearning} onCleanup={master => act(() => cleanupDeveloperStorage(master), 'Developer cleanup completed')} />)}
           </main>
         </>}
     </div>

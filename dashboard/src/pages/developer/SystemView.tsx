@@ -8,7 +8,7 @@ import {
   TerminalSquare, TestTube2, Trash2, Upload, WifiOff, Wrench, XCircle,
 } from 'lucide-react'
 import type { AvailableModel, LlmProvider } from '../../api.chat'
-import { approveDeveloperWorkflow, assessDeveloperGoal, commandDeveloperGoal, commandDeveloperWorkflow, createDeveloperGoal, getDeveloperHistory, getDeveloperLearning, getDeveloperOverview, getDeveloperQueue, getDeveloperStorage, getDeveloperVersions, getDeveloperGoals, getDeveloperWorkerLogin, getDeveloperWorkerModels, getDeveloperWorkers, probeDeveloperWorker, replayDeveloperLearning, saveDeveloperWorker, startDeveloperWorkflow, streamDeveloperEvents, switchDeveloperWorker, cleanupDeveloperStorage, rejectDeveloperWorkflow, setDeveloperProcessSettings, type DeveloperAssessment, type DeveloperEvent, type DeveloperOverview, type DeveloperGoal, type DeveloperQueueItem, type DeveloperQueueState, type DeveloperRelease, type DeveloperStorage, type DeveloperWorkerLogin, type DeveloperWorkerModels, type DeveloperWorkerProfile, type DeveloperWorkflow } from '../../api.developer'
+import { approveDeveloperWorkflow, armDeveloperAcceptanceFault, assessDeveloperGoal, commandDeveloperGoal, commandDeveloperWorkflow, createDeveloperGoal, getDeveloperAcceptance, getDeveloperHistory, getDeveloperLearning, getDeveloperOverview, getDeveloperQueue, getDeveloperStorage, getDeveloperVersions, getDeveloperGoals, getDeveloperWorkerLogin, getDeveloperWorkerModels, getDeveloperWorkers, probeDeveloperWorker, replayDeveloperLearning, saveDeveloperWorker, startDeveloperWorkflow, streamDeveloperEvents, switchDeveloperWorker, cleanupDeveloperStorage, rejectDeveloperWorkflow, setDeveloperProcessSettings, type DeveloperAcceptanceState, type DeveloperAssessment, type DeveloperEvent, type DeveloperOverview, type DeveloperGoal, type DeveloperQueueItem, type DeveloperQueueState, type DeveloperRelease, type DeveloperStorage, type DeveloperWorkerLogin, type DeveloperWorkerModels, type DeveloperWorkerProfile, type DeveloperWorkflow } from '../../api.developer'
 import { Empty, StateBadge, formatBytes, label, tone } from '../../components/developer/format'
 import { ActionButton } from '../../components/async-ui'
 
@@ -174,7 +174,7 @@ export function HistoryView({ workflows }: { workflows: DeveloperWorkflow[] }) {
   return <section className="overflow-hidden rounded-md border border-border bg-surface/35">
     <header className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
       <div><h2 className="text-sm font-semibold text-text">Run history</h2><p className="mt-1 text-xs text-muted">Replay outcomes, checkpoints, evidence, and recovery state.</p></div>
-      <div className="flex gap-2"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search item or agent" className="h-8 w-52 rounded-md border border-border bg-background px-2.5 text-xs text-text outline-none focus:border-accent" /><select value={status} onChange={event => setStatus(event.target.value)} className="h-8 rounded-md border border-border bg-background px-2 text-xs text-text"><option value="all">All states</option><option value="completed">Done</option><option value="blocked">Needs action</option><option value="failed">Failed</option><option value="canceled">Canceled</option></select></div>
+      <div className="flex gap-2"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search item or agent" className="h-8 w-52 rounded-md border border-border bg-background px-2.5 text-xs text-text outline-none focus:border-accent" /><select value={status} onChange={event => setStatus(event.target.value)} className="h-8 rounded-md border border-border bg-background px-2 text-xs text-text"><option value="all">All states</option><option value="merged">Merged</option><option value="completed">Deployed</option><option value="blocked">Needs action</option><option value="failed">Failed</option><option value="canceled">Canceled</option></select></div>
     </header>
     <div className="divide-y divide-border/70">{filtered.length ? filtered.map(workflow => <details key={workflow.id} className="group">
       <summary className="grid cursor-pointer list-none gap-2 px-4 py-3 hover:bg-overlay/5 sm:grid-cols-[minmax(0,1fr)_120px_140px_90px] sm:items-center"><div className="min-w-0"><div className="truncate text-xs font-medium text-text">#{workflow.queue_id} {workflow.title}</div><div className="mt-1 text-[10px] text-muted">Run #{workflow.id} · {new Date(workflow.created_at).toLocaleString()}</div></div><span className={`w-fit rounded border px-1.5 py-0.5 text-[10px] ${tone(workflow.state)}`}>{label(workflow.state)}</span><span className="truncate text-[11px] text-muted">{workflow.worker_profile_slug || 'unassigned'}</span><span className="text-right text-[11px] text-muted">{Math.round(workflow.progress || 0)}%</span></summary>
@@ -183,10 +183,71 @@ export function HistoryView({ workflows }: { workflows: DeveloperWorkflow[] }) {
   </section>
 }
 
-export function SystemView({ storage, learning, releases, busy, onCleanup, onReplay }: {
+function AcceptanceControls({ workflowId }: { workflowId: number | null }) {
+  const [state, setState] = useState<DeveloperAcceptanceState | null>(null)
+  const [pending, setPending] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const refresh = useCallback(async (signal?: AbortSignal) => {
+    try {
+      setState(await getDeveloperAcceptance(workflowId ?? undefined, signal))
+      setError(null)
+    } catch (reason) {
+      if (!(reason instanceof DOMException && reason.name === 'AbortError')) {
+        setError(reason instanceof Error ? reason.message : String(reason))
+      }
+    }
+  }, [workflowId])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void refresh(controller.signal)
+    return () => controller.abort()
+  }, [refresh])
+
+  const arm = async (scenario: string) => {
+    if (!workflowId || pending) return
+    setPending(scenario)
+    try {
+      setState(await armDeveloperAcceptanceFault(workflowId, scenario))
+      setError(null)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setPending(null)
+    }
+  }
+
+  return <section className="overflow-hidden rounded-md border border-warning/30 bg-warning/[0.025]">
+    <header className="flex items-center justify-between gap-3 border-b border-warning/20 px-4 py-3">
+      <div className="flex items-center gap-2"><TestTube2 size={14} className="text-warning" /><div><h2 className="text-xs font-semibold text-text">Local acceptance controls</h2><p className="mt-0.5 text-[10px] text-muted">One-shot, workflow-scoped fault injection for the #22 matrix.</p></div></div>
+      <span className="rounded border border-warning/30 px-1.5 py-0.5 text-[9px] font-medium uppercase text-warning">Local only</span>
+    </header>
+    <div className="grid gap-2 p-4 sm:grid-cols-2">
+      {(state?.scenarios ?? []).map(scenario => {
+        const armed = state?.faults.some(fault => fault.scenario === scenario.id && fault.state === 'armed')
+        return <button key={scenario.id} type="button" disabled={!workflowId || Boolean(pending)} onClick={() => void arm(scenario.id)} className="flex min-h-16 items-start gap-3 rounded-md border border-border bg-background/45 p-3 text-left transition-colors hover:border-warning/35 disabled:cursor-not-allowed disabled:opacity-45">
+          <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${armed ? 'bg-warning/15 text-warning' : 'bg-overlay/5 text-muted'}`}>{pending === scenario.id ? <Loader2 size={13} className="animate-spin" /> : armed ? <CheckCircle2 size={13} /> : <Circle size={13} />}</span>
+          <span><span className="block text-[11px] font-medium text-text">{scenario.label}</span><span className="mt-1 block text-[9px] leading-4 text-muted">{scenario.description}</span></span>
+        </button>
+      })}
+    </div>
+    {!workflowId && <p className="border-t border-border/60 px-4 py-2.5 text-[10px] text-muted">Start or select an unfinished workflow before arming a scenario.</p>}
+    {error && <p className="border-t border-danger/20 bg-danger/5 px-4 py-2.5 text-[10px] text-danger">{error}</p>}
+  </section>
+}
+
+export function SystemView({ storage, learning, releases, workflowId, acceptanceMode, busy, onCleanup, onReplay }: {
   storage: DeveloperStorage | null; learning: { records: Array<Record<string, unknown>>; playbooks: Array<Record<string, unknown>> }
-  releases: DeveloperRelease[]; busy: boolean; onCleanup: (master: string) => void; onReplay: () => void
+  releases: DeveloperRelease[]; workflowId: number | null; acceptanceMode: boolean
+  busy: boolean; onCleanup: (master: string) => void; onReplay: () => void
 }) {
   const [view, setView] = useState<'storage' | 'learning' | 'version'>('storage')
-  return <div className="space-y-4"><div className="inline-flex rounded-md border border-border bg-surface/60 p-1">{(['storage', 'learning', 'version'] as const).map(item => <button key={item} onClick={() => setView(item)} className={`h-8 rounded px-3 text-xs font-medium ${view === item ? 'bg-accent text-background' : 'text-muted hover:text-text'}`}>{label(item)}</button>)}</div>{view === 'storage' && <StorageView storage={storage} busy={busy} onCleanup={onCleanup} />}{view === 'learning' && <LearningView state={learning} busy={busy} onReplay={onReplay} />}{view === 'version' && <VersionsView releases={releases} />}</div>
+  return <div className="space-y-4">
+    {acceptanceMode && <AcceptanceControls workflowId={workflowId} />}
+    <div className="inline-flex rounded-md border border-border bg-surface/60 p-1">{(['storage', 'learning', 'version'] as const).map(item => <button key={item} onClick={() => setView(item)} className={`h-8 rounded px-3 text-xs font-medium ${view === item ? 'bg-accent text-background' : 'text-muted hover:text-text'}`}>{label(item)}</button>)}</div>
+    {view === 'storage' && <StorageView storage={storage} busy={busy} onCleanup={onCleanup} />}
+    {view === 'learning' && <LearningView state={learning} busy={busy} onReplay={onReplay} />}
+    {view === 'version' && <VersionsView releases={releases} />}
+  </div>
 }

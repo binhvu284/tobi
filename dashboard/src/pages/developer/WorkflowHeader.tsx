@@ -62,13 +62,20 @@ export function DeveloperSkeleton() {
 
 export function WorkflowActions({ workflow, busy, onCommand }: {
   workflow: DeveloperWorkflow; busy: boolean
-  onCommand: (command: 'pause' | 'resume' | 'cancel' | 'retry') => void
+  onCommand: (command: 'pause' | 'resume' | 'cancel' | 'retry' | 'sync_delivery') => void
 }) {
   const active = !TERMINAL_STATES.has(workflow.state)
   const resumable = ['paused', 'blocked', 'failed', 'approved'].includes(workflow.state)
+  const awaitingOwnerMerge = workflow.state === 'awaiting_owner_merge'
   return (
     <div className="flex flex-wrap gap-2">
-      {active && !resumable && (
+      {awaitingOwnerMerge && (
+        <button onClick={() => onCommand('sync_delivery')} disabled={busy} title="Synchronize GitHub delivery"
+          className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-sm font-medium text-background hover:brightness-110 disabled:opacity-50">
+          <RefreshCw size={15} /> Sync status
+        </button>
+      )}
+      {active && !resumable && !awaitingOwnerMerge && workflow.state !== 'awaiting_merge_deploy_approval' && (
         <button onClick={() => onCommand('pause')} disabled={busy} title="Pause workflow"
           className="inline-flex h-9 items-center gap-2 rounded-md border border-border px-3 text-sm text-text hover:bg-overlay/5 disabled:opacity-50">
           <Pause size={15} /> Pause
@@ -105,17 +112,23 @@ export function ApprovalGate({ workflow, busy, onApprove }: {
     : workflow.error_code === 'special_approval_required' ? 'special_paths' : null
   const [master, setMaster] = useState('')
   if (!required) return null
+  const deploymentIncluded = required === 'merge_deploy'
+    && String(workflow.blocker ?? '').toLowerCase().includes('merge and deploy')
   return (
     <section className="mt-5 border-l-2 border-warning bg-warning/5 px-4 py-4">
       <div className="flex items-start gap-3">
         <KeyRound size={18} className="mt-0.5 shrink-0 text-warning" />
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-text">
-            {required === 'merge_deploy' ? 'Merge and deployment approval' : 'Protected-path approval'}
+            {required === 'merge_deploy'
+              ? deploymentIncluded ? 'Merge and deployment approval' : 'Merge approval'
+              : 'Protected-path approval'}
           </h3>
           <p className="mt-1 text-xs leading-5 text-muted">
             {required === 'merge_deploy'
-              ? `Approve squash merge of ${workflow.branch ?? 'the feature branch'} and immediate deployment with rollback.`
+              ? deploymentIncluded
+                ? `Approve squash merge of ${workflow.branch ?? 'the feature branch'} and immediate deployment with rollback.`
+                : `Approve squash merge of ${workflow.branch ?? 'the feature branch'}. Deployment is disabled by reviewed policy.`
               : 'This workflow touches protected self-development files. Review the scope before allowing it to continue.'}
           </p>
           <div className="mt-3 flex max-w-xl flex-col gap-2 sm:flex-row">
@@ -135,12 +148,14 @@ export function ApprovalGate({ workflow, busy, onApprove }: {
 
 export function WorkflowHeader({ workflow, busy, onCommand, onApprove }: {
   workflow: DeveloperWorkflow; busy: boolean
-  onCommand: (command: 'pause' | 'resume' | 'cancel' | 'retry') => void
+  onCommand: (command: 'pause' | 'resume' | 'cancel' | 'retry' | 'sync_delivery') => void
   onApprove: (purpose: 'special_paths' | 'merge_deploy', master: string) => void
 }) {
-  const stopped = TERMINAL_STATES.has(workflow.state) || ['paused', 'blocked', 'failed', 'awaiting_merge_deploy_approval'].includes(workflow.state)
+  const stopped = TERMINAL_STATES.has(workflow.state) || ['paused', 'blocked', 'failed', 'awaiting_owner_merge', 'awaiting_merge_deploy_approval'].includes(workflow.state)
   const ownerAction = workflow.state === 'awaiting_merge_deploy_approval'
     ? 'Review and approve the merge and deployment gate.'
+    : workflow.state === 'awaiting_owner_merge'
+      ? 'Merge the pull request on GitHub. Mission Control will synchronize its status.'
     : workflow.error_code === 'special_approval_required'
       ? 'Review protected-path access before this run continues.'
       : workflow.blocker

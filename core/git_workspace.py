@@ -188,11 +188,56 @@ class GitWorkspaceManager:
             restored.append(normalized)
         return restored
 
-    def diff_summary(self, worktree: Path | str) -> dict[str, Any]:
+    def diff_summary(
+        self,
+        worktree: Path | str,
+        *,
+        base_ref: str | None = None,
+        head_ref: str | None = None,
+    ) -> dict[str, Any]:
         root = self._assert_worktree(worktree)
+        if base_ref and head_ref:
+            range_spec = f"{base_ref}..{head_ref}"
+            names = self.git("diff", "--name-status", range_spec, cwd=root)
+            files: list[dict[str, str]] = []
+            for line in names.splitlines():
+                parts = line.split("\t")
+                if len(parts) >= 2:
+                    files.append({"status": parts[0], "path": parts[-1]})
+            return {
+                "files": files,
+                "stat": self.git("diff", "--stat", range_spec, cwd=root),
+                "head_sha": self.git("rev-parse", head_ref, cwd=root),
+                "base_sha": self.git("rev-parse", base_ref, cwd=root),
+            }
         return {
             "files": self.changed_files(root),
             "stat": self.git("diff", "--stat", cwd=root),
+            "head_sha": self.git("rev-parse", "HEAD", cwd=root),
+        }
+
+    def default_branch_sha(self) -> str:
+        branch = str(self.policy.data.get("repository", {}).get("default_branch", "main"))
+        return self.git("rev-parse", branch)
+
+    def reconcile_base(self, worktree: Path | str) -> dict[str, Any]:
+        """Rebase a clean workflow worktree onto the local default branch."""
+        root = self._assert_worktree(worktree)
+        if not self.is_clean(root):
+            raise GitCommandError("Reconcile base requires a clean workflow worktree.")
+        branch = str(self.policy.data.get("repository", {}).get("default_branch", "main"))
+        before = self.git("rev-parse", "HEAD", cwd=root)
+        try:
+            self.git("rebase", branch, cwd=root, timeout=300)
+        except GitCommandError:
+            try:
+                self.git("rebase", "--abort", cwd=root)
+            except GitCommandError:
+                pass
+            raise
+        return {
+            "before_sha": before,
+            "base_sha": self.git("rev-parse", branch, cwd=root),
             "head_sha": self.git("rev-parse", "HEAD", cwd=root),
         }
 

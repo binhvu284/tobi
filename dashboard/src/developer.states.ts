@@ -14,12 +14,14 @@ export const STATE_KIND: Record<string, StateKind> = {
   merging: 'active',
   deploying: 'active',
   completed: 'success',
+  merged: 'success',
   locally_complete: 'success',
   failed: 'fault',
   rolled_back: 'fault',
   canceled: 'idle',
   paused: 'waiting',
   blocked: 'waiting',
+  awaiting_owner_merge: 'waiting',
   awaiting_merge_deploy_approval: 'waiting',
 }
 
@@ -60,4 +62,16 @@ export function stateKind(state: string): StateKind {
 /** The gates this policy actually allows a run to reach. */
 export function permittedStages(capabilities: Record<string, boolean> | undefined): string[] {
   return STAGES.filter(s => !s.capability || Boolean(capabilities?.[s.capability])).map(s => s.id)
+}
+
+/** Policy gates plus any externally completed gate, such as a manual GitHub merge. */
+export function effectiveStages(
+  statuses: Record<string, string>,
+  capabilities: Record<string, boolean> | undefined,
+): string[] {
+  const included = new Set(permittedStages(capabilities))
+  Object.entries(statuses).forEach(([stage, status]) => {
+    if (status === 'completed') included.add(stage)
+  })
+  return STAGES.filter(stage => included.has(stage.id)).map(stage => stage.id)
 }

@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   AlertTriangle, BadgeCheck, Check, CheckCheck, CheckCircle2, ChevronDown, Circle, Clock3, Copy,
-  Github, GripVertical, LoaderCircle, Package, Pause, Play, Radio, ShieldAlert, Square, TerminalSquare, Trash2, XCircle,
+  GitBranch, Github, GripVertical, LoaderCircle, Package, Pause, Play, Radio, ShieldAlert, Square, TerminalSquare, Trash2, XCircle,
 } from 'lucide-react'
 import LlmLogo from '../LlmLogo'
 import AutoQueueToggle from './AutoQueueToggle'
 import { getDeveloperChanges, type DeveloperChanges, type DeveloperEvent, type DeveloperQueueItem, type DeveloperWorkerProfile, type DeveloperWorkflow } from '../../api.developer'
 
-import { TERMINAL_STATES, permittedStages, stateKind } from '../../developer.states'
+import { effectiveStages, TERMINAL_STATES, permittedStages, stateKind } from '../../developer.states'
 
-type WorkflowCommand = 'pause' | 'resume' | 'cancel' | 'retry' | 'remove'
+type WorkflowCommand = 'pause' | 'resume' | 'cancel' | 'retry' | 'remove' | 'sync_delivery' | 'reconcile_base'
 type ApprovalPurpose = 'special_paths' | 'merge_deploy'
-type ProcessTone = 'cooking' | 'paused' | 'completed' | 'canceled' | 'crashed' | 'waiting' | 'local'
+type ProcessTone = 'cooking' | 'paused' | 'completed' | 'merged' | 'canceled' | 'crashed' | 'waiting' | 'local'
 
 type Props = {
   workflow: DeveloperWorkflow | null
@@ -47,6 +47,7 @@ function titleCase(value: string) {
 // core/coding_states.py can never again fall through to "still running".
 const TONE_BY_STATE: Partial<Record<string, ProcessTone>> = {
   completed: 'completed',
+  merged: 'merged',
   locally_complete: 'local',
   canceled: 'canceled',
 }
@@ -57,7 +58,7 @@ const TONE_BY_KIND: Record<string, ProcessTone> = {
 function processTone(workflow: DeveloperWorkflow): ProcessTone {
   const named = TONE_BY_STATE[workflow.state]
   if (named) return named
-  if (workflow.state === 'awaiting_merge_deploy_approval' || workflow.error_code === 'special_approval_required') return 'waiting'
+  if (workflow.state === 'awaiting_merge_deploy_approval' || workflow.state === 'awaiting_owner_merge' || workflow.error_code === 'special_approval_required') return 'waiting'
   // A pause carrying an error code is a fault the owner must act on; a bare pause is theirs.
   if (workflow.state === 'paused' || workflow.state === 'blocked') return workflow.error_code && workflow.error_code !== 'owner_paused' ? 'crashed' : 'paused'
   return TONE_BY_KIND[stateKind(workflow.state)] ?? 'cooking'
@@ -72,6 +73,9 @@ const TONE = {
   },
   completed: {
     label: 'Completed', bar: 'bg-success', text: 'text-success', border: 'developer-process-completed border-success/40',
+  },
+  merged: {
+    label: 'Merged', bar: 'bg-success', text: 'text-success', border: 'developer-process-completed border-success/40',
   },
   local: {
     label: 'Locally Complete', bar: 'bg-success', text: 'text-success', border: 'developer-process-completed border-success/40',
@@ -132,7 +136,11 @@ function changedPath(entry: DeveloperChanges['files'][number]) {
  *  with nothing in Mission Control pointing at it, so "complete" was not something the owner
  *  could act on. Progress is gated on the same signal that fills this panel: a run is only
  *  100% once there is a result here to open. */
-function DeliverySection({ workflow }: { workflow: DeveloperWorkflow }) {
+function DeliverySection({ workflow, busy, onCommand }: {
+  workflow: DeveloperWorkflow
+  busy: boolean
+  onCommand: (command: WorkflowCommand) => void
+}) {
   const delivery = workflow.delivery
   const [changes, setChanges] = useState<DeveloperChanges | null>(null)
   const [loading, setLoading] = useState(false)
@@ -171,13 +179,21 @@ function DeliverySection({ workflow }: { workflow: DeveloperWorkflow }) {
           </span>
         </div>
         {delivery.kind === 'pull_request' && delivery.url
-          ? <a href={delivery.url} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-success/35 px-2.5 text-[10px] font-medium text-success hover:bg-success/10"><Github size={13} /> Open pull request</a>
+          ? <div className="flex items-center gap-2">
+              {delivery.allowed_actions?.includes('sync_delivery') && <button type="button" disabled={busy} onClick={() => onCommand('sync_delivery')} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-[10px] font-medium text-text hover:border-accent/40 disabled:opacity-45"><Radio size={12} /> Sync status</button>}
+              <a href={delivery.url} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-success/35 px-2.5 text-[10px] font-medium text-success hover:bg-success/10"><Github size={13} /> Open pull request</a>
+            </div>
           : <button type="button" onClick={copyCheckout} className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[10px] font-medium transition-colors ${copied ? 'border-success/45 bg-success/10 text-success' : 'border-border text-muted hover:border-success/35 hover:text-text'}`}>{copied ? <CheckCheck size={12} /> : <Copy size={12} />}{copied ? 'Copied' : 'Copy checkout'}</button>}
       </header>
       <div className="grid gap-4 px-4 py-4 sm:px-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
         <div className="min-w-0 space-y-3">
           <div><div className="text-[9px] uppercase text-muted">Branch</div><div className="mt-1 break-all font-mono text-[10px] text-text">{delivery.branch || 'unknown'}</div></div>
           <div><div className="text-[9px] uppercase text-muted">Commit</div><div className="mt-1 font-mono text-[10px] text-accent">{delivery.head_sha?.slice(0, 12) || 'unknown'}</div></div>
+          {delivery.kind === 'pull_request' && <div className="flex flex-wrap gap-1.5">
+            <span className="rounded border border-border px-1.5 py-0.5 text-[9px] text-muted">{titleCase(delivery.state || 'open')}</span>
+            <span className="rounded border border-border px-1.5 py-0.5 text-[9px] text-muted">CI {titleCase(delivery.ci_state || 'unknown')}</span>
+            <span className="rounded border border-border px-1.5 py-0.5 text-[9px] text-muted">{titleCase(delivery.conflict_state || 'unknown')}</span>
+          </div>}
           {changes?.stat && <div><div className="text-[9px] uppercase text-muted">Diff</div><div className="mt-1 font-mono text-[10px] text-muted">{changes.stat.trim().split('\n').slice(-1)[0]}</div></div>}
         </div>
         <div className="min-w-0">
@@ -236,12 +252,16 @@ function ProcessActions({ workflow, busy, onCommand }: {
   const tone = processTone(workflow)
   const active = !TERMINAL.has(workflow.state)
   const resumable = ['paused', 'blocked', 'failed'].includes(workflow.state)
+  const awaitingOwnerMerge = workflow.state === 'awaiting_owner_merge'
+  const drifted = workflow.error_code === 'main_drift'
   return (
     <div className="flex flex-wrap justify-end gap-1.5">
-      {resumable && <button disabled={busy} onClick={() => onCommand(workflow.error_code ? 'retry' : 'resume')} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[10px] font-semibold text-background disabled:opacity-45"><Play size={13} />{workflow.error_code ? 'Retry' : 'Resume'}</button>}
-      {active && !resumable && workflow.state !== 'awaiting_merge_deploy_approval' && <button disabled={busy} onClick={() => onCommand('pause')} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-[10px] font-medium text-text hover:bg-overlay/5 disabled:opacity-45"><Pause size={13} /> Pause</button>}
+      {awaitingOwnerMerge && <button disabled={busy} onClick={() => onCommand('sync_delivery')} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[10px] font-semibold text-background disabled:opacity-45"><Radio size={13} /> Sync status</button>}
+      {drifted && <button disabled={busy} onClick={() => onCommand('reconcile_base')} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[10px] font-semibold text-background disabled:opacity-45"><GitBranch size={13} /> Reconcile base</button>}
+      {resumable && !drifted && <button disabled={busy} onClick={() => onCommand(workflow.error_code ? 'retry' : 'resume')} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[10px] font-semibold text-background disabled:opacity-45"><Play size={13} />{workflow.error_code ? 'Retry' : 'Resume'}</button>}
+      {active && !resumable && !awaitingOwnerMerge && workflow.state !== 'awaiting_merge_deploy_approval' && <button disabled={busy} onClick={() => onCommand('pause')} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-[10px] font-medium text-text hover:bg-overlay/5 disabled:opacity-45"><Pause size={13} /> Pause</button>}
       {active && <button disabled={busy} onClick={() => onCommand('cancel')} title="Cancel process" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-danger/30 text-danger hover:bg-danger/5 disabled:opacity-45"><Square size={12} /></button>}
-      {(tone === 'canceled' || tone === 'completed' || tone === 'local') && <button disabled={busy} onClick={() => onCommand('remove')} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-[10px] font-medium text-muted hover:border-danger/35 hover:text-danger disabled:opacity-45"><Trash2 size={13} /> Remove</button>}
+      {(tone === 'canceled' || tone === 'completed' || tone === 'merged' || tone === 'local') && <button disabled={busy} onClick={() => onCommand('remove')} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-[10px] font-medium text-muted hover:border-danger/35 hover:text-danger disabled:opacity-45"><Trash2 size={13} /> Remove</button>}
     </div>
   )
 }
@@ -363,6 +383,14 @@ export default function DeveloperProcess({
   // Gates this policy allows. A gate outside this set was never attempted, so it is neither
   // pending nor failed -- reporting it either way misdescribes a clean run.
   const permittedGates = useMemo(() => new Set(permittedStages(capabilities)), [capabilities])
+  const stageStatuses = useMemo(
+    () => Object.fromEntries(workflow.stages.map(stage => [stage.node_id, stage.status])),
+    [workflow.stages],
+  )
+  const effectiveGates = useMemo(
+    () => new Set(effectiveStages(stageStatuses, capabilities)),
+    [stageStatuses, capabilities],
+  )
   const activeStageIndex = Math.max(0, workflow.stages.findIndex(stage => stage.node_id === workflow.stage || stage.status === 'running'))
   const lastCompletedIndex = workflow.stages.reduce((last, stage, index) => stage.status === 'completed' ? index : last, 0)
   const progressStageIndex = TERMINAL.has(workflow.state) ? lastCompletedIndex : activeStageIndex
@@ -399,12 +427,13 @@ export default function DeveloperProcess({
         </div>
         {currentTone === 'crashed' && <div className="flex items-start gap-2 border-t border-danger/25 bg-danger/5 px-4 py-3 text-[10px] leading-5 text-danger sm:px-5"><AlertTriangle size={13} className="mt-0.5 shrink-0" /><div><span className="font-semibold">{titleCase(workflow.error_code || 'workflow_failed')}:</span> <span className="text-muted">{workflow.blocker || streamIssue || 'Open Live activities for the latest failure evidence.'}</span></div></div>}
         {currentTone === 'local' && <div className="flex items-start gap-2 border-t border-success/25 bg-success/5 px-4 py-3 text-[10px] leading-5 text-success sm:px-5"><BadgeCheck size={13} className="mt-0.5 shrink-0" /><div><span className="font-semibold">Finished locally:</span> <span className="text-muted">{workflow.blocker || 'Every stage the reviewed policy permits has passed. The branch is committed but nothing has left this machine.'}</span></div></div>}
-        {!TERMINAL.has(workflow.state) && !workflow.delivery?.reachable && <div className="border-t border-border/70 px-4 py-2 text-[9px] leading-4 text-muted sm:px-5">Progress counts the {permittedGates.size} gates this policy permits. It reaches 100% once there is a result you can open.</div>}
+        {currentTone === 'merged' && <div className="flex items-start gap-2 border-t border-success/25 bg-success/5 px-4 py-3 text-[10px] leading-5 text-success sm:px-5"><BadgeCheck size={13} className="mt-0.5 shrink-0" /><div><span className="font-semibold">Merged:</span> <span className="text-muted">{workflow.blocker || 'Deployment was skipped by reviewed policy.'}</span></div></div>}
+        {!TERMINAL.has(workflow.state) && !workflow.delivery?.reachable && <div className="border-t border-border/70 px-4 py-2 text-[9px] leading-4 text-muted sm:px-5">Progress counts the {effectiveGates.size} gates this run can satisfy. It reaches 100% once there is a result you can open.</div>}
       </section>
 
       <ApprovalCard workflow={workflow} busy={busy} onApprove={onApprove} onReject={onReject} onCommand={onCommand} />
 
-      <DeliverySection workflow={workflow} />
+      <DeliverySection workflow={workflow} busy={busy} onCommand={onCommand} />
 
       <section className="overflow-hidden rounded-md border border-border bg-surface/30">
         <header className="flex items-center justify-between gap-4 border-b border-border/70 px-4 py-3 sm:px-5"><div><div className="text-[9px] font-semibold uppercase text-accent">Run brief</div><h3 className="mt-0.5 text-xs font-semibold text-text">{workflow.sprint?.title || workflow.title}</h3></div><span className="max-w-[45%] truncate font-mono text-[9px] text-muted">{workflow.plan_path}</span></header>
@@ -429,18 +458,20 @@ export default function DeveloperProcess({
         </article>
         <button type="button" onPointerDown={event => { event.preventDefault(); setDragging(true) }} title="Drag to resize Process panels" className="hidden cursor-col-resize items-center justify-center border-x border-border/70 bg-background/50 text-muted/50 hover:bg-accent/10 hover:text-accent lg:flex"><GripVertical size={12} /></button>
         <article className="min-w-0 border-t border-border lg:border-t-0">
-          <header className="flex h-12 items-center justify-between gap-3 border-b border-border/70 px-4"><div className="flex items-center gap-2"><CheckCircle2 size={14} className="text-accent" /><h3 className="text-xs font-semibold text-text">Sprint</h3></div><span className="text-[9px] text-muted">{workflow.stages.filter(stage => stage.status === 'completed').length}/{permittedGates.size} gates{workflow.stages.length > permittedGates.size && <span className="text-muted/60"> · {workflow.stages.length - permittedGates.size} not permitted</span>}</span></header>
+          <header className="flex h-12 items-center justify-between gap-3 border-b border-border/70 px-4"><div className="flex items-center gap-2"><CheckCircle2 size={14} className="text-accent" /><h3 className="text-xs font-semibold text-text">Sprint</h3></div><span className="text-[9px] text-muted">{workflow.stages.filter(stage => stage.status === 'completed' && effectiveGates.has(stage.node_id)).length}/{effectiveGates.size} gates{workflow.stages.length > effectiveGates.size && <span className="text-muted/60"> · {workflow.stages.length - effectiveGates.size} not permitted</span>}</span></header>
           <div className="relative h-[380px] overflow-y-auto px-4 py-3">
             <div className="absolute bottom-5 left-[34px] top-5 w-px bg-border" />
             <div className="developer-sprint-line absolute left-[34px] top-5 w-px bg-accent transition-[height] duration-700" style={{ height: stageProgress > 0 ? `calc(${stageProgress}% - 8px)` : 0 }} />
             <div className="space-y-1">{workflow.stages.map(stage => {
-              const current = !TERMINAL.has(workflow.state) && (stage.node_id === workflow.stage || stage.status === 'running')
+              const running = stateKind(workflow.state) === 'active'
+              const current = running && (stage.node_id === workflow.stage || stage.status === 'running')
+              const waiting = stateKind(workflow.state) === 'waiting' && stage.node_id === workflow.stage
               const done = stage.status === 'completed'
               // A locally-complete run stopped at a gate the reviewed policy does not permit.
               // Those gates were never attempted, so they are not failures.
               const unreachable = !done && !permittedGates.has(stage.node_id)
               const failed = !unreachable && (stage.status === 'failed' || stage.status === 'paused')
-              return <div key={stage.node_id} className={`relative flex min-h-10 items-center gap-3 overflow-hidden rounded-md px-1.5 py-1.5 ${current ? 'developer-sprint-current' : ''}`}><span className={`relative z-[2] flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${done ? 'developer-sprint-complete-marker border-success/45 bg-success/10 text-success' : failed ? 'border-danger bg-danger/10 text-danger' : current ? 'developer-sprint-active-marker border-accent bg-background text-accent' : 'border-border bg-background text-muted'}`}>{done ? <BadgeCheck size={15} strokeWidth={2.25} /> : failed ? <XCircle size={11} /> : current ? <LoaderCircle size={13} className="animate-spin" /> : <Circle size={10} />}</span><div className="relative z-[1] min-w-0 flex-1"><div className={`truncate text-[10px] font-medium ${current ? 'text-accent' : done ? 'text-text' : 'text-muted'}`}>{stage.node_id === 'code' ? 'Run selected developer agent' : stage.title}</div><div className="mt-0.5 text-[8px] uppercase text-muted/70">{current ? 'In progress' : done ? 'Evidence saved' : unreachable ? 'Not permitted by policy' : failed ? titleCase(stage.status) : 'Pending'}</div></div></div>
+              return <div key={stage.node_id} className={`relative flex min-h-10 items-center gap-3 overflow-hidden rounded-md px-1.5 py-1.5 ${current ? 'developer-sprint-current' : waiting ? 'bg-warning/[0.04]' : ''}`}><span className={`relative z-[2] flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${done ? 'developer-sprint-complete-marker border-success/45 bg-success/10 text-success' : failed ? 'border-danger bg-danger/10 text-danger' : current ? 'developer-sprint-active-marker border-accent bg-background text-accent' : waiting ? 'border-warning/50 bg-background text-warning' : 'border-border bg-background text-muted'}`}>{done ? <BadgeCheck size={15} strokeWidth={2.25} /> : failed ? <XCircle size={11} /> : current ? <LoaderCircle size={13} className="animate-spin" /> : waiting ? <Clock3 size={11} /> : <Circle size={10} />}</span><div className="relative z-[1] min-w-0 flex-1"><div className={`truncate text-[10px] font-medium ${current ? 'text-accent' : waiting ? 'text-warning' : done ? 'text-text' : 'text-muted'}`}>{stage.node_id === 'code' ? 'Run selected developer agent' : stage.title}</div><div className="mt-0.5 text-[8px] uppercase text-muted/70">{current ? 'In progress' : waiting ? 'Waiting for owner' : done ? 'Evidence saved' : unreachable ? 'Not permitted by policy' : failed ? titleCase(stage.status) : 'Pending'}</div></div></div>
             })}</div>
           </div>
         </article>

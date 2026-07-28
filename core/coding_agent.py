@@ -104,6 +104,7 @@ class CodingAgent:
         validation_commands: list[list[str]] | None = None,
         protected_paths_approved: bool = False,
         active_probe: bool = True,
+        exclude_session_id: int | None = None,
     ) -> dict[str, Any]:
         self.sync()
         task = self.store.get_task(queue_id=queue_id)
@@ -134,6 +135,7 @@ class CodingAgent:
             validation_commands=validation_commands,
             protected_paths_approved=protected_paths_approved,
             active_probe=active_probe,
+            exclude_session_id=exclude_session_id,
         )
 
     def evaluate_goal(self, goal_id: int) -> dict[str, Any]:
@@ -263,6 +265,7 @@ class CodingAgent:
             fallback_agents=json.loads(task.get("fallback_profiles_json") or "[]"),
             validation_commands=json.loads(task.get("validation_commands_json") or "[]"),
             protected_paths_approved=bool(prior_payload.get("protected_paths")),
+            exclude_session_id=session_id,
         )
         if not readiness["ready"]:
             detail = "; ".join(item["message"] for item in readiness["blockers"][:4])
@@ -473,6 +476,52 @@ class CodingAgent:
         owner_flags.set_bool("developer.auto_queue", enabled)
         next_workflow = self.start_next_queued() if enabled else None
         return {"auto_queue": enabled, "next_workflow": next_workflow}
+
+    def acceptance_status(self, session_id: int | None = None) -> dict[str, Any]:
+        scenarios = [
+            {
+                "id": "worker_failure",
+                "label": "Fail selected agent once",
+                "description": "Pause one Code attempt and preserve its checkpoint for retry or switch.",
+            },
+            {
+                "id": "worker_hang",
+                "label": "Hang worker",
+                "description": "Emit the no-output warning and enter structured recovery.",
+            },
+            {
+                "id": "restart_checkpoint",
+                "label": "Restart checkpoint",
+                "description": "Pause at a durable checkpoint so backend restart recovery can be verified.",
+            },
+            {
+                "id": "main_drift",
+                "label": "Safe main drift",
+                "description": "Exercise base reconciliation before the workflow pushes.",
+            },
+        ]
+        return {
+            "enabled": os.getenv("TOBI_CODING_ACCEPTANCE_MODE", "").strip() == "1",
+            "workflow_id": session_id,
+            "scenarios": scenarios,
+            "faults": self.store.list_acceptance_faults(session_id) if session_id else [],
+        }
+
+    def arm_acceptance_fault(self, session_id: int, scenario: str) -> dict[str, Any]:
+        allowed = {"worker_failure", "worker_hang", "restart_checkpoint", "main_drift"}
+        if scenario not in allowed:
+            raise ValueError("Unsupported acceptance scenario.")
+        workflow = self.get_workflow(session_id)
+        if workflow["state"] in TERMINAL_STATES:
+            raise RuntimeError("Acceptance faults can only target an unfinished workflow.")
+        fault = self.store.arm_acceptance_fault(session_id, scenario)
+        self._event(
+            session_id,
+            "acceptance_fault_armed",
+            {"scenario": scenario, "fault_id": fault["id"]},
+            actor="owner",
+        )
+        return self.acceptance_status(session_id)
 
     # ── owner queue preferences (Queue tab: Next slot + priority order) ──────
     # Stored as owner_settings strings so no schema change is needed. The QUEUE.md
@@ -791,16 +840,44 @@ class CodingAgent:
         # describes the result. Reachability comes from the stage table, which both have.
         pull_request = session.get("pull_request") or {}
         branch, head_sha = session.get("branch"), session.get("head_sha")
-        committed = stage_statuses.get("commit") == "completed" or session.get("state") == "completed"
+        committed = (
+            stage_statuses.get("commit") == "completed"
+            or session.get("state") in {"completed", "merged"}
+        )
         if pull_request.get("url") and committed:
-            return {"reachable": True, "kind": "pull_request", "branch": branch,
-                    "head_sha": head_sha, "url": pull_request.get("url")}
+            state = str(pull_request.get("merge_state") or "")
+            if pull_request.get("merged_at") or pull_request.get("merge_commit_sha"):
+                state = "merged"
+            allowed = ["open_pull_request"]
+            if session.get("state") == "awaiting_owner_merge":
+                allowed.append("sync_delivery")
+            return {
+                "reachable": True,
+                "kind": "pull_request",
+                "branch": branch,
+                "head_sha": head_sha,
+                "url": pull_request.get("url"),
+                "state": state or ("draft" if pull_request.get("draft") else "open"),
+                "draft": bool(pull_request.get("draft")),
+                "merged": state == "merged",
+                "merge_commit_sha": pull_request.get("merge_commit_sha"),
+                "ci_state": pull_request.get("ci_state"),
+                "conflict_state": pull_request.get("conflict_state"),
+                "updated_at": pull_request.get("updated_at"),
+                "allowed_actions": allowed,
+            }
         # A committed local branch is reachable: the worktree shares the repository's object
         # store, so the commit survives whether or not the worktree directory does.
         if committed:
-            return {"reachable": True, "kind": "local_branch", "branch": branch,
-                    "head_sha": head_sha, "url": None}
-        return {"reachable": False, "kind": "none", "branch": branch, "head_sha": None, "url": None}
+            return {
+                "reachable": True, "kind": "local_branch", "branch": branch,
+                "head_sha": head_sha, "url": None, "state": "committed",
+                "allowed_actions": [],
+            }
+        return {
+            "reachable": False, "kind": "none", "branch": branch, "head_sha": None,
+            "url": None, "state": "none", "allowed_actions": [],
+        }
 
     def _sync_progress(self, session_id: int) -> None:
         """Recompute stored progress from the gates the policy permits.
@@ -1049,6 +1126,46 @@ class CodingAgent:
                         actor=str(session.get("worker_profile_slug") or "worker"),
                     )
 
+                if self.store.consume_acceptance_fault(session_id, "worker_failure"):
+                    self._event(
+                        session_id,
+                        "acceptance_fault_triggered",
+                        {"scenario": "worker_failure", "stage": "code"},
+                    )
+                    return self._pause(
+                        session_id,
+                        "code",
+                        "Acceptance fault: selected agent failed once. Retry or switch agents.",
+                        "acceptance_worker_failure",
+                    )
+                if self.store.consume_acceptance_fault(session_id, "worker_hang"):
+                    self._event(
+                        session_id,
+                        "worker_no_output_warning",
+                        {
+                            "stage": "code",
+                            "scenario": "acceptance_worker_hang",
+                            "message": "Acceptance fault: the worker stopped producing output.",
+                        },
+                    )
+                    return self._pause(
+                        session_id,
+                        "code",
+                        "Worker unresponsive. Retry the same checkpoint or switch agents.",
+                        "worker_unresponsive",
+                    )
+                if self.store.consume_acceptance_fault(session_id, "restart_checkpoint"):
+                    self._event(
+                        session_id,
+                        "acceptance_fault_triggered",
+                        {"scenario": "restart_checkpoint", "stage": "code"},
+                    )
+                    return self._pause(
+                        session_id,
+                        "code",
+                        "Acceptance checkpoint is ready. Restart the backend, then resume this run.",
+                        "acceptance_restart_ready",
+                    )
                 try:
                     result = self._run_worker_with_heartbeat(session_id, brief, worker_event)
                 except CodingWorkerUnavailable as exc:
@@ -1210,6 +1327,21 @@ class CodingAgent:
                     return self._local_complete(session_id,
                                                 "Local branch is validated. Enable the GitHub capability in reviewed policy to push and create a draft PR.",
                                                 "github_disabled")
+                acceptance_drift = self.store.consume_acceptance_fault(session_id, "main_drift")
+                current_base = self.git.default_branch_sha()
+                if acceptance_drift or current_base != session.get("base_sha"):
+                    if acceptance_drift:
+                        self._event(
+                            session_id,
+                            "acceptance_fault_triggered",
+                            {"scenario": "main_drift", "stage": "push"},
+                        )
+                    return self._pause(
+                        session_id,
+                        "push",
+                        "The main branch changed after this run started. Reconcile the base before pushing.",
+                        "main_drift",
+                    )
                 self._stage_start(session_id, "push", "pushed")
                 self.git.push(session["worktree"], session["branch"])
                 self._stage_complete(session_id, "push", {"branch": session["branch"]})
@@ -1223,15 +1355,39 @@ class CodingAgent:
 
             session = self.get_workflow(session_id)
             pr = session.get("pull_request") or {}
-            self.store.update_session(session_id, state="awaiting_merge_deploy_approval",
-                                      stage="merge_deploy",
-                                      blocker="Owner re-authentication is required to merge and deploy.")
+            merge_enabled = self.policy.feature_enabled("merge")
+            deploy_enabled = self.policy.feature_enabled("deploy")
+            if merge_enabled:
+                action = "merge and deploy" if deploy_enabled else "merge"
+                self.store.update_session(
+                    session_id,
+                    state="awaiting_merge_deploy_approval",
+                    stage="merge_deploy",
+                    blocker=f"Owner re-authentication is required to {action}.",
+                )
+                self._event(
+                    session_id,
+                    "approval_required",
+                    {"purpose": "merge_deploy", "pull_request": pr, "action": action},
+                )
+            else:
+                self.store.update_session(
+                    session_id,
+                    state="awaiting_owner_merge",
+                    stage="merge_deploy",
+                    blocker="Draft pull request is ready. Merge it on GitHub, then synchronize delivery.",
+                )
+                self._event(
+                    session_id,
+                    "delivery_waiting",
+                    {"purpose": "owner_merge", "pull_request": pr},
+                )
             self._sync_progress(session_id)
-            self._event(session_id, "approval_required", {"purpose": "merge_deploy", "pull_request": pr})
             self._record_learning(
                 session_id, outcome="draft_pr", stage="pull_request",
                 evidence={"pull_request": pr, "head_sha": session.get("head_sha")},
             )
+            self.completion.build_scorecard(session_id)
             return self.get_workflow(session_id)
         except CodingWorkerUnavailable as exc:
             return self._pause(session_id, "code", str(exc), "worker_unavailable")
@@ -1376,15 +1532,72 @@ class CodingAgent:
             self._event(session_id, "check_completed", result)
             if not result["ok"]:
                 break
-        self.store.update_stage(session_id, "validate", status="completed" if all(r["ok"] for r in results) else "failed",
-                                checks_json=results, result_json={"ok": all(r["ok"] for r in results)}, completed_at=utc_now())
+        checks_ok = all(r["ok"] for r in results)
+        result_payload = {"ok": checks_ok, "checks": results}
+        self.store.update_stage(
+            session_id,
+            "validate",
+            status="completed" if checks_ok else "failed",
+            checks_json=results,
+            result_json=result_payload,
+            completed_at=utc_now(),
+        )
+        self.store.finish_stage_attempt(
+            session_id,
+            "validate",
+            status="completed" if checks_ok else "failed",
+            error_code=None if checks_ok else "validation_failed",
+            result=result_payload,
+        )
+        current = self.store.get_session(session_id)
+        if current:
+            self.completion.record_stage_evidence(current, "validate", result_payload)
         self._artifact(session_id, "checks", results)
-        self._event(session_id, "stage_completed" if all(r["ok"] for r in results) else "stage_failed",
-                    {"stage": "validate", "ok": all(r["ok"] for r in results)})
+        self._event(
+            session_id,
+            "stage_completed" if checks_ok else "stage_failed",
+            {"stage": "validate", "ok": checks_ok},
+        )
         return results
 
     def command(self, session_id: int, command: str, *, background: bool = True) -> dict[str, Any]:
         session = self.get_workflow(session_id)
+        if command == "sync_delivery":
+            return self.sync_delivery(session_id)
+        if command == "reconcile_base":
+            if session.get("error_code") != "main_drift":
+                raise RuntimeError("Base reconciliation is only available after main-branch drift.")
+            if not session.get("worktree"):
+                raise RuntimeError("Workflow has no retained worktree to reconcile.")
+            result = self.git.reconcile_base(session["worktree"])
+            conn = self.store.connect()
+            try:
+                conn.execute(
+                    """UPDATE coding_stages
+                       SET status='pending',started_at=NULL,completed_at=NULL,result_json=NULL
+                       WHERE session_id=? AND node_id IN ('scan','push','pull_request','merge_deploy','health')""",
+                    (session_id,),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            self.store.update_session(
+                session_id,
+                base_sha=result["base_sha"],
+                head_sha=result["head_sha"],
+                state="paused",
+                stage="push",
+                blocker=None,
+                error_code=None,
+                completed_at=None,
+            )
+            self._event(session_id, "base_reconciled", result, actor="owner")
+            self._checkpoint(
+                session_id,
+                status="base_reconciled",
+                next_action="Continue push and delivery from the reconciled base.",
+            )
+            return self.command(session_id, "resume", background=background)
         if command == "pause":
             self.store.update_session(session_id, cancel_requested=1)
             self.worker.cancel(session_id)
@@ -1476,12 +1689,142 @@ class CodingAgent:
         self._checkpoint(session_id, status="owner_revision", next_action=instruction)
         return self.command(session_id, "resume")
 
+    def sync_delivery(self, session_id: int) -> dict[str, Any]:
+        """Synchronize the durable run with the pull request without repeating effects."""
+        session = self.get_workflow(session_id)
+        pr = session.get("pull_request") or {}
+        if not pr.get("number"):
+            raise RuntimeError("Workflow has no pull request to synchronize.")
+        previous = (
+            pr.get("draft"),
+            pr.get("ci_state"),
+            pr.get("conflict_state"),
+            pr.get("merge_state"),
+            pr.get("merged_at"),
+            pr.get("merge_commit_sha"),
+        )
+        remote = self.github.get_pr(int(pr["number"]))
+        pending: list[str] = []
+        failed: list[str] = []
+        if remote.get("merged"):
+            ci_state = "passed"
+            conflict_state = "none"
+            merge_state = "merged"
+        elif remote.get("state") == "closed":
+            ci_state = pr.get("ci_state") or "unknown"
+            conflict_state = pr.get("conflict_state") or "unknown"
+            merge_state = "closed"
+        else:
+            readiness = self.github.merge_readiness(int(pr["number"]))
+            pending = [str(item) for item in readiness.get("pending_checks") or []]
+            failed = [str(item) for item in readiness.get("failed_checks") or []]
+            ci_state = "failed" if failed else "pending" if pending else "passed"
+            mergeable_state = str(remote.get("mergeable_state") or "")
+            conflict_state = "conflicted" if mergeable_state == "dirty" else "clear"
+            if remote.get("draft"):
+                merge_state = "draft"
+            elif conflict_state == "conflicted":
+                merge_state = "conflicted"
+            elif readiness.get("ready"):
+                merge_state = "ready"
+            else:
+                merge_state = "open"
+        synchronized = {
+            **remote,
+            "ci_state": ci_state,
+            "conflict_state": conflict_state,
+            "merge_state": merge_state,
+            "last_sync_status": "ok",
+        }
+        self._save_pr(int(session["task_id"]), synchronized)
+        current = (
+            synchronized.get("draft"),
+            ci_state,
+            conflict_state,
+            merge_state,
+            synchronized.get("merged_at"),
+            synchronized.get("merge_commit_sha"),
+        )
+        if current != previous:
+            self._event(
+                session_id,
+                "delivery_synchronized",
+                {
+                    "draft": bool(synchronized.get("draft")),
+                    "ci_state": ci_state,
+                    "conflict_state": conflict_state,
+                    "merge_state": merge_state,
+                    "pending_checks": pending,
+                    "failed_checks": failed,
+                },
+            )
+        if remote.get("merged") and remote.get("merge_commit_sha"):
+            sha = str(remote["merge_commit_sha"])
+            refreshed = self.get_workflow(session_id)
+            statuses = {stage["node_id"]: stage["status"] for stage in refreshed["stages"]}
+            if statuses.get("merge_deploy") != "completed":
+                self._stage_start(session_id, "merge_deploy", "merging")
+                self._stage_complete(
+                    session_id,
+                    "merge_deploy",
+                    {
+                        "merged": True,
+                        "sha": sha,
+                        "merged_at": remote.get("merged_at"),
+                        "reconciled": True,
+                    },
+                )
+            self.releases.set_status(refreshed["target_version"], "merged", commit_sha=sha)
+            return self._deploy_merged_release(session_id)
+        if remote.get("state") == "closed":
+            return self._pause(
+                session_id,
+                "merge_deploy",
+                "The pull request was closed without merging. Revise the item or cancel this run.",
+                "pull_request_closed",
+            )
+        if self.policy.feature_enabled("merge"):
+            action = "merge and deploy" if self.policy.feature_enabled("deploy") else "merge"
+            self.store.update_session(
+                session_id,
+                state="awaiting_merge_deploy_approval",
+                stage="merge_deploy",
+                blocker=f"Owner re-authentication is required to {action}.",
+                error_code=None,
+            )
+        else:
+            self.store.update_session(
+                session_id,
+                state="awaiting_owner_merge",
+                stage="merge_deploy",
+                blocker="Draft pull request is ready. Merge it on GitHub, then synchronize delivery.",
+                error_code=None,
+            )
+        self._sync_progress(session_id)
+        self.completion.build_scorecard(session_id)
+        return self.get_workflow(session_id)
+
     def reconcile(self) -> list[dict[str, Any]]:
         """Fail closed after backend restart and repair durable checkpoints where evidence is conclusive."""
         self.store.fail_stale_commands()
         reconciled: list[dict[str, Any]] = []
+        sessions = self.store.list_sessions(200)
+        for item in sessions:
+            self.store.reconcile_stage_attempts(int(item["id"]))
+            if item["state"] in TERMINAL_STATES:
+                continue
+            workflow = self.get_workflow(int(item["id"]))
+            if not (workflow.get("pull_request") or {}).get("number"):
+                continue
+            try:
+                synchronized = self.sync_delivery(int(item["id"]))
+            except (GitHubCodingError, PolicyDenied, RuntimeError):
+                continue
+            if synchronized["state"] in {"merged", "completed", "awaiting_owner_merge"}:
+                reconciled.append(synchronized)
+        sessions = self.store.list_sessions(200)
         active_states = {"approved", "preparing", "coding", "validating", "reviewing", "pushed", "merging", "deploying"}
-        for item in self.store.list_sessions(200):
+        for item in sessions:
             if item["state"] not in active_states:
                 continue
             lease_owner = str(item.get("lease_owner") or "")
@@ -1546,6 +1889,8 @@ class CodingAgent:
 
     def _merge_and_deploy(self, session_id: int) -> dict[str, Any]:
         session = self.get_workflow(session_id)
+        if not self.policy.feature_enabled("merge"):
+            raise PolicyDenied("Merge is disabled by reviewed policy.")
         conn = self.store.connect()
         try:
             pr = conn.execute("SELECT * FROM coding_pull_requests WHERE task_id=?", (session["task_id"],)).fetchone()
@@ -1568,6 +1913,17 @@ class CodingAgent:
                     ]
                     raise GitHubCodingError(f"Pull request is not merge-ready: {', '.join(str(v) for v in detail)}")
                 merged = self.github.squash_merge(int(pr["number"]), str(pr["head_sha"]), session["title"])
+            self._save_pr(
+                int(session["task_id"]),
+                {
+                    **dict(pr),
+                    "draft": False,
+                    "merge_state": "merged",
+                    "merged_at": utc_now(),
+                    "merge_commit_sha": merged["sha"],
+                    "last_sync_status": "ok",
+                },
+            )
             self.releases.set_status(session["target_version"], "merged", commit_sha=merged["sha"])
             self._stage_complete(session_id, "merge_deploy", merged)
         except (GitHubCodingError, PolicyDenied) as exc:
@@ -1595,8 +1951,7 @@ class CodingAgent:
                                "This version is immutable after a failed or rolled-back deployment. Start a new versioned workflow.",
                                "version_not_reusable")
         if not self.policy.feature_enabled("deploy"):
-            return self._pause(session_id, "health", "Merge completed; deployment is disabled by reviewed policy.",
-                               "deploy_disabled")
+            return self._finalize_merged(session_id, str(release["commit_sha"]))
         self.store.update_session(session_id, state="deploying", stage="health")
         self._sync_progress(session_id)
         self.releases.set_status(session["target_version"], "deploying", commit_sha=release["commit_sha"])
@@ -1636,11 +1991,47 @@ class CodingAgent:
         self.start_next_queued()
         return self.get_workflow(session_id)
 
+    def _finalize_merged(self, session_id: int, commit_sha: str) -> dict[str, Any]:
+        current = self.store.get_session(session_id) or {}
+        if current.get("state") == "merged":
+            return self.get_workflow(session_id)
+        message = "Merged, deployment skipped by reviewed policy."
+        self.store.update_session(
+            session_id,
+            state="merged",
+            stage="merge_deploy",
+            blocker=message,
+            error_code=None,
+            completed_at=utc_now(),
+        )
+        self._sync_progress(session_id)
+        session = self.store.get_session(session_id) or {}
+        self._mark_task_completed(int(session["task_id"]))
+        self._event(
+            session_id,
+            "workflow_merged",
+            {"version": session.get("target_version"), "sha": commit_sha, "deployment": "skipped"},
+        )
+        self._checkpoint(session_id, status="merged", next_action=message)
+        self._record_learning(
+            session_id,
+            outcome="merged",
+            stage="merge_deploy",
+            evidence={"version": session.get("target_version"), "sha": commit_sha},
+        )
+        for link in self.store.list_goal_task_links(task_id=int(session["task_id"])):
+            self.completion.evaluate_goal(int(link["goal_id"]))
+        self.completion.build_scorecard(session_id)
+        self.start_next_queued()
+        return self.get_workflow(session_id)
+
     def _mark_task_completed(self, task_id: int) -> None:
         conn = self.store.connect()
         try:
             conn.execute(
-                "UPDATE development_tasks SET status='completed',owner_state='Done',updated_at=? WHERE id=?",
+                """UPDATE development_tasks
+                   SET status='completed',owner_state='Done',status_override=1,updated_at=?
+                   WHERE id=?""",
                 (utc_now(), task_id),
             )
             conn.commit()
@@ -1651,12 +2042,37 @@ class CodingAgent:
         conn = self.store.connect()
         try:
             conn.execute(
-                """INSERT INTO coding_pull_requests(task_id,repository,number,url,head_sha,base_sha,draft,updated_at)
-                   VALUES (?,?,?,?,?,?,?,?)
+                """INSERT INTO coding_pull_requests(
+                       task_id,repository,number,url,head_sha,base_sha,draft,
+                       ci_state,conflict_state,merge_state,merged_at,merge_commit_sha,
+                       last_sync_status,updated_at
+                   )
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(task_id) DO UPDATE SET number=excluded.number,url=excluded.url,
-                   head_sha=excluded.head_sha,base_sha=excluded.base_sha,draft=excluded.draft,updated_at=excluded.updated_at""",
-                (task_id, self.github.repository, pr.get("number"), pr.get("url"), pr.get("head_sha"),
-                 pr.get("base_sha"), int(bool(pr.get("draft", True))), utc_now()),
+                   head_sha=excluded.head_sha,base_sha=excluded.base_sha,draft=excluded.draft,
+                   ci_state=COALESCE(excluded.ci_state,coding_pull_requests.ci_state),
+                   conflict_state=COALESCE(excluded.conflict_state,coding_pull_requests.conflict_state),
+                   merge_state=COALESCE(excluded.merge_state,coding_pull_requests.merge_state),
+                   merged_at=COALESCE(excluded.merged_at,coding_pull_requests.merged_at),
+                   merge_commit_sha=COALESCE(excluded.merge_commit_sha,coding_pull_requests.merge_commit_sha),
+                   last_sync_status=COALESCE(excluded.last_sync_status,coding_pull_requests.last_sync_status),
+                   updated_at=excluded.updated_at""",
+                (
+                    task_id,
+                    self.github.repository,
+                    pr.get("number"),
+                    pr.get("url"),
+                    pr.get("head_sha"),
+                    pr.get("base_sha"),
+                    int(bool(pr.get("draft", True))),
+                    pr.get("ci_state"),
+                    pr.get("conflict_state"),
+                    pr.get("merge_state"),
+                    pr.get("merged_at"),
+                    pr.get("merge_commit_sha"),
+                    pr.get("last_sync_status"),
+                    utc_now(),
+                ),
             )
             conn.commit()
         finally:
@@ -1665,18 +2081,36 @@ class CodingAgent:
     def _pull_request_body(self, session_id: int) -> str:
         session = self.get_workflow(session_id)
         checks = next((stage for stage in session["stages"] if stage["node_id"] == "validate"), {})
+        delivery_note = (
+            "Owner merge and deployment approval remains required."
+            if self.policy.feature_enabled("merge") and self.policy.feature_enabled("deploy")
+            else "Owner merge approval remains required; deployment is disabled by reviewed policy."
+            if self.policy.feature_enabled("merge")
+            else "Merge remains owner-controlled on GitHub; deployment follows reviewed policy."
+        )
         return (
             f"Implements queue item #{session['queue_id']}.\n\n"
             f"Plan: `{session['plan_path']}`\n\n"
             f"Policy: `{session['policy_hash'][:12]}`\n\n"
             f"Validation: `{checks.get('status', 'unknown')}`\n\n"
-            "Generated by TOBI's controlled coding workflow. Owner merge and deployment approval remains required."
+            f"Generated by TOBI's controlled coding workflow. {delivery_note}"
         )
 
     def changes(self, session_id: int) -> dict[str, Any]:
         session = self.get_workflow(session_id)
         if not session.get("worktree"):
             return {"files": [], "stat": "", "head_sha": session.get("head_sha")}
+        statuses = {stage["node_id"]: stage["status"] for stage in session["stages"]}
+        if (
+            statuses.get("commit") == "completed"
+            and session.get("base_sha")
+            and session.get("head_sha")
+        ):
+            return self.git.diff_summary(
+                session["worktree"],
+                base_ref=str(session["base_sha"]),
+                head_ref=str(session["head_sha"]),
+            )
         return self.git.diff_summary(session["worktree"])
 
     def storage(self, *, refresh: bool = False) -> dict[str, Any]:

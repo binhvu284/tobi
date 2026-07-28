@@ -35,6 +35,9 @@ STATE_KIND: dict[str, StateKind] = {
     "deploying": "active",
     # Finished well.
     "completed": "success",
+    # The pull request was merged, but deployment is outside the reviewed policy. This is a
+    # delivered terminal success, not a failed health check.
+    "merged": "success",
     # Also finished well: every stage the reviewed policy permits has passed and the branch
     # is committed, but a capability such as `github` is off so the run stops before any
     # remote mutation. Terminal because granting the capability changes `policy_hash`, and a
@@ -48,6 +51,8 @@ STATE_KIND: dict[str, StateKind] = {
     # fault; the distinction lives in `error_code`, not the state.
     "paused": "waiting",
     "blocked": "waiting",
+    # GitHub delivery is complete and the reviewed policy leaves the merge to the owner.
+    "awaiting_owner_merge": "waiting",
     "awaiting_merge_deploy_approval": "waiting",
 }
 
@@ -94,6 +99,24 @@ def permitted_stages(capabilities: dict[str, bool] | None) -> tuple[str, ...]:
     )
 
 
+def effective_stages(
+    stage_statuses: dict[str, str],
+    capabilities: dict[str, bool] | None,
+) -> tuple[str, ...]:
+    """Gates that count for this run, including externally satisfied policy gates.
+
+    A manual GitHub merge can complete ``merge_deploy`` while the runtime's merge
+    capability remains disabled. Counting completed gates in the numerator but excluding
+    that gate from the denominator produced the Process UI's ``10/9`` result.
+    """
+    permitted = set(permitted_stages(capabilities))
+    permitted.update(
+        stage_id for stage_id, status in stage_statuses.items()
+        if status == "completed"
+    )
+    return tuple(stage_id for stage_id in STAGE_ORDER if stage_id in permitted)
+
+
 # Failures the agent can only clear by producing different code. Retrying one of these has to
 # hand the run back to the code stage; re-running the failed gate alone re-judges an unchanged
 # worktree and returns the same verdict forever. `quality_gate_failed` and `secret_found` were
@@ -127,7 +150,7 @@ def workflow_progress(
     """
     if delivered:
         return 100
-    permitted = permitted_stages(capabilities)
+    permitted = effective_stages(stage_statuses, capabilities)
     if not permitted:
         return 0
     done = sum(1 for stage_id in permitted if stage_statuses.get(stage_id) == "completed")

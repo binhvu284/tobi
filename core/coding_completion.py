@@ -13,7 +13,7 @@ from core.coding_criteria import derive_checks
 from core.coding_policy import PolicyDenied
 from core.coding_queue import REPO_ROOT
 from core.coding_review import reviewer_model_auth_problem, reviewer_model_problem
-from core.coding_states import ACTIVE_STATES, workflow_progress
+from core.coding_states import ACTIVE_STATES, TERMINAL_STATES, workflow_progress
 from core.development_store import DevelopmentStore, utc_now
 from core.github_coding import GitHubCodingError, GitHubCodingService
 
@@ -88,6 +88,7 @@ class CodingCompletionService:
         validation_commands: list[list[str]] | None = None,
         protected_paths_approved: bool = False,
         active_probe: bool = True,
+        exclude_session_id: int | None = None,
     ) -> dict[str, Any]:
         task = self.store.get_task(queue_id=queue_id)
         if not task or bool(task.get("legacy_hidden")):
@@ -161,9 +162,14 @@ class CodingCompletionService:
 
         conn = self.store.connect()
         try:
+            exclusion = "AND id<>?" if exclude_session_id is not None else ""
             active = conn.execute(
-                f"SELECT id FROM coding_sessions WHERE state IN ({','.join('?' for _ in ACTIVE_STATES)}) LIMIT 1",
-                tuple(sorted(ACTIVE_STATES)),
+                f"SELECT id FROM coding_sessions WHERE state NOT IN "
+                f"({','.join('?' for _ in TERMINAL_STATES)}) {exclusion} LIMIT 1",
+                (
+                    *tuple(sorted(TERMINAL_STATES)),
+                    *((int(exclude_session_id),) if exclude_session_id is not None else ()),
+                ),
             ).fetchone()
         finally:
             conn.close()
@@ -419,7 +425,11 @@ class CodingCompletionService:
             "evidence": evidence,
             "worker_sessions": workers,
             "error_code": session.get("error_code"),
-            "outcome": "delivered" if session.get("state") == "completed" else session.get("state"),
+            "outcome": (
+                "deployed" if session.get("state") == "completed"
+                else "merged" if session.get("state") == "merged"
+                else session.get("state")
+            ),
             "generated_at": utc_now(),
         }
         self.store.save_scorecard(session_id, payload)

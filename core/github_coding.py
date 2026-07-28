@@ -225,7 +225,7 @@ class GitHubCodingService:
                 "draft": data.get("draft"), "mergeable": data.get("mergeable"),
                 "mergeable_state": data.get("mergeable_state"), "head_sha": data.get("head", {}).get("sha"),
                 "base_sha": data.get("base", {}).get("sha"), "merged": bool(data.get("merged")),
-                "merge_commit_sha": data.get("merge_commit_sha")}
+                "merged_at": data.get("merged_at"), "merge_commit_sha": data.get("merge_commit_sha")}
 
     def merge_readiness(self, number: int) -> dict[str, Any]:
         pr = self.get_pr(number)
@@ -235,8 +235,11 @@ class GitHubCodingService:
         failed = [run.get("name") for run in runs if run.get("status") == "completed" and run.get("conclusion") not in {"success", "neutral", "skipped"}]
         statuses = self._request("GET", f"/repos/{self.repository}/commits/{pr['head_sha']}/status")
         state = statuses.get("state") if isinstance(statuses, dict) else None
-        status_failed = state in {"failure", "error"}
-        status_pending = state == "pending"
+        status_contexts = statuses.get("statuses", []) if isinstance(statuses, dict) else []
+        # GitHub reports combined state "pending" when a commit has no status contexts.
+        # That means no checks are configured, not that a check is still running.
+        status_failed = bool(status_contexts) and state in {"failure", "error"}
+        status_pending = bool(status_contexts) and state == "pending"
         ready = bool(pr.get("mergeable") is True and pr.get("mergeable_state") not in {"dirty", "blocked"}
                      and not pending and not failed and not status_failed and not status_pending)
         if status_failed:

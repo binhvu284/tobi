@@ -80,12 +80,18 @@ class WorkflowCreate(BaseModel):
 
 
 class WorkflowCommand(BaseModel):
-    command: Literal["pause", "resume", "cancel", "retry", "remove"]
+    command: Literal[
+        "pause", "resume", "cancel", "retry", "remove", "sync_delivery", "reconcile_base"
+    ]
     idempotency_key: str = Field(min_length=8, max_length=200)
 
 
 class ProcessSettingsRequest(BaseModel):
     auto_queue: bool
+
+
+class AcceptanceFaultRequest(BaseModel):
+    scenario: Literal["worker_failure", "worker_hang", "restart_checkpoint", "main_drift"]
 
 
 class ApprovalRejectRequest(BaseModel):
@@ -209,8 +215,25 @@ def _error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=500, detail=f"Developer workflow failed safely: {type(exc).__name__}")
 
 
+def _acceptance_enabled(request: Request) -> bool:
+    peer = str(request.client.host if request.client else "").lower()
+    host = str(request.url.hostname or "").lower()
+    forwarded = request.headers.get("forwarded") or request.headers.get("x-forwarded-for")
+    return (
+        os.getenv("TOBI_CODING_ACCEPTANCE_MODE", "").strip() == "1"
+        and not forwarded
+        and peer in {"127.0.0.1", "::1", "localhost", "testclient"}
+        and host in {"127.0.0.1", "::1", "localhost", "testserver"}
+    )
+
+
+def _require_acceptance(request: Request) -> None:
+    if not _acceptance_enabled(request):
+        raise HTTPException(status_code=404, detail="Local coding acceptance controls are disabled.")
+
+
 @router.get("/overview", dependencies=[Owner])
-def overview() -> dict[str, Any]:
+def overview(request: Request) -> dict[str, Any]:
     # Builds one workflow, not fifty. This endpoint is polled every five seconds; loading
     # every session in full to pick the active one made it 5.2 MB over ~500 queries and 50
     # sqlite connections, and the page began timing out against its own 15-second limit. The
@@ -228,6 +251,7 @@ def overview() -> dict[str, Any]:
             "deployment_configured": agent.deployments.configured(),
         },
         "process": agent.process_settings(),
+        "acceptance_mode": _acceptance_enabled(request),
     }
 
 
@@ -235,6 +259,26 @@ def overview() -> dict[str, Any]:
 def process_settings(body: ProcessSettingsRequest) -> dict[str, Any]:
     try:
         return agent.set_auto_queue(body.auto_queue)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.get("/acceptance", dependencies=[Owner])
+def acceptance_status(request: Request, workflow_id: int | None = Query(None, gt=0)) -> dict[str, Any]:
+    _require_acceptance(request)
+    try:
+        return agent.acceptance_status(workflow_id)
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
+@router.post("/workflows/{workflow_id}/acceptance-faults", dependencies=[Owner])
+def arm_acceptance_fault(
+    workflow_id: int, body: AcceptanceFaultRequest, request: Request
+) -> dict[str, Any]:
+    _require_acceptance(request)
+    try:
+        return agent.arm_acceptance_fault(workflow_id, body.scenario)
     except Exception as exc:
         raise _error(exc) from exc
 

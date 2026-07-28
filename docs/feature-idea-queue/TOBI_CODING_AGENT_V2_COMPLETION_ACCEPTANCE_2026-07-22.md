@@ -20,7 +20,7 @@ flowchart LR
 | Gate | Result | Evidence |
 |---|---|---|
 | Python compilation | Pass | Completion runtime, persistence, tools, workers, loop, and API modules compile under Python 3.11. |
-| Focused backend suite | Pass | 14 tests passed across completion, production, V2, tools, Process, Queue, and recovery coverage. |
+| Focused backend suite | Pass | 41 tests pass across completion, production, V2, Process, recovery, state synchronization, delivery reconciliation, evidence, and local acceptance controls. |
 | Dashboard type/build gate | Pass | `npm run build` completed; TypeScript and Vite production build succeeded. |
 | Patch hygiene | Pass | `git diff --check` completed without whitespace errors. |
 | Goal execution removal | Pass | Tests verify Goals do not create synthetic tasks or coding sprints. |
@@ -36,7 +36,7 @@ Record the workflow ID, Queue item, agent, evidence, result, and defect link for
 | # | Scenario | State | Required proof |
 |---:|---|---|---|
 | 1 | MC Native happy path | Pending | Ready Queue item reaches verified completion with criterion evidence and scorecard. |
-| 2 | Codex happy path | **Partial 2026-07-28** | Authorized Codex session completes on one durable run and draft delivery is owner-gated. |
+| 2 | Codex happy path | **Passed 2026-07-28 - run #16 / PR #3** | Authorized Codex session completed on one durable run, delivered a draft PR, and the idempotent delivery reconciler detected the owner merge without rerunning work. |
 | 3 | OpenCode happy path | Pending | Authorized OpenCode session completes with selected provider/model shown consistently. |
 | 4 | Protected-path approval | **Passed 2026-07-28** | Preflight blocks Start, approval is explicit, and the approved scope is audited. |
 | 5 | Invalid agent preflight | **Passed 2026-07-28** | Disabled or unauthorized agent creates no run and healthy alternatives are offered. |
@@ -56,6 +56,25 @@ Record the workflow ID, Queue item, agent, evidence, result, and defect link for
 - History can replay logs, checkpoints, diffs, evidence, scorecard, and outcome without mutating the run.
 - System contains Storage, Learning, and Version with advanced details behind progressive disclosure.
 - Idle, active, approval, failed, recovery, completed, and history states remain understandable without reading raw payloads.
+
+## Final Qualification Patch - 2026-07-28
+
+The final local implementation adds centralized `awaiting_owner_merge` and `merged`
+states, idempotent GitHub delivery synchronization, committed-range changed-file
+evidence, terminal stage-attempt repair, scorecards at successful delivery boundaries,
+policy-aware Process actions, and localhost-only one-shot acceptance controls.
+
+Historical run #16 was reconciled through the application service:
+
+- PR #3 is persisted as merged with merge commit `6fc0975d9942da58e3c77c51a2aa8118387f3adb`.
+- The run is terminal `merged`; deployment was skipped successfully by reviewed policy.
+- Nine stale Validate attempts were closed from their durable completed stage.
+- History reconstructs `tests/test_task_classifier.py` from the committed SHA range.
+- A scorecard exists and Queue item #26 remains Done after Queue synchronization.
+
+The remaining owner-run fixtures are Queue #27 for MC Native and Queue #28 for OpenCode.
+Run them sequentially. Queue #22 remains In Progress and #21 remains blocked until all
+remaining matrix rows and the browser checklist pass.
 
 ## Closure Rule
 

@@ -81,7 +81,7 @@ with store.connect() as conn:
     versions = [row[0] for row in conn.execute(
         "SELECT version FROM developer_schema_migrations ORDER BY version"
     )]
-ok("v2 schema migration is additive", versions == [1, 2, 3, 4, 5, 6, 7], str(versions))
+ok("v2 schema migration is additive", versions == [1, 2, 3, 4, 5, 6, 7, 8], str(versions))
 
 legacy_store = DevelopmentStore(TMP / "legacy_profile.db")
 with legacy_store.connect() as conn:

@@ -72,6 +72,18 @@ export function stateKind(state: string): StateKind {{
 export function permittedStages(capabilities: Record<string, boolean> | undefined): string[] {{
   return STAGES.filter(s => !s.capability || Boolean(capabilities?.[s.capability])).map(s => s.id)
 }}
+
+/** Policy gates plus any externally completed gate, such as a manual GitHub merge. */
+export function effectiveStages(
+  statuses: Record<string, string>,
+  capabilities: Record<string, boolean> | undefined,
+): string[] {{
+  const included = new Set(permittedStages(capabilities))
+  Object.entries(statuses).forEach(([stage, status]) => {{
+    if (status === 'completed') included.add(stage)
+  }})
+  return STAGES.filter(stage => included.has(stage.id)).map(stage => stage.id)
+}}
 """
 
 
