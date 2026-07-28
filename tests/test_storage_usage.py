@@ -91,8 +91,8 @@ ok("vault privacy note", "size and item count only" in (ss.category_detail("Vaul
 
 code = ss.category_detail("Codebase", top_n=50)
 names = {i["name"].split("/")[-1] for i in code["fs_items"]}
-ok("drill-down honors skip set", not names & {"venv", "node_modules", ".git", "dist"},
-   f"leaked: {names & {'venv', 'node_modules', '.git', 'dist'}}")
+ok("drill-down honors skip set", not names & {"venv", "node_modules", ".git", ".tobi", "dist"},
+   f"leaked: {names & {'venv', 'node_modules', '.git', '.tobi', 'dist'}}")
 
 # ── usage_meter: prices ───────────────────────────────────────────────────────
 rows = um._load_yaml_prices()

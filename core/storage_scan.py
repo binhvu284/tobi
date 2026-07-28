@@ -64,7 +64,7 @@ DEP_DIRS: list[tuple[str, Path]] = [
     ("dist", PROJECT_DIR / "dashboard" / "dist"),
 ]
 _DEP_CACHE_DAYS = 7
-_SKIP_WALK = {".git", "venv", "node_modules", "dist", "__pycache__"}
+_SKIP_WALK = {".git", ".tobi", "venv", "node_modules", "dist", "__pycache__"}
 _DATA_DIR_FEATURES: dict[str, tuple[str, str]] = {
     "developer": ("Developer runtime", "Developer"),
     "news_media": ("News media", "News"),
