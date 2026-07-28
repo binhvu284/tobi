@@ -13,10 +13,50 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 QUEUE_PATH = REPO_ROOT / "docs" / "feature-idea-queue" / "QUEUE.md"
 _LINK_RE = re.compile(r"\[[^]]+\]\(([^)]+)\)")
 _DEP_RE = re.compile(r"(?:after|depends?\s+on|prerequisite(?:\s+item)?)\s+#(\d+)", re.IGNORECASE)
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
+_BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.+?)\s*$")
 
 
 def _plain(text: str) -> str:
     return re.sub(r"[*_`]", "", text).strip()
+
+
+def _criteria_from_plan(plan_text: str) -> list[str]:
+    """Read criteria from their section without treating every plan bullet as a gate."""
+    lines = plan_text.splitlines()
+    section: list[str] = []
+    section_level: int | None = None
+    for line in lines:
+        heading = _HEADING_RE.match(line.strip())
+        if heading:
+            level = len(heading.group(1))
+            title = _plain(heading.group(2)).lower()
+            if section_level is not None and level <= section_level:
+                break
+            if section_level is None and (
+                title.startswith("acceptance criteria")
+                or title in {"acceptance", "definition of done"}
+            ):
+                section_level = level
+            continue
+        if section_level is not None:
+            section.append(line)
+
+    scoped = [
+        match.group(1).strip()
+        for line in section
+        if (match := _BULLET_RE.match(line))
+    ]
+    if scoped:
+        return scoped[:40]
+
+    # Legacy plans without an explicit section keep the previous conservative behavior.
+    return [
+        line.strip()[2:].strip()
+        for line in lines
+        if line.strip().startswith("- ")
+        and any(word in line.lower() for word in ("must", "accept", "pass", "cannot", "never"))
+    ][:40]
 
 
 def parse_queue(path: Path | str = QUEUE_PATH) -> list[dict[str, Any]]:
@@ -39,11 +79,7 @@ def parse_queue(path: Path | str = QUEUE_PATH) -> list[dict[str, Any]]:
             raise ValueError(f"Queue item #{queue_id} references an unsafe plan path.")
         plan_bytes = plan_path.read_bytes() if plan_path.is_file() else raw.encode("utf-8")
         plan_text = plan_bytes.decode("utf-8", errors="replace")
-        criteria = [
-            line.strip()[2:].strip()
-            for line in plan_text.splitlines()
-            if line.strip().startswith("- ") and any(word in line.lower() for word in ("must", "accept", "pass", "cannot", "never"))
-        ][:40]
+        criteria = _criteria_from_plan(plan_text)
         dependencies = sorted({int(value) for value in _DEP_RE.findall(f"{queue_status} {notes}")})
         lowered = queue_status.lower()
         status = "completed" if "done" in lowered else "planned"

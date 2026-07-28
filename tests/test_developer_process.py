@@ -52,6 +52,28 @@ ok("remove archives a terminal Process workflow", bool(archived["archived_at"]))
 ok("archived workflow remains directly recoverable", store.get_session(int(session["id"])) is not None)
 ok("archived workflow leaves the visible Process history", not store.list_sessions())
 
+merged_task = store.upsert_task({
+    "queue_id": 904,
+    "title": "Merged Process contract",
+    "plan_path": "docs/feature-idea-queue/merged-process.md",
+    "plan_hash": "b" * 64,
+    "acceptance_criteria": ["Merged Process can be archived"],
+    "dependencies": [],
+    "status": "completed",
+    "risk": "low",
+})
+merged_session = store.create_session(
+    int(merged_task["id"]), "policy-hash", "merged-process-command-test"
+)
+store.update_session(
+    int(merged_session["id"]),
+    state="merged",
+    stage="merge_deploy",
+    completed_at="2026-07-28T00:00:00+00:00",
+)
+archived_merged = CodingAgent.command(agent, int(merged_session["id"]), "remove")
+ok("remove archives a merged Process workflow", bool(archived_merged["archived_at"]))
+
 auto = CodingAgent.__new__(CodingAgent)
 auto._auto_queue_lock = threading.Lock()
 auto.list_workflows = lambda limit=200: []

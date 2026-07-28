@@ -176,7 +176,7 @@ function AgentRow({ profile, models, providers, routing, busy, onSave, onProbe, 
     } finally { setLocalBusy(null) }
   }
   return (
-    <motion.section layout className={`overflow-visible rounded-md border transition-colors ${open ? 'border-accent/35 bg-surface/75 shadow-[0_18px_50px_rgb(0_0_0/0.12)]' : profile.enabled ? 'border-border/70 bg-surface/35 hover:border-border hover:bg-surface/60' : 'border-border/50 bg-surface/20 hover:border-border/70'}`}>
+    <motion.section layout className={`relative overflow-visible rounded-md border transition-colors ${open ? 'z-40 border-accent/35 bg-surface/75 shadow-[0_18px_50px_rgb(0_0_0/0.12)]' : profile.enabled ? 'z-0 border-border/70 bg-surface/35 hover:border-border hover:bg-surface/60' : 'z-0 border-border/50 bg-surface/20 hover:border-border/70'}`}>
       <div className="flex min-h-16 w-full items-stretch">
         <button type="button" onClick={() => setOpen(value => !value)} className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-3 px-3 text-left sm:grid-cols-[auto_minmax(150px,1fr)_120px_minmax(190px,1fr)] sm:px-4">
           <span className="flex h-9 w-9 items-center justify-center rounded-md border border-border/70 bg-background text-xs font-semibold text-text">{avatarText(profile)}</span>
@@ -205,7 +205,7 @@ function AgentRow({ profile, models, providers, routing, busy, onSave, onProbe, 
       </div>
 
       <AnimatePresence initial={false}>
-        {open && <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18 }} className="overflow-hidden">
+        {open && <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18 }} className="overflow-visible">
           <div className="border-t border-border/60 px-4 py-5 sm:px-5">
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)]">
               <div className="space-y-5">
