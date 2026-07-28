@@ -18,42 +18,68 @@ from core import integrations as _intg
 TestFn = Callable[[], "tuple[bool, str]"]
 
 
+def _reason(exc: BaseException, fallback: str) -> str:
+    """Report why a connection test failed instead of guessing on the owner's behalf.
+
+    `except Exception: return "check your connection"` is only true for one of the failures
+    it catches. A GitHub App whose installation id points at nothing answers HTTP 404, a
+    revoked key answers 401, a repository outside the policy allowlist never leaves the
+    process at all -- and every one of those was reported as a network problem, which sends
+    the owner to check their wifi while the actual cause sits in the exception being
+    discarded. The connectors raise curated messages; the value is in showing them.
+    """
+    detail = str(exc).strip()
+    if not detail:
+        return fallback
+    return f"{fallback.rstrip('.')} — {type(exc).__name__}: {detail}"[:400]
+
+
 # ── live tests (read current os.environ) ────────────────────────────────
 def _test_github() -> tuple[bool, str]:
+    app_fields = ("GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_PRIVATE_KEY")
     try:
-        if all(os.getenv(name) for name in ("GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_PRIVATE_KEY")):
+        if all(os.getenv(name) for name in app_fields):
             from core.coding_policy import CodingPolicy
             from core.github_coding import GitHubCodingService
             ok = GitHubCodingService(CodingPolicy.load()).test()
-            return (True, "GitHub App installation verified.") if ok else (False, "GitHub App verification failed.")
+            return (True, "GitHub App installation verified.") if ok else (
+                False, "GitHub App verification failed — the installation returned no token.")
+        missing = [name for name in app_fields if not os.getenv(name)]
         ok = _intg.GitHubIntegration().test()
-        return (True, "GitHub token valid.") if ok else (False, "GitHub rejected the token — check it hasn't expired and has repo scope.")
-    except Exception:
-        return False, "Could not reach GitHub — check your connection."
+        if not ok:
+            return False, "GitHub rejected the token — check it hasn't expired and has repo scope."
+        if missing and len(missing) < len(app_fields):
+            # Partly-filled App config silently falls back to testing the token, which passes
+            # and reads as success while Developer push/PR stays unconfigured.
+            return True, ("GitHub token valid. Coding App not tested — still missing: "
+                          + ", ".join(missing))
+        return True, "GitHub token valid."
+    except Exception as exc:
+        return False, _reason(exc, "Could not reach GitHub.")
 
 
 def _test_notion() -> tuple[bool, str]:
     try:
         ok = _intg.NotionIntegration().test()
         return (True, "Notion key valid.") if ok else (False, "Notion rejected the key — make sure the integration is shared with your workspace.")
-    except Exception:
-        return False, "Could not reach Notion — check your connection."
+    except Exception as exc:
+        return False, _reason(exc, "Could not reach Notion.")
 
 
 def _test_vercel() -> tuple[bool, str]:
     try:
         ok = _intg.VercelIntegration().test()
         return (True, "Vercel token valid.") if ok else (False, "Vercel rejected the token — create one at vercel.com/account/tokens.")
-    except Exception:
-        return False, "Could not reach Vercel — check your connection."
+    except Exception as exc:
+        return False, _reason(exc, "Could not reach Vercel.")
 
 
 def _test_supabase() -> tuple[bool, str]:
     try:
         ok = _intg.SupabaseIntegration().test()
         return (True, "Supabase reachable.") if ok else (False, "Could not reach the Supabase URL with that anon key — check both values.")
-    except Exception:
-        return False, "Could not reach Supabase — check the URL and key."
+    except Exception as exc:
+        return False, _reason(exc, "Could not reach Supabase — check the URL and key.")
 
 
 def _test_llm() -> tuple[bool, str]:
@@ -64,16 +90,16 @@ def _test_llm() -> tuple[bool, str]:
             r = requests.get("https://api.anthropic.com/v1/models",
                              headers={"x-api-key": ak, "anthropic-version": "2023-06-01"}, timeout=12)
             return (True, "Anthropic key valid.") if r.status_code == 200 else (False, f"Anthropic rejected the key (HTTP {r.status_code}).")
-        except Exception:
-            return False, "Could not reach Anthropic — check your connection."
+        except Exception as exc:
+            return False, _reason(exc, "Could not reach Anthropic.")
     ork = os.getenv("OPENROUTER_API_KEY")
     if ork:
         try:
             r = requests.get("https://openrouter.ai/api/v1/auth/key",
                              headers={"Authorization": f"Bearer {ork}"}, timeout=12)
             return (True, "OpenRouter key valid.") if r.status_code == 200 else (False, f"OpenRouter rejected the key (HTTP {r.status_code}).")
-        except Exception:
-            return False, "Could not reach OpenRouter — check your connection."
+        except Exception as exc:
+            return False, _reason(exc, "Could not reach OpenRouter.")
     return False, "Provide an Anthropic or OpenRouter API key."
 
 
@@ -148,8 +174,8 @@ def _test_codex() -> tuple[bool, str]:
         if r.status_code == 404 and not use_api:
             return False, f"Model '{model}' not found on subscription endpoint — the chatgpt.com backend may have changed. Try using OPENAI_API_KEY instead."
         return False, f"Codex backend returned HTTP {r.status_code}."
-    except Exception:
-        return False, "Could not reach the Codex backend — check your connection."
+    except Exception as exc:
+        return False, _reason(exc, "Could not reach the Codex backend.")
 
 
 def _test_google() -> tuple[bool, str]:
@@ -163,8 +189,8 @@ def _test_google() -> tuple[bool, str]:
         if ok:
             return True, "Google Workspace connected — Drive, Gmail & Calendar ready."
         return False, "Token expired or revoked — try reconnecting."
-    except Exception:
-        return False, "Could not reach Google — check your connection."
+    except Exception as exc:
+        return False, _reason(exc, "Could not reach Google.")
 
 
 def _test_telegram() -> tuple[bool, str]:
@@ -178,8 +204,8 @@ def _test_telegram() -> tuple[bool, str]:
         if data.get("ok"):
             return True, f"Connected as @{data.get('result', {}).get('username', 'bot')}."
         return False, "Telegram rejected the token — double-check it from @BotFather."
-    except Exception:
-        return False, "Could not reach Telegram — check your connection."
+    except Exception as exc:
+        return False, _reason(exc, "Could not reach Telegram.")
 
 
 # ── registry ────────────────────────────────────────────────────────────
