@@ -719,3 +719,32 @@ themselves.
 **Owner action outstanding:** no default model is set. `available_models()` returns six
 `codex:*` ids from the enabled ChatGPT subscription provider; every other provider is disabled.
 Choosing one on the Models page unblocks review for every future run.
+
+**D19 — the Codex client spoke the wrong dialect to the subscription backend.** With a default
+model finally set, run 16 moved from `ModelRoutingNotConfigured` to `AuthenticationError`. The
+credentials were never the problem: the token was valid for another 92 hours and the ChatGPT
+account id was present.
+
+`CodexClient` targets two endpoints that share the Responses API but not its rules. The platform
+API accepts a non-streaming call with `max_output_tokens`. The ChatGPT subscription backend
+rejects all three defaults in sequence — `store=true` → *"Store must be set to false"*,
+non-streaming → *"Stream must be set to true"*, `max_output_tokens` → *"Unsupported parameter"*.
+Only the platform dialect was ever sent, so every in-process Codex call failed on a
+subscription, and the 400 surfaced as an authentication error.
+
+This is why implementer sprints kept succeeding while review could not start: the Codex **CLI**
+worker is a separate binary that builds its own requests and was never affected. Only the
+library client the reviewer uses carried the bug.
+
+`_request_kwargs` now shapes the request per backend and `complete`/`complete_stream` share it,
+so the two cannot diverge again. Verified live against the owner's subscription:
+`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.5`, and `gpt-5.4-mini` all complete and report usage.
+
+**One catalog caveat, not a bug we can fix here.** `codex:gpt-5.6` is offered by
+`available_models()` but the backend answers *"The 'gpt-5.6' model is not supported when using
+Codex with a ChatGPT account."* — it is a platform-API-only model. The owner had selected
+exactly that one as the default. `reviewer_model_problem` validates against the catalog, so it
+cannot catch this without a live call per preflight, which is not worth the cost. The error is
+at least legible now.
+
+**Owner action:** change the default model from `codex:gpt-5.6` to `codex:gpt-5.6-sol`.

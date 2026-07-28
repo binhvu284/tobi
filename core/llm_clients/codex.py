@@ -4,7 +4,7 @@ Verbatim move; behavior identical. Re-exported by core.model_router.
 """
 import os
 import time
-from typing import Optional  # noqa: F401 - used in signatures
+from typing import Any, Optional  # noqa: F401 - used in signatures
 
 from core.llm_clients.base import BaseLLMClient, _norm_finish
 class CodexClient(BaseLLMClient):
@@ -144,37 +144,69 @@ class CodexClient(BaseLLMClient):
                 items.append({"role": role, "content": [{"type": "input_text", "text": str(content)}]})
         return items
 
-    def complete(self, messages, system=None, max_tokens=2000) -> str:
-        t0 = time.time()
-        kwargs = {
-            "model": self.model,
-            "input": self._to_input(messages),
-            "max_output_tokens": max_tokens,
-        }
+    @property
+    def on_subscription(self) -> bool:
+        """True when talking to the ChatGPT backend rather than the platform API.
+
+        The two speak the same Responses API but do not accept the same request. The
+        subscription backend rejects `store=true`, rejects a non-streaming call, and rejects
+        `max_output_tokens` outright -- so a plain `responses.create` fails there with a 400
+        that reads like an auth or model problem. That is how acceptance review appeared as
+        `AuthenticationError` while the credentials were valid the whole time.
+        """
+        return "chatgpt.com" in (self.base_url or "")
+
+    def _request_kwargs(self, messages, system, max_tokens, *, stream: bool) -> dict:
+        kwargs: dict = {"model": self.model, "input": self._to_input(messages)}
+        if stream:
+            kwargs["stream"] = True
+        if self.on_subscription:
+            kwargs["store"] = False          # required; the default true is rejected
+            kwargs["stream"] = True          # required; non-streaming is rejected
+            # max_output_tokens is an unsupported parameter here, not merely ignored.
+        else:
+            kwargs["max_output_tokens"] = max_tokens
         if system:
             kwargs["instructions"] = system
-        r = self.client.responses.create(**kwargs)
+        return kwargs
+
+    def _consume(self, stream) -> tuple[str, Any, Any]:
+        """Accumulate a Responses stream into (text, usage, status)."""
+        text, usage, status = "", None, None
+        for event in stream:
+            kind = getattr(event, "type", "")
+            if kind == "response.output_text.delta":
+                text += getattr(event, "delta", "") or ""
+            elif kind in ("response.completed", "response.incomplete", "response.failed"):
+                response = getattr(event, "response", None)
+                usage = getattr(response, "usage", None)
+                status = getattr(response, "status", None)
+        return text, usage, status
+
+    def complete(self, messages, system=None, max_tokens=2000) -> str:
+        t0 = time.time()
+        kwargs = self._request_kwargs(messages, system, max_tokens, stream=False)
+        if kwargs.get("stream"):
+            text, usage, status = self._consume(self.client.responses.create(**kwargs))
+        else:
+            r = self.client.responses.create(**kwargs)
+            text = getattr(r, "output_text", "") or ""
+            usage, status = getattr(r, "usage", None), getattr(r, "status", None)
         try:
             self.last_usage = {
-                "prompt_tokens": getattr(r.usage, "input_tokens", 0),
-                "completion_tokens": getattr(r.usage, "output_tokens", 0),
+                "prompt_tokens": getattr(usage, "input_tokens", 0),
+                "completion_tokens": getattr(usage, "output_tokens", 0),
             }
         except Exception:
             self.last_usage = {}
-        self.last_finish_reason = _norm_finish(getattr(r, "status", None))
-        text = getattr(r, "output_text", "") or ""
+        self.last_finish_reason = _norm_finish(status)
         self._log_usage(t0, text)
         return text
 
     def complete_stream(self, messages, system=None, max_tokens=2000):
-        kwargs = {
-            "model": self.model,
-            "input": self._to_input(messages),
-            "max_output_tokens": max_tokens,
-            "stream": True,
-        }
-        if system:
-            kwargs["instructions"] = system
+        # Same divergence as `complete`: the subscription backend rejects both `store=true`
+        # and `max_output_tokens`, so streaming was equally unusable there.
+        kwargs = self._request_kwargs(messages, system, max_tokens, stream=True)
         self.last_finish_reason = None
         self.last_usage = {}
         t0 = time.time(); acc = ""
