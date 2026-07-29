@@ -71,6 +71,7 @@ def _policy(root: Path) -> CodingPolicy:
     data["repository"]["allowed_repository"] = ""
     data["repository"]["allowed_remote_suffix"] = ""
     data["commands"]["mandatory_checks"] = [["python", "tests/test_coding_agent.py"]]
+    data["workers"]["qualified_implementer_adapters"] = ["native", "codex", "opencode"]
     data["capabilities"] = {
         **data["capabilities"],
         "github": False,

@@ -105,6 +105,7 @@
     "order": ["llm", "hermes"],
     "allow_external_cli": false,
     "allowed_adapters": ["native", "codex", "opencode"],
+    "qualified_implementer_adapters": ["codex"],
     "llm_tool_steps": 40,
     "max_file_bytes": 250000,
     "max_tool_output_bytes": 100000

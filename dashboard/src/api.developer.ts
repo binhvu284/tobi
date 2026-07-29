@@ -76,6 +76,11 @@ export type DeveloperWorkerProfile = {
   model: string; auth_mode: 'inherited' | 'native_login' | 'vault_env'; credential_env: string
   reviewer_profile: string; enabled: boolean; config: Record<string, unknown>
   health_status: string; health_detail?: string | null; last_probed_at?: string | null
+  qualification?: {
+    status: 'qualified' | 'future' | 'reviewer'
+    configuration_locked: boolean
+    detail: string
+  }
   runner_mode?: 'local' | 'service'
   runner?: { status: string; detail: string; nodes?: Array<Record<string, unknown>> } | null
 }

@@ -171,6 +171,7 @@ def _preflight(criteria: list[str], *, create: str | None = None,
     data["repository"]["allowed_repository"] = ""
     data["repository"]["allowed_remote_suffix"] = ""
     data["commands"]["mandatory_checks"] = [["python", "-m", "compileall", "-q", "core"]]
+    data["workers"]["qualified_implementer_adapters"] = ["native", "codex", "opencode"]
     # Pinned: this suite is about criteria evidence, not delivery. Preflight blocks an enabled
     # github capability with no Coding App, which would fail these for an unrelated reason.
     data["capabilities"] = {**data["capabilities"],

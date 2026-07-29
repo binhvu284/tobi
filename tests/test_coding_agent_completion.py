@@ -28,7 +28,12 @@ class _Worker:
         return {
             "slug": slug,
             "name": slug,
-            "adapter": "model_review" if slug == "reviewer-default" else "native",
+            "adapter": (
+                "model_review" if slug == "reviewer-default"
+                else "opencode" if slug == "opencode-glm"
+                else "codex" if slug == "codex-chatgpt"
+                else "native"
+            ),
             "model": "test-model",
             "health_status": "ready",
             "health_detail": "available",
@@ -36,7 +41,10 @@ class _Worker:
         }
 
 
-def _policy(root: Path) -> CodingPolicy:
+def _policy(
+    root: Path,
+    qualified_adapters: list[str] | None = None,
+) -> CodingPolicy:
     source = Path(__file__).resolve().parents[1] / "config" / "coding_policy.v1.json"
     data = json.loads(source.read_text(encoding="utf-8"))
     data["repository"]["allowed_repository"] = ""
@@ -46,6 +54,9 @@ def _policy(root: Path) -> CodingPolicy:
     # owner enables a capability. Preflight blocks an enabled github with no Coding App.
     data["capabilities"] = {**data["capabilities"],
                             "github": False, "merge": False, "deploy": False}
+    data["workers"]["qualified_implementer_adapters"] = (
+        qualified_adapters or ["native", "codex", "opencode"]
+    )
     return CodingPolicy(data, repo_root=root)
 
 
@@ -84,6 +95,31 @@ def test_preflight_blocks_disabled_agent_before_run_creation(tmp_path: Path, mon
     assert "agent_disabled" in {item["code"] for item in report["blockers"]}
     assert store.list_sessions(10) == []
     assert store.get_readiness(int(report["readiness_id"]))["status"] == "blocked"
+
+
+def test_preflight_locks_future_agent_and_offers_codex(tmp_path: Path, monkeypatch) -> None:
+    store = DevelopmentStore(tmp_path / "developer.db")
+    task = _task(store, tmp_path)
+    with store.connect() as conn:
+        conn.execute(
+            "UPDATE development_tasks SET worker_profile_slug='opencode-glm' WHERE id=?",
+            (int(task["id"]),),
+        )
+        conn.commit()
+    monkeypatch.setattr(coding_completion, "REPO_ROOT", tmp_path)
+    service = CodingCompletionService(
+        store=store,
+        policy=_policy(tmp_path, ["codex"]),
+        worker=_Worker(),
+        assessor=_Assessor(),
+    )
+
+    report = service.preflight(int(task["queue_id"]), active_probe=False)
+
+    assert not report["ready"]
+    assert "agent_future_locked" in {item["code"] for item in report["blockers"]}
+    assert [item["slug"] for item in report["alternatives"]] == ["codex-chatgpt"]
+    assert store.list_sessions(10) == []
 
 
 def test_goal_qualification_requires_criterion_level_evidence(tmp_path: Path, monkeypatch) -> None:

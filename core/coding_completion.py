@@ -216,6 +216,8 @@ class CodingCompletionService:
         for row in profiles:
             if not bool(row.get("enabled")) or row.get("adapter") == "model_review" or row.get("slug") == selected:
                 continue
+            if row.get("adapter") not in self.policy.qualified_implementer_adapters():
+                continue
             probe = self.worker.probe(str(row["slug"]), active=False)
             if probe.get("health_status") == "ready":
                 alternatives.append({
@@ -227,6 +229,15 @@ class CodingCompletionService:
         if not selected_row or not bool(selected_row.get("enabled")) or selected_row.get("adapter") == "model_review":
             blockers.append(ReadinessIssue(
                 "agent_disabled", f"Selected agent {selected} is disabled or not an implementer.", "selected_agent"
+            ))
+        elif selected_row.get("adapter") not in self.policy.qualified_implementer_adapters():
+            blockers.append(ReadinessIssue(
+                "agent_future_locked",
+                (
+                    f"{selected_row.get('name') or selected} is reserved for future development. "
+                    "Select the qualified Codex agent for this run."
+                ),
+                "selected_agent",
             ))
         else:
             selected_health = self.worker.probe(selected, active=active_probe)
@@ -274,6 +285,13 @@ class CodingCompletionService:
             if not row or not bool(row.get("enabled")) or row.get("adapter") == "model_review":
                 warnings.append(ReadinessIssue(
                     "fallback_unavailable", f"Fallback agent {slug} is disabled or unavailable.", "fallback_agents"
+                ))
+                continue
+            if row.get("adapter") not in self.policy.qualified_implementer_adapters():
+                warnings.append(ReadinessIssue(
+                    "fallback_future_locked",
+                    f"Fallback agent {slug} is reserved for future development.",
+                    "fallback_agents",
                 ))
                 continue
             health = self.worker.probe(slug, active=False)

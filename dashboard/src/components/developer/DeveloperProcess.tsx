@@ -296,13 +296,13 @@ function AgentIdentity({ workflow, workers }: { workflow: DeveloperWorkflow; wor
   )
 }
 
-function ProcessActions({ workflow, busy, onCommand }: {
-  workflow: DeveloperWorkflow; busy: boolean; onCommand: (command: WorkflowCommand) => void
+function ProcessActions({ workflow, workerLocked, busy, onCommand }: {
+  workflow: DeveloperWorkflow; workerLocked: boolean; busy: boolean; onCommand: (command: WorkflowCommand) => void
 }) {
   const tone = processTone(workflow)
   const active = !TERMINAL.has(workflow.state)
   const retryBlocked = ['repeated_failure', 'validation_infrastructure_failed'].includes(workflow.error_code || '')
-  const resumable = ['paused', 'blocked', 'failed'].includes(workflow.state) && !retryBlocked
+  const resumable = ['paused', 'blocked', 'failed'].includes(workflow.state) && !retryBlocked && !workerLocked
   const awaitingOwnerMerge = workflow.state === 'awaiting_owner_merge'
   const drifted = workflow.error_code === 'main_drift'
   return (
@@ -441,6 +441,10 @@ export default function DeveloperProcess({
   const activity = latest ? eventLine(latest) : 'Waiting for the first runtime event.'
   const checkpoint = latestCheckpoint(workflow)
   const queueItem = queue.find(item => item.queue_id === workflow.queue_id)
+  const selectedWorker = workers.find(
+    item => item.slug === (workflow.worker_session?.profile_slug || workflow.worker_profile_slug),
+  )
+  const workerLocked = selectedWorker?.qualification?.configuration_locked === true
   const criteria = safeJsonList(queueItem?.acceptance_criteria_json)
   const sprintCriteria = safeJsonList(workflow.sprint?.acceptance_criteria_json)
   const planCriteria = sprintCriteria.length ? sprintCriteria : criteria
@@ -480,7 +484,7 @@ export default function DeveloperProcess({
             <AgentIdentity workflow={workflow} workers={workers} />
             <span className="hidden h-8 w-px bg-border lg:block" />
             <AutoQueueToggle enabled={autoQueue} busy={autoQueueBusy} onChange={onAutoQueue} />
-            <ProcessActions workflow={workflow} busy={busy} onCommand={onCommand} />
+            <ProcessActions workflow={workflow} workerLocked={workerLocked} busy={busy} onCommand={onCommand} />
           </div>
         </div>
         <div className="grid border-t border-border/70 md:grid-cols-[minmax(0,1fr)_280px]">
@@ -494,6 +498,7 @@ export default function DeveloperProcess({
           </div>
         </div>
         {currentTone === 'crashed' && <div className="flex items-start gap-2 border-t border-danger/25 bg-danger/5 px-4 py-3 text-[10px] leading-5 text-danger sm:px-5"><AlertTriangle size={13} className="mt-0.5 shrink-0" /><div><span className="font-semibold">{titleCase(workflow.error_code || 'workflow_failed')}:</span> <span className="text-muted">{workflow.blocker || streamIssue || 'Open Live activities for the latest failure evidence.'}</span></div></div>}
+        {workerLocked && !TERMINAL.has(workflow.state) && <div className="flex items-start gap-2 border-t border-warning/25 bg-warning/5 px-4 py-3 text-[10px] leading-5 text-warning sm:px-5"><ShieldAlert size={13} className="mt-0.5 shrink-0" /><div><span className="font-semibold">Agent reserved for future development:</span> <span className="text-muted">Cancel this historical run, then start a fresh Queue item with Codex. Retry is disabled to avoid repeating this adapter failure.</span></div></div>}
         {currentTone === 'local' && <div className="flex items-start gap-2 border-t border-success/25 bg-success/5 px-4 py-3 text-[10px] leading-5 text-success sm:px-5"><BadgeCheck size={13} className="mt-0.5 shrink-0" /><div><span className="font-semibold">Finished locally:</span> <span className="text-muted">{workflow.blocker || 'Every stage the reviewed policy permits has passed. The branch is committed but nothing has left this machine.'}</span></div></div>}
         {currentTone === 'merged' && <div className="flex items-start gap-2 border-t border-success/25 bg-success/5 px-4 py-3 text-[10px] leading-5 text-success sm:px-5"><BadgeCheck size={13} className="mt-0.5 shrink-0" /><div><span className="font-semibold">Merged:</span> <span className="text-muted">{workflow.blocker || 'Deployment was skipped by reviewed policy.'}</span></div></div>}
         {!TERMINAL.has(workflow.state) && !workflow.delivery?.reachable && <div className="border-t border-border/70 px-4 py-2 text-[9px] leading-4 text-muted sm:px-5">Progress counts the {effectiveGates.size} gates this run can satisfy. It reaches 100% once there is a result you can open.</div>}

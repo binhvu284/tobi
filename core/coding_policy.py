@@ -73,6 +73,34 @@ class CodingPolicy:
     def feature_enabled(self, name: str) -> bool:
         return bool(self.data.get("capabilities", {}).get(name, False))
 
+    def qualified_implementer_adapters(self) -> set[str]:
+        configured = self.data.get("workers", {}).get(
+            "qualified_implementer_adapters", ["native", "codex", "opencode"]
+        )
+        return {str(value) for value in configured}
+
+    def implementer_qualification(self, adapter: str) -> dict[str, Any]:
+        if adapter == "model_review":
+            return {
+                "status": "reviewer",
+                "configuration_locked": False,
+                "detail": "Independent review remains required for qualified coding runs.",
+            }
+        if adapter in self.qualified_implementer_adapters():
+            return {
+                "status": "qualified",
+                "configuration_locked": False,
+                "detail": "Qualified for the current Coding Agent V2 rollout.",
+            }
+        return {
+            "status": "future",
+            "configuration_locked": True,
+            "detail": (
+                "Reserved for future development. Codex is the only implementation "
+                "agent qualified for the current rollout."
+            ),
+        }
+
     def limit(self, name: str, default: int) -> int:
         return int(self.data.get("limits", {}).get(name, default))
 

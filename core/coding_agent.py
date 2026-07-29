@@ -524,9 +524,13 @@ class CodingAgent:
                 "health_status": row.get("health_status") or "unknown",
                 "health_detail": row.get("health_detail"),
                 "last_probed_at": row.get("last_probed_at"),
+                "qualification": self.policy.implementer_qualification(profile.adapter),
             }}
             if probe:
-                item = self.worker.probe(profile.slug)
+                item = {
+                    **self.worker.probe(profile.slug),
+                    "qualification": self.policy.implementer_qualification(profile.adapter),
+                }
             profiles.append(item)
         return profiles
 
@@ -537,6 +541,10 @@ class CodingAgent:
         row = self.store.get_worker_profile(profile_slug)
         if not row or not bool(row["enabled"]) or row["adapter"] == "model_review":
             raise ValueError("Selected coding worker profile is unavailable.")
+        if row["adapter"] not in self.policy.qualified_implementer_adapters():
+            raise ValueError(
+                "Selected coding worker is reserved for future development. Use Codex."
+            )
         self._checkpoint(
             session_id,
             status="worker_switch",
