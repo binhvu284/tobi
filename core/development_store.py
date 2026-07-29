@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS coding_sessions (
     progress INTEGER NOT NULL DEFAULT 0,
     blocker TEXT,
     policy_hash TEXT NOT NULL,
+    validation_cycles INTEGER NOT NULL DEFAULT 0,
     review_cycles INTEGER NOT NULL DEFAULT 0,
     error_code TEXT,
     goal_id INTEGER,
@@ -642,6 +643,30 @@ class DevelopmentStore:
                     "INSERT INTO developer_schema_migrations(version,applied_at) VALUES (8,?)",
                     (now,),
                 )
+            migration_9 = conn.execute(
+                "SELECT 1 FROM developer_schema_migrations WHERE version=9"
+            ).fetchone()
+            if not migration_9:
+                session_columns = {
+                    str(row[1]) for row in conn.execute("PRAGMA table_info(coding_sessions)")
+                }
+                if "validation_cycles" not in session_columns:
+                    conn.execute(
+                        "ALTER TABLE coding_sessions ADD COLUMN validation_cycles INTEGER NOT NULL DEFAULT 0"
+                    )
+                # Earlier runtimes shared one counter between validation and review, and old
+                # reviewer attempts did not receive valid new-file evidence. Give unfinished
+                # runs a clean budget under the corrected contracts.
+                conn.execute(
+                    """UPDATE coding_sessions
+                       SET validation_cycles=0,
+                           review_cycles=0
+                       WHERE completed_at IS NULL"""
+                )
+                conn.execute(
+                    "INSERT INTO developer_schema_migrations(version,applied_at) VALUES (9,?)",
+                    (now,),
+                )
             conn.commit()
         finally:
             conn.close()
@@ -879,7 +904,7 @@ class DevelopmentStore:
     def update_session(self, session_id: int, **fields: Any) -> dict[str, Any]:
         allowed = {
             "state", "stage", "branch", "worktree", "base_sha", "head_sha", "worker_pid",
-            "progress", "blocker", "review_cycles", "error_code", "completed_at",
+            "progress", "blocker", "validation_cycles", "review_cycles", "error_code", "completed_at",
             "lease_owner", "lease_expires_at",
             "cancel_requested",
             "worker_profile_slug", "reviewer_profile_slug", "active_worker_session_id",

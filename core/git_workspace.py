@@ -1,6 +1,8 @@
 """Policy-constrained Git worktree and branch operations."""
 from __future__ import annotations
 
+import difflib
+import hashlib
 import os
 import re
 import shutil
@@ -265,6 +267,46 @@ class GitWorkspaceManager:
             "head_sha": self.git("rev-parse", "HEAD", cwd=root),
         }
 
+    def changed_file_evidence(
+        self,
+        worktree: Path | str,
+        files: Sequence[str] | None = None,
+        *,
+        max_preview_bytes: int = 8_000,
+        max_total_preview_bytes: int = 32_000,
+    ) -> list[dict[str, Any]]:
+        """Return bounded post-change evidence for independent acceptance review."""
+        root = self._assert_worktree(worktree)
+        remaining = max(0, max_total_preview_bytes)
+        evidence: list[dict[str, Any]] = []
+        for relative in files or self.changed_files(root):
+            normalized = str(relative).replace("\\", "/").lstrip("/")
+            path = (root / normalized).resolve()
+            if not path.is_relative_to(root):
+                continue
+            item: dict[str, Any] = {"path": normalized, "exists": path.exists()}
+            if not path.exists():
+                evidence.append(item)
+                continue
+            if not path.is_file():
+                item["kind"] = "directory"
+                evidence.append(item)
+                continue
+            data = path.read_bytes()
+            item.update({
+                "kind": "file",
+                "size_bytes": len(data),
+                "sha256": hashlib.sha256(data).hexdigest(),
+            })
+            preview_limit = min(max_preview_bytes, remaining)
+            if preview_limit > 0 and b"\0" not in data:
+                preview_bytes = data[:preview_limit]
+                item["text_preview"] = preview_bytes.decode("utf-8", errors="replace")
+                item["preview_truncated"] = len(data) > len(preview_bytes)
+                remaining -= len(preview_bytes)
+            evidence.append(item)
+        return evidence
+
     def diff_patch(self, worktree: Path | str, *, max_bytes: int = 100_000) -> str:
         root = self._assert_worktree(worktree)
         patch = self.git("diff", "--no-ext-diff", "--binary", cwd=root)
@@ -278,7 +320,21 @@ class GitWorkspaceManager:
             if not path.is_relative_to(root) or not path.is_file():
                 continue
             data = path.read_bytes()[:remaining]
-            block = f"\n--- /dev/null\n+++ b/{relative}\n" + data.decode("utf-8", errors="replace")
+            header = f"\ndiff --git a/{relative} b/{relative}\nnew file mode 100644\n"
+            if b"\0" in data:
+                block = header + f"Binary files /dev/null and b/{relative} differ\n"
+            else:
+                text = data.decode("utf-8", errors="replace")
+                body = "".join(difflib.unified_diff(
+                    [],
+                    text.splitlines(keepends=True),
+                    fromfile="/dev/null",
+                    tofile=f"b/{relative}",
+                    lineterm="\n",
+                ))
+                if text and not text.endswith(("\n", "\r")):
+                    body += "\n\\ No newline at end of file\n"
+                block = header + body
             additions.append(block)
             remaining -= len(block.encode("utf-8", errors="replace"))
         patch += "".join(additions)

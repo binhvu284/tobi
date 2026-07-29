@@ -1227,8 +1227,8 @@ class CodingAgent:
             if statuses.get("validate") != "completed":
                 checks = self._run_checks(session_id, Path(session["worktree"]))
                 if any(not check["ok"] for check in checks):
-                    cycles = int(session.get("review_cycles") or 0) + 1
-                    self.store.update_session(session_id, review_cycles=cycles)
+                    cycles = int(session.get("validation_cycles") or 0) + 1
+                    self.store.update_session(session_id, validation_cycles=cycles)
                     if cycles > self.policy.limit("max_review_cycles", 2):
                         return self._block(session_id, "validate",
                                            "Validation failed after the maximum correction cycles. Owner action is required.",
@@ -1278,6 +1278,9 @@ class CodingAgent:
                         changed_files=diff["files"],
                         model=str(reviewer_profile.get("model") or "") or None,
                         quality_report=quality,
+                        file_evidence=self.git.changed_file_evidence(
+                            session["worktree"], diff["files"]
+                        ),
                     )
                 except CodingReviewError as exc:
                     return self._pause(session_id, "review", str(exc), "review_unavailable")
@@ -1287,10 +1290,15 @@ class CodingAgent:
                     self.store.update_session(session_id, review_cycles=cycles)
                     self.store.update_stage(session_id, "review", status="failed", result_json=review,
                                             completed_at=utc_now())
+                    reason = review["unmet"][0] if review.get("unmet") else review.get("summary")
+                    blocker = "Acceptance review needs more evidence."
+                    if reason:
+                        blocker += f" {str(reason)[:700]}"
                     if cycles >= self.policy.limit("max_review_cycles", 2):
-                        return self._block(session_id, "review", "Acceptance review failed after the correction limit.",
-                                           "review_cycles_exhausted")
-                    return self._pause(session_id, "review", "Acceptance review found unmet criteria. Retry for a correction pass.",
+                        return self._block(
+                            session_id, "review", blocker, "review_cycles_exhausted"
+                        )
+                    return self._pause(session_id, "review", blocker,
                                        "review_failed")
                 self._stage_complete(session_id, "review", {**diff, **review})
             if statuses.get("commit") != "completed":
@@ -1451,6 +1459,7 @@ class CodingAgent:
             current_sprint_id=int(next_sprint["id"]),
             criteria_snapshot_json=json.dumps(criteria, ensure_ascii=True, separators=(",", ":")),
             sprint_budget_json=json.dumps(budget, ensure_ascii=True, separators=(",", ":")),
+            validation_cycles=0,
             review_cycles=0,
             state="approved",
             stage="code",

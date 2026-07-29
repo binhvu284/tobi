@@ -85,6 +85,10 @@ ok(
     versions == list(range(1, max(versions, default=0) + 1)),
     str(versions),
 )
+conn = store.connect()
+session_columns = {row[1] for row in conn.execute("PRAGMA table_info(coding_sessions)")}
+conn.close()
+ok("validation and review correction counters are separate", "validation_cycles" in session_columns)
 
 # Policy boundaries.
 ok("policy hash is stable", policy.hash == CodingPolicy(policy_data, repo_root=repo).hash)

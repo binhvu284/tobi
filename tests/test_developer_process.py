@@ -4,11 +4,14 @@ from __future__ import annotations
 import tempfile
 import threading
 import subprocess
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
 from core import owner_flags
+from core import coding_review as coding_review_module
 from core.coding_agent import CodingAgent
+from core.coding_review import CodingReviewer
 from core.development_store import DevelopmentStore
 from core.git_workspace import GitWorkspaceManager
 
@@ -131,5 +134,63 @@ subprocess.run(["git", "commit", "-m", "initial"], cwd=repo, check=True, capture
 GitWorkspaceManager(GitPolicy()).restore_paths(repo, ["tracked.txt", "untracked.txt"])
 ok("rejected tracked paths restore their committed content", (repo / "tracked.txt").read_text(encoding="utf-8") == "original\n")
 ok("rejected untracked paths are removed from the isolated worktree", not (repo / "untracked.txt").exists())
+
+marker = repo / "fallback_recovery_test.txt"
+marker.write_text("FALLBACK_TEST=passed\n", encoding="utf-8")
+manager = GitWorkspaceManager(GitPolicy())
+patch = manager.diff_patch(repo)
+ok("new files use a valid unified diff hunk", all(part in patch for part in (
+    "diff --git a/fallback_recovery_test.txt b/fallback_recovery_test.txt",
+    "--- /dev/null",
+    "+++ b/fallback_recovery_test.txt",
+    "@@ -0,0 +1 @@",
+    "+FALLBACK_TEST=passed",
+)))
+file_evidence = manager.changed_file_evidence(repo, ["fallback_recovery_test.txt"])
+ok("review evidence includes resulting file content", bool(
+    file_evidence
+    and file_evidence[0]["exists"]
+    and file_evidence[0]["text_preview"].strip() == "FALLBACK_TEST=passed"
+    and len(file_evidence[0]["sha256"]) == 64
+))
+
+captured_review: dict = {}
+
+
+class FakeReviewClient:
+    def complete(self, messages, **_kwargs):
+        captured_review.update(json.loads(messages[0]["content"]))
+        return json.dumps({
+            "qualified": True,
+            "score": 1.0,
+            "unmet": [],
+            "risks": [],
+            "summary": "Criterion is evidenced.",
+        })
+
+
+from core import model_router  # noqa: E402
+original_review_problem = coding_review_module.reviewer_model_problem
+original_get_llm = model_router.get_llm
+coding_review_module.reviewer_model_problem = lambda _model=None: ""
+model_router.get_llm = lambda *_args, **_kwargs: FakeReviewClient()
+try:
+    review = CodingReviewer().review(
+        objective="Create a fallback marker.",
+        acceptance_criteria=["The file contains FALLBACK_TEST=passed"],
+        checks=[{"argv": ["test"], "ok": True, "exit_code": 0}],
+        patch=patch,
+        changed_files=["fallback_recovery_test.txt"],
+        quality_report={"qualified": True},
+        file_evidence=file_evidence,
+    )
+finally:
+    coding_review_module.reviewer_model_problem = original_review_problem
+    model_router.get_llm = original_get_llm
+ok("independent reviewer receives post-change file evidence", bool(
+    review["qualified"]
+    and captured_review["changed_file_evidence"][0]["text_preview"].strip()
+        == "FALLBACK_TEST=passed"
+))
 
 print(f"{PASS} Developer Process checks passed")
