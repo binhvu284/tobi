@@ -69,6 +69,7 @@ def reviewer_model_auth_problem(model: str | None = None) -> str:
     problem = reviewer_model_problem(model)
     if problem:
         return problem
+    selected = str(model or "configured Models route")
     try:
         from core.model_router import (
             get_llm,
@@ -102,11 +103,12 @@ def reviewer_model_auth_problem(model: str | None = None) -> str:
         )
     except Exception as exc:
         return (
-            "The acceptance reviewer could not authenticate during preflight "
-            f"({type(exc).__name__}). Re-authorize its provider before starting."
+            f"Reviewer model {selected} failed its readiness call "
+            f"({type(exc).__name__}). Choose another Models-page model or "
+            "re-authorize this provider before starting."
         )
     if not str(response or "").strip():
-        return "The acceptance reviewer returned no readiness response."
+        return f"Reviewer model {selected} returned no readiness response."
     return ""
 
 

@@ -9,7 +9,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   Archive, ArrowUpFromLine, CheckCircle2, ChevronRight, FileText, GripVertical,
   Loader2, Maximize2, Minimize2, Play, Plus, RotateCcw, Search, Sparkles, Target, TestTube2,
-  Trash2, Upload, X,
+  ShieldCheck, Trash2, Upload, X,
 } from 'lucide-react'
 import { createDeveloperQueueItem, getDeveloperQueue, getDeveloperQueuePlan, preflightDeveloperQueueItem, removeDeveloperQueueItem, restoreDeveloperQueueItem, setDeveloperQueueOrder, type DeveloperGoal, type DeveloperQueueItem, type DeveloperQueuePlan, type DeveloperQueueState, type DeveloperReadiness, type DeveloperWorkflow } from '../../api.developer'
 import { TERMINAL_STATES } from '../../developer.states'
@@ -69,7 +69,7 @@ function ItemCard({ item, badge, draggable, busy, prominent, onDragStart, onDrag
   )
 }
 
-export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBusy, acceptanceMode, goals, createForGoalId, createRequestId, onAutoQueue, onStart, onPrepare, onOpenProcess, onState }: {
+export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBusy, acceptanceMode, goals, createForGoalId, createRequestId, onAutoQueue, onStart, onPrepare, onOpenProcess, onConfigureReviewer, onState }: {
   state: DeveloperQueueState
   active: DeveloperWorkflow | null
   busy: boolean
@@ -83,6 +83,7 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
   onStart: (queueId: number, readinessId: number) => void
   onPrepare: (queueId: number, readinessId: number) => void
   onOpenProcess: () => void
+  onConfigureReviewer: () => void
   onState: (next: DeveloperQueueState) => void
 }) {
   const { toast } = useToast()
@@ -343,6 +344,10 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
       <ReadinessModal item={preflightFor} report={readiness} busy={preflightBusy}
         allowPrepare={acceptanceMode}
         onClose={() => { setPreflightFor(null); setReadiness(null) }}
+        onConfigureReviewer={() => {
+          setPreflightFor(null); setReadiness(null)
+          onConfigureReviewer()
+        }}
         onRefresh={options => preflightFor && reviewStart(preflightFor, options)}
         onPrepare={() => {
           if (!preflightFor || !readiness?.ready) return
@@ -554,10 +559,11 @@ function AddItemModal({ open, goals, initialGoalId, onClose, onSubmit }: {
 }
 
 // ── 6. Plan Detail modal ─────────────────────────────────────────────────────
-function ReadinessModal({ item, report, busy, allowPrepare, onClose, onRefresh, onPrepare, onStart }: {
+function ReadinessModal({ item, report, busy, allowPrepare, onClose, onConfigureReviewer, onRefresh, onPrepare, onStart }: {
   item: DeveloperQueueItem | null; report: DeveloperReadiness | null; busy: boolean
   allowPrepare: boolean
   onClose: () => void
+  onConfigureReviewer: () => void
   onRefresh: (options: { protected_paths_approved?: boolean; selected_agent?: string }) => void
   onPrepare: () => void
   onStart: () => void
@@ -571,6 +577,7 @@ function ReadinessModal({ item, report, busy, allowPrepare, onClose, onRefresh, 
           {!busy && report && <>
             <div className={`flex items-center gap-3 rounded-md border px-3 py-3 ${report.ready ? 'border-success/30 bg-success/5' : 'border-warning/30 bg-warning/5'}`}><span className={`flex h-8 w-8 items-center justify-center rounded-md ${report.ready ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>{report.ready ? <CheckCircle2 size={16} /> : <Target size={16} />}</span><div><div className="text-xs font-semibold text-text">{report.ready ? 'Ready to start one durable run' : `${report.blockers.length} blocker${report.blockers.length === 1 ? '' : 's'} must be resolved`}</div><div className="mt-0.5 text-[11px] text-muted">{report.selected_agent} · reviewer {report.reviewer}</div></div></div>
             {report.blockers.length > 0 && <div className="space-y-2">{report.blockers.map(issue => <div key={`${issue.code}-${issue.message}`} className="rounded-md border border-danger/25 bg-danger/5 px-3 py-2"><div className="text-[10px] font-semibold uppercase text-danger">{label(issue.code)}</div><div className="mt-1 text-xs leading-5 text-text">{issue.message}</div></div>)}</div>}
+            {report.blockers.some(issue => issue.code.startsWith('reviewer_')) && <button onClick={onConfigureReviewer} className="inline-flex h-8 items-center gap-2 rounded-md border border-accent/40 bg-accent/10 px-3 text-xs font-medium text-accent hover:bg-accent/15"><ShieldCheck size={13} /> Configure reviewer</button>}
             {report.blockers.some(issue => issue.code === 'protected_scope_approval') && <ActionButton onAction={() => onRefresh({ protected_paths_approved: true })} icon={<CheckCircle2 size={13} />} className="inline-flex h-8 items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 text-xs font-medium text-warning"> Acknowledge protected scope</ActionButton>}
             {report.alternatives.length > 0 && <div><div className="mb-2 text-[10px] font-semibold uppercase text-muted">Developer agent</div><div className="flex flex-wrap gap-2"><div className="rounded-md border border-accent/45 bg-accent/10 px-3 py-2 text-left"><div className="text-xs font-medium text-text">{label(report.selected_agent)}</div><div className="mt-0.5 text-[10px] text-accent">Selected</div></div>{report.alternatives.map(agent => <ActionButton key={agent.slug} onAction={() => onRefresh({ selected_agent: agent.slug })} className="rounded-md border border-border px-3 py-2 text-left hover:border-accent/40"><div className="text-xs font-medium text-text">{agent.name}</div><div className="mt-0.5 text-[10px] text-muted">{agent.adapter}{agent.model ? ` · ${agent.model}` : ''}</div></ActionButton>)}</div></div>}
             {report.warnings.length > 0 && <details><summary className="cursor-pointer text-xs text-warning">{report.warnings.length} warning{report.warnings.length === 1 ? '' : 's'}</summary><div className="mt-2 space-y-1">{report.warnings.map(issue => <p key={issue.code + issue.message} className="text-[11px] text-muted">{issue.message}</p>)}</div></details>}

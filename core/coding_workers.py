@@ -929,6 +929,15 @@ class CodingWorkerRouter:
             status, detail, selected_model = self._models_route(profile)
             if active and profile.adapter == "native" and status == "ready":
                 status, detail = self._active_model_probe(selected_model)
+            elif active and profile.adapter == "model_review" and status == "ready":
+                from core.coding_review import reviewer_model_auth_problem
+
+                problem = reviewer_model_auth_problem(profile.model or None)
+                if problem:
+                    status, detail = "needs_auth", problem
+                else:
+                    label = selected_model or "configured Models route"
+                    detail = f"Acceptance review handshake passed with {label}."
         elif profile.adapter == "codex":
             result = self.codex.probe(profile)
             status, detail = result["status"], result["detail"]

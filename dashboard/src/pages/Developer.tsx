@@ -367,7 +367,7 @@ export default function Developer() {
             {tab === 'work' && <div className="space-y-8"><DevelopmentGoals goals={goals} busy={busy} onCreate={createGoal} onCommand={goalCommand} onCreateItem={goalId => setQueueGoalDraft({ goalId, requestId: Date.now() })} /><DeveloperQueue state={queue} active={active} busy={busy} goals={goals} createForGoalId={queueGoalDraft?.goalId} createRequestId={queueGoalDraft?.requestId}
               autoQueue={autoQueuePending ?? overview?.process?.auto_queue ?? queue.auto_queue} autoQueueBusy={autoQueuePending !== null} acceptanceMode={Boolean(overview?.acceptance_mode)} onAutoQueue={setAutoQueue}
               onPrepare={(id, readinessId) => { void act(() => prepareDeveloperWorkflow(id, readinessId), `Queue #${id} prepared for acceptance testing`) }}
-              onStart={(id, readinessId) => { void act(() => startDeveloperWorkflow(id, readinessId), `Queue #${id} started`) }} onOpenProcess={() => setTab('loop')} onState={setQueue} /></div>}
+              onStart={(id, readinessId) => { void act(() => startDeveloperWorkflow(id, readinessId), `Queue #${id} started`) }} onOpenProcess={() => setTab('loop')} onConfigureReviewer={() => setTab('workers')} onState={setQueue} /></div>}
             {tab === 'workers' && <DeveloperAgents workers={workers} models={workerModels} providers={workerProviders} routing={modelRouting} busy={busy} onSave={saveWorker} onProbe={probeWorker} onLogin={loginWorker} onModels={loadWorkerModels} />}
             {/* History and System hold no data until the first load resolves. Rendering their
                 empty state during a refresh reads as "nothing here" rather than "not yet". */}

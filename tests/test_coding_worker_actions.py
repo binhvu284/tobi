@@ -128,6 +128,30 @@ class CodingWorkerActionTests(unittest.TestCase):
         self.assertEqual(status, "ready")
         self.assertIn("handshake passed", detail)
 
+    def test_active_reviewer_probe_checks_the_real_review_route(self) -> None:
+        router = CodingWorkerRouter.__new__(CodingWorkerRouter)
+        router.policy = FakePolicy()
+        router.store = None
+        router.runner_mode = "local"
+        router._profile = lambda _slug: WorkerProfile(
+            slug="reviewer-default",
+            name="Independent Reviewer",
+            adapter="model_review",
+            model="codex:gpt-5.6-sol",
+        )
+        with patch.object(
+            CodingWorkerRouter,
+            "_models_route",
+            return_value=("ready", "configured", "codex:gpt-5.6-sol"),
+        ), patch(
+            "core.coding_review.reviewer_model_auth_problem",
+            return_value="Reviewer model codex:gpt-5.6-sol failed its readiness call.",
+        ):
+            result = router.probe("reviewer-default", active=True)
+
+        self.assertEqual(result["health_status"], "needs_auth")
+        self.assertIn("codex:gpt-5.6-sol", result["health_detail"])
+
 
 class WorkerLaunchSizeTests(unittest.TestCase):
     """A resuming run must be able to start whatever its checkpoint contains.
