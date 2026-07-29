@@ -12,7 +12,7 @@ import threading
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(os.environ.get("TOBI_VALIDATION_ROOT") or Path(__file__).resolve().parents[1]).resolve()
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -80,7 +80,11 @@ ok("developer schema migration is recorded", migration[0] == 1)
 conn = store.connect()
 versions = [row[0] for row in conn.execute("SELECT version FROM developer_schema_migrations ORDER BY version")]
 conn.close()
-ok("production schema migrations are recorded", versions == [1, 2, 3, 4, 5, 6, 7, 8], str(versions))
+ok(
+    "production schema migrations are recorded",
+    versions == list(range(1, max(versions, default=0) + 1)),
+    str(versions),
+)
 
 # Policy boundaries.
 ok("policy hash is stable", policy.hash == CodingPolicy(policy_data, repo_root=repo).hash)

@@ -54,7 +54,7 @@ emoji_check.write_text(
 
 # --- the decode the agent performs -------------------------------------------------------
 source = (ROOT / "core" / "coding_agent.py").read_text(encoding="utf-8")
-run_checks = source[source.index("def _run_checks"):][:2600]
+run_checks = source[source.index("def _run_checks"):][:5000]
 ok("the check runner pins its decoding instead of trusting the console codepage",
    'encoding="utf-8"' in run_checks and 'errors="replace"' in run_checks, run_checks[:200])
 ok("a stream lost to a decode error cannot be concatenated blindly",
@@ -81,7 +81,7 @@ ok("its output survives decoding", completed.stdout is not None and "CHECKS PASS
 ok("concatenating the streams does not raise",
    isinstance((completed.stdout or "") + (completed.stderr or ""), str))
 
-# --- porcelain paths keep their first character ------------------------------------------
+# --- changed-file detection is content-authoritative --------------------------------------
 repo = sandbox / "repo"
 (repo / "core").mkdir(parents=True, exist_ok=True)
 
@@ -101,31 +101,19 @@ git("commit", "-qm", "base")
 # The state a worktree is actually in after an agent edits a tracked file: unstaged, status " M".
 (repo / "core" / "coding_agent.py").write_text("modified\n", encoding="utf-8")
 
-raw = git("status", "--porcelain=v1", "-z", "--untracked-files=all", strip=False)
-ok("an unstaged edit really does start with a space", raw.startswith(" M"), repr(raw[:6]))
-
-
-def parse(output: str) -> set[str]:
-    """The parser from GitWorkspace.changed_files, which assumes 'XY PATH'."""
-    files: set[str] = set()
-    for record in output.split("\0"):
-        if record:
-            files.add(record[3:].replace("\\", "/"))
-    return {name for name in files if name}
-
-
-ok("stripping the porcelain output truncates the path",
-   parse(raw.strip()) == {"ore/coding_agent.py"}, str(parse(raw.strip())))
-ok("the unstripped output yields the real path",
-   parse(raw) == {"core/coding_agent.py"}, str(parse(raw)))
-
 changed_files = git_source[git_source.index("def changed_files"):][:900]
-ok("changed_files asks for the unstripped output", "strip=False" in changed_files,
+ok("changed_files uses content diffs instead of stale status metadata",
+   '"diff", "--name-only", "-z"' in changed_files
+   and '"diff", "--cached", "--name-only", "-z"' in changed_files,
+   changed_files[:300])
+ok("changed_files still includes untracked task output",
+   '"ls-files", "--others", "--exclude-standard", "-z"' in changed_files,
    changed_files[:300])
 
-# A path the quality gate must recognise as protected only matches when it is intact.
-ok("the truncated path no longer matches the protected entry that guards it",
-   "ore/coding_agent.py" != "core/coding_agent.py")
+# A content diff reports the exact path the quality gate must classify.
+raw = git("diff", "--name-only", "-z", strip=False)
+ok("content diff preserves the complete protected path",
+   raw.split("\0")[0] == "core/coding_agent.py", repr(raw))
 
 # --- an unknown crash must name itself ---------------------------------------------------
 handler = source[source.index("except Exception as exc:"):][:900]

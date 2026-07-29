@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
-  AlertTriangle, BadgeCheck, Check, CheckCheck, CheckCircle2, ChevronDown, Circle, Clock3, Copy,
+  AlertTriangle, ArrowDown, BadgeCheck, Check, CheckCheck, CheckCircle2, ChevronDown, Circle, Clock3, Copy,
   GitBranch, Github, GripVertical, LoaderCircle, Package, Pause, Play, Radio, ShieldAlert, Square, TerminalSquare, Trash2, XCircle,
 } from 'lucide-react'
 import LlmLogo from '../LlmLogo'
@@ -309,6 +309,7 @@ export default function DeveloperProcess({
   const [split, setSplit] = useState(58)
   const [dragging, setDragging] = useState(false)
   const [logCopied, setLogCopied] = useState(false)
+  const [followActivity, setFollowActivity] = useState(true)
   const splitRef = useRef<HTMLDivElement | null>(null)
   const activityRef = useRef<HTMLDivElement | null>(null)
 
@@ -325,10 +326,24 @@ export default function DeveloperProcess({
     return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop) }
   }, [dragging])
 
-  useEffect(() => {
+  const scrollActivityToLatest = (behavior: ScrollBehavior = 'smooth') => {
     const panel = activityRef.current
-    if (panel) panel.scrollTop = panel.scrollHeight
-  }, [events.length, workflow?.id])
+    if (!panel) return
+    panel.scrollTo({ top: panel.scrollHeight, behavior })
+    setFollowActivity(true)
+  }
+
+  useEffect(() => {
+    setFollowActivity(true)
+    const frame = window.requestAnimationFrame(() => scrollActivityToLatest('auto'))
+    return () => window.cancelAnimationFrame(frame)
+  }, [workflow?.id])
+
+  useEffect(() => {
+    if (!followActivity) return
+    const frame = window.requestAnimationFrame(() => scrollActivityToLatest('auto'))
+    return () => window.cancelAnimationFrame(frame)
+  }, [events.length, followActivity])
 
   useEffect(() => {
     if (!logCopied) return
@@ -452,8 +467,27 @@ export default function DeveloperProcess({
       <section ref={splitRef} className="developer-process-split grid overflow-hidden rounded-md border border-border bg-surface/25 lg:grid-cols-[var(--process-left)_6px_minmax(0,1fr)]" style={{ '--process-left': `${split}%` } as CSSProperties}>
         <article className="min-w-0">
           <header className="flex h-12 items-center justify-between gap-3 border-b border-border/70 px-4"><div className="flex items-center gap-2"><TerminalSquare size={14} className="text-accent" /><h3 className="text-xs font-semibold text-text">Live activities</h3></div><div className="flex items-center gap-2"><span className={`inline-flex items-center gap-1.5 text-[9px] ${streamState === 'live' ? 'text-success' : TERMINAL.has(workflow.state) ? 'text-muted' : 'text-warning'}`}><Radio size={11} className={streamState === 'live' && !TERMINAL.has(workflow.state) ? 'animate-pulse' : ''} />{TERMINAL.has(workflow.state) ? 'Closed' : streamState === 'live' ? 'Live' : titleCase(streamState)}</span><button type="button" disabled={!events.length} onClick={copyProcessLog} title="Copy the complete process log" className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[9px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${logCopied ? 'border-success/35 bg-success/5 text-success' : 'border-border text-muted hover:border-accent/35 hover:text-text'}`}>{logCopied ? <CheckCheck size={11} /> : <Copy size={11} />}{logCopied ? 'Copied' : 'Copy log'}</button></div></header>
-          <div ref={activityRef} className="h-[380px] overflow-y-auto bg-[rgb(7_10_14/0.68)] px-4 py-3 font-mono text-[9px] leading-5">
-            {events.length === 0 ? <div className="flex h-full items-center justify-center text-muted">Waiting for worker output...</div> : events.slice(-160).map(event => <div key={event.id} className="grid grid-cols-[58px_minmax(0,1fr)] gap-2 border-b border-white/5 py-1 last:border-0"><span className="text-muted/60">{timeLabel(event.created_at)}</span><span className={`${event.event_type.includes('failed') || event.event_type.includes('blocked') ? 'text-danger' : event.event_type.includes('completed') ? 'text-success' : 'text-[#cbd5e1]'}`}><span className="mr-2 text-accent/75">{event.actor}&gt;</span>{eventLine(event)}</span></div>)}
+          <div className="relative">
+            <div
+              ref={activityRef}
+              onScroll={event => {
+                const panel = event.currentTarget
+                setFollowActivity(panel.scrollHeight - panel.scrollTop - panel.clientHeight < 48)
+              }}
+              className="h-[380px] overflow-y-auto bg-[rgb(7_10_14/0.68)] px-4 py-3 font-mono text-[9px] leading-5"
+            >
+              {events.length === 0 ? <div className="flex h-full items-center justify-center text-muted">Waiting for worker output...</div> : events.slice(-160).map(event => <div key={event.id} className="grid grid-cols-[58px_minmax(0,1fr)] gap-2 border-b border-white/5 py-1 last:border-0"><span className="text-muted/60">{timeLabel(event.created_at)}</span><span className={`${event.event_type.includes('failed') || event.event_type.includes('blocked') ? 'text-danger' : event.event_type.includes('completed') ? 'text-success' : 'text-[#cbd5e1]'}`}><span className="mr-2 text-accent/75">{event.actor}&gt;</span>{eventLine(event)}</span></div>)}
+            </div>
+            {!followActivity && events.length > 0 && (
+              <button
+                type="button"
+                onClick={() => scrollActivityToLatest()}
+                className="absolute bottom-3 right-3 inline-flex h-8 items-center gap-1.5 rounded-md border border-accent/35 bg-background/95 px-2.5 text-[9px] font-semibold text-accent shadow-lg shadow-black/30 backdrop-blur hover:border-accent hover:bg-accent/10"
+                title="Move to the newest activity"
+              >
+                <ArrowDown size={12} /> Latest
+              </button>
+            )}
           </div>
         </article>
         <button type="button" onPointerDown={event => { event.preventDefault(); setDragging(true) }} title="Drag to resize Process panels" className="hidden cursor-col-resize items-center justify-center border-x border-border/70 bg-background/50 text-muted/50 hover:bg-accent/10 hover:text-accent lg:flex"><GripVertical size={12} /></button>

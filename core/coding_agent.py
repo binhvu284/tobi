@@ -36,6 +36,7 @@ from core.repo_index import RepositoryIndex
 
 
 STALE_SNAPSHOT_ERRORS = {"policy_changed", "plan_changed"}
+CANONICAL_VALIDATION_HARNESSES = frozenset({"tests/test_coding_agent.py"})
 
 
 def _safe(value: Any) -> Any:
@@ -1485,11 +1486,39 @@ class CodingAgent:
                         "(git worktrees do not carry ignored directories)")
         return ""
 
+    def _validation_invocation(
+        self,
+        argv: list[str],
+        worktree: Path,
+        changed_files: set[str],
+    ) -> tuple[list[str], dict[str, str] | None, str | None]:
+        """Run stable platform checks from the control plane against worktree source.
+
+        A retained worktree intentionally keeps its original branch snapshot. The validation
+        contract, however, belongs to the live control plane. When the platform adds a schema
+        migration, an old copy of the harness can reject the newer worktree code forever. Use
+        the current trusted harness unless the sprint is explicitly changing that harness.
+        """
+        invocation = list(argv)
+        if len(invocation) < 2:
+            return invocation, None, None
+        relative = str(invocation[1]).replace("\\", "/").lstrip("./")
+        if relative not in CANONICAL_VALIDATION_HARNESSES or relative in changed_files:
+            return invocation, None, None
+        canonical = (self.git.repo_root / relative).resolve()
+        if not canonical.is_file() or not canonical.is_relative_to(self.git.repo_root.resolve()):
+            return invocation, None, None
+        invocation[1] = str(canonical)
+        environment = os.environ.copy()
+        environment["TOBI_VALIDATION_ROOT"] = str(worktree)
+        return invocation, environment, relative
+
     def _run_checks(self, session_id: int, worktree: Path) -> list[dict[str, Any]]:
         self._stage_start(session_id, "validate", "validating")
         results: list[dict[str, Any]] = []
         timeout = self.policy.limit("command_timeout_seconds", 900)
         session = self.get_workflow(session_id)
+        changed_files = set(self.git.changed_files(worktree))
         commands = list(self.policy.mandatory_checks())
         commands.extend(json.loads(session.get("validation_commands_json") or "[]"))
         unique: list[list[str]] = []
@@ -1509,10 +1538,19 @@ class CodingAgent:
                 results.append(result)
                 self._event(session_id, "check_skipped", result)
                 continue
+            invocation, check_env, harness = self._validation_invocation(
+                argv, worktree, changed_files
+            )
+            if harness:
+                self._event(session_id, "validation_harness_selected", {
+                    "harness": harness,
+                    "message": "Using the current Mission Control validator against this retained worktree.",
+                })
             try:
                 completed = subprocess.run(
-                    resolve_runtime_command(argv), cwd=str(worktree), capture_output=True,
+                    resolve_runtime_command(invocation), cwd=str(worktree), capture_output=True,
                     text=True, encoding="utf-8", errors="replace", timeout=timeout,
+                    env=check_env,
                 )
             except (OSError, subprocess.SubprocessError) as exc:
                 # The command could not be launched at all (missing binary, bad shim).

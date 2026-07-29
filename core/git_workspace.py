@@ -138,30 +138,22 @@ class GitWorkspaceManager:
 
     def changed_files(self, worktree: Path | str) -> list[str]:
         root = self._assert_worktree(worktree)
-        # `strip=False` matters: a porcelain record is "XY PATH", and an unstaged edit -- the
-        # normal state after an agent writes -- has status " M", so stripping ate the leading
-        # space of the first record and every path lost its first character. Run 15 reported
-        # "ore/awakening.py". That path is then what the quality gate checks against the
-        # protected-path list, so a truncated "core/coding_agent.py" would no longer match it.
-        output = self.git("status", "--porcelain=v1", "-z", "--untracked-files=all",
-                          cwd=root, strip=False)
-        records = output.split("\0")
+        # Porcelain status can remain dirty after an external sandbox rewrites a file with
+        # equivalent bytes but cannot refresh this worktree's shared index. Run 18 then counted
+        # that false-positive path as a second subsystem and rejected a one-file sprint. Diff
+        # output is content-authoritative; untracked paths are added separately.
         files: set[str] = set()
-        index = 0
-        while index < len(records):
-            record = records[index]
-            index += 1
-            if not record:
-                continue
-            status = record[:2]
-            name = record[3:] if len(record) >= 4 else ""
-            if name:
-                files.add(name.replace("\\", "/"))
-            if ("R" in status or "C" in status) and index < len(records):
-                source = records[index]
-                index += 1
-                if source:
-                    files.add(source.replace("\\", "/"))
+        for args in (
+            ("diff", "--name-only", "-z"),
+            ("diff", "--cached", "--name-only", "-z"),
+            ("ls-files", "--others", "--exclude-standard", "-z"),
+        ):
+            output = self.git(*args, cwd=root, strip=False)
+            files.update(
+                path.replace("\\", "/")
+                for path in output.split("\0")
+                if path
+            )
         return sorted(files)
 
     def restore_paths(self, worktree: Path | str, paths: Sequence[str]) -> list[str]:
