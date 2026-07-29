@@ -55,6 +55,35 @@ ok("remove archives a terminal Process workflow", bool(archived["archived_at"]))
 ok("archived workflow remains directly recoverable", store.get_session(int(session["id"])) is not None)
 ok("archived workflow leaves the visible Process history", not store.list_sessions())
 
+conn = store.connect()
+try:
+    conn.executemany(
+        """INSERT INTO coding_stage_attempts
+           (session_id,stage_id,attempt,status,started_at,heartbeat_at,completed_at)
+           VALUES (?,?,?,?,?,?,?)""",
+        [
+            (
+                int(session["id"]), "prepare", 1, "completed",
+                "2026-07-18T00:00:00+00:00", "2026-07-18T00:00:10+00:00",
+                "2026-07-18T00:00:10+00:00",
+            ),
+            (
+                int(session["id"]), "code", 1, "completed",
+                "2026-07-18T00:00:20+00:00", "2026-07-18T00:00:25+00:00",
+                "2026-07-18T00:00:25+00:00",
+            ),
+        ],
+    )
+    conn.commit()
+finally:
+    conn.close()
+timing = store.stage_attempt_timing(int(session["id"]))
+ok("active timer sums durable stage attempts", timing["active_seconds"] == 15)
+ok("active timer excludes the paused gap between attempts", timing["active_seconds"] != 25)
+timed_workflow = CodingAgent.get_workflow(agent, int(session["id"]))
+ok("Process workflow exposes durable active time", timed_workflow["active_seconds"] == 15)
+ok("finished Process workflow does not keep the timer running", timed_workflow["active_timer_started_at"] is None)
+
 merged_task = store.upsert_task({
     "queue_id": 904,
     "title": "Merged Process contract",

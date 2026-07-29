@@ -463,6 +463,11 @@ class CodingAgent:
         session = self.store.get_session(session_id)
         if not session:
             raise KeyError(session_id)
+        timing = self.store.stage_attempt_timing(session_id)
+        session["active_seconds"] = timing["active_seconds"]
+        session["active_timer_started_at"] = (
+            timing["timer_started_at"] if session["state"] in ACTIVE_STATES else None
+        )
         session["stages"] = self.store.list_stages(session_id)
         session["checkpoints"] = self._latest_checkpoint_summary(session_id)
         session["worker_session"] = self.store.latest_worker_session(session_id)

@@ -20,6 +20,7 @@ export type DeveloperWorkflow = {
   branch?: string | null; worktree?: string | null; base_sha?: string | null; head_sha?: string | null
   blocker?: string | null; error_code?: string | null; created_at: string; updated_at: string
   completed_at?: string | null; stages: DeveloperStage[]
+  active_seconds?: number; active_timer_started_at?: string | null
   worker_profile_slug?: string; reviewer_profile_slug?: string
   active_worker_session_id?: number | null; current_sprint_id?: number | null
   sprint_budget_json?: string; v2_enabled?: number
@@ -150,6 +151,7 @@ export type DeveloperReadiness = {
 }
 export type DeveloperScorecard = {
   session_id: number; queue_id: number; state: string; stage: string; duration_seconds?: number | null
+  active_duration_seconds?: number | null
   agent: string; reviewer: string; attempts: number; retries: number; tool_failures: number
   checks: Array<Record<string, unknown>>; evidence: Array<Record<string, unknown>>; outcome: string
   error_code?: string | null; generated_at: string

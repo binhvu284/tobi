@@ -1420,6 +1420,51 @@ class DevelopmentStore:
         finally:
             conn.close()
 
+    def stage_attempt_timing(
+        self, session_id: int, *, now: datetime | None = None
+    ) -> dict[str, Any]:
+        """Return durable active work time without counting pauses between attempts."""
+        current = now or datetime.now(timezone.utc)
+        conn = self.connect()
+        try:
+            rows = conn.execute(
+                """SELECT status,started_at,completed_at
+                   FROM coding_stage_attempts WHERE session_id=? ORDER BY id""",
+                (session_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        active_seconds = 0.0
+        running_since: datetime | None = None
+        for row in rows:
+            try:
+                started = datetime.fromisoformat(str(row["started_at"]).replace("Z", "+00:00"))
+                if started.tzinfo is None:
+                    started = started.replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                continue
+            completed_raw = row["completed_at"]
+            if completed_raw:
+                try:
+                    completed = datetime.fromisoformat(str(completed_raw).replace("Z", "+00:00"))
+                    if completed.tzinfo is None:
+                        completed = completed.replace(tzinfo=timezone.utc)
+                except (TypeError, ValueError):
+                    continue
+                active_seconds += max(0.0, (completed - started).total_seconds())
+            elif row["status"] == "running":
+                # One foreground run is an invariant. If stale rows exist, use only the
+                # latest start so a corrupt attempt cannot inflate the owner-facing timer.
+                if running_since is None or started > running_since:
+                    running_since = started
+
+        return {
+            "active_seconds": int(active_seconds),
+            "timer_started_at": running_since.isoformat() if running_since else None,
+            "measured_at": current.isoformat(),
+        }
+
     def reconcile_stage_attempts(self, session_id: int) -> int:
         """Close stale attempts when the durable stage already has a terminal result."""
         now = utc_now()

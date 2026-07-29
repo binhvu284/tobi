@@ -442,6 +442,10 @@ class CodingCompletionService:
             conn.close()
         events = self.store.list_events(session_id, limit=2000)
         evidence = self.store.list_evidence(session_id=session_id)
+        timing = self.store.stage_attempt_timing(session_id)
+        active_duration = int(timing["active_seconds"])
+        if timing["timer_started_at"]:
+            active_duration += _seconds(timing["timer_started_at"], timing["measured_at"])
         checks = []
         for stage in stages:
             checks.extend(_json(stage.get("checks_json"), []))
@@ -451,6 +455,7 @@ class CodingCompletionService:
             "state": session.get("state"),
             "stage": session.get("stage"),
             "duration_seconds": _seconds(session.get("created_at"), session.get("completed_at") or utc_now()),
+            "active_duration_seconds": active_duration,
             "agent": session.get("worker_profile_slug"),
             "reviewer": session.get("reviewer_profile_slug"),
             "attempts": len(attempts),

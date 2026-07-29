@@ -113,6 +113,50 @@ function timeLabel(value: string) {
   })
 }
 
+function elapsedLabel(totalSeconds: number) {
+  const value = Math.max(0, Math.floor(totalSeconds))
+  const hours = Math.floor(value / 3600)
+  const minutes = Math.floor((value % 3600) / 60)
+  const seconds = value % 60
+  return [hours, minutes, seconds].map(part => String(part).padStart(2, '0')).join(':')
+}
+
+function ActiveTime({ workflow }: { workflow: DeveloperWorkflow }) {
+  const timerStart = workflow.active_timer_started_at
+  const running = stateKind(workflow.state) === 'active' && Boolean(timerStart)
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    setNow(Date.now())
+    if (!running) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [running, timerStart, workflow.id])
+
+  const started = timerStart ? new Date(timerStart).valueOf() : Number.NaN
+  const liveSeconds = running && Number.isFinite(started)
+    ? Math.max(0, Math.floor((now - started) / 1000))
+    : 0
+  const elapsed = Number(workflow.active_seconds || 0) + liveSeconds
+
+  return (
+    <div
+      className="flex items-center gap-2"
+      title="Active implementation time. Paused and waiting time is excluded."
+    >
+      <span className={`flex h-8 w-8 items-center justify-center rounded-md border ${running ? 'border-warning/35 bg-warning/10 text-warning' : 'border-border bg-background/55 text-muted'}`}>
+        <Clock3 size={13} className={running ? 'animate-pulse' : ''} />
+      </span>
+      <div>
+        <div className="text-[9px] text-muted">Active time</div>
+        <div className="mt-0.5 font-mono text-[11px] font-medium tabular-nums text-text">
+          {elapsedLabel(elapsed)}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function safeJsonList(value?: string | null): string[] {
   try {
     const parsed = JSON.parse(value || '[]')
@@ -431,6 +475,8 @@ export default function DeveloperProcess({
             <h2 className="mt-1.5 truncate text-base font-semibold text-text">{workflow.title}</h2>
           </div>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-3 lg:justify-end">
+            <ActiveTime workflow={workflow} />
+            <span className="hidden h-8 w-px bg-border lg:block" />
             <AgentIdentity workflow={workflow} workers={workers} />
             <span className="hidden h-8 w-px bg-border lg:block" />
             <AutoQueueToggle enabled={autoQueue} busy={autoQueueBusy} onChange={onAutoQueue} />
