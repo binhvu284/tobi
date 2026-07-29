@@ -175,7 +175,13 @@ function DeliverySection({ workflow, busy, onCommand }: {
           <Package size={14} className="text-success" />
           <h3 className="text-xs font-semibold text-text">Delivery</h3>
           <span className="text-[10px] text-muted">
-            {delivery.kind === 'pull_request' ? 'Pushed for review' : 'Committed on this machine'}
+            {delivery.kind === 'pull_request'
+              ? delivery.merged
+                ? 'Merged on GitHub'
+                : delivery.draft
+                  ? 'Draft waiting on GitHub'
+                  : 'Pull request waiting on GitHub'
+              : 'Committed on this machine'}
           </span>
         </div>
         {delivery.kind === 'pull_request' && delivery.url

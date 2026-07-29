@@ -193,4 +193,29 @@ ok("independent reviewer receives post-change file evidence", bool(
         == "FALLBACK_TEST=passed"
 ))
 
+agent.github = SimpleNamespace(repository="binhvu284/tobi")
+agent._save_pr(int(task["id"]), {
+    "number": 29,
+    "url": "https://github.test/pull/29",
+    "head_sha": "a" * 40,
+    "base_sha": "b" * 40,
+    "draft": True,
+    "merge_state": "draft",
+    "merge_commit_sha": "c" * 40,
+})
+with store.connect() as conn:
+    open_pr = dict(conn.execute(
+        "SELECT * FROM coding_pull_requests WHERE task_id=?", (int(task["id"]),)
+    ).fetchone())
+ok("open pull request discards GitHub provisional merge SHA", open_pr["merge_commit_sha"] is None)
+open_delivery = agent._delivery({
+    "branch": "feature",
+    "head_sha": "a" * 40,
+    "state": "awaiting_owner_merge",
+    "pull_request": {**open_pr, "merge_commit_sha": "c" * 40},
+}, {"commit": "completed"})
+ok("provisional merge SHA never displays as merged", bool(
+    open_delivery["state"] == "draft" and not open_delivery["merged"]
+))
+
 print(f"{PASS} Developer Process checks passed")

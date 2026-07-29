@@ -222,7 +222,33 @@ export default function Developer() {
       return null
     } finally { setBusy(false) }
   }
-  const command = (cmd: 'pause' | 'resume' | 'cancel' | 'retry' | 'remove' | 'sync_delivery' | 'reconcile_base') => active && act(() => commandDeveloperWorkflow(active.id, cmd), `Workflow ${label(cmd)} accepted`)
+  const command = async (cmd: 'pause' | 'resume' | 'cancel' | 'retry' | 'remove' | 'sync_delivery' | 'reconcile_base') => {
+    if (!active) return
+    if (cmd !== 'sync_delivery') {
+      await act(() => commandDeveloperWorkflow(active.id, cmd), `Workflow ${label(cmd)} accepted`)
+      return
+    }
+    setBusy(true)
+    try {
+      const result = await commandDeveloperWorkflow(active.id, cmd)
+      const waiting = result.state === 'awaiting_owner_merge'
+      const draft = Boolean(result.delivery?.draft)
+      toast({
+        kind: 'success',
+        title: waiting ? 'GitHub status checked' : 'Delivery synchronized',
+        detail: waiting
+          ? draft
+            ? 'The pull request is still a draft. Open it on GitHub, mark it ready, and merge it.'
+            : 'The pull request is still open. Merge it on GitHub, then synchronize again.'
+          : 'The GitHub merge was detected and Mission Control continued the workflow.',
+      })
+      await load(true)
+    } catch (err) {
+      toast({ kind: 'error', title: 'Delivery synchronization stopped', detail: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setBusy(false)
+    }
+  }
   const approve = (purpose: 'special_paths' | 'merge_deploy', master: string) => active && act(() => approveDeveloperWorkflow(active.id, purpose, master), 'Approval accepted')
   const rejectApproval = (purpose: 'special_paths' | 'merge_deploy') => active && act(() => rejectDeveloperWorkflow(active.id, purpose), 'Approval rejected; agent revision started')
   const setAutoQueue = async (enabled: boolean) => {

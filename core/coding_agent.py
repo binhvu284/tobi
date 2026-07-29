@@ -847,7 +847,9 @@ class CodingAgent:
         )
         if pull_request.get("url") and committed:
             state = str(pull_request.get("merge_state") or "")
-            if pull_request.get("merged_at") or pull_request.get("merge_commit_sha"):
+            # GitHub exposes a provisional merge_commit_sha for open pull requests. It is
+            # the test merge ref, not evidence that the pull request was actually merged.
+            if pull_request.get("merged_at") or state == "merged":
                 state = "merged"
             allowed = ["open_pull_request"]
             if session.get("state") == "awaiting_owner_merge":
@@ -2086,6 +2088,10 @@ class CodingAgent:
             conn.close()
 
     def _save_pr(self, task_id: int, pr: dict[str, Any]) -> None:
+        merge_state = str(pr.get("merge_state") or "")
+        merged = bool(pr.get("merged") or pr.get("merged_at") or merge_state == "merged")
+        # Do not retain GitHub's provisional merge-test SHA for an open pull request.
+        merge_commit_sha = pr.get("merge_commit_sha") if merged else None
         conn = self.store.connect()
         try:
             conn.execute(
@@ -2100,8 +2106,8 @@ class CodingAgent:
                    ci_state=COALESCE(excluded.ci_state,coding_pull_requests.ci_state),
                    conflict_state=COALESCE(excluded.conflict_state,coding_pull_requests.conflict_state),
                    merge_state=COALESCE(excluded.merge_state,coding_pull_requests.merge_state),
-                   merged_at=COALESCE(excluded.merged_at,coding_pull_requests.merged_at),
-                   merge_commit_sha=COALESCE(excluded.merge_commit_sha,coding_pull_requests.merge_commit_sha),
+                   merged_at=excluded.merged_at,
+                   merge_commit_sha=excluded.merge_commit_sha,
                    last_sync_status=COALESCE(excluded.last_sync_status,coding_pull_requests.last_sync_status),
                    updated_at=excluded.updated_at""",
                 (
@@ -2114,9 +2120,9 @@ class CodingAgent:
                     int(bool(pr.get("draft", True))),
                     pr.get("ci_state"),
                     pr.get("conflict_state"),
-                    pr.get("merge_state"),
+                    merge_state or None,
                     pr.get("merged_at"),
-                    pr.get("merge_commit_sha"),
+                    merge_commit_sha,
                     pr.get("last_sync_status"),
                     utc_now(),
                 ),
