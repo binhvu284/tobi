@@ -629,7 +629,7 @@ function PlanModal({ item, onClose }: { item: DeveloperQueueItem | null; onClose
             </div>
             {plan && (
               <footer className="flex items-center justify-between border-t border-border px-5 py-3 text-[11px] text-muted">
-                <span className="inline-flex items-center gap-1.5"><RotateCcw size={11} /> Synced from QUEUE.md</span>
+                <span className="inline-flex items-center gap-1.5"><RotateCcw size={11} /> Plans sync from QUEUE.md; active and completed status comes from Developer</span>
                 <span>{(plan.markdown.length / 1024).toFixed(1)} KiB</span>
               </footer>
             )}

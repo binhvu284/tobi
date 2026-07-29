@@ -693,7 +693,13 @@ class DevelopmentStore:
                 ON CONFLICT(queue_id) DO UPDATE SET
                   title=excluded.title,plan_path=excluded.plan_path,plan_hash=excluded.plan_hash,
                   acceptance_criteria_json=excluded.acceptance_criteria_json,
-                  dependencies_json=excluded.dependencies_json,queue_status=excluded.queue_status,
+                  dependencies_json=excluded.dependencies_json,
+                  queue_status=CASE
+                    WHEN development_tasks.status_override=1
+                         AND development_tasks.status='completed'
+                    THEN 'Done'
+                    ELSE excluded.queue_status
+                  END,
                   queue_effort=excluded.queue_effort,risk=excluded.risk,
                   target_version=COALESCE(development_tasks.target_version,excluded.target_version),
                   status=CASE WHEN development_tasks.status_override=1
@@ -2042,7 +2048,9 @@ class DevelopmentStore:
                    (slug,title,kind,content_json,status,evidence_count,created_at,updated_at)
                    VALUES (?,?,?,?,?,?,?,?)
                    ON CONFLICT(slug) DO UPDATE SET title=excluded.title,kind=excluded.kind,
-                   content_json=excluded.content_json,status=excluded.status,
+                   content_json=excluded.content_json,
+                   status=CASE WHEN coding_playbooks.status='active'
+                               THEN 'active' ELSE excluded.status END,
                    evidence_count=excluded.evidence_count,version=coding_playbooks.version+1,
                    updated_at=excluded.updated_at""",
                 (slug, title, kind, _json(content), status, evidence_count, now, now),

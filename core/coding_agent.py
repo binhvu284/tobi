@@ -20,7 +20,7 @@ from core.coding_states import (  # noqa: F401  (STAGES is re-exported for tests
     ACTIVE_STATES, CLEANUP_ELIGIBLE_STATES, CORRECTABLE_BY_RECODE, STAGES, TERMINAL_STATES,
     state_in_clause, workflow_progress,
 )
-from core.coding_learning import CodingLearningService
+from core.coding_learning import CodingLearningService, failure_detail_signature
 from core.coding_policy import CodingPolicy, PolicyDenied
 from core.coding_quality import CodingQualityGate
 from core.coding_review import CodingReviewError, CodingReviewer
@@ -37,6 +37,23 @@ from core.repo_index import RepositoryIndex
 
 STALE_SNAPSHOT_ERRORS = {"policy_changed", "plan_changed"}
 CANONICAL_VALIDATION_HARNESSES = frozenset({"tests/test_coding_agent.py"})
+REPEAT_GUARDED_ERRORS = frozenset({
+    "validation_failed",
+    "quality_gate_failed",
+    "review_failed",
+    "review_unavailable",
+})
+INFRASTRUCTURE_FAILURE_MARKERS = (
+    "no module named",
+    "modulenotfounderror",
+    "command not found",
+    "is not recognized as an internal or external command",
+    "cannot find the file",
+    "filenotfounderror",
+    "missing dependency",
+    "node_modules is absent",
+    "executable was not found",
+)
 
 
 def _safe(value: Any) -> Any:
@@ -79,13 +96,108 @@ class CodingAgent:
         self.github = GitHubCodingService(self.policy)
         self.releases = ReleaseManager(self.store)
         self.deployments = DeploymentManager(self.policy, self.store)
+        self._validation_probe_lock = threading.Lock()
+        self._validation_probe_cache: dict[str, dict[str, Any]] = {}
         self.completion = CodingCompletionService(
             store=self.store, policy=self.policy, worker=self.worker, assessor=self.assessor,
+            validation_probe=self._preflight_validation_health,
+            learning=self.learning,
         )
         self._threads: dict[int, threading.Thread] = {}
         self._thread_lock = threading.Lock()
         self._auto_queue_lock = threading.Lock()
         self.runtime_owner = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
+
+    def _preflight_validation_health(
+        self, commands: list[list[str]]
+    ) -> dict[str, Any]:
+        """Prove trusted control-plane validators before spending a worker turn."""
+        probes: list[tuple[list[str], str]] = []
+        for command in commands:
+            argv = [str(part) for part in command]
+            if len(argv) < 2:
+                continue
+            relative = str(argv[1]).replace("\\", "/").lstrip("./")
+            if relative not in CANONICAL_VALIDATION_HARNESSES:
+                continue
+            canonical = (self.git.repo_root / relative).resolve()
+            if canonical.is_file() and canonical.is_relative_to(self.git.repo_root.resolve()):
+                probes.append((argv, relative))
+        if not probes:
+            return {"ok": True, "checked": [], "cached": False}
+
+        try:
+            head = self.git.default_branch_sha()
+        except (GitCommandError, PolicyDenied):
+            head = "working-tree"
+        key_source = json.dumps(
+            {
+                "head": head,
+                "policy": self.policy.hash,
+                "commands": [argv for argv, _relative in probes],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        key = hashlib.sha256(key_source.encode("utf-8")).hexdigest()
+        with self._validation_probe_lock:
+            cached = self._validation_probe_cache.get(key)
+            if cached:
+                return {**cached, "cached": True}
+
+        checked: list[dict[str, Any]] = []
+        timeout = min(300, self.policy.limit("command_timeout_seconds", 900))
+        for argv, relative in probes:
+            invocation = list(argv)
+            invocation[1] = str((self.git.repo_root / relative).resolve())
+            environment = os.environ.copy()
+            environment["TOBI_VALIDATION_ROOT"] = str(self.git.repo_root)
+            try:
+                completed = subprocess.run(
+                    resolve_runtime_command(invocation),
+                    cwd=str(self.git.repo_root),
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=timeout,
+                    env=environment,
+                )
+                output = ((completed.stdout or "") + (completed.stderr or ""))[-4000:]
+                result = {
+                    "argv": argv,
+                    "harness": relative,
+                    "ok": completed.returncode == 0,
+                    "exit_code": completed.returncode,
+                    "output": str(_safe(output)),
+                }
+            except (OSError, subprocess.SubprocessError) as exc:
+                result = {
+                    "argv": argv,
+                    "harness": relative,
+                    "ok": False,
+                    "exit_code": None,
+                    "output": str(_safe(f"{type(exc).__name__}: {exc}")),
+                }
+            checked.append(result)
+            if not result["ok"]:
+                break
+
+        healthy = all(item["ok"] for item in checked)
+        payload = {
+            "ok": healthy,
+            "checked": checked,
+            "cached": False,
+            "message": (
+                "Mission Control validation is healthy."
+                if healthy
+                else "Mission Control's own validator is failing. Repair the development "
+                     "environment before assigning a coding agent."
+            ),
+        }
+        with self._validation_probe_lock:
+            self._validation_probe_cache[key] = payload
+        return payload
 
     def sync(self) -> list[dict[str, Any]]:
         self.queue = sync_queue(self.store)
@@ -816,13 +928,23 @@ class CodingAgent:
         evidence: dict[str, Any] | None = None,
     ) -> None:
         session = self.store.get_session(session_id) or {}
+        payload = dict(evidence or {})
+        stage_row = next(
+            (
+                item for item in self.store.list_stages(session_id)
+                if item["node_id"] == stage
+            ),
+            None,
+        )
+        if stage_row:
+            payload.setdefault("attempt", int(stage_row.get("attempts") or 0))
         self.learning.record(
             session_id=session_id,
             outcome=outcome,
             stage=stage,
             error_code=error_code,
             worker_profile=str(session.get("worker_profile_slug") or ""),
-            evidence=_safe(evidence or {}),
+            evidence=_safe(payload),
         )
 
     def _delivery(self, session: dict[str, Any], stage_statuses: dict[str, str]) -> dict[str, Any]:
@@ -920,8 +1042,40 @@ class CodingAgent:
             self.completion.record_stage_evidence(session, node_id, safe_result)
         self._event(session_id, "stage_completed", {"stage": node_id, "result": safe_result})
 
-    def _pause(self, session_id: int, stage: str, blocker: str, code: str) -> dict[str, Any]:
+    def _pause(
+        self,
+        session_id: int,
+        stage: str,
+        blocker: str,
+        code: str,
+        *,
+        evidence: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         blocker = str(_safe(blocker))
+        learning_evidence = dict(evidence or {})
+        fingerprint = str(
+            learning_evidence.get("failure_fingerprint")
+            or failure_detail_signature(stage, code, blocker)
+        )
+        learning_evidence["failure_fingerprint"] = fingerprint
+        learning_evidence.setdefault("blocker", blocker)
+        if (
+            code in REPEAT_GUARDED_ERRORS
+            and self.learning.failure_count(session_id, fingerprint) >= 1
+        ):
+            return self._block(
+                session_id,
+                stage,
+                "The same failure returned after one correction attempt. TOBI stopped "
+                "before spending another worker cycle. Revise the item, switch agent, or "
+                "repair the development environment.",
+                "repeated_failure",
+                evidence={
+                    **learning_evidence,
+                    "original_error_code": code,
+                    "repeat_guard": True,
+                },
+            )
         current = next((item for item in self.store.list_stages(session_id) if item["node_id"] == stage), None)
         if current and current["status"] != "completed":
             self.store.update_stage(session_id, stage, status="paused", result_json={"error_code": code})
@@ -935,7 +1089,7 @@ class CodingAgent:
         self._checkpoint(session_id, status="paused", next_action=blocker)
         self._record_learning(
             session_id, outcome="paused", stage=stage, error_code=code,
-            evidence={"blocker": blocker},
+            evidence=learning_evidence,
         )
         return self.get_workflow(session_id)
 
@@ -974,7 +1128,15 @@ class CodingAgent:
         self.completion.build_scorecard(session_id)
         return self.get_workflow(session_id)
 
-    def _block(self, session_id: int, stage: str, blocker: str, code: str) -> dict[str, Any]:
+    def _block(
+        self,
+        session_id: int,
+        stage: str,
+        blocker: str,
+        code: str,
+        *,
+        evidence: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         blocker = str(_safe(blocker))
         self.store.update_stage(session_id, stage, status="failed", result_json={"error_code": code})
         self.store.finish_stage_attempt(
@@ -987,7 +1149,7 @@ class CodingAgent:
         self._checkpoint(session_id, status="blocked", next_action=blocker)
         self._record_learning(
             session_id, outcome="blocked", stage=stage, error_code=code,
-            evidence={"blocker": blocker},
+            evidence={**(evidence or {}), "blocker": blocker},
         )
         self.completion.build_scorecard(session_id)
         return self.get_workflow(session_id)
@@ -1116,6 +1278,10 @@ class CodingAgent:
                     "preferred_models": json.loads(goal["preferred_models_json"] or "[]") if goal else [],
                     "worker_profile_slug": str(session.get("worker_profile_slug") or "mc-native"),
                     "reviewer_profile_slug": str(session.get("reviewer_profile_slug") or "reviewer-default"),
+                    "learned_playbooks": self.learning.applicable(
+                        worker_profile=str(session.get("worker_profile_slug") or "mc-native"),
+                        session_id=session_id,
+                    ),
                     "sprint_budget": sprint_budget.to_dict(),
                     "special_approval": self.store.has_approval(session_id, "special_paths", self.policy.hash),
                     "policy": {"version": self.policy.version, "hash": self.policy.hash,
@@ -1228,16 +1394,43 @@ class CodingAgent:
             statuses = {item["node_id"]: item["status"] for item in session["stages"]}
             if statuses.get("validate") != "completed":
                 checks = self._run_checks(session_id, Path(session["worktree"]))
-                if any(not check["ok"] for check in checks):
+                failed_check = next(
+                    (check for check in checks if not check["ok"]),
+                    None,
+                )
+                if failed_check:
+                    failure_evidence = {
+                        "argv": failed_check.get("argv"),
+                        "output": failed_check.get("output"),
+                        "failure_kind": failed_check.get("failure_kind") or "task",
+                        "failure_fingerprint": failed_check.get("failure_fingerprint"),
+                    }
+                    if failed_check.get("failure_kind") == "infrastructure":
+                        return self._block(
+                            session_id,
+                            "validate",
+                            "Mission Control could not run a healthy validation environment. "
+                            "Repair the missing runtime or dependency, then resume from this checkpoint.",
+                            "validation_infrastructure_failed",
+                            evidence=failure_evidence,
+                        )
                     cycles = int(session.get("validation_cycles") or 0) + 1
                     self.store.update_session(session_id, validation_cycles=cycles)
                     if cycles > self.policy.limit("max_review_cycles", 2):
-                        return self._block(session_id, "validate",
-                                           "Validation failed after the maximum correction cycles. Owner action is required.",
-                                           "review_cycles_exhausted")
-                    return self._pause(session_id, "validate",
-                                       "Validation failed. Review the failed check evidence, then retry the workflow.",
-                                       "validation_failed")
+                        return self._block(
+                            session_id,
+                            "validate",
+                            "Validation failed after the maximum correction cycles. Owner action is required.",
+                            "review_cycles_exhausted",
+                            evidence=failure_evidence,
+                        )
+                    return self._pause(
+                        session_id,
+                        "validate",
+                        "Validation failed. Review the failed check evidence, then retry the workflow.",
+                        "validation_failed",
+                        evidence=failure_evidence,
+                    )
 
             session = self.get_workflow(session_id)
             statuses = {item["node_id"]: item["status"] for item in session["stages"]}
@@ -1569,7 +1762,11 @@ class CodingAgent:
                 # workflow with a bare error and no check_completed row, so the owner
                 # cannot tell which check died.
                 result = _safe({"argv": argv, "ok": False, "exit_code": None,
-                                "output": f"{type(exc).__name__}: {exc}"})
+                                "output": f"{type(exc).__name__}: {exc}",
+                                "failure_kind": "infrastructure"})
+                result["failure_fingerprint"] = failure_detail_signature(
+                    "validate", "validation_infrastructure_failed", result["output"]
+                )
                 results.append(result)
                 self._event(session_id, "check_completed", result)
                 break
@@ -1577,6 +1774,29 @@ class CodingAgent:
             # Concatenating that is the TypeError that killed run 15 after every check passed.
             result = _safe({"argv": argv, "ok": completed.returncode == 0, "exit_code": completed.returncode,
                             "output": ((completed.stdout or "") + (completed.stderr or ""))[-20_000:]})
+            if not result["ok"]:
+                lowered = str(result["output"]).lower()
+                task_changes_python_runtime = any(
+                    Path(path).suffix.lower() in {".py", ".toml", ".lock"}
+                    or Path(path).name.lower().startswith("requirements")
+                    for path in changed_files
+                )
+                failure_kind = (
+                    "infrastructure"
+                    if (
+                        any(marker in lowered for marker in INFRASTRUCTURE_FAILURE_MARKERS)
+                        and not task_changes_python_runtime
+                    )
+                    else "task"
+                )
+                error_code = (
+                    "validation_infrastructure_failed"
+                    if failure_kind == "infrastructure" else "validation_failed"
+                )
+                result["failure_kind"] = failure_kind
+                result["failure_fingerprint"] = failure_detail_signature(
+                    "validate", error_code, f"{argv}\n{result['output']}"
+                )
             results.append(result)
             self._event(session_id, "check_completed", result)
             if not result["ok"]:
@@ -1673,6 +1893,14 @@ class CodingAgent:
         if command in {"resume", "retry"}:
             if session.get("error_code") in STALE_SNAPSHOT_ERRORS:
                 return self.restart_stale_workflow(session_id, background=background)
+            if session.get("error_code") in {
+                "repeated_failure",
+                "validation_infrastructure_failed",
+            }:
+                raise RuntimeError(
+                    "Retry is disabled because the same work cannot repair this failure. "
+                    "Repair the development environment, revise the item, or switch agents."
+                )
             if session["state"] not in {"paused", "blocked", "failed", "approved"}:
                 raise RuntimeError(f"Workflow cannot {command} from state {session['state']}.")
             conn = self.store.connect()
@@ -1744,14 +1972,7 @@ class CodingAgent:
         pr = session.get("pull_request") or {}
         if not pr.get("number"):
             raise RuntimeError("Workflow has no pull request to synchronize.")
-        previous = (
-            pr.get("draft"),
-            pr.get("ci_state"),
-            pr.get("conflict_state"),
-            pr.get("merge_state"),
-            pr.get("merged_at"),
-            pr.get("merge_commit_sha"),
-        )
+        previous_sync = str(pr.get("last_sync_status") or "")
         remote = self.github.get_pr(int(pr["number"]))
         pending: list[str] = []
         failed: list[str] = []
@@ -1778,35 +1999,34 @@ class CodingAgent:
                 merge_state = "ready"
             else:
                 merge_state = "open"
+        event_payload = {
+            "draft": bool(remote.get("draft")),
+            "ci_state": ci_state,
+            "conflict_state": conflict_state,
+            "merge_state": merge_state,
+            "merged_at": remote.get("merged_at"),
+            "merge_commit_sha": remote.get("merge_commit_sha"),
+            "pending_checks": sorted(pending),
+            "failed_checks": sorted(failed),
+        }
+        sync_fingerprint = hashlib.sha256(
+            json.dumps(
+                event_payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()[:20]
         synchronized = {
             **remote,
             "ci_state": ci_state,
             "conflict_state": conflict_state,
             "merge_state": merge_state,
-            "last_sync_status": "ok",
+            "last_sync_status": f"ok:{sync_fingerprint}",
         }
         self._save_pr(int(session["task_id"]), synchronized)
-        current = (
-            synchronized.get("draft"),
-            ci_state,
-            conflict_state,
-            merge_state,
-            synchronized.get("merged_at"),
-            synchronized.get("merge_commit_sha"),
-        )
-        if current != previous:
-            self._event(
-                session_id,
-                "delivery_synchronized",
-                {
-                    "draft": bool(synchronized.get("draft")),
-                    "ci_state": ci_state,
-                    "conflict_state": conflict_state,
-                    "merge_state": merge_state,
-                    "pending_checks": pending,
-                    "failed_checks": failed,
-                },
-            )
+        if previous_sync != synchronized["last_sync_status"]:
+            self._event(session_id, "delivery_synchronized", event_payload)
         if remote.get("merged") and remote.get("merge_commit_sha"):
             sha = str(remote["merge_commit_sha"])
             refreshed = self.get_workflow(session_id)
@@ -2079,7 +2299,8 @@ class CodingAgent:
         try:
             conn.execute(
                 """UPDATE development_tasks
-                   SET status='completed',owner_state='Done',status_override=1,updated_at=?
+                   SET status='completed',owner_state='Done',queue_status='Done',
+                       status_override=1,updated_at=?
                    WHERE id=?""",
                 (utc_now(), task_id),
             )

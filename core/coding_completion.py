@@ -6,7 +6,7 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from core.coding_contracts import ReadinessIssue, ReadinessReport, WorkerProfile
 from core.coding_criteria import derive_checks
@@ -45,11 +45,22 @@ def _seconds(start: str | None, end: str | None) -> float | None:
 class CodingCompletionService:
     """Keep completion policy outside the HTTP layer and the stage executor."""
 
-    def __init__(self, *, store: DevelopmentStore, policy, worker, assessor) -> None:
+    def __init__(
+        self,
+        *,
+        store: DevelopmentStore,
+        policy,
+        worker,
+        assessor,
+        validation_probe: Callable[[list[list[str]]], dict[str, Any]] | None = None,
+        learning=None,
+    ) -> None:
         self.store = store
         self.policy = policy
         self.worker = worker
         self.assessor = assessor
+        self.validation_probe = validation_probe
+        self.learning = learning
 
     def work_state(self) -> dict[str, Any]:
         tasks = self.store.list_tasks()
@@ -273,11 +284,30 @@ class CodingCompletionService:
                     "fallback_unhealthy", f"Fallback {slug}: {health.get('health_detail')}", "fallback_agents"
                 ))
 
+        check_policy_ok = True
         for command in commands:
             try:
                 self.policy.assert_command(command)
             except Exception as exc:
+                check_policy_ok = False
                 blockers.append(ReadinessIssue("check_denied", str(exc), "validation_commands"))
+
+        validation_health: dict[str, Any] = {
+            "ok": True,
+            "checked": [],
+            "cached": False,
+        }
+        if self.validation_probe and check_policy_ok:
+            validation_health = self.validation_probe(commands)
+            if not validation_health.get("ok"):
+                blockers.append(ReadinessIssue(
+                    "validation_infrastructure_failed",
+                    str(
+                        validation_health.get("message")
+                        or "Mission Control validation is unhealthy before this run starts."
+                    ),
+                    "validation_commands",
+                ))
 
         assessment = self.assessor.assess(
             title=str(task.get("title") or ""),
@@ -328,10 +358,16 @@ class CodingCompletionService:
             plan_hash=str(task.get("plan_hash") or ""),
             assessment=assessment,
         )
-        snapshot = self.store.save_readiness(
-            int(task["id"]), "ready" if report.ready else "blocked", report.to_dict(), self.policy.hash
+        payload = report.to_dict()
+        payload["validation_health"] = validation_health
+        payload["applied_playbooks"] = (
+            self.learning.applicable(worker_profile=selected)
+            if self.learning is not None else []
         )
-        return {**report.to_dict(), "readiness_id": int(snapshot["id"]), "created_at": snapshot["created_at"]}
+        snapshot = self.store.save_readiness(
+            int(task["id"]), "ready" if report.ready else "blocked", payload, self.policy.hash
+        )
+        return {**payload, "readiness_id": int(snapshot["id"]), "created_at": snapshot["created_at"]}
 
     def evaluate_goal(self, goal_id: int) -> dict[str, Any]:
         goal = self.store.get_goal(goal_id)

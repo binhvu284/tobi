@@ -102,4 +102,12 @@ def parse_queue(path: Path | str = QUEUE_PATH) -> list[dict[str, Any]]:
 
 
 def sync_queue(store: DevelopmentStore, path: Path | str = QUEUE_PATH) -> list[dict[str, Any]]:
-    return [store.upsert_task(item) for item in parse_queue(path)]
+    synchronized: list[dict[str, Any]] = []
+    for item in parse_queue(path):
+        row = store.upsert_task(item)
+        row["source_queue_status"] = item.get("queue_status")
+        row["status_authority"] = (
+            "developer_runtime" if bool(row.get("status_override")) else "queue_markdown"
+        )
+        synchronized.append(row)
+    return synchronized

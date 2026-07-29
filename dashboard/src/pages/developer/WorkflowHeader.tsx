@@ -65,7 +65,8 @@ export function WorkflowActions({ workflow, busy, onCommand }: {
   onCommand: (command: 'pause' | 'resume' | 'cancel' | 'retry' | 'sync_delivery') => void
 }) {
   const active = !TERMINAL_STATES.has(workflow.state)
-  const resumable = ['paused', 'blocked', 'failed', 'approved'].includes(workflow.state)
+  const retryBlocked = ['repeated_failure', 'validation_infrastructure_failed'].includes(workflow.error_code || '')
+  const resumable = ['paused', 'blocked', 'failed', 'approved'].includes(workflow.state) && !retryBlocked
   const awaitingOwnerMerge = workflow.state === 'awaiting_owner_merge'
   return (
     <div className="flex flex-wrap gap-2">
@@ -158,8 +159,12 @@ export function WorkflowHeader({ workflow, busy, onCommand, onApprove }: {
       ? 'Merge the pull request on GitHub. Mission Control will synchronize its status.'
     : workflow.error_code === 'special_approval_required'
       ? 'Review protected-path access before this run continues.'
-      : workflow.blocker
-        ? workflow.blocker
+      : workflow.error_code === 'repeated_failure'
+        ? 'Revise the item or switch agents. Retrying the same failure is disabled.'
+        : workflow.error_code === 'validation_infrastructure_failed'
+          ? 'Repair the development environment before continuing this run.'
+          : workflow.blocker
+            ? workflow.blocker
         : ['paused', 'blocked', 'failed'].includes(workflow.state)
           ? 'Resume or retry after reviewing the latest evidence.'
           : TERMINAL_STATES.has(workflow.state)

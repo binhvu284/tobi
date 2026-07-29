@@ -105,8 +105,12 @@ ok("command_for emits the policy-allowed shape",
 pending = derive_checks(SESSION_10, DEFAULT_COMMANDS, repo_root=ROOT)
 ok("a test the run must create is still scheduled",
    pending["add"] == [["python", "tests/test_task_classifier.py"]], str(pending["add"]))
+expected_pending = (
+    [] if (ROOT / "tests" / "test_task_classifier.py").is_file()
+    else ["tests/test_task_classifier.py"]
+)
 ok("creating the named test is a warning, not a refusal",
-   pending["pending"] == ["tests/test_task_classifier.py"] and pending["unverifiable"] == [],
+   pending["pending"] == expected_pending and pending["unverifiable"] == [],
    f"pending={pending['pending']} unverifiable={pending['unverifiable']}")
 
 escaped = derive_checks(

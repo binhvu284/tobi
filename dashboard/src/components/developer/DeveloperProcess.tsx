@@ -257,7 +257,8 @@ function ProcessActions({ workflow, busy, onCommand }: {
 }) {
   const tone = processTone(workflow)
   const active = !TERMINAL.has(workflow.state)
-  const resumable = ['paused', 'blocked', 'failed'].includes(workflow.state)
+  const retryBlocked = ['repeated_failure', 'validation_infrastructure_failed'].includes(workflow.error_code || '')
+  const resumable = ['paused', 'blocked', 'failed'].includes(workflow.state) && !retryBlocked
   const awaitingOwnerMerge = workflow.state === 'awaiting_owner_merge'
   const drifted = workflow.error_code === 'main_drift'
   return (
