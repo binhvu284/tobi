@@ -58,7 +58,8 @@ from core.telegram_bot import build_app, send_daily_report, send_message, send_p
 # Scheduled jobs + the Telegram notifier moved to core/scheduled_jobs.py (Phase 4b).
 # Imported back so schedule registration and every call site here are unchanged.
 from core.scheduled_jobs import (
-    get_telegram_app, job_execution_cycle, notify, setup_schedules
+    get_telegram_app, job_execution_cycle, notify, setup_schedules,
+    shutdown_telegram_app, start_telegram_polling,
 )
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -574,9 +575,20 @@ async def run_daemon():
     logger.info("Running initial execution cycle...")
     await job_execution_cycle()
 
-    app = await get_telegram_app()
-    await app.updater.start_polling(drop_pending_updates=True)
-    logger.info("🤖 Tobi running + polling Telegram. Ctrl+C to stop.\n")
+    telegram_app = None
+    telegram_retry_at = 0.0
+    telegram_retry_seconds = 300
+    try:
+        telegram_app = await start_telegram_polling()
+        logger.info("🤖 Tobi running + polling Telegram. Ctrl+C to stop.\n")
+    except Exception as exc:
+        telegram_retry_at = asyncio.get_running_loop().time() + telegram_retry_seconds
+        logger.warning(
+            "Telegram polling unavailable; API and Mission Control remain online. "
+            "Retrying in %s minutes: %s",
+            telegram_retry_seconds // 60,
+            exc,
+        )
 
     import time as _time, math as _math
     _boot = _time.time()
@@ -584,6 +596,20 @@ async def run_daemon():
     try:
         while True:
             schedule.run_pending()
+            if telegram_app is None and asyncio.get_running_loop().time() >= telegram_retry_at:
+                try:
+                    telegram_app = await start_telegram_polling()
+                    logger.info("✅ Telegram polling recovered.")
+                except Exception as exc:
+                    telegram_retry_at = (
+                        asyncio.get_running_loop().time() + telegram_retry_seconds
+                    )
+                    logger.warning(
+                        "Telegram polling retry failed; Mission Control remains online. "
+                        "Retrying in %s minutes: %s",
+                        telegram_retry_seconds // 60,
+                        exc,
+                    )
             _pulse += 1
             if _pulse % 5 == 0:  # every ~5 min
                 _mins = int((_time.time() - _boot) / 60)
@@ -601,9 +627,7 @@ async def run_daemon():
                 logger.info(f"\U0001f6ac still smoking, everything okay! \u00b7 uptime {_uptime}  {_trail}")
             await asyncio.sleep(60)
     finally:
-        await app.updater.stop()
-        await app.stop()
-        await app.shutdown()
+        await shutdown_telegram_app()
 
 
 async def main_async():

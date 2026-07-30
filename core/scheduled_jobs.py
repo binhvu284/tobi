@@ -23,15 +23,70 @@ from core.telegram_bot import build_app, send_daily_report, send_message, send_p
 
 logger = logging.getLogger(__name__)
 _tg_app = None
+_tg_app_lock = asyncio.Lock()
 
 
 async def get_telegram_app():
+    """Return one fully initialized Telegram application.
+
+    Build into a local variable so a timeout during initialization cannot poison
+    the process-wide singleton with a partially initialized application.
+    """
     global _tg_app
-    if _tg_app is None:
-        _tg_app = build_app()
-        await _tg_app.initialize()
-        await _tg_app.start()
+    if _tg_app is not None:
+        return _tg_app
+
+    async with _tg_app_lock:
+        if _tg_app is not None:
+            return _tg_app
+
+        candidate = build_app()
+        try:
+            await candidate.initialize()
+        except Exception:
+            # Application.shutdown() is a no-op until Application.initialize()
+            # finishes, but Bot.initialize() may already have opened HTTP clients.
+            try:
+                await candidate.bot.shutdown()
+            except Exception:
+                logger.debug("Telegram partial initialization cleanup failed", exc_info=True)
+            raise
+
+        _tg_app = candidate
     return _tg_app
+
+
+async def start_telegram_polling():
+    """Start polling and update processing in python-telegram-bot's required order."""
+    app = await get_telegram_app()
+    if app.updater is None:
+        raise RuntimeError("Telegram application has no polling updater.")
+
+    try:
+        if not app.updater.running:
+            await app.updater.start_polling(drop_pending_updates=True)
+        if not app.running:
+            await app.start()
+    except Exception:
+        await shutdown_telegram_app()
+        raise
+    return app
+
+
+async def shutdown_telegram_app():
+    """Idempotently stop polling, processing, and Telegram HTTP resources."""
+    global _tg_app
+    async with _tg_app_lock:
+        app = _tg_app
+        _tg_app = None
+        if app is None:
+            return
+
+        if app.updater is not None and app.updater.running:
+            await app.updater.stop()
+        if app.running:
+            await app.stop()
+        await app.shutdown()
 
 
 async def notify(message: str):
