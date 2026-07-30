@@ -79,7 +79,8 @@ try:
 
     class ReadyWorker:
         def probe(self, slug, active=False):
-            return {"slug": slug, "name": slug, "adapter": "native", "model": "test",
+            adapter = "model_review" if slug == "reviewer-default" else "codex"
+            return {"slug": slug, "name": slug, "adapter": adapter, "model": "test",
                     "health_status": "ready", "health_detail": "ready"}
 
     class OneSprintAssessment:
@@ -108,6 +109,8 @@ try:
         "status": "approved",
         "risk": "medium",
         "target_version": "3.13.0",
+        "worker_profile_slug": "codex-chatgpt",
+        "reviewer_profile_slug": "reviewer-default",
     })
     stale = store.create_session(
         int(task["id"]),
@@ -115,6 +118,8 @@ try:
         "stale-queue-workflow",
         plan_hash_snapshot=plan_hash,
         criteria_snapshot=["replacement workflow is durable"],
+        worker_profile_slug="codex-chatgpt",
+        reviewer_profile_slug="reviewer-default",
     )
     stale_id = int(stale["id"])
     store.add_stages(stale_id, STAGES)

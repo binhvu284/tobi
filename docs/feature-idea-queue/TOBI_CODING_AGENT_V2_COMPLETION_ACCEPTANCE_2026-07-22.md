@@ -76,13 +76,64 @@ The remaining owner-run fixtures are Queue #27 for MC Native and Queue #28 for O
 Run them sequentially. Queue #22 remains In Progress and #21 remains blocked until all
 remaining matrix rows and the browser checklist pass.
 
+## Codex-Only Qualification Update - 2026-07-30
+
+The owner narrowed the initial production scope to one qualified implementation adapter:
+`codex-chatgpt`. MC Native, OpenCode, and Claude Code remain visible as future adapters
+but cannot start or resume implementation runs. `reviewer-default` remains the required
+independent reviewer. This decision supersedes the earlier requirement to qualify every
+implementation adapter before closing Queue #22.
+
+Queue #28 provided the final fresh Codex qualification run:
+
+| Evidence | Result |
+|---|---|
+| Workflow | Run #21, Queue #28 |
+| Agent / reviewer | `codex-chatgpt` / `reviewer-default` |
+| Outcome | `merged` through PR #5 |
+| Duration | 547 seconds total, 399 seconds active |
+| Reliability | 10 completed stage attempts, zero retries, zero tool failures |
+| Validation | Python compilation and all 51 Coding Agent checks passed |
+| Review | Qualified at 0.99 with no unmet acceptance criteria |
+| Delivery | Commit `fc49901`, merge commit `f510aa0`, scorecard and stage evidence persisted |
+
+The first OpenCode attempt failed and was canceled. It is retained as historical evidence
+for future adapter work, not counted as a production qualification failure because OpenCode
+is now locked outside the supported V2 scope.
+
+Current automated verification:
+
+- 47 focused pytest tests pass.
+- 82 additional criteria, Process, recovery, and state-contract assertions pass.
+- `python -m compileall -q core api` passes.
+- `npm run build --prefix dashboard` passes.
+- Patch whitespace validation passes.
+
+Remaining closure gate: the owner must complete the short browser review below against a
+restarted Mission Control instance.
+
+1. Agents shows Codex and Independent Reviewer as operational.
+2. MC Native, OpenCode, and Claude Code show Future and cannot be selected or started.
+3. History shows run #21 as Merged at 100%, with its scorecard and evidence available.
+4. Process shows the true idle state and does not present #28 as an active run.
+5. Work no longer offers completed #28 as a runnable Queue item.
+6. No unexplained error banner, overlapping menu, frozen action, or stale running animation
+   appears while navigating Overview, Work, Process, Agents, History, and System.
+
+After owner confirmation, mark Queue #22 Done and move Queue #21 from Blocked to Ready.
+The 24-hour and 72-hour VPS soaks remain later deployment gates.
+
 ## Closure Rule
 
-1. Complete and record all ten real local runs.
-2. Complete the owner browser checklist.
-3. Fix every blocker or document a consciously accepted non-blocking limitation.
-4. Change #22 to Done and change #21 from Blocked to Queued.
-5. Keep the 24-hour and 72-hour VPS soak as deployment gates before calling the continuous loop production-proven.
+1. Keep the automated Codex-only qualification suite green.
+2. Record one fresh Codex run that reaches reviewed delivery without manual code repair,
+   duplicate effects, unexplained failure, or an undocumented workaround.
+3. Complete the owner browser checklist.
+4. Fix every supported-scope blocker or document a consciously accepted non-blocking
+   limitation. Multi-agent implementation remains deferred and locked.
+5. Change #22 to Done and change #21 from Blocked to Ready.
+6. Keep the 24-hour and 72-hour VPS soak as deployment gates before calling the continuous
+   loop production-proven.
 
 ## Rollback
 
