@@ -11,7 +11,7 @@ from typing import Any, Callable
 from core.coding_contracts import ReadinessIssue, ReadinessReport, WorkerProfile
 from core.coding_criteria import derive_checks
 from core.coding_policy import PolicyDenied
-from core.coding_queue import REPO_ROOT
+from core.coding_queue import REPO_ROOT, task_execution_state
 from core.coding_review import reviewer_model_auth_problem, reviewer_model_problem
 from core.coding_states import ACTIVE_STATES, TERMINAL_STATES, workflow_progress
 from core.development_store import DevelopmentStore, utc_now
@@ -135,6 +135,24 @@ class CodingCompletionService:
 
         if str(task.get("status") or "") == "completed":
             blockers.append(ReadinessIssue("item_done", "This Queue item is already completed.", "status", False))
+        else:
+            execution_state = task_execution_state(task)
+            if execution_state == "blocked":
+                blockers.append(ReadinessIssue(
+                    "queue_blocked",
+                    f"Queue item #{queue_id} is blocked: {task.get('queue_status') or 'owner action is required'}.",
+                    "status",
+                ))
+            elif execution_state == "in_progress":
+                blockers.append(ReadinessIssue(
+                    "queue_in_progress",
+                    f"Queue item #{queue_id} is already in progress outside this runtime.",
+                    "status",
+                ))
+            elif execution_state == "done":
+                blockers.append(ReadinessIssue(
+                    "item_done", "This Queue item is already completed.", "status", False
+                ))
         criteria = [str(item) for item in _json(task.get("acceptance_criteria_json"), []) if str(item).strip()]
         if not criteria:
             blockers.append(ReadinessIssue(

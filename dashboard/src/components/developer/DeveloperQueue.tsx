@@ -17,6 +17,7 @@ import { ActionButton } from '../async-ui'
 import { useToast } from '../../context/ToastProvider'
 import MarkdownView from '../chat/MarkdownView'
 import AutoQueueToggle from './AutoQueueToggle'
+import { StateBadge } from './format'
 
 function label(value: string) {
   return value.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase())
@@ -43,6 +44,8 @@ function ItemCard({ item, badge, draggable, busy, prominent, onDragStart, onDrag
   onOpen: () => void; onStart?: () => void
 }) {
   const after = deps(item)
+  const canStart = item.can_start !== false
+  const startBlocker = item.start_blockers?.[0]
   return (
     <div draggable={draggable} onDragStart={onDragStart} onDragEnd={onDragEnd} onClick={onOpen}
       className={`group flex items-center gap-2.5 rounded-md border border-border bg-surface/70 px-2.5 py-2 text-sm transition-colors hover:border-accent/40 ${draggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}>
@@ -55,9 +58,11 @@ function ItemCard({ item, badge, draggable, busy, prominent, onDragStart, onDrag
       <span className="hidden shrink-0 text-[11px] text-muted sm:inline">
         {after.length ? `after ${after.map(id => `#${id}`).join(' ')}` : item.queue_effort ?? ''}
       </span>
+      {!canStart && <StateBadge state={item.execution_state || 'blocked'} />}
       <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase text-muted">{item.risk}</span>
       {onStart && (
-        <button disabled={busy} title={`Start #${item.queue_id} now`}
+        <button disabled={busy || !canStart}
+          title={canStart ? `Start #${item.queue_id} now` : startBlocker || `#${item.queue_id} is not ready`}
           onClick={event => { event.stopPropagation(); onStart() }}
           className={prominent
             ? 'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-accent px-2.5 text-[11px] font-semibold text-background shadow-sm transition-[filter] hover:brightness-110 disabled:opacity-40'
@@ -226,7 +231,9 @@ export default function QueueBoard({ state, active, busy, autoQueue, autoQueueBu
   }
 
   const mainItem = active ? byId.get(active.queue_id) : null
-  const startTarget = nextItem ?? priorityList[0] ?? null
+  const startTarget = (
+    nextItem?.can_start !== false ? nextItem : null
+  ) ?? priorityList.find(item => item.can_start !== false) ?? null
   const dragging = draggingId != null
 
   return (

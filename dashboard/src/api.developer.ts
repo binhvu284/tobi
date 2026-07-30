@@ -102,6 +102,8 @@ export type DeveloperQueueItem = {
   queue_effort?: string | null; dependencies_json: string; acceptance_criteria_json?: string
   owner_state?: string; worker_profile_slug?: string; reviewer_profile_slug?: string
   fallback_profiles_json?: string; validation_commands_json?: string
+  execution_state?: 'ready' | 'blocked' | 'in_progress' | 'done'
+  can_start?: boolean; start_blockers?: string[]
 }
 export type DeveloperRelease = {
   id: number; version: string; tier?: string | null; source: string; queue_item?: number | null
@@ -159,6 +161,7 @@ export type DeveloperScorecard = {
   active_duration_seconds?: number | null
   agent: string; reviewer: string; attempts: number; retries: number; tool_failures: number
   checks: Array<Record<string, unknown>>; evidence: Array<Record<string, unknown>>; outcome: string
+  review?: Record<string, unknown> | null
   error_code?: string | null; generated_at: string
 }
 

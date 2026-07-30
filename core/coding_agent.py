@@ -24,7 +24,7 @@ from core.coding_learning import CodingLearningService, failure_detail_signature
 from core.coding_policy import CodingPolicy, PolicyDenied
 from core.coding_quality import CodingQualityGate
 from core.coding_review import CodingReviewError, CodingReviewer
-from core.coding_queue import sync_queue, REPO_ROOT
+from core.coding_queue import sync_queue, REPO_ROOT, task_execution_state
 from core.deployment_manager import DeploymentManager
 from core.development_store import DevelopmentStore, utc_now
 from core.git_workspace import GitCommandError, GitWorkspaceManager
@@ -667,16 +667,59 @@ class CodingAgent:
         owner_flags.set_str("developer.queue_order", json.dumps(list(order)))
         owner_flags.set_str("developer.queue_next", str(next_id) if next_id else "")
 
+    def _queue_items_with_execution(
+        self, tasks: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        by_id = {int(task["queue_id"]): task for task in tasks}
+        projected: list[dict[str, Any]] = []
+        for source in tasks:
+            task = dict(source)
+            execution_state = task_execution_state(task)
+            blockers: list[str] = []
+            if execution_state == "blocked":
+                blockers.append(str(task.get("queue_status") or "Owner action is required."))
+            elif execution_state == "in_progress":
+                blockers.append("This item is already in progress.")
+            elif execution_state == "done":
+                blockers.append("This item is already completed.")
+            elif str(task.get("status") or "") != "planned":
+                blockers.append(
+                    f"This item is {str(task.get('status') or 'not ready').replace('_', ' ')}."
+                )
+
+            try:
+                dependencies = [
+                    int(value) for value in json.loads(task.get("dependencies_json") or "[]")
+                ]
+            except (TypeError, ValueError, json.JSONDecodeError):
+                dependencies = []
+                blockers.append("The dependency list is invalid.")
+            for dependency_id in dependencies:
+                dependency = by_id.get(dependency_id) or self.store.get_task(
+                    queue_id=dependency_id
+                )
+                if not dependency or str(dependency.get("status") or "") != "completed":
+                    blockers.append(f"Queue item #{dependency_id} must be completed first.")
+
+            task["execution_state"] = execution_state
+            task["start_blockers"] = blockers
+            task["can_start"] = execution_state == "ready" and not blockers
+            projected.append(task)
+        return projected
+
     def queue_state(self) -> dict[str, Any]:
         """Queue items plus the owner's Next slot + priority order, normalized so
         stale ids (started/completed/removed items) silently drop out."""
         from core import owner_flags
         # sync() returns every QUEUE.md row's upsert result — including rows the
         # owner removed (status=deleted, preserved by the upsert). Hide those.
-        items = [t for t in self.sync() if t.get("status") != "deleted"]
+        items = self._queue_items_with_execution([
+            task for task in self.sync() if task.get("status") != "deleted"
+        ])
         planned = {int(t["queue_id"]) for t in items if t.get("status") == "planned"}
+        startable = {int(t["queue_id"]) for t in items if t.get("can_start")}
         order, next_id = self._queue_prefs()
-        if next_id not in planned:
+        if next_id not in startable:
             next_id = None
         order = [qid for qid in order if qid in planned and qid != next_id]
         from core.coding_queue_authoring import queue_hash
@@ -685,9 +728,11 @@ class CodingAgent:
                 "queue_hash": queue_hash()}
 
     def set_queue_order(self, order: list[int], next_queue_id: int | None) -> dict[str, Any]:
-        planned = {int(t["queue_id"]) for t in self.sync() if t.get("status") == "planned"}
-        if next_queue_id is not None and int(next_queue_id) not in planned:
-            raise KeyError(f"Queue item #{next_queue_id} is not a planned item.")
+        items = self._queue_items_with_execution(self.sync())
+        planned = {int(t["queue_id"]) for t in items if t.get("status") == "planned"}
+        startable = {int(t["queue_id"]) for t in items if t.get("can_start")}
+        if next_queue_id is not None and int(next_queue_id) not in startable:
+            raise KeyError(f"Queue item #{next_queue_id} is not ready to start.")
         cleaned: list[int] = []
         for qid in order:
             qid = int(qid)
@@ -797,7 +842,7 @@ class CodingAgent:
                 return None
             # Owner ordering (Queue tab): the Next slot wins, then the priority
             # list, then remaining items in QUEUE.md file order.
-            tasks = self.sync()
+            tasks = self._queue_items_with_execution(self.sync())
             order, next_id = self._queue_prefs()
             file_pos = {int(t["queue_id"]): i for i, t in enumerate(tasks)}
 
@@ -810,7 +855,7 @@ class CodingAgent:
                 return (2, file_pos[qid])
 
             for task in sorted(tasks, key=_rank):
-                if task.get("status") != "planned":
+                if not task.get("can_start"):
                     continue
                 dependencies = json.loads(task.get("dependencies_json") or "[]")
                 if any(

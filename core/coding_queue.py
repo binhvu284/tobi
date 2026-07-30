@@ -21,6 +21,33 @@ def _plain(text: str) -> str:
     return re.sub(r"[*_`]", "", text).strip()
 
 
+def queue_execution_state(queue_status: str | None) -> str:
+    """Map owner-facing Queue text to the runtime eligibility vocabulary."""
+    value = _plain(str(queue_status or "")).lower()
+    if "blocked" in value:
+        return "blocked"
+    if "in progress" in value or re.search(r"\bactive\b", value):
+        return "in_progress"
+    if re.search(r"\b(?:done|delivered|completed|merged)\b", value):
+        return "done"
+    # Empty status is retained for legacy/test-created tasks. Draft, Ready, and
+    # Queued all still pass through strict preflight before a run can exist.
+    return "ready"
+
+
+def task_execution_state(task: dict[str, Any]) -> str:
+    status = str(task.get("status") or "")
+    if status == "completed":
+        return "done"
+    if status in {"approved", "running"}:
+        return "in_progress"
+    if status in {"blocked", "failed", "paused"}:
+        return "blocked"
+    if bool(task.get("status_override")) and status == "planned":
+        return "ready"
+    return queue_execution_state(task.get("queue_status"))
+
+
 def _criteria_from_plan(plan_text: str) -> list[str]:
     """Read criteria from their section without treating every plan bullet as a gate."""
     lines = plan_text.splitlines()
@@ -81,8 +108,7 @@ def parse_queue(path: Path | str = QUEUE_PATH) -> list[dict[str, Any]]:
         plan_text = plan_bytes.decode("utf-8", errors="replace")
         criteria = _criteria_from_plan(plan_text)
         dependencies = sorted({int(value) for value in _DEP_RE.findall(f"{queue_status} {notes}")})
-        lowered = queue_status.lower()
-        status = "completed" if "done" in lowered else "planned"
+        status = "completed" if queue_execution_state(queue_status) == "done" else "planned"
         risk = "critical" if "critical" in notes.lower() or "high conflict" in notes.lower() else "medium"
         target_match = re.search(r"`v?(\d+\.\d+\.\d+)`", f"{notes}\n{plan_text[:2000]}")
         items.append({

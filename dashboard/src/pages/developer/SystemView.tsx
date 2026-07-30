@@ -167,6 +167,19 @@ export function DataLearningView({ storage, learning, busy, onCleanup, onReplay 
 export function HistoryView({ workflows }: { workflows: DeveloperWorkflow[] }) {
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('all')
+  const attemptByWorkflow = useMemo(() => {
+    const grouped = new Map<number, DeveloperWorkflow[]>()
+    workflows.forEach(workflow => {
+      grouped.set(workflow.queue_id, [...(grouped.get(workflow.queue_id) ?? []), workflow])
+    })
+    const attempts = new Map<number, number>()
+    grouped.forEach(items => {
+      items
+        .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id)
+        .forEach((workflow, index) => attempts.set(workflow.id, index + 1))
+    })
+    return attempts
+  }, [workflows])
   const filtered = workflows.filter(workflow => {
     const haystack = `#${workflow.queue_id} ${workflow.title} ${workflow.worker_profile_slug ?? ''}`.toLowerCase()
     return haystack.includes(query.trim().toLowerCase()) && (status === 'all' || workflow.state === status)
@@ -176,10 +189,28 @@ export function HistoryView({ workflows }: { workflows: DeveloperWorkflow[] }) {
       <div><h2 className="text-sm font-semibold text-text">Run history</h2><p className="mt-1 text-xs text-muted">Replay outcomes, checkpoints, evidence, and recovery state.</p></div>
       <div className="flex gap-2"><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search item or agent" className="h-8 w-52 rounded-md border border-border bg-background px-2.5 text-xs text-text outline-none focus:border-accent" /><select value={status} onChange={event => setStatus(event.target.value)} className="h-8 rounded-md border border-border bg-background px-2 text-xs text-text"><option value="all">All states</option><option value="merged">Merged</option><option value="completed">Deployed</option><option value="blocked">Needs action</option><option value="failed">Failed</option><option value="canceled">Canceled</option></select></div>
     </header>
-    <div className="divide-y divide-border/70">{filtered.length ? filtered.map(workflow => <details key={workflow.id} className="group">
-      <summary className="grid cursor-pointer list-none gap-2 px-4 py-3 hover:bg-overlay/5 sm:grid-cols-[minmax(0,1fr)_120px_140px_90px] sm:items-center"><div className="min-w-0"><div className="truncate text-xs font-medium text-text">#{workflow.queue_id} {workflow.title}</div><div className="mt-1 text-[10px] text-muted">Run #{workflow.id} · {new Date(workflow.created_at).toLocaleString()}</div></div><span className={`w-fit rounded border px-1.5 py-0.5 text-[10px] ${tone(workflow.state)}`}>{label(workflow.state)}</span><span className="truncate text-[11px] text-muted">{workflow.worker_profile_slug || 'unassigned'}</span><span className="text-right text-[11px] text-muted">{Math.round(workflow.progress || 0)}%</span></summary>
-      <div className="grid gap-3 border-t border-border/60 bg-background/35 px-4 py-4 sm:grid-cols-3"><div><div className="text-[10px] uppercase text-muted">Outcome</div><div className="mt-1 text-xs text-text">{workflow.scorecard?.payload?.outcome || workflow.state}</div></div><div><div className="text-[10px] uppercase text-muted">Evidence</div><div className="mt-1 text-xs text-text">{workflow.evidence?.length ?? 0} records</div></div><div><div className="text-[10px] uppercase text-muted">Recovery</div><div className="mt-1 text-xs text-text">{workflow.blocker || 'No owner action recorded'}</div></div></div>
-    </details>) : <Empty text="No runs match these filters." />}</div>
+    <div className="divide-y divide-border/70">{filtered.length ? filtered.map(workflow => {
+      const scorecard = workflow.scorecard?.payload
+      const evidenceCount = workflow.evidence?.length ?? scorecard?.evidence?.length ?? 0
+      const checks = scorecard?.checks ?? []
+      const passedChecks = checks.filter(check => check.ok === true).length
+      const activeSeconds = Math.max(0, Number(scorecard?.active_duration_seconds ?? 0))
+      const activeTime = activeSeconds >= 3600
+        ? `${Math.floor(activeSeconds / 3600)}h ${Math.floor(activeSeconds % 3600 / 60)}m`
+        : `${Math.floor(activeSeconds / 60)}m ${Math.floor(activeSeconds % 60)}s`
+      return <details key={workflow.id} className="group">
+        <summary className="grid cursor-pointer list-none gap-2 px-4 py-3 hover:bg-overlay/5 sm:grid-cols-[minmax(0,1fr)_120px_140px_90px] sm:items-center"><div className="min-w-0"><div className="truncate text-xs font-medium text-text">#{workflow.queue_id} {workflow.title}</div><div className="mt-1 text-[10px] text-muted">Attempt {attemptByWorkflow.get(workflow.id) ?? 1} · {new Date(workflow.created_at).toLocaleString()}</div></div><span className={`w-fit rounded border px-1.5 py-0.5 text-[10px] ${tone(workflow.state)}`}>{label(workflow.state)}</span><span className="truncate text-[11px] text-muted">{workflow.worker_profile_slug || 'unassigned'}</span><span className="text-right text-[11px] text-muted">{Math.round(workflow.progress || 0)}%</span></summary>
+        <div className="border-t border-border/60 bg-background/35">
+          <div className="grid gap-4 px-4 py-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div><div className="text-[10px] uppercase text-muted">Outcome</div><div className="mt-1 text-xs text-text">{scorecard?.outcome || workflow.state}</div></div>
+            <div><div className="text-[10px] uppercase text-muted">Evidence</div><div className="mt-1 text-xs text-text">{evidenceCount} records</div></div>
+            <div><div className="text-[10px] uppercase text-muted">Checks</div><div className="mt-1 text-xs text-text">{checks.length ? `${passedChecks}/${checks.length} passed` : 'No checks recorded'}</div></div>
+            <div><div className="text-[10px] uppercase text-muted">Agent effort</div><div className="mt-1 text-xs text-text">{activeTime} active / {scorecard?.retries ?? 0} retries</div></div>
+          </div>
+          <div className="border-t border-border/50 px-4 py-3"><span className="text-[10px] uppercase text-muted">Final note</span><span className="ml-3 text-xs text-text">{workflow.blocker || 'No owner action recorded'}</span></div>
+        </div>
+      </details>
+    }) : <Empty text="No runs match these filters." />}</div>
   </section>
 }
 
@@ -242,12 +273,14 @@ export function SystemView({ storage, learning, releases, workflowId, acceptance
   releases: DeveloperRelease[]; workflowId: number | null; acceptanceMode: boolean
   busy: boolean; onCleanup: (master: string) => void; onReplay: () => void
 }) {
-  const [view, setView] = useState<'storage' | 'learning' | 'version'>('storage')
+  const [view, setView] = useState<'data' | 'version'>('data')
   return <div className="space-y-4">
     {acceptanceMode && <AcceptanceControls workflowId={workflowId} />}
-    <div className="inline-flex rounded-md border border-border bg-surface/60 p-1">{(['storage', 'learning', 'version'] as const).map(item => <button key={item} onClick={() => setView(item)} className={`h-8 rounded px-3 text-xs font-medium ${view === item ? 'bg-accent text-background' : 'text-muted hover:text-text'}`}>{label(item)}</button>)}</div>
-    {view === 'storage' && <StorageView storage={storage} busy={busy} onCleanup={onCleanup} />}
-    {view === 'learning' && <LearningView state={learning} busy={busy} onReplay={onReplay} />}
+    <div className="inline-flex rounded-md border border-border bg-surface/60 p-1">
+      <button onClick={() => setView('data')} className={`h-8 rounded px-3 text-xs font-medium ${view === 'data' ? 'bg-accent text-background' : 'text-muted hover:text-text'}`}>Data &amp; learning</button>
+      <button onClick={() => setView('version')} className={`h-8 rounded px-3 text-xs font-medium ${view === 'version' ? 'bg-accent text-background' : 'text-muted hover:text-text'}`}>Version</button>
+    </div>
+    {view === 'data' && <DataLearningView storage={storage} learning={learning} busy={busy} onCleanup={onCleanup} onReplay={onReplay} />}
     {view === 'version' && <VersionsView releases={releases} />}
   </div>
 }

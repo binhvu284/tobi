@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from core import coding_completion, coding_queue, coding_queue_authoring
+from core.coding_agent import CodingAgent
 from core.coding_completion import CodingCompletionService
 from core.coding_policy import CodingPolicy
 from core.development_store import DevelopmentStore
@@ -120,6 +121,68 @@ def test_preflight_locks_future_agent_and_offers_codex(tmp_path: Path, monkeypat
     assert "agent_future_locked" in {item["code"] for item in report["blockers"]}
     assert [item["slug"] for item in report["alternatives"]] == ["codex-chatgpt"]
     assert store.list_sessions(10) == []
+
+
+@pytest.mark.parametrize(
+    ("queue_status", "expected_code"),
+    [
+        ("Blocked by #22 owner acceptance", "queue_blocked"),
+        ("In progress (qualification pending)", "queue_in_progress"),
+    ],
+)
+def test_preflight_enforces_owner_queue_lifecycle(
+    tmp_path: Path, monkeypatch, queue_status: str, expected_code: str
+) -> None:
+    store = DevelopmentStore(tmp_path / "developer.db")
+    task = _task(store, tmp_path)
+    with store.connect() as conn:
+        conn.execute(
+            "UPDATE development_tasks SET queue_status=? WHERE id=?",
+            (queue_status, int(task["id"])),
+        )
+        conn.commit()
+    monkeypatch.setattr(coding_completion, "REPO_ROOT", tmp_path)
+    service = CodingCompletionService(
+        store=store, policy=_policy(tmp_path), worker=_Worker(), assessor=_Assessor()
+    )
+
+    report = service.preflight(int(task["queue_id"]), active_probe=False)
+
+    assert not report["ready"]
+    assert expected_code in {item["code"] for item in report["blockers"]}
+    assert store.list_sessions(10) == []
+
+
+def test_queue_projection_disables_blocked_in_progress_and_dependencies() -> None:
+    agent = CodingAgent.__new__(CodingAgent)
+    agent.store = type("Store", (), {"get_task": lambda _self, queue_id: None})()
+    items = [
+        {
+            "queue_id": 22, "status": "planned", "queue_status": "In progress",
+            "status_override": 0, "dependencies_json": "[]",
+        },
+        {
+            "queue_id": 21, "status": "planned", "queue_status": "Blocked by #22",
+            "status_override": 0, "dependencies_json": "[22]",
+        },
+        {
+            "queue_id": 27, "status": "planned", "queue_status": "Ready",
+            "status_override": 0, "dependencies_json": "[]",
+        },
+    ]
+
+    projected = {
+        item["queue_id"]: item
+        for item in CodingAgent._queue_items_with_execution(agent, items)
+    }
+
+    assert projected[22]["execution_state"] == "in_progress"
+    assert projected[22]["can_start"] is False
+    assert projected[21]["execution_state"] == "blocked"
+    assert projected[21]["can_start"] is False
+    assert "Queue item #22 must be completed first." in projected[21]["start_blockers"]
+    assert projected[27]["execution_state"] == "ready"
+    assert projected[27]["can_start"] is True
 
 
 def test_goal_qualification_requires_criterion_level_evidence(tmp_path: Path, monkeypatch) -> None:
