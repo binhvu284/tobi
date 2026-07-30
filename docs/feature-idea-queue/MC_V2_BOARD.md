@@ -13,9 +13,15 @@ Its status column carries the same short progress note this board tracks.
 
 ## Status
 
-**Not started.** Blocked until #22 passes its ten-run matrix and owner browser acceptance.
+**Blocked** until #22 passes its ten-run matrix and owner browser acceptance.
 
 **Delivered:** none of 17.
+
+**In progress:** T00 is half done. Its mapping half — which part of the code owns which table
+and API — needed nothing from #22 and is finished:
+[MC_V2_OWNERSHIP_MATRIX.md](MC_V2_OWNERSHIP_MATRIX.md). Headline: the API is clean (365 routes,
+zero clashes), and of 146 tables, **11 have no owner at all** — `tasks` alone is written by seven
+different files. T00's other half, confirming #22 actually passed, still waits on Codex.
 
 ---
 
@@ -49,7 +55,7 @@ Ordered. Each one ships and is reviewable on its own. Risk is the plan's own rat
 
 | # | Plain-English goal | Needs | Risk | Done |
 |---|---|---|---|---|
-| T00 | **Check the ground first.** Confirm #22 really passed, then map who owns what. Every shared table and API gets exactly one owner. No code changes. | #22 | Med | ☐ |
+| T00 | **Check the ground first.** Confirm #22 really passed, then map who owns what. Every shared table and API gets exactly one owner. No code changes. → [mapping done](MC_V2_OWNERSHIP_MATRIX.md); #22 confirmation pending | #22 | Med | ◐ |
 | T01 | **Agree the shapes.** Define in code what a "run", a "tool", a "loop", and a "quality check" look like, so every part of TOBI means the same thing by those words. | T00 | Med | ☐ |
 | T02 | **Write everything down, in order.** An append-only log of what happened, and the ability to rebuild the current state from it. | T01 | High | ☐ |
 | T03 | **Make runs survive a crash.** Save points, retries, cancel, spending limits. A restart resumes the same run instead of starting a new one — and cannot repeat something it already did. | T02 | High | ☐ |
@@ -108,6 +114,7 @@ the code just agrees with the code.
 |---|---|---|
 | `QUEUE.md` | **you** | One row per item. The ledger. Never gets split. |
 | `MC_V2_BOARD.md` (this page) | **you** | #21 in plain words. Where we are, what is next. |
+| `MC_V2_OWNERSHIP_MATRIX.md` | **you** + agent | T00's finding: who owns which table and API today, and who should. |
 | `MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md` | agent | The full specification. 1,100 lines. |
 | `.claude/CURRENT_WORK.md` | agent | The one package being built right now. |
 | `CLAUDE.md` / `AGENTS.md` | agent | Permanent working rules. Not item-specific. |
