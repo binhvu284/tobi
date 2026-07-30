@@ -2,6 +2,26 @@
 
 Read [`docs/README.md`](docs/README.md) first. For implementation work, also read [`docs/02_CURRENT_STATE.md`](docs/02_CURRENT_STATE.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and the relevant feature plan or domain section.
 
+## Reporting To The Owner
+
+One owner reads every report, and he is steering the whole system from them. A report he cannot finish is a report that did not happen. These rules are not style preferences; a report that breaks them costs him the thread of what is actually going on.
+
+- **Lead with the answer.** First line is the result. Everything after it earns its place by changing a decision.
+- **Stay short.** A routine reply is under ten lines. A large delivery is under forty, with headings so it can be skimmed and re-found later. If it genuinely needs more, the detail goes in a file and the reply links to it.
+- **Explain every technical term the first time it appears**, in the same sentence, by what it *does* — not by what it is called. Write "a lease (so two workers can never grab the same job)", not "a lease". Never leave a term for him to look up.
+- **Three unfamiliar terms in one paragraph means the paragraph is wrong.** Rewrite it in ordinary words before sending.
+- **Prefer a table to a list, and a list to a paragraph.** Never nest more than two levels deep.
+- **End findings with what they mean for him** — what he can now do, or what is now blocked.
+- **Step by step means step by step.** When he asks how to set up, test, run, or check something, write it for someone doing it for the first time: the exact command, the exact button, the exact place to look, and what a correct result looks like. Never write "configure X" or "see the docs" and leave him to research it.
+- **Say the uncomfortable part plainly and once.** "This failed." "I was wrong." "This is not done." One sentence, no cushioning, then carry on.
+- **Never pad.** Length is not evidence of effort, and it is the main way he loses the picture.
+
+## Current Work
+
+[`.claude/CURRENT_WORK.md`](.claude/CURRENT_WORK.md) holds the one package being built right now: its purpose, its non-goals, and its gate. Read it before writing code, and re-read the purpose line whenever a fix has run long — if what you are fixing does not serve that line, stop and log it as a separate item instead of absorbing it.
+
+`scripts/gate.py` enforces the gate declared in that file on every stop. A failing gate refuses the stop. Never weaken, skip, or delete a check to get past it; that is the failure mode the gate exists to catch.
+
 ## Product Direction
 
 TOBI's mission is a personal Jarvis: persistent owner understanding, safe real-world action, and reliable presence. The MMO/business loop is one implemented capability, not the product identity.
