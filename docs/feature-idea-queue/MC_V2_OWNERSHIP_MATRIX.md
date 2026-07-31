@@ -146,6 +146,59 @@ gets added here rather than handled ad hoc.
 
 ---
 
+## Scale check — the plan's SQLite non-goal, now measured
+
+§1.2 lists *"replacing SQLite before measured contention requires it"* as a non-goal. Nobody had
+measured it, and T02 (append-only event store) plus T03 (durable runtime, several surfaces writing
+at once) are the two packages that would break the assumption if it were wrong. Measured on this
+machine, on the D: drive:
+
+**Data volume is not the risk.** The live database is 57 MB and **19,985 rows across 144 tables**.
+The largest table, `development_events`, holds 5,557 rows. 36 tables are empty.
+
+**Concurrency is not the risk either.** Benchmarked against a table shaped like the planned event
+store — append-only, ~450-byte JSON payload, indexed on `(run_id, seq)`:
+
+| Concurrent writers | Writes/sec | p99 write | Lock errors |
+|---|---|---|---|
+| 1 | 11,383 | 0.19 ms | 0 |
+| 4 | 11,805 | 0.70 ms | 0 |
+| 8 | 10,486 | 1.13 ms | 0 |
+
+Zero lock contention at every level, and a reader running against four hammering writers saw
+**p99 0.34 ms** — WAL doing exactly what it is for. At this rate SQLite writes TOBI's entire
+current history in about two seconds. The non-goal holds by roughly three orders of magnitude.
+
+### One measured defect: a missing pragma costs 10x write throughput
+
+`core/database.py` sets `journal_mode=WAL`, `busy_timeout=8000`, and `foreign_keys=ON`, but never
+sets `synchronous`. SQLite therefore runs at the default `FULL`, which fsyncs on every commit:
+
+| `synchronous` | Writes/sec (1 writer) | p50 |
+|---|---|---|
+| `FULL` — **what TOBI runs today** | **1,095** | 0.90 ms |
+| `NORMAL` | **11,383** | 0.05 ms |
+
+**The honest trade-off.** In WAL mode `NORMAL` cannot corrupt the database; the documented risk is
+losing the most recently committed transactions if the machine loses power or the OS crashes. For
+a local single-owner assistant that is usually the right trade, and it is what most WAL deployments
+run. But #21's entire purpose is durable runs, so this is the owner's call, not a silent tuning
+change. It is recorded here rather than applied.
+
+Not urgent at 20k rows. It becomes relevant the moment T02 starts appending an event per tool call.
+
+### What the real bottleneck is
+
+The Developer page took 9.7 seconds to render against these same 20k rows before it was fixed. The
+cause was never data volume — it was 500 queries across 50 fresh connections in one request. An
+AST scan finds **124 loops in `core/` and `api/` that contain a database call**, concentrated in
+`development_store.py` (9), `graph_engine.py` (9), `explore.py` (7), and `api/routers/pm.py` (6).
+Most are harmless loops over short lists. The point is the shape: **TOBI's scaling risk is access
+patterns, not storage.**
+
+So the guard #21 needs is not a database migration. It is a check that a request's query count
+stays bounded — the same kind of budget test that now protects `/api/developer/overview`.
+
 ## What this changes for T01
 
 T01 defines the typed shapes. Three of them are now pinned by evidence rather than by preference:
