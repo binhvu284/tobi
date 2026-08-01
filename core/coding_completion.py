@@ -117,6 +117,20 @@ class CodingCompletionService:
         if not commands:
             commands = self.policy.mandatory_checks()
 
+        # A stale-workflow retry is allowed to re-check the Queue item it already owns.
+        # Do not trust an arbitrary exclusion: it must name this task and be in a state the
+        # recovery command is allowed to resume. A different active run remains a blocker.
+        resume_session = (
+            self.store.get_session(int(exclude_session_id))
+            if exclude_session_id is not None
+            else None
+        )
+        resuming_own_task = bool(
+            resume_session
+            and int(resume_session.get("task_id") or 0) == int(task["id"])
+            and str(resume_session.get("state") or "") in {"paused", "blocked", "failed"}
+        )
+
         blockers: list[ReadinessIssue] = []
         warnings: list[ReadinessIssue] = []
         alternatives: list[dict[str, Any]] = []
@@ -143,7 +157,7 @@ class CodingCompletionService:
                     f"Queue item #{queue_id} is blocked: {task.get('queue_status') or 'owner action is required'}.",
                     "status",
                 ))
-            elif execution_state == "in_progress":
+            elif execution_state == "in_progress" and not resuming_own_task:
                 blockers.append(ReadinessIssue(
                     "queue_in_progress",
                     f"Queue item #{queue_id} is already in progress outside this runtime.",
@@ -191,13 +205,13 @@ class CodingCompletionService:
 
         conn = self.store.connect()
         try:
-            exclusion = "AND id<>?" if exclude_session_id is not None else ""
+            exclusion = "AND id<>?" if resuming_own_task else ""
             active = conn.execute(
                 f"SELECT id FROM coding_sessions WHERE state NOT IN "
                 f"({','.join('?' for _ in TERMINAL_STATES)}) {exclusion} LIMIT 1",
                 (
                     *tuple(sorted(TERMINAL_STATES)),
-                    *((int(exclude_session_id),) if exclude_session_id is not None else ()),
+                    *((int(exclude_session_id),) if resuming_own_task else ()),
                 ),
             ).fetchone()
         finally:

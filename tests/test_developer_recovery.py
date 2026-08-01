@@ -132,6 +132,37 @@ try:
         error_code="policy_changed",
     )
 
+    store.update_session(stale_id, state="canceled", completed_at="test")
+    other_task = store.upsert_task({
+        "queue_id": 14,
+        "title": "Unrelated recovery",
+        "plan_path": "docs/theme.md",
+        "plan_hash": plan_hash,
+        "acceptance_criteria": ["replacement workflow is durable"],
+        "dependencies": [],
+        "status": "planned",
+        "risk": "low",
+        "target_version": "3.13.0",
+        "worker_profile_slug": "codex-chatgpt",
+        "reviewer_profile_slug": "reviewer-default",
+    })
+    other = store.create_session(
+        int(other_task["id"]),
+        "other-policy",
+        "other-queue-workflow",
+        plan_hash_snapshot=plan_hash,
+        criteria_snapshot=["replacement workflow is durable"],
+        worker_profile_slug="codex-chatgpt",
+        reviewer_profile_slug="reviewer-default",
+    )
+    store.update_session(int(other["id"]), state="canceled", completed_at="test")
+    blocked = agent.completion.preflight(13, exclude_session_id=int(other["id"]))
+    check(
+        "an unrelated workflow cannot bypass Queue ownership",
+        any(item["code"] == "queue_in_progress" for item in blocked["blockers"]),
+    )
+    store.update_session(stale_id, state="paused", completed_at=None)
+
     replacement = agent.command(stale_id, "retry")
     replacement_id = int(replacement["id"])
     check("stale retry preserves the same workflow", replacement_id == stale_id)
