@@ -205,18 +205,36 @@ class CodexClient(BaseLLMClient):
 
     @staticmethod
     def _to_input(messages: list) -> list:
+        """Convert OpenAI chat messages → Responses API input items.
+
+        The Responses API types text by who produced it: what was sent *to* the model is
+        `input_text`, what the model said *back* is `output_text`. Tagging everything
+        `input_text` works for a one-shot call and fails the moment a conversation has an
+        assistant turn:
+
+            400 Invalid value: 'input_text'. Supported values are: 'output_text' and
+                'refusal'.  (param: input[1].content[0])
+
+        Chat's tool loop hits that on every request that uses a tool — step one returns the
+        call, its reply is appended as an assistant message, and step two onward is rejected.
+        The Conductor turns a failed step into an empty string, so the owner was told his
+        model kept "returning incomplete or malformed output" when the model was never asked.
+        """
         items = []
         for m in messages:
             role = m.get("role", "user")
+            # Only the model's own turns are output. A system/developer message is an
+            # instruction being sent in, not something the model produced.
+            text_type = "output_text" if role == "assistant" else "input_text"
             content = m.get("content", "")
             if isinstance(content, list):
                 # Convert OpenAI chat-format blocks → Responses API blocks
-                # (text → input_text, image_url → input_image).
+                # (text → input_text/output_text, image_url → input_image).
                 converted = []
                 for block in content:
                     btype = block.get("type")
                     if btype == "text":
-                        converted.append({"type": "input_text", "text": block.get("text", "")})
+                        converted.append({"type": text_type, "text": block.get("text", "")})
                     elif btype == "image_url":
                         url = (block.get("image_url") or {}).get("url", "")
                         converted.append({"type": "input_image", "image_url": url})
@@ -224,7 +242,7 @@ class CodexClient(BaseLLMClient):
                         converted.append(block)
                 items.append({"role": role, "content": converted})
             else:
-                items.append({"role": role, "content": [{"type": "input_text", "text": str(content)}]})
+                items.append({"role": role, "content": [{"type": text_type, "text": str(content)}]})
         return items
 
     @property

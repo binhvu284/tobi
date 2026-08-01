@@ -127,6 +127,50 @@ ok("complete_stream asks the shared shaper instead of rebuilding the request",
 complete_fn = source[source.index("def complete("):source.index("def complete_stream")]
 ok("complete asks the shared shaper too", "_request_kwargs(" in complete_fn)
 
+# --- a second turn must be sendable at all ------------------------------------------------
+# The Responses API types content by who produced it: what the owner sent is `input_text`,
+# what the model said back is `output_text`. Every message was tagged `input_text`, so the
+# moment a conversation had an assistant turn the request was rejected:
+#
+#   400 Invalid value: 'input_text'. Supported values are: 'output_text' and 'refusal'.
+#        (param: input[1].content[0])
+#
+# One-shot calls never noticed. Chat's tool loop always did: step one returns a tool call, the
+# reply is appended to the history as an assistant message, and step two onward 400s. The
+# Conductor swallows a failed step into an empty string, counts three empties, and tells the
+# owner "the current model is struggling" -- so a request that worked perfectly on turn one
+# reported the model as broken. Reproduced live on 2026-08-01 against codex:gpt-5.6-sol:
+# `list_projects` ran, then turns 2, 3 and 4 came back empty.
+conversation = [
+    {"role": "user", "content": "list all project, update their progress"},
+    {"role": "assistant", "content": '{"tool":"list_projects","args":{}}'},
+    {"role": "user", "content": "TOOL_RESULT list_projects: []"},
+]
+items = CodexClient._to_input(conversation)
+kinds = [(item["role"], item["content"][0]["type"]) for item in items]
+
+ok("what the owner said is sent as input_text",
+   kinds[0] == ("user", "input_text"), str(kinds))
+ok("what the model said is sent back as output_text, not input_text",
+   kinds[1] == ("assistant", "output_text"), str(kinds))
+ok("a tool result is still the owner side of the conversation",
+   kinds[2] == ("user", "input_text"), str(kinds))
+
+# Block-form content (vision turns) must follow the same rule.
+blocks = CodexClient._to_input([
+    {"role": "user", "content": [{"type": "text", "text": "what is this?"}]},
+    {"role": "assistant", "content": [{"type": "text", "text": "A chart, sir."}]},
+])
+ok("block-form owner text stays input_text",
+   blocks[0]["content"][0]["type"] == "input_text", str(blocks[0]))
+ok("block-form model text becomes output_text",
+   blocks[1]["content"][0]["type"] == "output_text", str(blocks[1]))
+
+# A system/developer message is an instruction to the model, never model output.
+sys_items = CodexClient._to_input([{"role": "system", "content": "You are TOBI."}])
+ok("a system message is not mistaken for model output",
+   sys_items[0]["content"][0]["type"] == "input_text", str(sys_items[0]))
+
 print(f"\n{'ALL' if not FAILURES else str(len(FAILURES)) + ' OF'} "
       f"{'CODEX BACKEND CHECKS PASSED' if not FAILURES else 'CHECKS FAILED: ' + ', '.join(FAILURES)}")
 raise SystemExit(1 if FAILURES else 0)
