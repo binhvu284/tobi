@@ -16,6 +16,19 @@ One owner reads every report, and he is steering the whole system from them. A r
 - **Say the uncomfortable part plainly and once.** "This failed." "I was wrong." "This is not done." One sentence, no cushioning, then carry on.
 - **Never pad.** Length is not evidence of effort, and it is the main way he loses the picture.
 
+## The Standard: It Must Work For A Non-Technical Person
+
+TOBI is judged as a product, not as a developer tool. The owner set this standard on 2026-08-01 after a Chat failure whose only available fix was "configure a fallback model on the Models page":
+
+> *"If I use it as a normal person, I would expect it should do whatever I said. If it requires my config, it shall teach me how to do it. Setting up a fallback in MC is only suitable if I was a developer who knows the system well."*
+
+- **A feature that needs hidden configuration to work is broken, not configurable.** Ship a working default. Configuration may refine behavior; it must never be the difference between working and failing.
+- **Never propose a fix whose steps are "open this settings page and set this field"** unless a non-technical person would already know that field exists and what to put in it. If they would not, fix the code instead.
+- **A silent empty setting is a defect.** If a recovery path, fallback, or safety net depends on a value that ships empty, it does not exist. Either give it a working default or make its absence visible at the moment it matters.
+- **Error messages must be true and actionable.** "Try a stronger model from the picker" implied TOBI had already tried and failed; it never tried, because the list it reads was empty. An error that misdescribes the cause sends the owner to fix the wrong thing.
+- **When the model or a service returns something imperfect but usable, use it.** Dropping a valid result because it arrived in an unexpected shape is TOBI's bug, not the provider's.
+- **This applies to every fix, in every subsystem, from now on.** When a change would leave the owner needing to know how TOBI works internally, it is not finished.
+
 ## Current Work
 
 [`.claude/CURRENT_WORK.md`](.claude/CURRENT_WORK.md) holds the one package being built right now: its purpose, its non-goals, and its gate. Read it before writing code, and re-read the purpose line whenever a fix has run long — if what you are fixing does not serve that line, stop and log it as a separate item instead of absorbing it.

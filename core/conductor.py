@@ -97,7 +97,7 @@ from core.conductor_parsing import (  # noqa: F401 - re-exported: tests and othe
     _AFFIRM, _FENCE_RE, _NEGATE, _TOOL_PHASE, _balanced_objects, _confirm_reply,
     _confirm_reply_batch, _default_chat_id, _history, _is_affirm, _is_negate, _norm,
     _parse_tool_call, _parse_tool_calls, _phase_for, _propose_actions, _propose_reply,
-    _safe_complete
+    _safe_complete, strip_tool_calls
 )
 
 MAX_TOOL_STEPS = 8  # enough for a chain: read → create project → tasks → assign → answer
@@ -228,6 +228,10 @@ def _picker_intro(picker: dict) -> str:
 STEP_TOKENS = 2048    # generous so a tool-call JSON (or short answer) never truncates
 FINAL_TOKENS = 4096   # generous final answer; complete continuation if it still caps
 MAX_STEP_RETRIES = 2  # re-issue a garbled/truncated tool-call up to this many times
+
+# Prose left over once a tool call is removed only counts as an answer at this length. A
+# stray word ("Okay") beside a call is noise; a real question or finding is longer.
+_MIXED_PROSE_MIN = 20
 
 _MODEL_STRUGGLING = (
     "I'm having trouble completing that with the current model, sir — it keeps returning "
@@ -581,8 +585,20 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
         # signature (a truncated/garbled one). This is precise — a legitimate fenced-JSON answer
         # the owner asked for does NOT lead with `{"tool"` and won't parse as a call.
         if not clean or _TOOL_SIG_RE.match(clean.lstrip()) or _parse_tool_call(clean):
-            # One explicit, visible escalation for malformed output. This runs only after the
-            # invalid response has been buffered/retracted, never after a valid partial answer.
+            # A reply can be BOTH a tool call and something worth saying. Asked to "list all
+            # project, update their progress", the model emitted the call and, glued to it,
+            # "I need each project's current status ... to update progress accurately" — the
+            # one question the request left open. The tools have already run by this point, so
+            # the prose IS the answer; discarding it cost the owner a fair question and told
+            # him his model was struggling, which was never true.
+            leftover = strip_tool_calls(clean)
+            if len(leftover) >= _MIXED_PROSE_MIN:
+                return _with_model_meta({
+                    "reply": leftover, "reasoning": reasoning, "tools_used": used,
+                    "intent": intent, "streamed": False,
+                })
+            # Nothing but a tool call — the model genuinely never answered. Escalate once,
+            # visibly, only after the invalid response has been buffered/retracted.
             try:
                 from core.model_router import get_escalation_llm
                 stronger, stronger_id = get_escalation_llm(model)

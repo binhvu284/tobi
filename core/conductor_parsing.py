@@ -100,6 +100,37 @@ def _parse_tool_calls(text: str) -> list[dict]:
     return out
 
 
+def strip_tool_calls(text: str) -> str:
+    """Return `text` with every tool-call JSON object removed, leaving the prose around it.
+
+    A model may answer with both at once. `codex:gpt-5.6-sol`, asked to "list all project,
+    update their progress", replied:
+
+        {"tool":"list_projects","args":{}}I need each project's current status or completed
+        milestones to update progress accurately.
+
+    That is not malformed. It starts the lookup and asks the one question the request left
+    open -- what to update the progress to. Treating the whole reply as unusable threw away a
+    valid call *and* a fair question, and told the owner his model was struggling.
+
+    Only objects that genuinely parse as `{"tool": ...}` are removed, so a fenced JSON answer
+    the owner actually asked for survives untouched.
+    """
+    if not text:
+        return ""
+    out = text
+    for candidate in _balanced_objects(text):
+        try:
+            obj = json.loads(candidate)
+        except Exception:
+            continue
+        if isinstance(obj, dict) and isinstance(obj.get("tool"), str):
+            out = out.replace(candidate, " ", 1)
+    # Collapse the gap the removal leaves behind without disturbing paragraph breaks.
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    return re.sub(r"\n{3,}", "\n\n", out).strip()
+
+
 def _safe_complete(client, msgs: list, system: str, max_tokens: int = 700) -> str:
     try:
         out = client.complete(list(msgs), system=system, max_tokens=max_tokens)

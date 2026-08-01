@@ -350,7 +350,11 @@ def get_llm(task_type: str = "default", model: Optional[str] = None) -> BaseLLMC
 
     primary = build_client(chosen, cfg)
     chain = [primary]
-    for fb in cfg.get("fallback", []):
+    # Same empty-by-default trap as escalation: `fallback` ships as [], so the retry chain was
+    # only ever the primary and one provider hiccup failed the whole call. Top the chain up
+    # from the catalog so a stock install still has a second attempt without the owner having
+    # to know a fallback list exists. An explicit fallback still goes first.
+    for fb in list(cfg.get("fallback", [])) + _catalog_alternatives(chosen):
         if fb and fb != chosen:
             try:
                 chain.append(build_client(fb, cfg))
@@ -360,6 +364,24 @@ def get_llm(task_type: str = "default", model: Optional[str] = None) -> BaseLLMC
                 pass
     chain = [c for c in chain if c is not None]
     return FallbackClient(chain, requested_model=chosen)
+
+
+def _catalog_alternatives(current: str) -> list[str]:
+    """Every known model except `current`, nearest first.
+
+    Nearest means the current model's own provider: a sibling runs on credentials already
+    proven to work, so it is the substitute most likely to succeed and the least surprising
+    to the owner. Other providers follow. Nothing here checks availability — the caller
+    already builds each candidate and skips the ones that raise.
+    """
+    provider, _ = _provider_of(current) if current else ("", "")
+    ordered: list[str] = []
+    for pid in ([provider] if provider in PROVIDERS else []) + [p for p in PROVIDERS if p != provider]:
+        for name in PROVIDERS.get(pid, {}).get("models") or []:
+            candidate = f"{pid}:{name}"
+            if candidate != current:
+                ordered.append(candidate)
+    return ordered
 
 
 def get_escalation_llm(current_model: Optional[str] = None) -> tuple[Optional[BaseLLMClient], Optional[str]]:
@@ -374,6 +396,13 @@ def get_escalation_llm(current_model: Optional[str] = None) -> tuple[Optional[Ba
     default = (cfg.get("default_model") or "").strip()
     if default:
         candidates.append(default)
+    # `fallback` ships empty and `default_model` IS the model that just failed, so on a stock
+    # install both candidates above are exhausted before anything is tried and the owner gets
+    # "the current model is struggling" — a handoff that never happened. He should not have to
+    # discover a hidden setting to make recovery work, so fall back to the catalog: the current
+    # provider's other models first (same account, same credentials, most likely to work), then
+    # any other provider. Disabled or unbuildable ones are skipped by the loop below.
+    candidates.extend(_catalog_alternatives(current))
     seen: set[str] = set()
     for candidate in candidates:
         candidate = str(candidate or "").strip()
