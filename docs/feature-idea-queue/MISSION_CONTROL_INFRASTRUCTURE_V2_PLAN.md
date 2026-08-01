@@ -5,9 +5,9 @@
 | Field | Decision |
 |---|---|
 | Queue item | `#21` |
-| Status | Blocked design; implementation must not begin until `#22` local acceptance and owner browser acceptance pass |
+| Status | In progress; T00-T01 delivered, T02 next |
 | Delivered dependency | `#20` Brain V2 is delivered; T00 must reconcile this plan with its actual contracts, migrations, context behavior, and rollback path |
-| Start gate | `#22` Coding Agent V2 must pass its ten-run local acceptance matrix and owner browser acceptance |
+| Start gate | Satisfied 2026-08-01 by `#22` Codex-only V2 qualification (`e9bc5fe`); other workers remain locked until separately qualified |
 | Deployment confidence | The `#22` 24-hour/72-hour VPS soak remains a deployment confidence gate, not a source-development blocker for `#21` unless the owner explicitly promotes it to one |
 | Primary outcome | Make Mission Control the authoritative, reliable control plane for TOBI |
 | First usable release | Reliable Chat/Agent runtime with durable runs, typed tools, policy, and traceability |
@@ -15,7 +15,7 @@
 | Deployment posture | Local-first on the owner's Windows/D-drive environment; managed services remain optional |
 | Worker model | Small sequential packages; one implementation worker at a time |
 | Compatibility | Preserve existing conversations, actions, runs, tools, pages, Telegram, CLI, Office, and schedulers through adapters |
-| Planning boundary | This document is the only deliverable for this adjustment; do not edit the queue or implement runtime/UI code |
+| Planning boundary | Implement one bounded T-package at a time; never submit the full program as one Developer runtime job |
 
 This plan consolidates TOBI around Mission Control (MC). MC becomes the owner of run state, policy, approvals, tools, context, audit, observability, and shared UI projections. Hermes remains useful as a managed execution engine, but it must not become a second control plane.
 
@@ -1131,3 +1131,5 @@ Planning state only. Add one dated row after each accepted worker package.
 |---|---|---|---|---|
 | 2026-07-14 | Planning and queue entry | N/A | Markdown/link/table checks | Queued; no implementation |
 | 2026-07-24 | Direction reconciliation | N/A | Target-file diff, dependency/link, heading, table, and whitespace checks | Planning only; reconciles delivered `#20`, gates start on `#22` acceptance, and adds Loop, TOBIval, and Living Atlas foundation |
+| 2026-08-01 | T00 | `e9bc5fe` plus T00 closeout docs | #22 qualified Queue evidence; current writer re-check for the three deferred coding tables | Complete; every shared table/API has a declared owner, and remaining direct coding writes are assigned to T10 compatibility work |
+| 2026-08-01 | T01 | T01 delivery commit | Red import test; runtime contracts, owner flags, Chat runtime, Conductor final guard, and mode enforcement all green | Complete; validated versioned contracts and seven fail-closed flags added with no persistence migration or live runtime switch |

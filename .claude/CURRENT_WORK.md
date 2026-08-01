@@ -8,19 +8,21 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 
 ---
 
-**Item:** none — #22 recovery qualification is complete; #21 has not started
-**Package:** none
+**Item:** #21 Mission Control Infrastructure V2
+**Package:** T02 - ordered event store and rebuildable projections (not started)
 
 **Purpose (one sentence, plain words):**
-_What works after this that does not work now?_
+Every accepted runtime event can be written once in order and used to rebuild the same current
+run and system state after a restart.
 
 **Not doing:**
-_List the nearby things you will deliberately leave alone. Copy the relevant lines from the
-plan's non-goals section. This list is what stops the work sprawling._
+- No workflow execution engine, leases, retries, or checkpoint controller; T03 owns them.
+- No live Chat, Agent, Telegram, CLI, scheduler, Office, or Projects adapter switch.
+- No Conductor rewrite or Runs page.
+- No Supabase, Vercel, external integration, or production-runtime interaction.
 
 **Files expected:**
-_Name them before touching them. Touching more files than listed is the earliest warning that
-the work has drifted._
+- Set after T02 planning and before its first code edit.
 
 **Gate: no**
 

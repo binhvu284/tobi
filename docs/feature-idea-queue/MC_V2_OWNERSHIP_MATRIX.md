@@ -1,7 +1,7 @@
 # #21 T00 — Ownership Matrix
 
-**Status:** first half of T00, done 2026-07-30. The second half — confirming #22 actually passed —
-still waits on Codex.
+**Status:** complete 2026-08-01. The ownership map was finished 2026-07-30; #22's Codex-only
+qualification is merged at `e9bc5fe`, closing the remaining start gate.
 
 T00 asks one question: *when two parts of TOBI write to the same place, which one is in charge?*
 Until that has an answer, every later package is guessing. This page is the answer for the
@@ -114,8 +114,9 @@ writer each. #21's T09 consumes Brain but must not schedule that retirement — 
 `coding_stages`, `coding_artifacts`, `development_tasks`. In each, `core/coding_agent.py` writes
 directly alongside `core/development_store.py`, which is the declared owner.
 
-**Not touching these while Codex is fixing #22 in the same files.** Re-check after #22 closes —
-the fix may already be in whatever Codex ships.
+The post-#22 check still finds direct compatibility writes in `core/coding_agent.py` alongside
+the declared owner, `core/development_store.py`. Ownership is therefore resolved, but access is
+not yet centralized. T10 owns that adapter work because it migrates the accepted #22 workflow.
 
 ---
 
@@ -210,7 +211,9 @@ T01 defines the typed shapes. Three of them are now pinned by evidence rather th
 3. **`usage.py`, `owner_flags.py`, and `mcp_security.py` should be enforced as owners**, not
    created. The modules are already there; callers just go around them.
 
-## What is still open in T00
+## T00 closure
 
-Confirming #22's ten-run matrix and owner browser acceptance. Until that lands, T00 is half done
-and #21 stays blocked — which is the correct state, not a problem to work around.
+`QUEUE.md` records #22 as Codex-only V2 qualified on 2026-08-01. Its same-run recovery, queue
+safety, validation, review, delivery synchronization, active-time tracking, and History evidence
+are accepted. The ownership findings above are assigned to later #21 packages, so no unresolved
+table or API owner blocks T01.

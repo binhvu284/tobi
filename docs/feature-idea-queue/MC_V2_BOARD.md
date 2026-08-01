@@ -13,15 +13,12 @@ Its status column carries the same short progress note this board tracks.
 
 ## Status
 
-**Blocked** until #22 passes its ten-run matrix and owner browser acceptance.
+**In progress.** T00 and T01 are delivered; T02 is next and has not started.
 
-**Delivered:** none of 17.
+**Delivered:** 2 of 17 (T00 and T01), about **8-10%** of the total effort.
 
-**In progress:** T00 is half done. Its mapping half — which part of the code owns which table
-and API — needed nothing from #22 and is finished:
-[MC_V2_OWNERSHIP_MATRIX.md](MC_V2_OWNERSHIP_MATRIX.md). Headline: the API is clean (365 routes,
-zero clashes), and of 146 tables, **11 have no owner at all** — `tasks` alone is written by seven
-different files. T00's other half, confirming #22 actually passed, still waits on Codex.
+**Next:** T02 adds the ordered event history and rebuildable current views. It must preserve the
+T01 contracts and still will not switch Chat, Agent, Conductor, or any page to the new runtime.
 
 ---
 
@@ -55,8 +52,8 @@ Ordered. Each one ships and is reviewable on its own. Risk is the plan's own rat
 
 | # | Plain-English goal | Needs | Risk | Done |
 |---|---|---|---|---|
-| T00 | **Check the ground first.** Confirm #22 really passed, then map who owns what. Every shared table and API gets exactly one owner. No code changes. → [mapping done](MC_V2_OWNERSHIP_MATRIX.md); #22 confirmation pending | #22 | Med | ◐ |
-| T01 | **Agree the shapes.** Define in code what a "run", a "tool", a "loop", and a "quality check" look like, so every part of TOBI means the same thing by those words. | T00 | Med | ☐ |
+| T00 | **Check the ground first.** #22 qualification and current ownership are reconciled. Every shared table and API has one declared owner. → [evidence](MC_V2_OWNERSHIP_MATRIX.md) | #22 | Med | Done |
+| T01 | **Agree the shapes.** Shared validated contracts now define runs, tools, loops, errors, evaluations, and system relationships. Seven independent rollout flags default off, so live behavior is unchanged. | T00 | Med | Done |
 | T02 | **Write everything down, in order.** An append-only log of what happened, and the ability to rebuild the current state from it. | T01 | High | ☐ |
 | T03 | **Make runs survive a crash.** Save points, retries, cancel, spending limits. A restart resumes the same run instead of starting a new one — and cannot repeat something it already did. | T02 | High | ☐ |
 | T04 | **Point Chat and Agent at the new engine**, quietly at first (both run side by side and get compared before anything switches over). | T03 | High | ☐ |

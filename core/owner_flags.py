@@ -44,6 +44,13 @@ KEYS = {
     "developer.queue_next": "queue item pinned in the Next slot (int as string, '' = none)",
     "news.v2_enabled": "#23 News Page V2 rollout (bool, default off — Explore V1 stays authoritative)",
     "news.v2_shadow": "#23 News V2 shadow collection — scheduled adapter refreshes build history while V1 UI stays live (bool, default off)",
+    "runtime.v2_events": "#21 event and trace mirroring (bool, default off)",
+    "runtime.v2_execution": "#21 shared workflow execution (bool, default off)",
+    "runtime.v2_tools": "#21 canonical tool routing (bool, default off)",
+    "runtime.v2_policy": "#21 central policy decisions (bool, default off)",
+    "runtime.v2_context": "#21 shared context service (bool, default off)",
+    "runtime.v2_hermes": "#21 Hermes runtime adapter (bool, default off)",
+    "runtime.v2_ui": "#21 shared Runs UI and projections (bool, default off)",
 }
 
 # New #20 flags — fail closed (default off). Phase A does NOT read these; they are pre-
@@ -57,6 +64,16 @@ ARCHITECTURE_V2_ENABLED = "architecture.v2_enabled"
 # need lead time) while Explore V1 remains the live page — mirrors brain.v2_shadow.
 NEWS_V2_ENABLED = "news.v2_enabled"
 NEWS_V2_SHADOW = "news.v2_shadow"
+
+# #21 Mission Control Infrastructure V2 - independent, fail-closed rollout controls.
+# T01 only registers them. Later packages decide when each domain reads its flag.
+RUNTIME_V2_EVENTS = "runtime.v2_events"
+RUNTIME_V2_EXECUTION = "runtime.v2_execution"
+RUNTIME_V2_TOOLS = "runtime.v2_tools"
+RUNTIME_V2_POLICY = "runtime.v2_policy"
+RUNTIME_V2_CONTEXT = "runtime.v2_context"
+RUNTIME_V2_HERMES = "runtime.v2_hermes"
+RUNTIME_V2_UI = "runtime.v2_ui"
 
 
 def ensure_schema(conn=None) -> None:
