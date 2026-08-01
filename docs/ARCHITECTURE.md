@@ -85,6 +85,7 @@ The scheduler currently registers daily reports, six-hour execution, two-minute 
 | External/legacy API | `api/server.py` | Small API-key-protected project/task/revenue API | Separate contract and default-key risk |
 | Conductor | `core/conductor.py` | Conversation routing, grounded tool loop, permissions, confirmations, action log | Shared by MC Chat and significant Telegram paths; now exposes direct project-resource inventory/read/search and safe-read route widening |
 | Chat mode/runtime | `core/chat_modes.py`, `chat_runtime.py`, `chat_runtime_contracts.py`, `tool_registry.py` | Normalization, capability boundaries, intent routing, typed tools, telemetry, recovery contracts | Runtime v2 is flag-controlled; route scopes focus tool choice, while mode denial and risk policy remain authoritative |
+| MC Runtime V2 foundation | `core/runtime/contracts.py`, `event_store.py`, `projections.py`, `rebuild.py` | Shared validated contracts, append-only ordered events, redaction, and deterministic current-state rebuilds | Dormant through T02; no live surface writes or executes through it yet |
 | Agent runs/artifacts | `core/agent_runs.py`, `core/chat_store.py` | Persisted runs, checkpoints, recovery commands, action links, artifacts, message metadata | Exact action checkpoints and elapsed time survive reload; run commands resume the original run |
 | Coding Agent control plane | `core/coding_agent.py`, `coding_loop.py`, `coding_contracts.py`, `coding_assessment.py`, `coding_quality.py`, `coding_learning.py` | Goal assessment, bounded sprints, worktree workflow, checkpoints, quality gates, independent review, and evidence-backed learning | Explicit worker/reviewer profiles; high-risk scopes require owner approval; worker changes occur only at checkpoints |
 | Coding workers and runner | `core/coding_workers.py`, `coding_runner.py`, `coding_runner_service.py` | MC Native/Codex/OpenCode adapters, native-session resume, process isolation, durable service queue, output events, cancellation, and runner health | Production service uses a separate systemd process and encrypted one-secret job envelopes |
@@ -214,8 +215,9 @@ Tables are created across the central schema and feature-local additive initiali
 | Explore/analytics | `explore_*`, `storage_snapshots`, `llm_usage`, `llm_prices`, `llm_plans`, `usage_budget` |
 | Evolution/performance | `evolution_snapshots`, `performance_snapshots` |
 | Developer/Coding Agent | `development_*`, `coding_sessions`, `coding_stages`, `coding_worker_*`, `coding_checkpoints`, `coding_assessments`, `development_sprints`, `coding_runner_*`, `coding_learning_records`, `coding_playbooks`, releases and deployments |
+| MC Runtime V2 | `mc_run_events`, `mc_change_events`, `mc_runtime_projections`, `mc_system_entities`, `mc_system_edges` |
 
-Schema initialization is additive. `core/database.py` creates the main families; several feature modules create their own tables lazily. Chat Runtime records its own versions in `schema_migrations`, but there is no repository-wide migration authority covering every subsystem.
+Schema initialization is additive. `core/database.py` creates the main families; several feature modules create their own tables lazily. Chat Runtime and MC Runtime V2 record scoped versions in `schema_migrations`, but there is no repository-wide migration authority covering every subsystem. Runtime V2 event tables reject updates and deletes at the database layer; current-state rows are derived and may be deleted then rebuilt from history.
 
 ## Provider and Integration Boundaries
 

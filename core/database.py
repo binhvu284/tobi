@@ -23,6 +23,7 @@ from core.schema.graph import _ensure_graph_schema
 from core.schema.mcp import _ensure_mcp_schema
 from core.schema.office import _SEED_AGENTS, _SEED_WORKFLOW, _ensure_office_schema  # noqa: F401
 from core.schema.pm import _ensure_pm_schema, _ensure_pm_v2_schema
+from core.schema.runtime import _ensure_runtime_schema
 from core.schema.skills import _SEED_SKILLS, _ensure_skill_schema  # noqa: F401
 from core.schema.tasks import _ensure_task_v1_schema
 from core.schema.vault import _ensure_vault_schema
@@ -205,6 +206,7 @@ def init_database() -> None:
     _ensure_vault_schema(conn)
     _ensure_mcp_schema(conn)
     _ensure_chat_schema(conn)
+    _ensure_runtime_schema(conn)
     try:
         from core import explore
         explore.ensure_schema(conn)

@@ -54,6 +54,7 @@ TABLE_FEATURES: dict[str, str] = {
     "mcp_": "MCP", "a2a_": "MCP",
     "llm_": "System", "usage_budget": "System", "storage_snapshots": "System",
     "owner_settings": "System", "schema_migrations": "System", "sqlite_": "System",
+    "mc_": "System",
 }
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent

@@ -109,7 +109,17 @@ venv\Scripts\python.exe tests\test_office_v3.py
 venv\Scripts\python.exe tests\test_coding_agent.py
 venv\Scripts\python.exe tests\test_coding_agent_v2.py
 venv\Scripts\python.exe tests\test_coding_agent_production.py
+venv\Scripts\python.exe tests\test_mc_runtime_contracts.py
+venv\Scripts\python.exe tests\test_mc_runtime_event_store.py
 ```
+
+Rebuild and verify every dormant MC Runtime V2 projection from local event history:
+
+```powershell
+venv\Scripts\python.exe -m core.runtime.rebuild --all --verify
+```
+
+Correct output is one JSON object with `"verified": true`. The command changes only derived projection rows; immutable event history is never rewritten.
 
 The route suites use FastAPI/TestClient and must run with the same Python ABI as the installed `pydantic_core`. If the checked-in virtual-environment launcher points to a removed Windows Store interpreter, recreate the venv rather than mixing an incompatible Python runtime with its site-packages. A dependency-light bundled interpreter can run some unit scripts, but it is not a substitute for the project environment when FastAPI or compiled packages are required.
 

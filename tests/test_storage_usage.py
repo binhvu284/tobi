@@ -51,6 +51,7 @@ ok("table→feature map", ss.feature_for_table("brain_memories") == "Brain"
    and ss.feature_for_table("mcp_tools") == "MCP"
    and ss.feature_for_table("tasks") == "Tasks"
    and ss.feature_for_table("llm_usage") == "System"
+   and ss.feature_for_table("mc_run_events") == "System"
    and ss.feature_for_table("weird_table") == "Other")
 
 data_root = Path(os.environ["DB_PATH"]).parent

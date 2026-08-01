@@ -9,20 +9,20 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T02 - ordered event store and rebuildable projections (not started)
+**Package:** T03 - durable loop-aware runtime (not started)
 
 **Purpose (one sentence, plain words):**
-Every accepted runtime event can be written once in order and used to rebuild the same current
-run and system state after a restart.
+An accepted run can resume from its last durable save point after a restart without repeating a
+completed side effect.
 
 **Not doing:**
-- No workflow execution engine, leases, retries, or checkpoint controller; T03 owns them.
-- No live Chat, Agent, Telegram, CLI, scheduler, Office, or Projects adapter switch.
-- No Conductor rewrite or Runs page.
+- No live Chat or Agent adapter switch; T04 owns it.
+- No central policy or canonical tool-registry migration; T05 and T06 own them.
+- No Conductor rewrite, Runs page, or remaining-surface adapters.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
 **Files expected:**
-- Set after T02 planning and before its first code edit.
+- Set after T03 planning and before its first code edit.
 
 **Gate: no**
 

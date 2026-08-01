@@ -61,6 +61,7 @@ The largest truth gaps are no longer "nothing is built." Chat/Agent mode policy,
 - Built web application: `dashboard/dist/`, served by `api/dashboard.py`.
 - Browser-only preferences: workspace tabs, theme, motion, chat mode, and selected UI options in localStorage.
 - The schema is additive and distributed across `core/database.py` plus feature-local lazy initializers. Chat Runtime and Developer/Coding Agent have scoped migration ledgers, but the repository still lacks one migration authority for every subsystem.
+- Mission Control Runtime V2 now has dormant local foundations: immutable ordered run/System change events, secret-redacted payloads, deterministic run/System projections, and a local rebuild verifier. No Chat, Agent, Conductor, API, or page writes these records yet.
 
 ## Current Queue Reality
 
@@ -69,7 +70,7 @@ The largest truth gaps are no longer "nothing is built." Chat/Agent mode policy,
 - #14 Premium Ability is delivered at v1, including the follow-up vision-model borrowing and Ability reorganization.
 - #16 Chat Mode Backend Upgrade is delivered. #17 Awakening Tier 1 Completion reached owner-runtime acceptance at 9/9 on 2026-07-14 through a successful GitHub read verification, advancing Evolution to the Agent tier; connector health still follows the 24-hour evidence-freshness rule. #19 Performance "System Doctor" is delivered (v1).
 - #15 Office V3 is delivered at v1 with owner visual acceptance still open.
-- #18 TOBI Coding Agent v1 remains the base continuous goal/lease/worktree/review/deployment system. #22 Coding Agent V2 closed its development gate on 2026-07-17 after live local Codex/OpenCode/GLM 5.2, supervised runner, restart/resume, checkpoint switch, forced runner-loss, safe recovery, durable-job, and encrypted-credential acceptance. The 24h/72h target-VPS soak remains a deployment gate. #20 may continue after integrating the #22 closure commit; #21 remains after #20.
+- #18 TOBI Coding Agent v1 remains the base continuous goal/lease/worktree/review/deployment system. #22 Coding Agent V2 is qualified for the Codex-only path; its target-VPS soak remains a deployment gate. #21 is in progress: T00-T02 are delivered, and T03 durable run execution is next.
 - Original plans remain under `feature-idea-queue/`; they are requirements history, not proof of current behavior.
 
 ## Highest-Risk Gaps

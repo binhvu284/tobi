@@ -13,12 +13,12 @@ Its status column carries the same short progress note this board tracks.
 
 ## Status
 
-**In progress.** T00 and T01 are delivered; T02 is next and has not started.
+**In progress.** T00 through T02 are delivered; T03 is next and has not started.
 
-**Delivered:** 2 of 17 (T00 and T01), about **8-10%** of the total effort.
+**Delivered:** 3 of 17 (T00 through T02), about **18-22%** of the total effort.
 
-**Next:** T02 adds the ordered event history and rebuildable current views. It must preserve the
-T01 contracts and still will not switch Chat, Agent, Conductor, or any page to the new runtime.
+**Next:** T03 adds durable run execution, save points, retries, cancellation, and spending limits.
+It builds on T02 history without switching Chat, Agent, Conductor, or any page yet.
 
 ---
 
@@ -54,7 +54,7 @@ Ordered. Each one ships and is reviewable on its own. Risk is the plan's own rat
 |---|---|---|---|---|
 | T00 | **Check the ground first.** #22 qualification and current ownership are reconciled. Every shared table and API has one declared owner. → [evidence](MC_V2_OWNERSHIP_MATRIX.md) | #22 | Med | Done |
 | T01 | **Agree the shapes.** Shared validated contracts now define runs, tools, loops, errors, evaluations, and system relationships. Seven independent rollout flags default off, so live behavior is unchanged. | T00 | Med | Done |
-| T02 | **Write everything down, in order.** An append-only log of what happened, and the ability to rebuild the current state from it. | T01 | High | ☐ |
+| T02 | **Write everything down, in order.** Immutable ordered run/System history, secret redaction before storage, and deterministic current-state rebuilds are delivered locally. No live caller is switched. | T01 | High | Done |
 | T03 | **Make runs survive a crash.** Save points, retries, cancel, spending limits. A restart resumes the same run instead of starting a new one — and cannot repeat something it already did. | T02 | High | ☐ |
 | T04 | **Point Chat and Agent at the new engine**, quietly at first (both run side by side and get compared before anything switches over). | T03 | High | ☐ |
 | T05 | **One place decides what is allowed.** Permissions, approvals, credentials, budgets — currently spread across many files. | T01 | High | ☐ |
