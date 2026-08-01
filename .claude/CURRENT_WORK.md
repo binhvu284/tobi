@@ -8,7 +8,7 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 
 ---
 
-**Item:** none — #22 recovery fix is verified; owner browser confirmation remains before #21 starts
+**Item:** none — #22 recovery qualification is complete; #21 has not started
 **Package:** none
 
 **Purpose (one sentence, plain words):**
