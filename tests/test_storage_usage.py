@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 # isolated DB before any core import
@@ -102,6 +103,34 @@ sync = um.sync_prices()
 ok("prices mirrored to DB", sync["active"] >= 15)
 ok("estimator uses table", usage.estimate_cost("claude-opus-4-8", 1_000_000, 0) == 15.0
    and usage.estimate_cost("nvidia/nemotron-3:free", 1e6, 1e6) == 0.0)
+
+# SQLite legacy rows use a space between date and time. Freeze the clock to the
+# first day so this cannot regress into a lexicographic ISO-string comparison.
+boundary_conn = get_connection()
+boundary_conn.execute(
+    "INSERT INTO llm_usage (agent_id, provider, model, prompt_tokens, completion_tokens, "
+    "total_tokens, cost, created_at) VALUES ('boundary','boundary-provider','legacy',3,4,7,0,?)",
+    ("2026-08-01 00:30:00",),
+)
+boundary_conn.commit()
+real_datetime = um.datetime
+
+
+class FirstDayDatetime(real_datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return cls(2026, 8, 1, 12, 0, tzinfo=timezone.utc)
+
+
+try:
+    um.datetime = FirstDayDatetime
+    boundary_usage = um._month_usage(boundary_conn, "boundary-provider")
+finally:
+    um.datetime = real_datetime
+    boundary_conn.execute("DELETE FROM llm_usage WHERE provider='boundary-provider'")
+    boundary_conn.commit()
+    boundary_conn.close()
+ok("first-day legacy timestamp counted", boundary_usage["tokens"] == 7)
 
 # ── usage_meter: overview / calls ─────────────────────────────────────────────
 usage.log("anthropic", "claude-opus-4-8", 1000, 500, 800, surface="chat",

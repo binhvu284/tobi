@@ -414,7 +414,7 @@ def _month_usage(conn: sqlite3.Connection, provider: Optional[str] = None) -> di
                                                microsecond=0).isoformat()
     q = ("SELECT COALESCE(SUM(COALESCE(cost_est, cost)),0) AS usd, "
          "COALESCE(SUM(total_tokens),0) AS tokens, COUNT(*) AS requests "
-         "FROM llm_usage WHERE COALESCE(ts, created_at) >= ? "
+         "FROM llm_usage WHERE datetime(COALESCE(ts, created_at)) >= datetime(?) "
          "AND COALESCE(status,'succeeded') != 'failed'")
     params: list = [start]
     if provider:
