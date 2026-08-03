@@ -13,13 +13,13 @@ Its status column carries the same short progress note this board tracks.
 
 ## Status
 
-**In progress.** T00 through T03 are delivered; T04 is next.
+**In progress.** T00 through T03 and T04 Run 1 are delivered; T04 Run 2 is next.
 
-**Delivered:** 4 of 17 packages, about **40-45%** of the total effort.
+**Delivered:** 4 of 17 packages plus the first quarter of T04, about **42-47%** of total effort.
 
-**Next:** T04 points Chat and Agent at the canonical gateway in shadow mode, meaning the new and
-old paths are compared while the old path still answers. T03 now prevents automatic duplicate
-effects and stops uncertain crash outcomes for reconciliation, but no live surface uses it yet.
+**Next:** T04 Run 2 connects Chat and Agent to the dormant gateway in shadow mode. Run 1 now
+accepts sanitized, idempotent canonical requests and ordered observations under disabled policies;
+the live route still uses only the legacy path.
 
 ---
 
@@ -57,7 +57,7 @@ Ordered. Each one ships and is reviewable on its own. Risk is the plan's own rat
 | T01 | **Agree the shapes.** Shared validated contracts now define runs, tools, loops, errors, evaluations, and system relationships. Seven independent rollout flags default off, so live behavior is unchanged. | T00 | Med | Done |
 | T02 | **Write everything down, in order.** Immutable ordered run/System history, secret redaction before storage, and deterministic current-state rebuilds are delivered locally. No live caller is switched. | T01 | High | Done |
 | T03 | **Make runs survive a crash.** Canonical storage, versioned states, exclusive leases, restart checkpoints, bounded retries, recovery commands, cancellation fencing, persisted loop progress, hard limits, action reservations, immutable receipts, and fail-closed crash reconciliation are delivered. | T02 | High | Done |
-| T04 | **Point Chat and Agent at the new engine**, quietly at first (both run side by side and get compared before anything switches over). | T03 | High | ☐ |
+| T04 | **Point Chat and Agent at the new engine**, quietly at first (both run side by side and get compared before anything switches over). | T03 | High | Run 1/4 |
 | T05 | **One place decides what is allowed.** Permissions, approvals, credentials, budgets — currently spread across many files. | T01 | High | ☐ |
 | T06 | **One list of tools.** Every tool described once, in one format, with its arguments checked before it runs. | T01, T05 | High | ☐ |
 | T07 | **Move the first real tools over:** files, terminal, projects. Each one gets a receipt, and a retry cannot double-apply it. | T03, T06 | High | ☐ |

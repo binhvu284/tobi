@@ -33,3 +33,16 @@ def rollout_enabled(flag: str) -> bool:
 def rollout_state() -> dict[str, bool]:
     """Return the effective state of every T01 runtime flag."""
     return {flag: rollout_enabled(flag) for flag in RUNTIME_V2_FLAGS}
+
+
+def gateway_mode() -> str:
+    """Derive the Chat/Agent gateway state without allowing untraced execution."""
+    events_enabled = rollout_enabled(RUNTIME_V2_EVENTS)
+    execution_enabled = rollout_enabled(RUNTIME_V2_EXECUTION)
+    if execution_enabled and not events_enabled:
+        return "off"
+    if execution_enabled:
+        return "on"
+    if events_enabled:
+        return "shadow"
+    return "off"
