@@ -9,16 +9,15 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T04 Run 3 - SSE replay and reconnect (not started)
+**Package:** T04 Run 4 - gateway-on activation and rollback (not started)
 
 **Purpose (one sentence, plain words):**
-Chat and Agent can resume canonical event reading after a known cursor without duplicate events,
-while the legacy stream remains authoritative.
+Chat and Agent can use canonical gateway execution only under explicit fail-closed rollout flags,
+with the legacy path retained as a tested rollback.
 
 **Not doing:**
-- No implementation before the owner approves the T04 Run 3 plan.
-- No owner-visible behavior change; the legacy path remains authoritative.
-- No gateway-on execution or flag activation; T04 Run 4 owns it.
+- No implementation before the owner approves the T04 Run 4 plan.
+- No default-on activation or irreversible Chat/Agent cutover.
 - No default-on or irreversible Chat/Agent cutover.
 - No central policy or canonical tool-registry migration; T05 and T06 own them.
 - No migration of real file, terminal, or project tools; T07 owns them.
@@ -27,12 +26,12 @@ while the legacy stream remains authoritative.
 - No Telegram, CLI, Office, scheduler, or remaining-surface adapters.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
-**Files expected:** To be set during T04 Run 3 planning.
+**Files expected:** To be set during T04 Run 4 planning.
 
 **Gate: no**
 
 ```gate
-# Set during T04 Run 3 planning.
+# Set during T04 Run 4 planning.
 ```
 
 ---

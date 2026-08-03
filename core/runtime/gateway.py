@@ -14,9 +14,9 @@ from typing import Any, Callable, Iterable, Mapping
 
 from core.chat_runtime_contracts import TurnRequest
 from core.runtime import config
-from core.runtime.contracts import LoopPolicy, LoopRecipe, LoopType, RunRequest, Surface
-from core.runtime.event_store import append_run_event, list_run_events
-from core.runtime.repository import RunConflictError, RuntimeRepository
+from core.runtime.contracts import LoopPolicy, LoopRecipe, LoopType, RunEvent, RunRequest, Surface
+from core.runtime.event_store import append_run_event, latest_run_event, list_run_events
+from core.runtime.repository import RunConflictError, RunNotFoundError, RuntimeRepository
 
 
 _EVENT_TYPE = re.compile(r"^[a-z][a-z0-9_.-]*$")
@@ -25,6 +25,7 @@ _ACCEPT_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tobi-gatewa
 _ACCEPT_SLOTS = threading.BoundedSemaphore(2)
 _MIRROR_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tobi-gateway-mirror")
 _MIRROR_SLOTS = threading.BoundedSemaphore(65)
+REPLAY_PAGE_LIMIT = 200
 
 
 class GatewayNotReadyError(RuntimeError):
@@ -198,6 +199,37 @@ class TurnGateway:
         if not isinstance(acceptance, GatewayAcceptance) or not acceptance.run_id:
             raise ValueError("a canonical gateway acceptance is required")
         return self.repository.link_legacy_run(acceptance.run_id, str(legacy_run_id))
+
+    def replay_events(
+        self,
+        run_id: str,
+        *,
+        expected_session_id: str,
+        after_sequence: int = 0,
+        limit: int = REPLAY_PAGE_LIMIT,
+    ) -> list[RunEvent]:
+        self._validate_replay_scope(run_id, expected_session_id)
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+            raise ValueError("limit must be a positive integer")
+        return list_run_events(
+            run_id,
+            after_sequence=after_sequence,
+            limit=min(limit, REPLAY_PAGE_LIMIT),
+        )
+
+    def latest_replay_event(self, run_id: str, *, expected_session_id: str) -> RunEvent | None:
+        self._validate_replay_scope(run_id, expected_session_id)
+        return latest_run_event(run_id)
+
+    def _validate_replay_scope(self, run_id: str, expected_session_id: str) -> dict[str, Any]:
+        if not isinstance(run_id, str) or not run_id.strip():
+            raise ValueError("run_id must be a non-empty string")
+        if not isinstance(expected_session_id, str) or not expected_session_id.strip():
+            raise ValueError("expected_session_id must be a non-empty string")
+        run = self.repository.get_run(run_id)
+        if run is None or run["session_id"] != expected_session_id:
+            raise RunNotFoundError(run_id)
+        return run
 
     def mirror_event(
         self,

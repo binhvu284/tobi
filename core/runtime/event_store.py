@@ -242,18 +242,39 @@ def append_run_event(
         conn.close()
 
 
-def list_run_events(run_id: str, *, after_sequence: int = 0) -> list[RunEvent]:
+def list_run_events(
+    run_id: str, *, after_sequence: int = 0, limit: int | None = None
+) -> list[RunEvent]:
     _require_text(run_id, "run_id")
     if not isinstance(after_sequence, int) or after_sequence < 0:
         raise ValueError("after_sequence must be a non-negative integer")
+    if limit is not None:
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 500:
+            raise ValueError("limit must be an integer from 1 to 500")
     conn = get_connection()
     try:
         _ensure_runtime_schema(conn)
-        rows = conn.execute(
-            "SELECT * FROM mc_run_events WHERE run_id=? AND sequence>? ORDER BY sequence",
-            (run_id, after_sequence),
-        ).fetchall()
+        sql = "SELECT * FROM mc_run_events WHERE run_id=? AND sequence>? ORDER BY sequence"
+        parameters: tuple[Any, ...] = (run_id, after_sequence)
+        if limit is not None:
+            sql += " LIMIT ?"
+            parameters += (limit,)
+        rows = conn.execute(sql, parameters).fetchall()
         return [_run_event_from_row(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def latest_run_event(run_id: str) -> RunEvent | None:
+    _require_text(run_id, "run_id")
+    conn = get_connection()
+    try:
+        _ensure_runtime_schema(conn)
+        row = conn.execute(
+            "SELECT * FROM mc_run_events WHERE run_id=? ORDER BY sequence DESC LIMIT 1",
+            (run_id,),
+        ).fetchone()
+        return _run_event_from_row(row) if row is not None else None
     finally:
         conn.close()
 

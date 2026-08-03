@@ -1,0 +1,123 @@
+"""Mission Control Runtime V2 read-only event replay API."""
+from __future__ import annotations
+
+import asyncio
+import json
+
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
+
+from core.runtime import config
+from core.runtime.contracts import RunEvent
+from core.runtime.gateway import REPLAY_PAGE_LIMIT, TurnGateway
+from core.runtime.repository import RunNotFoundError
+
+
+router = APIRouter(tags=["runtime"])
+_POLL_SECONDS = 0.25
+_HEARTBEAT_SECONDS = 15.0
+_TERMINAL_EVENTS = {"shadow.turn_completed"}
+
+
+def _start_sequence(request: Request, after: int) -> int:
+    last_event_id = request.headers.get("last-event-id")
+    if last_event_id is None:
+        return after
+    try:
+        header_sequence = int(last_event_id)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="Last-Event-ID must be a non-negative integer") from exc
+    if header_sequence < 0:
+        raise HTTPException(status_code=422, detail="Last-Event-ID must be a non-negative integer")
+    return max(after, header_sequence)
+
+
+def _event_data(event: RunEvent) -> dict:
+    return {
+        "event_id": event.event_id,
+        "run_id": event.run_id,
+        "sequence": event.sequence,
+        "event_type": event.event_type,
+        "stage": event.stage,
+        "timestamp": event.timestamp,
+        "actor": event.actor,
+        "payload": event.redacted_payload,
+        "trace_id": event.trace_id,
+        "parent_span_id": event.parent_span_id,
+        "contract_version": event.contract_version,
+    }
+
+
+def _sse(event: RunEvent) -> str:
+    return (
+        f"id: {event.sequence}\n"
+        f"event: {event.event_type}\n"
+        f"data: {json.dumps(_event_data(event), ensure_ascii=True)}\n\n"
+    )
+
+
+@router.get("/api/runtime/runs/{run_id}/events")
+async def runtime_run_events(
+    run_id: str,
+    request: Request,
+    session_id: int = Query(..., gt=0),
+    after: int = Query(0, ge=0),
+) -> StreamingResponse:
+    if not config.rollout_enabled(config.RUNTIME_V2_EVENTS):
+        raise HTTPException(status_code=503, detail="Runtime V2 events are disabled")
+
+    expected_session_id = str(session_id)
+    sequence = _start_sequence(request, after)
+    gateway = TurnGateway()
+    try:
+        initial = gateway.replay_events(
+            run_id,
+            expected_session_id=expected_session_id,
+            after_sequence=sequence,
+        )
+    except RunNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="run not found") from exc
+
+    async def stream():
+        nonlocal sequence
+        pending = initial
+        next_heartbeat = asyncio.get_running_loop().time() + _HEARTBEAT_SECONDS
+        while not await request.is_disconnected():
+            if pending:
+                for event in pending:
+                    sequence = event.sequence
+                    yield _sse(event)
+                if len(pending) == REPLAY_PAGE_LIMIT:
+                    pending = await asyncio.to_thread(
+                        gateway.replay_events,
+                        run_id,
+                        expected_session_id=expected_session_id,
+                        after_sequence=sequence,
+                    )
+                    continue
+
+            latest = await asyncio.to_thread(
+                gateway.latest_replay_event,
+                run_id,
+                expected_session_id=expected_session_id,
+            )
+            if latest is not None and latest.sequence <= sequence and latest.event_type in _TERMINAL_EVENTS:
+                break
+
+            now = asyncio.get_running_loop().time()
+            if now >= next_heartbeat:
+                yield f": heartbeat {sequence}\n\n"
+                next_heartbeat = now + _HEARTBEAT_SECONDS
+            await asyncio.sleep(_POLL_SECONDS)
+            pending = await asyncio.to_thread(
+                gateway.replay_events,
+                run_id,
+                expected_session_id=expected_session_id,
+                after_sequence=sequence,
+            )
+
+    return StreamingResponse(stream(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    })

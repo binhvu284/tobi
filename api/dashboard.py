@@ -156,6 +156,8 @@ from api.routers.evolution import router as evolution_router
 app.include_router(evolution_router)
 from api.routers.chat import router as chat_router
 app.include_router(chat_router)
+from api.routers.runtime import router as runtime_router
+app.include_router(runtime_router)
 
 # MCP Hub (#5) — mount TOBI's MCP server (Streamable HTTP) at /mcp. Inbound auth,
 # rate-limit, scope, and audit are enforced by McpAuthMiddleware inside the app.

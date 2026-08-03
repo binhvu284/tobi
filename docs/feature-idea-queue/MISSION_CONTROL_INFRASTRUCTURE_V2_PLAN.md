@@ -5,7 +5,7 @@
 | Field | Decision |
 |---|---|
 | Queue item | `#21` |
-| Status | In progress; T00-T03 delivered, T04 next |
+| Status | In progress; T00-T03 and T04 Runs 1-3 delivered, T04 Run 4 next |
 | Delivered dependency | `#20` Brain V2 is delivered; T00 must reconcile this plan with its actual contracts, migrations, context behavior, and rollback path |
 | Start gate | Satisfied 2026-08-01 by `#22` Codex-only V2 qualification (`e9bc5fe`); other workers remain locked until separately qualified |
 | Deployment confidence | The `#22` 24-hour/72-hour VPS soak remains a deployment confidence gate, not a source-development blocker for `#21` unless the owner explicitly promotes it to one |
@@ -1141,3 +1141,4 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-03 | T03 Run 4 | T03 Run 4 delivery commit | Red import test; 20/20 action-receipt checks; T01/T02/T03 Runs 1-3B, Coding Agent V2, Chat, Conductor, mode, and Storage regressions green; enforced gate green | Complete; migration 006, one-winner action reservations, immutable receipts, completed replay, changed-content conflicts, and applied/not-applied/unknown crash reconciliation persist locally with no live runtime switch |
 | 2026-08-03 | T04 Run 1 | T04 Run 1 delivery commit | Red import test; 14/14 gateway checks; repository, owner flags, Chat unit/route, Conductor, mode, and Storage regressions green; enforced gate 8/8 green | T04 in progress; a dormant gateway now derives fail-closed rollout state, persists sanitized idempotent Chat/Agent shadow requests, and mirrors ordered redacted observations under disabled policies with no live route switch |
 | 2026-08-03 | T04 Run 2 | T04 Run 2 delivery commit | Red route test; 9/9 route checks; 17/17 gateway checks; repository, event-store, owner flags, Chat unit/route, Conductor, mode, and Storage regressions green; enforced gate 10/10 green | T04 in progress; Chat and Agent now perform bounded canonical shadow acceptance before legacy execution, mirror lifecycle observations without changing browser SSE, link legacy Agent runs for same-run recovery, and keep both rollout flags off by default |
+| 2026-08-04 | T04 Run 3 | T04 Run 3 delivery commit | Red missing-route test; 11/11 replay checks; T04 Runs 1-2, event-store, repository, owner flags, Chat unit/route, Conductor, mode, and Storage regressions green; enforced gate 11/11 green | T04 in progress; a stable runtime SSE route now provides session-scoped, flag-gated, bounded, redacted replay and live tailing from `after`/`Last-Event-ID` without changing existing Chat SSE or default-off flags |
