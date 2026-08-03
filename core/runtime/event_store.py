@@ -66,11 +66,7 @@ def _redact_value(value: Any) -> Any:
 
 def prepare_payload(payload: Optional[Mapping[str, Any]]) -> tuple[dict[str, Any], str, str]:
     """Redact first, then return bounded JSON plus the full redacted hash."""
-    if payload is None:
-        payload = {}
-    if not isinstance(payload, Mapping):
-        raise ValueError("payload must be a mapping")
-    redacted = _redact_value(payload)
+    redacted = redact_payload(payload)
     full_json = _canonical_json(redacted)
     payload_hash = _hash_text(full_json)
     if len(full_json.encode("utf-8")) <= MAX_PAYLOAD_BYTES:
@@ -82,6 +78,15 @@ def prepare_payload(payload: Optional[Mapping[str, Any]]) -> tuple[dict[str, Any
         "preview": full_json[:8_000],
     }
     return bounded, _canonical_json(bounded), payload_hash
+
+
+def redact_payload(payload: Optional[Mapping[str, Any]]) -> dict[str, Any]:
+    """Return a full redacted mapping for durable runtime records."""
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, Mapping):
+        raise ValueError("payload must be a mapping")
+    return _redact_value(payload)
 
 
 def _run_event_from_row(row: sqlite3.Row) -> RunEvent:
@@ -126,6 +131,77 @@ def _same_run_event(
     return actual == expected
 
 
+def _append_run_event(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    event_type: str,
+    stage: str,
+    actor: str,
+    payload: Optional[Mapping[str, Any]] = None,
+    event_id: Optional[str] = None,
+    timestamp: Optional[str] = None,
+    trace_id: Optional[str] = None,
+    parent_span_id: Optional[str] = None,
+    contract_version: str = "1",
+) -> RunEvent:
+    """Append using the caller's transaction; the caller owns commit/rollback."""
+    for name, value in (
+        ("run_id", run_id), ("event_type", event_type), ("stage", stage),
+        ("actor", actor), ("contract_version", contract_version),
+    ):
+        _require_text(value, name)
+    event_id = event_id or str(uuid.uuid4())
+    timestamp = timestamp or _now()
+    _require_text(event_id, "event_id")
+    _require_text(timestamp, "timestamp")
+    bounded_payload, payload_json, payload_hash = prepare_payload(payload)
+    existing = conn.execute(
+        "SELECT * FROM mc_run_events WHERE event_id=?", (event_id,)
+    ).fetchone()
+    if existing is not None:
+        if not _same_run_event(
+            existing,
+            run_id=run_id,
+            event_type=event_type,
+            stage=stage,
+            actor=actor,
+            payload_hash=payload_hash,
+            trace_id=trace_id,
+            parent_span_id=parent_span_id,
+            contract_version=contract_version,
+        ):
+            raise EventConflictError(f"event_id {event_id!r} already has different content")
+        return _run_event_from_row(existing)
+    sequence = conn.execute(
+        "SELECT COALESCE(MAX(sequence), 0) + 1 FROM mc_run_events WHERE run_id=?",
+        (run_id,),
+    ).fetchone()[0]
+    conn.execute(
+        """INSERT INTO mc_run_events (
+            event_id, run_id, sequence, event_type, stage, actor, payload_json,
+            payload_hash, trace_id, parent_span_id, contract_version, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            event_id, run_id, sequence, event_type, stage, actor, payload_json,
+            payload_hash, trace_id, parent_span_id, contract_version, timestamp,
+        ),
+    )
+    return RunEvent(
+        event_id=event_id,
+        run_id=run_id,
+        sequence=sequence,
+        event_type=event_type,
+        stage=stage,
+        timestamp=timestamp,
+        actor=actor,
+        redacted_payload=bounded_payload,
+        trace_id=trace_id,
+        parent_span_id=parent_span_id,
+        contract_version=contract_version,
+    )
+
+
 def append_run_event(
     *,
     run_id: str,
@@ -140,66 +216,25 @@ def append_run_event(
     contract_version: str = "1",
 ) -> RunEvent:
     """Append once and allocate the next stream sequence under a write lock."""
-    for name, value in (
-        ("run_id", run_id), ("event_type", event_type), ("stage", stage),
-        ("actor", actor), ("contract_version", contract_version),
-    ):
-        _require_text(value, name)
-    event_id = event_id or str(uuid.uuid4())
-    timestamp = timestamp or _now()
-    _require_text(event_id, "event_id")
-    _require_text(timestamp, "timestamp")
-    bounded_payload, payload_json, payload_hash = prepare_payload(payload)
     conn = get_connection()
     try:
         _ensure_runtime_schema(conn)
         conn.execute("BEGIN IMMEDIATE")
-        existing = conn.execute(
-            "SELECT * FROM mc_run_events WHERE event_id=?", (event_id,)
-        ).fetchone()
-        if existing is not None:
-            if not _same_run_event(
-                existing,
-                run_id=run_id,
-                event_type=event_type,
-                stage=stage,
-                actor=actor,
-                payload_hash=payload_hash,
-                trace_id=trace_id,
-                parent_span_id=parent_span_id,
-                contract_version=contract_version,
-            ):
-                raise EventConflictError(f"event_id {event_id!r} already has different content")
-            conn.commit()
-            return _run_event_from_row(existing)
-        sequence = conn.execute(
-            "SELECT COALESCE(MAX(sequence), 0) + 1 FROM mc_run_events WHERE run_id=?",
-            (run_id,),
-        ).fetchone()[0]
-        conn.execute(
-            """INSERT INTO mc_run_events (
-                event_id, run_id, sequence, event_type, stage, actor, payload_json,
-                payload_hash, trace_id, parent_span_id, contract_version, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                event_id, run_id, sequence, event_type, stage, actor, payload_json,
-                payload_hash, trace_id, parent_span_id, contract_version, timestamp,
-            ),
-        )
-        conn.commit()
-        return RunEvent(
-            event_id=event_id,
+        event = _append_run_event(
+            conn,
             run_id=run_id,
-            sequence=sequence,
             event_type=event_type,
             stage=stage,
-            timestamp=timestamp,
             actor=actor,
-            redacted_payload=bounded_payload,
+            payload=payload,
+            event_id=event_id,
+            timestamp=timestamp,
             trace_id=trace_id,
             parent_span_id=parent_span_id,
             contract_version=contract_version,
         )
+        conn.commit()
+        return event
     except Exception:
         conn.rollback()
         raise

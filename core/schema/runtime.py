@@ -1,11 +1,12 @@
-"""Additive SQLite schema for Mission Control Runtime V2 event history."""
+"""Additive SQLite schema for Mission Control Runtime V2."""
 from __future__ import annotations
 
 import sqlite3
 import threading
 
 
-RUNTIME_SCHEMA_VERSION = "mc-runtime-v2-001"
+RUNTIME_SCHEMA_VERSIONS = ("mc-runtime-v2-001", "mc-runtime-v2-002")
+RUNTIME_SCHEMA_VERSION = RUNTIME_SCHEMA_VERSIONS[-1]
 _SCHEMA_LOCK = threading.Lock()
 _RUNTIME_TABLES = {
     "mc_run_events",
@@ -13,6 +14,10 @@ _RUNTIME_TABLES = {
     "mc_runtime_projections",
     "mc_system_entities",
     "mc_system_edges",
+    "mc_runs",
+    "mc_run_steps",
+    "mc_loop_recipes",
+    "mc_loop_runs",
 }
 
 
@@ -104,6 +109,114 @@ _STATEMENTS = (
         BEFORE DELETE ON mc_change_events BEGIN
             SELECT RAISE(ABORT, 'mc_change_events is append-only');
         END""",
+    """CREATE TABLE IF NOT EXISTS mc_runs (
+        run_id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL UNIQUE,
+        request_hash TEXT NOT NULL,
+        request_json TEXT NOT NULL,
+        owner_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        surface TEXT NOT NULL,
+        mode TEXT NOT NULL,
+        objective TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN (
+            'accepted', 'routing', 'clarifying', 'planned', 'waiting_approval',
+            'running', 'waiting_external', 'recovering', 'waiting_owner',
+            'succeeded', 'failed', 'cancelled'
+        )),
+        version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+        plan_id TEXT,
+        plan_version TEXT,
+        plan_hash TEXT,
+        budget_profile TEXT NOT NULL,
+        budget_json TEXT NOT NULL DEFAULT '{}',
+        contract_version TEXT NOT NULL DEFAULT '1',
+        legacy_run_id TEXT,
+        legacy_action_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_mc_runs_status_time ON mc_runs(status, updated_at)",
+    "CREATE INDEX IF NOT EXISTS idx_mc_runs_session ON mc_runs(session_id, created_at)",
+    """CREATE TABLE IF NOT EXISTS mc_run_steps (
+        run_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        plan_version TEXT NOT NULL,
+        position INTEGER NOT NULL CHECK (position >= 0),
+        kind TEXT NOT NULL,
+        tool_name TEXT,
+        arguments_json TEXT NOT NULL DEFAULT '{}',
+        depends_on_json TEXT NOT NULL DEFAULT '[]',
+        risk TEXT NOT NULL,
+        timeout_s INTEGER NOT NULL DEFAULT 0 CHECK (timeout_s >= 0),
+        retry_policy TEXT NOT NULL,
+        idempotency_key TEXT,
+        required_capabilities_json TEXT NOT NULL DEFAULT '[]',
+        output_contract_json TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT,
+        PRIMARY KEY (run_id, step_id),
+        UNIQUE (run_id, position),
+        FOREIGN KEY (run_id) REFERENCES mc_runs(run_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_mc_run_steps_runnable ON mc_run_steps(status, run_id, position)",
+    "CREATE INDEX IF NOT EXISTS idx_mc_run_steps_idempotency ON mc_run_steps(idempotency_key)",
+    """CREATE TABLE IF NOT EXISTS mc_loop_recipes (
+        recipe_id TEXT NOT NULL,
+        version TEXT NOT NULL,
+        name TEXT NOT NULL,
+        loop_type TEXT NOT NULL,
+        contract_json TEXT NOT NULL,
+        contract_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (recipe_id, version)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_mc_loop_recipes_type ON mc_loop_recipes(loop_type, recipe_id, version)",
+    """CREATE TABLE IF NOT EXISTS mc_loop_runs (
+        run_id TEXT PRIMARY KEY,
+        recipe_id TEXT NOT NULL,
+        recipe_version TEXT NOT NULL,
+        policy_id TEXT NOT NULL,
+        policy_version TEXT NOT NULL,
+        policy_decision_id TEXT NOT NULL,
+        loop_type TEXT NOT NULL,
+        policy_json TEXT NOT NULL,
+        policy_hash TEXT NOT NULL,
+        owner_override_json TEXT NOT NULL DEFAULT '{}',
+        enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+        iteration INTEGER NOT NULL DEFAULT 0 CHECK (iteration >= 0),
+        status TEXT NOT NULL DEFAULT 'accepted',
+        stop_reason TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (run_id) REFERENCES mc_runs(run_id),
+        FOREIGN KEY (recipe_id, recipe_version) REFERENCES mc_loop_recipes(recipe_id, version)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_mc_loop_runs_status ON mc_loop_runs(status, updated_at)",
+    """CREATE TRIGGER IF NOT EXISTS mc_loop_recipes_update_guard
+        BEFORE UPDATE ON mc_loop_recipes BEGIN
+            SELECT RAISE(ABORT, 'mc_loop_recipes versions are immutable');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_loop_recipes_delete_guard
+        BEFORE DELETE ON mc_loop_recipes BEGIN
+            SELECT RAISE(ABORT, 'mc_loop_recipes versions are immutable');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_loop_runs_policy_guard
+        BEFORE UPDATE OF recipe_id, recipe_version, policy_id, policy_version,
+                         policy_decision_id, loop_type, policy_json, policy_hash,
+                         owner_override_json, enabled
+        ON mc_loop_runs BEGIN
+            SELECT RAISE(ABORT, 'effective loop policy snapshots are immutable');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_loop_runs_delete_guard
+        BEFORE DELETE ON mc_loop_runs BEGIN
+            SELECT RAISE(ABORT, 'effective loop policy snapshots are immutable');
+        END""",
 )
 
 
@@ -113,10 +226,13 @@ def _schema_is_ready(conn: sqlite3.Connection) -> bool:
     ).fetchone()
     if ledger is None:
         return False
-    version = conn.execute(
-        "SELECT 1 FROM schema_migrations WHERE version=?", (RUNTIME_SCHEMA_VERSION,)
-    ).fetchone()
-    if version is None:
+    versions = {
+        row[0]
+        for row in conn.execute(
+            "SELECT version FROM schema_migrations WHERE version LIKE 'mc-runtime-v2-%'"
+        ).fetchall()
+    }
+    if not set(RUNTIME_SCHEMA_VERSIONS).issubset(versions):
         return False
     tables = {
         row[0]
@@ -132,9 +248,9 @@ def _apply_runtime_schema(conn: sqlite3.Connection) -> None:
     try:
         for statement in _STATEMENTS:
             conn.execute(statement)
-        conn.execute(
+        conn.executemany(
             "INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)",
-            (RUNTIME_SCHEMA_VERSION,),
+            [(version,) for version in RUNTIME_SCHEMA_VERSIONS],
         )
         conn.execute("RELEASE SAVEPOINT mc_runtime_schema")
     except Exception:
@@ -144,7 +260,7 @@ def _apply_runtime_schema(conn: sqlite3.Connection) -> None:
 
 
 def _ensure_runtime_schema(conn: sqlite3.Connection) -> None:
-    """Create T02 tables without modifying any existing runtime table."""
+    """Create Runtime V2 tables without modifying any legacy runtime table."""
     if _schema_is_ready(conn):
         return
     with _SCHEMA_LOCK:

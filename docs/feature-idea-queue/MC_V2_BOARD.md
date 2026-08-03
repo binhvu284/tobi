@@ -13,12 +13,12 @@ Its status column carries the same short progress note this board tracks.
 
 ## Status
 
-**In progress.** T00 through T02 are delivered; T03 is next and has not started.
+**In progress.** T00 through T02 and T03 Run 1 are delivered; T03 remains in progress.
 
-**Delivered:** 3 of 17 (T00 through T02), about **18-22%** of the total effort.
+**Delivered:** 3 of 17 packages plus the first T03 run, about **22-26%** of the total effort.
 
-**Next:** T03 adds durable run execution, save points, retries, cancellation, and spending limits.
-It builds on T02 history without switching Chat, Agent, Conductor, or any page yet.
+**Next:** T03 Run 2 adds an exclusive claim so two workers cannot take the same run, plus durable
+save points for restart recovery. It still does not switch Chat, Agent, Conductor, or any page.
 
 ---
 
@@ -55,7 +55,7 @@ Ordered. Each one ships and is reviewable on its own. Risk is the plan's own rat
 | T00 | **Check the ground first.** #22 qualification and current ownership are reconciled. Every shared table and API has one declared owner. → [evidence](MC_V2_OWNERSHIP_MATRIX.md) | #22 | Med | Done |
 | T01 | **Agree the shapes.** Shared validated contracts now define runs, tools, loops, errors, evaluations, and system relationships. Seven independent rollout flags default off, so live behavior is unchanged. | T00 | Med | Done |
 | T02 | **Write everything down, in order.** Immutable ordered run/System history, secret redaction before storage, and deterministic current-state rebuilds are delivered locally. No live caller is switched. | T01 | High | Done |
-| T03 | **Make runs survive a crash.** Save points, retries, cancel, spending limits. A restart resumes the same run instead of starting a new one — and cannot repeat something it already did. | T02 | High | ☐ |
+| T03 | **Make runs survive a crash.** Run 1 delivered canonical run/plan storage, immutable loop-policy snapshots, secret redaction, and legal version-checked states. Save points, retries, cancel, spending limits, and duplicate-effect protection remain. | T02 | High | Run 1/4 |
 | T04 | **Point Chat and Agent at the new engine**, quietly at first (both run side by side and get compared before anything switches over). | T03 | High | ☐ |
 | T05 | **One place decides what is allowed.** Permissions, approvals, credentials, budgets — currently spread across many files. | T01 | High | ☐ |
 | T06 | **One list of tools.** Every tool described once, in one format, with its arguments checked before it runs. | T01, T05 | High | ☐ |

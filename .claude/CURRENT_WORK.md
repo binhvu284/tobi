@@ -9,25 +9,23 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T03 - durable loop-aware runtime (not started)
+**Package:** T03 Run 2 - exclusive leases and durable checkpoints (not started)
 
 **Purpose (one sentence, plain words):**
-An accepted run can resume from its last durable save point after a restart without repeating a
-completed side effect.
+A worker can claim one canonical run without a second worker taking it, and restart from the last
+durable save point instead of starting over.
 
 **Not doing:**
 - No live Chat or Agent adapter switch; T04 owns it.
+- No retries, recovery commands, cancellation flow, budget enforcement, loop controller, or
+  receipts; later T03 runs own them.
 - No central policy or canonical tool-registry migration; T05 and T06 own them.
 - No Conductor rewrite, Runs page, or remaining-surface adapters.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
-**Files expected:**
-- Set after T03 planning and before its first code edit.
+**Files expected:** To be fixed during the approved T03 Run 2 plan.
 
 **Gate: no**
-
-```gate
-```
 
 ---
 

@@ -96,7 +96,7 @@ triggers = {
         "SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'mc_%_immutable'"
     )
 }
-ok("additive schema and one ledger record", created_tables == expected_tables and len(migrations) == 1)
+ok("additive schema and one ledger record", expected_tables.issubset(created_tables) and len(migrations) == 1)
 ok("event tables have update and delete guards", len(triggers) == 4, str(triggers))
 ok("legacy row survives migration", rows("SELECT value FROM legacy_owner_data")[0][0] == "keep-me")
 
