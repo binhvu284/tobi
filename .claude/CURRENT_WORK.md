@@ -9,29 +9,26 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T04 Run 4B - live route cutover and rollback (not started)
+**Package:** T05 - central policy engine (not started)
 
 **Purpose (one sentence, plain words):**
-Chat can use the canonical gateway only under every activation gate, while one rollback change
-returns new work to the legacy path without losing the identity of runs already accepted.
+One versioned server-side decision will determine whether a requested action may run, needs owner
+approval, or must be denied, with an auditable reason every time.
 
 **Not doing:**
-- No implementation before the owner approves the T04 Run 4B plan.
-- No default-on or irreversible Chat/Agent cutover.
-- No Agent live execution before central policy, tools, and security are ready.
-- No central policy or canonical tool-registry migration; T05 and T06 own them.
+- No implementation before the owner approves the T05 run plan.
+- No canonical tool-registry migration; T06 owns it.
 - No migration of real file, terminal, or project tools; T07 owns them.
 - No Conductor decomposition; T08 owns it.
 - No Runs page or broad frontend redesign; T13 owns it.
 - No Telegram, CLI, Office, scheduler, or remaining-surface adapters.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
-**Files expected:** To be set during T04 Run 4B planning.
+**Files expected:** Planning and evidence docs only until the owner approves implementation.
 
 **Gate: no**
 
 ```gate
-# Set during T04 Run 4B planning.
 ```
 
 ---

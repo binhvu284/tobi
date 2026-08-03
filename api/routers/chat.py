@@ -24,6 +24,7 @@ from core import brain
 router = APIRouter(tags=["chat"])
 logger = logging.getLogger(__name__)
 _SHADOW_IO_TIMEOUT_S = 0.10
+_ACTIVE_IO_TIMEOUT_S = 0.40
 
 
 # ── Premium Chat (#8 P1): multi-model sessions + vault-backed LLM config ─────────
@@ -171,6 +172,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
     from core import chat_store, conductor, model_router, attachments as attach
     from core import premium_readers, youtube_reader, chat_modes, chat_runtime, context_manager
     from core.chat_runtime_contracts import TurnError, TurnRequest
+    from core.runtime import config as runtime_config
     from core.runtime.gateway import TurnGateway, submit_gateway_accept, submit_gateway_mirror
     from core.task_classifier import classify
     import time as _time
@@ -209,6 +211,16 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         runtime_intent = "QUESTION"
     route_decision = chat_runtime.route_turn(runtime_request, runtime_intent)
     runtime_active = runtime_state == "on"
+    direct_chat_ready = bool(
+        runtime_active
+        and runtime_request.mode == "chat"
+        and route_decision.route == "direct"
+        and not route_decision.requires_clarification
+        and not payload.attachments
+    )
+    expected_gateway_mode = runtime_config.surface_gateway_mode(
+        runtime_request.mode, activation_ready=direct_chat_ready
+    )
     runtime_allowed = None
     if runtime_active and route_decision.allowed_tools:
         runtime_allowed = set(route_decision.allowed_tools) | set(extra_tools or [])
@@ -231,32 +243,87 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         if not message and not img_urls and not att_text:
             yield "event: done\ndata: {}\n\n"
             return
-        shadow_gateway = TurnGateway()
-        shadow_acceptance = None
+        runtime_gateway = TurnGateway()
+        gateway_acceptance = None
         accept_future = submit_gateway_accept(
-            lambda: shadow_gateway.accept_turn(runtime_request, attachments=payload.attachments)
+            lambda: runtime_gateway.accept_turn(
+                runtime_request,
+                attachments=payload.attachments,
+                activation_ready=direct_chat_ready,
+            )
         )
         if accept_future is not None:
             try:
                 completed, result = await poll_background_result(
-                    accept_future, _SHADOW_IO_TIMEOUT_S
+                    accept_future,
+                    _ACTIVE_IO_TIMEOUT_S
+                    if expected_gateway_mode == "on"
+                    else _SHADOW_IO_TIMEOUT_S,
                 )
                 if completed:
-                    shadow_acceptance = result
+                    gateway_acceptance = result
                 else:
-                    logger.warning("Runtime V2 shadow acceptance timed out; legacy turn continues")
+                    logger.warning("Runtime V2 gateway acceptance timed out")
             except Exception as exc:
                 logger.warning(
-                    "Runtime V2 shadow acceptance failed; legacy turn continues: %s",
+                    "Runtime V2 gateway acceptance failed: %s",
                     type(exc).__name__,
                 )
         else:
-            logger.warning("Runtime V2 shadow acceptance queue is full; legacy turn continues")
+            logger.warning("Runtime V2 gateway acceptance queue is full")
+
+        if expected_gateway_mode == "on" and gateway_acceptance is None:
+            yield "event: error\ndata: " + json.dumps({
+                "detail": "TOBI could not safely start this reply. Please retry the request."
+            }) + "\n\n"
+            yield "event: done\ndata: {}\n\n"
+            return
+
+        canonical_execution = None
+        canonical_active = bool(
+            gateway_acceptance is not None
+            and gateway_acceptance.mode == "on"
+            and gateway_acceptance.run_id
+        )
+        if canonical_active:
+            prepare_future = submit_gateway_accept(
+                lambda: runtime_gateway.prepare_direct_chat(gateway_acceptance)
+            )
+            try:
+                if prepare_future is None:
+                    raise RuntimeError("gateway execution queue is full")
+                completed, canonical_execution = await poll_background_result(
+                    prepare_future, _ACTIVE_IO_TIMEOUT_S
+                )
+                if not completed:
+                    raise TimeoutError("gateway execution preparation timed out")
+            except Exception as exc:
+                logger.warning(
+                    "Runtime V2 direct Chat preparation failed: %s", type(exc).__name__
+                )
+                yield "event: error\ndata: " + json.dumps({
+                    "detail": "TOBI could not safely prepare this reply. Please retry the request."
+                }) + "\n\n"
+                yield "event: done\ndata: {}\n\n"
+                return
+            if canonical_execution.disposition in {"in_progress", "recovery"}:
+                detail = (
+                    "This reply is already running. Please wait a moment and retry."
+                    if canonical_execution.disposition == "in_progress"
+                    else "This reply needs recovery. Please send the request again."
+                )
+                yield f"event: error\ndata: {json.dumps({'detail': detail})}\n\n"
+                yield "event: done\ndata: {}\n\n"
+                return
 
         recorder = (chat_runtime.TurnRecorder.start(runtime_request, route_decision)
                     if runtime_state in ("shadow", "on") else None)
-        shadow_active = shadow_acceptance is not None and shadow_acceptance.run_id is not None
-        runtime_tracking = recorder is not None or shadow_active
+        shadow_active = bool(
+            gateway_acceptance is not None
+            and gateway_acceptance.mode == "shadow"
+            and gateway_acceptance.run_id
+        )
+        runtime_tracking = recorder is not None or shadow_active or canonical_active
         shadow_source_sequence = 0
 
         def _shadow_done(future):
@@ -274,8 +341,8 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                 return
             shadow_source_sequence += 1
             future = submit_gateway_mirror(
-                shadow_gateway,
-                shadow_acceptance,
+                runtime_gateway,
+                gateway_acceptance,
                 source_sequence=shadow_source_sequence,
                 event_type=event_type,
                 stage=stage,
@@ -306,7 +373,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             if not shadow_active:
                 return
             future = submit_gateway_accept(
-                lambda: shadow_gateway.link_legacy_run(shadow_acceptance, legacy_run_id)
+                lambda: runtime_gateway.link_legacy_run(gateway_acceptance, legacy_run_id)
             )
             if future is None:
                 logger.warning("Runtime V2 legacy-link queue is full; legacy turn continues")
@@ -334,6 +401,37 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         # anything streams (#16). Old clients silently ignore unknown SSE events.
         if mode_v2:
             yield f"event: mode\ndata: {json.dumps({'mode': ctx['mode'], 'legacy_mode': ctx['legacy_mode'], 'capabilities': ctx['capabilities']})}\n\n"
+        if canonical_active and canonical_execution.disposition == "replay":
+            replayed = await loop.run_in_executor(
+                None,
+                lambda: chat_store.get_runtime_response(sid, canonical_execution.run_id),
+            )
+            if replayed is None:
+                runtime_complete("failed")
+                yield "event: error\ndata: " + json.dumps({
+                    "detail": "TOBI found the completed run but not its reply. Please send a new message."
+                }) + "\n\n"
+                yield "event: done\ndata: {}\n\n"
+                return
+            for chunk in conductor._stream_chunks(replayed["content"]):
+                yield f"event: delta\ndata: {json.dumps({'text': chunk})}\n\n"
+            yield f"event: usage\ndata: {json.dumps({
+                'prompt_tokens': 0,
+                'completion_tokens': int(replayed.get('tokens') or 0),
+                'model': replayed.get('model') or 'not_used',
+                'requested_model': replayed.get('model'),
+                'actual_model': replayed.get('model'),
+                'fallback_reason': None,
+                'attempts': 0,
+                'latency_ms': 0,
+                'replayed': True,
+            })}\n\n"
+            runtime_complete("succeeded")
+            yield runtime_frame(
+                "turn_completed", "gateway", {"status": "done", "replayed": True}
+            )
+            yield "event: done\ndata: {}\n\n"
+            return
         cid = chat_store.chat_id_for_session(sid)
         from core.database import save_conversation_message as _bridge_msg
         history = await loop.run_in_executor(None, lambda: chat_store.recent_history(sid, limit=8))
@@ -612,11 +710,16 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                 pass
 
         requested_model = model or sess.get("model") or ""
+        usage_run_id = (
+            canonical_execution.run_id
+            if canonical_active and canonical_execution is not None
+            else str(run_id or "")
+        )
         _prev = model_router.set_usage_context(
             ctx["mode"], "chat_runtime_v2",
             requested_model=requested_model,
             turn_id=(recorder.turn_id if recorder else ""),
-            run_id=str(run_id or ""),
+            run_id=usage_run_id,
             agent_id="tobi-agent" if ctx["mode"] == "agent" else "tobi-chat",
             purpose="owner_turn",
             source="chat_runtime",
@@ -638,7 +741,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                 "surface": ctx["mode"], "feature": "chat_runtime_v2",
                 "requested_model": requested_model,
                 "turn_id": (recorder.turn_id if recorder else ""),
-                "run_id": str(run_id or ""),
+                "run_id": usage_run_id,
                 "agent_id": "tobi-agent" if ctx["mode"] == "agent" else "tobi-chat",
                 "purpose": "owner_turn", "source": "chat_runtime",
                 "is_background": False,
@@ -668,17 +771,72 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                 bg_tools = bg_res.get("tools_used") or []
                 bg_thinking = bg_reasoning or (("Consulted: " + ", ".join(bg_tools)) if bg_tools else None)
                 bg_ctok = model_router.estimate_tokens(bg_reply)
-                await loop.run_in_executor(
-                    None, lambda: chat_store.add_message(
-                        sid, "assistant", bg_reply,
-                        model=bg_res.get("actual_model") or bg_res.get("requested_model") or model,
-                        tokens=bg_ctok, thinking=bg_thinking))
+                bg_model = bg_res.get("actual_model") or bg_res.get("requested_model") or model
+                bg_meta = json.dumps(turn_meta) if turn_meta else None
+                if canonical_active and canonical_execution.disposition == "execute":
+                    bg_mid = await loop.run_in_executor(
+                        None,
+                        lambda: chat_store.add_runtime_response(
+                            sid,
+                            canonical_execution.run_id,
+                            bg_reply,
+                            model=bg_model,
+                            tokens=bg_ctok,
+                            thinking=bg_thinking,
+                            meta=bg_meta,
+                        ),
+                    )
+                    bg_ptok = model_router.estimate_tokens(
+                        message
+                        + (atext or "")
+                        + " ".join(item.get("content", "") for item in history)
+                    )
+                    if bg_res.get("model_issue") or bg_res.get("stopped_on_error"):
+                        await loop.run_in_executor(
+                            None,
+                            lambda: runtime_gateway.fail_direct_chat(canonical_execution),
+                        )
+                    else:
+                        await loop.run_in_executor(
+                            None,
+                            lambda: runtime_gateway.complete_direct_chat(
+                                canonical_execution,
+                                message_id=bg_mid,
+                                model=bg_model,
+                                prompt_tokens=bg_ptok,
+                                completion_tokens=bg_ctok,
+                                latency_ms=round((_time.time() - t0) * 1000),
+                            ),
+                        )
+                else:
+                    await loop.run_in_executor(
+                        None,
+                        lambda: chat_store.add_message(
+                            sid,
+                            "assistant",
+                            bg_reply,
+                            model=bg_model,
+                            tokens=bg_ctok,
+                            thinking=bg_thinking,
+                            meta=bg_meta,
+                        ),
+                    )
                 await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", bg_reply))
                 shadow_observe("turn_completed", "gateway", {
                     "status": "done", "run_id": run_id, "detached": True,
                 })
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "Detached Chat response persistence failed: %s", type(exc).__name__
+                )
+                if canonical_active and canonical_execution.disposition == "execute":
+                    try:
+                        await loop.run_in_executor(
+                            None,
+                            lambda: runtime_gateway.fail_direct_chat(canonical_execution),
+                        )
+                    except Exception:
+                        pass
 
         def _record_step(step_type, title, **kw):
             if run_id is None:
@@ -753,10 +911,26 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             if run_id is not None:
                 from core import agent_runs
                 await loop.run_in_executor(None, lambda: agent_runs.complete_run(run_id, "failed", error=str(e)[:300]))
+            if canonical_active and canonical_execution.disposition == "execute":
+                try:
+                    await loop.run_in_executor(
+                        None,
+                        lambda: runtime_gateway.fail_direct_chat(canonical_execution),
+                    )
+                except Exception as gateway_exc:
+                    logger.warning(
+                        "Runtime V2 direct Chat failure recording failed: %s",
+                        type(gateway_exc).__name__,
+                    )
             if runtime_tracking:
                 yield runtime_frame("step_failed", "execution", err.to_dict())
                 runtime_complete("failed", err)
-            yield f"event: error\ndata: {json.dumps({'detail': str(e)[:200]})}\n\n"
+            detail = (
+                "TOBI could not finish this reply. Please retry the request."
+                if canonical_active
+                else str(e)[:200]
+            )
+            yield f"event: error\ndata: {json.dumps({'detail': detail})}\n\n"
             yield "event: done\ndata: {}\n\n"
             return
         finally:
@@ -822,10 +996,51 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         fallback_reason = res.get("fallback_reason")
         if actual_model and requested_model and actual_model != requested_model and not res.get("model_escalated"):
             yield f"event: notice\ndata: {json.dumps({'kind': 'model_fallback', 'from_model': requested_model, 'to_model': actual_model, 'reason': fallback_reason})}\n\n"
-        mid = await loop.run_in_executor(
-            None, lambda: chat_store.add_message(sid, "assistant", reply, model=actual_model or requested_model,
-                                                 tokens=ctok, thinking=thinking_meta,
-                                                 meta=json.dumps(turn_meta) if turn_meta else None))
+        response_model = actual_model or requested_model
+        response_meta = json.dumps(turn_meta) if turn_meta else None
+        try:
+            if canonical_active and canonical_execution.disposition == "execute":
+                mid = await loop.run_in_executor(
+                    None,
+                    lambda: chat_store.add_runtime_response(
+                        sid,
+                        canonical_execution.run_id,
+                        reply,
+                        model=response_model,
+                        tokens=ctok,
+                        thinking=thinking_meta,
+                        meta=response_meta,
+                    ),
+                )
+            else:
+                mid = await loop.run_in_executor(
+                    None,
+                    lambda: chat_store.add_message(
+                        sid,
+                        "assistant",
+                        reply,
+                        model=response_model,
+                        tokens=ctok,
+                        thinking=thinking_meta,
+                        meta=response_meta,
+                    ),
+                )
+        except Exception as exc:
+            logger.warning("Chat response persistence failed: %s", type(exc).__name__)
+            if canonical_active and canonical_execution.disposition == "execute":
+                try:
+                    await loop.run_in_executor(
+                        None,
+                        lambda: runtime_gateway.fail_direct_chat(canonical_execution),
+                    )
+                except Exception:
+                    pass
+            runtime_complete("failed")
+            yield "event: error\ndata: " + json.dumps({
+                "detail": "TOBI produced a reply but could not save it. Please retry the request."
+            }) + "\n\n"
+            yield "event: done\ndata: {}\n\n"
+            return
         await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", reply))
         pending = res.get("pending_action")
         if run_id is not None and pending:
@@ -867,6 +1082,31 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         final_status = ("waiting_user" if res.get("stopped_on_error")
                         else "waiting_approval" if pending
                         else "failed" if res.get("model_issue") else "done")
+        if canonical_active and canonical_execution.disposition == "execute":
+            try:
+                if final_status == "done":
+                    await loop.run_in_executor(
+                        None,
+                        lambda: runtime_gateway.complete_direct_chat(
+                            canonical_execution,
+                            message_id=mid,
+                            model=response_model,
+                            prompt_tokens=ptok,
+                            completion_tokens=ctok,
+                            latency_ms=usage["latency_ms"],
+                        ),
+                    )
+                else:
+                    await loop.run_in_executor(
+                        None,
+                        lambda: runtime_gateway.fail_direct_chat(canonical_execution),
+                    )
+            except Exception as gateway_exc:
+                logger.warning(
+                    "Runtime V2 direct Chat completion failed: %s",
+                    type(gateway_exc).__name__,
+                )
+                yield f"event: notice\ndata: {json.dumps({'kind': 'runtime_recovery'})}\n\n"
         if runtime_tracking:
             yield runtime_frame("step_completed", "response", {
                 "tools": tools, "model": usage["model"],

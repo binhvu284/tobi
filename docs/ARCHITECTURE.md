@@ -85,7 +85,7 @@ The scheduler currently registers daily reports, six-hour execution, two-minute 
 | External/legacy API | `api/server.py` | Small API-key-protected project/task/revenue API | Separate contract and default-key risk |
 | Conductor | `core/conductor.py` | Conversation routing, grounded tool loop, permissions, confirmations, action log | Shared by MC Chat and significant Telegram paths; now exposes direct project-resource inventory/read/search and safe-read route widening |
 | Chat mode/runtime | `core/chat_modes.py`, `chat_runtime.py`, `chat_runtime_contracts.py`, `tool_registry.py` | Normalization, capability boundaries, intent routing, typed tools, telemetry, recovery contracts | Runtime v2 is flag-controlled; route scopes focus tool choice, while mode denial and risk policy remain authoritative |
-| MC Runtime V2 foundation | `core/runtime/contracts.py`, `event_store.py`, `projections.py`, `rebuild.py`, `repository.py`, `control.py`, `budget.py`, `loop_controller.py`, `actions.py`, `gateway.py`, `state.py` | Shared validated contracts, append-only ordered events/checkpoints, redaction, deterministic rebuilds, canonical run/plan persistence, exclusive step leases, bounded retries, persisted recovery control, hard budgets, durable loop decisions, action idempotency, Chat/Agent shadow acceptance, and cursor replay | The Chat route invokes sanitized canonical acceptance and ordered lifecycle mirroring only when Runtime V2 events are enabled; `/api/runtime/runs/{run_id}/events` replays redacted events for the matching session in bounded pages and tails by sequence; legacy execution and browser SSE remain authoritative |
+| MC Runtime V2 foundation | `core/runtime/contracts.py`, `event_store.py`, `projections.py`, `rebuild.py`, `repository.py`, `control.py`, `budget.py`, `loop_controller.py`, `actions.py`, `gateway.py`, `state.py` | Shared validated contracts, append-only ordered events/checkpoints, redaction, deterministic rebuilds, canonical run/plan persistence, exclusive step leases, bounded retries, persisted recovery control, hard budgets, durable loop decisions, action idempotency, direct-Chat execution, Chat/Agent shadow acceptance, and cursor replay | Plain-text direct Chat is canonical only behind all default-off activation gates; the gateway claims one `respond` step and owns completion/replay, while Conductor still composes the response. Attachments, read/tool Chat, and Agent remain shadow/legacy. `/api/runtime/runs/{run_id}/events` replays redacted events for the matching session in bounded pages and tails by sequence |
 | Agent runs/artifacts | `core/agent_runs.py`, `core/chat_store.py` | Persisted runs, checkpoints, recovery commands, action links, artifacts, message metadata | Exact action checkpoints and elapsed time survive reload; run commands resume the original run |
 | Coding Agent control plane | `core/coding_agent.py`, `coding_loop.py`, `coding_contracts.py`, `coding_assessment.py`, `coding_quality.py`, `coding_learning.py` | Goal assessment, bounded sprints, worktree workflow, checkpoints, quality gates, independent review, and evidence-backed learning | Explicit worker/reviewer profiles; high-risk scopes require owner approval; worker changes occur only at checkpoints |
 | Coding workers and runner | `core/coding_workers.py`, `coding_runner.py`, `coding_runner_service.py` | MC Native/Codex/OpenCode adapters, native-session resume, process isolation, durable service queue, output events, cancellation, and runner health | Production service uses a separate systemd process and encrypted one-secret job envelopes |
@@ -154,18 +154,21 @@ sequenceDiagram
 
   U->>C: Send message and turn options
   C->>A: Stream request
+  A->>R: Normalize mode, route intent, accept and lease eligible direct Chat
   A->>S: Persist user message
-  A->>R: Normalize mode, route intent, build context and runtime trace
   R->>K: Answer with validated capability/tool scope
   K->>M: Generate response or tool call
   K->>T: Execute allowed read/action
   T-->>K: Grounded result
   K-->>A: Text, plan, phase, action, terminal, notice events
-  A->>S: Persist assistant result, run, checkpoints, trace, and artifacts
+  A->>S: Persist assistant result and private canonical-run link
+  A->>R: Fence completion with the lease; finish or recover the run
   A-->>C: SSE updates
 ```
 
 Current turn options include Chat/Agent mode, Deep Research, attachments, premium-reader context, web search, review policy, connectors, and automatic project context. Mode is a backend contract: Chat cannot invoke terminal tools, while Agent owns tool and terminal execution. Legacy mode values are normalized for saved-conversation compatibility. Agent runs persist steps and recovery state; completed process traces are expandable after reload.
+
+Runtime V2 execution currently covers plain-text direct Chat only. All activation settings default off. Eligible turns are acknowledged before model work, exactly one worker receives the expiring lease, and completed duplicate requests replay the privately linked `chat_messages` response without another model call or duplicate message. Disabling `runtime.v2_chat_execution` returns new work to shadow/legacy behavior; attachments, read/tool Chat, and Agent never enter this active path.
 
 Runtime route scopes are optimization hints, not security permissions. A known read-only tool may be admitted during a turn when deterministic routing was too narrow; unknown or acting tools remain denied outside the route scope, and Chat mode/terminal denial plus action-risk approval are still enforced server-side. The Chat gateway no longer turns a direct-route empty prediction into an explicit empty allowlist.
 

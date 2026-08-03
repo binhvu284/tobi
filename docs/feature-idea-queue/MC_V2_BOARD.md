@@ -13,14 +13,14 @@ Its status column carries the same short progress note this board tracks.
 
 ## Status
 
-**In progress.** T00 through T03 and T04 Runs 1-4A are delivered; T04 Run 4B is next.
+**In progress.** T00 through T04 are delivered; T05 planning is next.
 
-**Delivered:** 4 of 17 packages plus about 88% of T04, about **50-55%** of total effort.
+**Delivered:** 5 of 17 packages, about **52-57%** of total effort.
 
-**Next:** T04 Run 4B plans the live Chat cutover and tested rollback. Run 4A added separate
-default-off Chat and Agent execution gates, requires an internal route-ready signal, persists an
-enabled compatibility policy only when every gate passes, and keeps retry mode stable after flags
-change. The current live route still sends no readiness signal, so behavior remains shadow-only.
+**Next:** T05 plans one server-side policy decision point for permissions, approvals, credentials,
+trust, isolation, and budgets. T04 activated only plain-text direct Chat under every default-off
+gate. Attachments, read/tool Chat, and Agent remain shadow/legacy, and
+`runtime.v2_chat_execution` rolls new direct-Chat work back without changing accepted runs.
 
 ---
 
@@ -58,7 +58,7 @@ Ordered. Each one ships and is reviewable on its own. Risk is the plan's own rat
 | T01 | **Agree the shapes.** Shared validated contracts now define runs, tools, loops, errors, evaluations, and system relationships. Seven independent rollout flags default off, so live behavior is unchanged. | T00 | Med | Done |
 | T02 | **Write everything down, in order.** Immutable ordered run/System history, secret redaction before storage, and deterministic current-state rebuilds are delivered locally. No live caller is switched. | T01 | High | Done |
 | T03 | **Make runs survive a crash.** Canonical storage, versioned states, exclusive leases, restart checkpoints, bounded retries, recovery commands, cancellation fencing, persisted loop progress, hard limits, action reservations, immutable receipts, and fail-closed crash reconciliation are delivered. | T02 | High | Done |
-| T04 | **Point Chat and Agent at the new engine**, quietly at first (both run side by side and get compared before anything switches over). | T03 | High | Run 4A delivered; 4B next |
+| T04 | **Point Chat and Agent at the new engine**, quietly at first (both run side by side and get compared before anything switches over). | T03 | High | Done |
 | T05 | **One place decides what is allowed.** Permissions, approvals, credentials, budgets — currently spread across many files. | T01 | High | ☐ |
 | T06 | **One list of tools.** Every tool described once, in one format, with its arguments checked before it runs. | T01, T05 | High | ☐ |
 | T07 | **Move the first real tools over:** files, terminal, projects. Each one gets a receipt, and a retry cannot double-apply it. | T03, T06 | High | ☐ |

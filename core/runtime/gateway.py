@@ -1,7 +1,7 @@
 """Chat/Agent acceptance gateway for Mission Control Runtime V2.
 
-The live Chat route does not send the internal readiness signal, so it remains
-limited to fail-closed shadow recording until T04 Run 4B.
+Only direct Chat responses may claim live execution in T04. Tool-capable Chat
+routes and Agent remain fail-closed shadow adapters.
 """
 from __future__ import annotations
 
@@ -14,9 +14,31 @@ from typing import Any, Callable, Iterable, Mapping
 
 from core.chat_runtime_contracts import TurnRequest
 from core.runtime import config
-from core.runtime.contracts import LoopPolicy, LoopRecipe, LoopType, RunEvent, RunRequest, Surface
+from core.runtime.contracts import (
+    ErrorCategory,
+    ErrorStage,
+    ExecutionPlan,
+    LoopPolicy,
+    LoopRecipe,
+    LoopType,
+    PlanStep,
+    RecoveryAction,
+    RiskLevel,
+    RunEvent,
+    RunRequest,
+    RuntimeErrorInfo,
+    RuntimeToolResult,
+    Surface,
+)
+from core.runtime.control import RuntimeControl
 from core.runtime.event_store import append_run_event, latest_run_event, list_run_events
-from core.runtime.repository import RunConflictError, RunNotFoundError, RuntimeRepository
+from core.runtime.repository import (
+    RunConflictError,
+    RunNotFoundError,
+    RuntimeRepository,
+    VersionConflictError,
+)
+from core.runtime.state import RunStatus
 
 
 _EVENT_TYPE = re.compile(r"^[a-z][a-z0-9_.-]*$")
@@ -34,6 +56,17 @@ class GatewayAcceptance:
     request_id: str
     run_id: str | None
     sequence: int
+
+
+@dataclass(frozen=True)
+class GatewayExecution:
+    disposition: str
+    run_id: str
+    step_id: str = "respond"
+    worker_id: str | None = None
+    lease_token: str | None = None
+    lease_epoch: int = 0
+    reclaimed: bool = False
 
 
 def _bounded_submit(
@@ -80,7 +113,25 @@ def submit_gateway_mirror(
     )
 
 
-def _shadow_recipe() -> LoopRecipe:
+def _compatibility_recipe(*, enabled: bool) -> LoopRecipe:
+    if enabled:
+        return LoopRecipe(
+            recipe_id="mc.compat.chat-turn",
+            version="2",
+            name="Direct Chat compatibility turn",
+            loop_type=LoopType.TURN,
+            trigger="owner direct Chat request",
+            objective="Persist and answer one direct Chat turn through Runtime V2",
+            stop_condition="one assistant response is persisted",
+            max_attempts=2,
+            max_runtime_s=3_600,
+            max_cost_usd=5.0,
+            max_model_calls=3,
+            max_tool_calls=1,
+            allowed_tools=(),
+            recovery_policy="same_run_retry_once",
+            evidence_required=("chat_response",),
+        )
     return LoopRecipe(
         recipe_id="mc.compat.chat-turn",
         version="1",
@@ -185,7 +236,7 @@ class TurnGateway:
         if mode == "off":
             return GatewayAcceptance(mode=mode, request_id=request_id, run_id=None, sequence=0)
 
-        recipe = _shadow_recipe()
+        recipe = _compatibility_recipe(enabled=mode == "on")
         self.repository.save_loop_recipe(recipe)
         run = self.repository.create_run(
             canonical,
@@ -213,6 +264,184 @@ class TurnGateway:
             run_id=str(run["run_id"]),
             sequence=accepted.sequence,
         )
+
+    def prepare_direct_chat(self, acceptance: GatewayAcceptance) -> GatewayExecution:
+        """Advance and exclusively claim one canonical direct-Chat response."""
+        if (
+            not isinstance(acceptance, GatewayAcceptance)
+            or acceptance.mode != "on"
+            or not acceptance.run_id
+        ):
+            raise ValueError("an active gateway acceptance is required")
+        run_id = acceptance.run_id
+        worker_id = f"chat:{uuid.uuid4().hex}"
+        last_conflict: Exception | None = None
+        for _attempt in range(8):
+            run = self.repository.get_run(run_id)
+            if run is None:
+                raise RunNotFoundError(run_id)
+            if run["surface"] != Surface.CHAT.value:
+                raise RunConflictError("only a Chat run can claim direct response execution")
+            status = run["status"]
+            if status == RunStatus.SUCCEEDED.value:
+                return GatewayExecution("replay", run_id)
+            if status in {
+                RunStatus.RECOVERING.value,
+                RunStatus.WAITING_OWNER.value,
+                RunStatus.FAILED.value,
+                RunStatus.CANCELLED.value,
+            }:
+                return GatewayExecution("recovery", run_id)
+            try:
+                if status == RunStatus.ACCEPTED.value:
+                    self.repository.transition_run(
+                        run_id,
+                        RunStatus.ROUTING,
+                        expected_version=run["version"],
+                        actor="chat-gateway",
+                    )
+                    continue
+                if status == RunStatus.ROUTING.value:
+                    plan = ExecutionPlan(
+                        plan_id=f"{run_id}:direct-chat",
+                        run_id=run_id,
+                        version="1",
+                        objective=run["objective"],
+                        steps=(
+                            PlanStep(
+                                step_id="respond",
+                                kind="respond",
+                                risk=RiskLevel.NONE,
+                                retry_policy="transient_once",
+                                output_contract={"message_id": "integer"},
+                            ),
+                        ),
+                        completion_predicate="one assistant response is persisted",
+                    )
+                    self.repository.save_plan(
+                        plan,
+                        expected_version=run["version"],
+                        actor="chat-gateway",
+                    )
+                    continue
+                if status == RunStatus.PLANNED.value:
+                    self.repository.transition_run(
+                        run_id,
+                        RunStatus.RUNNING,
+                        expected_version=run["version"],
+                        actor="chat-gateway",
+                    )
+                    continue
+                if status == RunStatus.RUNNING.value:
+                    steps = self.repository.list_steps(run_id)
+                    if steps and steps[0]["status"] == "succeeded":
+                        self.repository.transition_run(
+                            run_id,
+                            RunStatus.SUCCEEDED,
+                            expected_version=run["version"],
+                            actor="chat-gateway",
+                        )
+                        return GatewayExecution("replay", run_id)
+                    claim = self.repository.claim_step(
+                        run_id,
+                        worker_id=worker_id,
+                        lease_seconds=300,
+                    )
+                    if claim is None:
+                        return GatewayExecution("in_progress", run_id)
+                    return GatewayExecution(
+                        "execute",
+                        run_id,
+                        step_id=str(claim["step"]["step_id"]),
+                        worker_id=worker_id,
+                        lease_token=str(claim["lease_token"]),
+                        lease_epoch=int(claim["lease_epoch"]),
+                        reclaimed=bool(claim["reclaimed"]),
+                    )
+                return GatewayExecution("in_progress", run_id)
+            except VersionConflictError as exc:
+                last_conflict = exc
+        raise last_conflict or VersionConflictError("the direct Chat run kept changing")
+
+    @staticmethod
+    def _require_execution(execution: GatewayExecution) -> None:
+        if (
+            not isinstance(execution, GatewayExecution)
+            or execution.disposition != "execute"
+            or not execution.worker_id
+            or not execution.lease_token
+            or execution.lease_epoch <= 0
+        ):
+            raise ValueError("an active direct-Chat execution claim is required")
+
+    def complete_direct_chat(
+        self,
+        execution: GatewayExecution,
+        *,
+        message_id: int,
+        model: str | None,
+        prompt_tokens: int,
+        completion_tokens: int,
+        latency_ms: int,
+    ) -> dict[str, Any]:
+        """Fence response completion with the active lease, then finish the run."""
+        self._require_execution(execution)
+        if isinstance(message_id, bool) or not isinstance(message_id, int) or message_id <= 0:
+            raise ValueError("message_id must be a positive integer")
+        RuntimeControl().record_step_success(
+            execution.run_id,
+            execution.step_id,
+            worker_id=execution.worker_id or "",
+            lease_token=execution.lease_token or "",
+            lease_epoch=execution.lease_epoch,
+            result=RuntimeToolResult(
+                status="succeeded",
+                typed_output={"message_id": message_id, "model": model},
+                evidence_refs=(f"chat_message:{message_id}",),
+                timing={"latency_ms": max(0, int(latency_ms))},
+                cost={
+                    "prompt_tokens": max(0, int(prompt_tokens)),
+                    "completion_tokens": max(0, int(completion_tokens)),
+                },
+            ),
+        )
+        run = self.repository.get_run(execution.run_id)
+        if run is None:
+            raise RunNotFoundError(execution.run_id)
+        return self.repository.transition_run(
+            execution.run_id,
+            RunStatus.SUCCEEDED,
+            expected_version=run["version"],
+            actor="chat-gateway",
+        )
+
+    def fail_direct_chat(self, execution: GatewayExecution) -> dict[str, Any]:
+        """Persist a safe provider failure and expose same-run recovery state."""
+        self._require_execution(execution)
+        RuntimeControl().record_step_failure(
+            execution.run_id,
+            execution.step_id,
+            worker_id=execution.worker_id or "",
+            lease_token=execution.lease_token or "",
+            lease_epoch=execution.lease_epoch,
+            result=RuntimeToolResult(
+                status="failed",
+                retryable=False,
+                error=RuntimeErrorInfo(
+                    code="chat.response_failed",
+                    category=ErrorCategory.AVAILABILITY,
+                    stage=ErrorStage.RESPOND,
+                    message="The direct Chat response failed",
+                    owner_message="TOBI could not finish this reply. Please retry the request.",
+                    retryable=False,
+                    recovery_actions=(RecoveryAction.RETRY_STEP, RecoveryAction.CANCEL),
+                ),
+            ),
+        )
+        run = self.repository.get_run(execution.run_id)
+        if run is None:
+            raise RunNotFoundError(execution.run_id)
+        return run
 
     def link_legacy_run(
         self, acceptance: GatewayAcceptance, legacy_run_id: str | int

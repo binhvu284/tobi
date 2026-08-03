@@ -79,7 +79,7 @@ The system menu still displays Document as an unavailable/soon entry; it does no
 ### Persisted session model
 
 - `chat_sessions` stores title, selected model, compacted summary metadata, and lifecycle state.
-- `chat_messages` stores role/content/model/thinking/feedback/parent relationships.
+- `chat_messages` stores role/content/model/thinking/feedback/parent relationships. A private `runtime_run_id` link gives one canonical direct-Chat run exactly one replayable assistant response; public session payloads omit that link.
 - Editing an earlier message creates a forked session rather than rewriting the original history.
 - Compaction summarizes older context while preserving recent messages.
 - The left session list and active session load through `dashboard/src/api.ts`.
@@ -123,6 +123,8 @@ The primary selector exposes:
 | Project context | Automatically selected from explicit or high-confidence project references; ambiguous matches remain shallow and visible |
 
 Legacy `terminal`, `research`, and `project` values are normalized to Agent or Chat-compatible behavior. Mode, capabilities, context, steps, tools, run ID, artifact IDs, and runtime turn ID are stored in message metadata. The `chat.mode_v2` and `chat_runtime_v2` owner settings provide rollback controls.
+
+Plain-text direct Chat can run canonically only when the Chat runtime and every default-off Runtime V2 Chat gate are enabled. The gateway acknowledges the request, gives one worker an expiring lease (so duplicate deliveries cannot both answer), persists success or recovery, and replays the saved response for a completed duplicate. Attachments, read/tool Chat, and Agent remain on shadow/legacy execution. Turning off `runtime.v2_chat_execution` rolls back new direct-Chat work without changing already accepted runs.
 
 Runtime route scopes narrow the usual tool set for speed. They are not permission grants: a known read-only tool can be admitted if the classifier routed too narrowly, while unknown or acting tools remain route-denied and mode/risk/approval policy stays server-authoritative. A direct-route prediction no longer creates an explicit empty allowlist at the Chat gateway.
 

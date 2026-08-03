@@ -52,6 +52,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             tokens     INTEGER,
             thinking   TEXT,                       -- collapsed reasoning / tool trace
             feedback   INTEGER,                    -- 1 = 👍, -1 = 👎, NULL = none (P2)
+            runtime_run_id TEXT,                   -- private Runtime V2 response identity
             created_at TEXT DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, id);
@@ -82,6 +83,12 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         if "meta" not in cols:
             # #16: JSON turn metadata {mode, capabilities, steps, tools, run_id, artifact_ids, context}
             conn.execute("ALTER TABLE chat_messages ADD COLUMN meta TEXT")
+        if "runtime_run_id" not in cols:
+            conn.execute("ALTER TABLE chat_messages ADD COLUMN runtime_run_id TEXT")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_messages_runtime_run "
+            "ON chat_messages(runtime_run_id) WHERE runtime_run_id IS NOT NULL"
+        )
     except Exception:
         pass
 
@@ -225,6 +232,69 @@ def add_message(session_id: int, role: str, content: str, *, model: Optional[str
         conn.execute("UPDATE chat_sessions SET updated_at=? WHERE id=?", (_now(), session_id))
         conn.commit()
         return cur.lastrowid
+    return _with_conn(q)
+
+
+def get_runtime_response(session_id: int, runtime_run_id: str) -> Optional[dict]:
+    """Return a linked assistant response without exposing the private run link."""
+    if not isinstance(runtime_run_id, str) or not runtime_run_id.strip():
+        raise ValueError("runtime_run_id must be a non-empty string")
+
+    def q(conn):
+        row = conn.execute(
+            "SELECT id,role,content,model,tokens,thinking,meta,created_at "
+            "FROM chat_messages WHERE session_id=? AND runtime_run_id=?",
+            (session_id, runtime_run_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+    return _with_conn(q)
+
+
+def add_runtime_response(
+    session_id: int,
+    runtime_run_id: str,
+    content: str,
+    *,
+    model: Optional[str] = None,
+    tokens: Optional[int] = None,
+    thinking: Optional[str] = None,
+    meta: Optional[str] = None,
+) -> int:
+    """Persist exactly one assistant response for a canonical direct-Chat run."""
+    if not isinstance(runtime_run_id, str) or not runtime_run_id.strip():
+        raise ValueError("runtime_run_id must be a non-empty string")
+
+    def q(conn):
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT id,session_id,content FROM chat_messages WHERE runtime_run_id=?",
+            (runtime_run_id,),
+        ).fetchone()
+        if existing is not None:
+            if existing["session_id"] != session_id or existing["content"] != content:
+                raise ValueError("the canonical run already has a different response")
+            conn.commit()
+            return int(existing["id"])
+        cur = conn.execute(
+            "INSERT INTO chat_messages "
+            "(session_id,role,content,parent_id,model,tokens,thinking,meta,runtime_run_id,created_at) "
+            "VALUES (?,'assistant',?,NULL,?,?,?,?,?,?)",
+            (
+                session_id,
+                content,
+                model,
+                tokens,
+                thinking,
+                meta,
+                runtime_run_id,
+                _now(),
+            ),
+        )
+        conn.execute("UPDATE chat_sessions SET updated_at=? WHERE id=?", (_now(), session_id))
+        conn.commit()
+        return int(cur.lastrowid)
+
     return _with_conn(q)
 
 
