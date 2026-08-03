@@ -5,7 +5,7 @@
 | Field | Decision |
 |---|---|
 | Queue item | `#21` |
-| Status | In progress; T00-T02 delivered, T03 next |
+| Status | In progress; T00-T02 and T03 Runs 1-3B delivered, T03 continues |
 | Delivered dependency | `#20` Brain V2 is delivered; T00 must reconcile this plan with its actual contracts, migrations, context behavior, and rollback path |
 | Start gate | Satisfied 2026-08-01 by `#22` Codex-only V2 qualification (`e9bc5fe`); other workers remain locked until separately qualified |
 | Deployment confidence | The `#22` 24-hour/72-hour VPS soak remains a deployment confidence gate, not a source-development blocker for `#21` unless the owner explicitly promotes it to one |
@@ -1137,3 +1137,4 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-03 | T03 Run 1 | T03 Run 1 delivery commit | Red import test; 24/24 repository checks; T01/T02, Chat, Conductor, mode, and Storage regressions green; enforced gate green | T03 in progress; canonical runs, validated plans, immutable effective loop policies, secret redaction, and legal version-checked state changes persist locally with no live runtime switch |
 | 2026-08-03 | T03 Run 2 | T03 Run 2 delivery commit | Red import test; 19/19 lease/checkpoint checks; T01/T02/T03 Run 1, Coding Agent V2, Chat, Conductor, mode, and Storage regressions green; enforced gate green | T03 in progress; exclusive expiring step leases, token/epoch stale-worker fencing, and append-only redacted restart checkpoints persist locally with no live runtime switch |
 | 2026-08-03 | T03 Run 3A | T03 Run 3A delivery commit | Red import test; 17/17 failure-control checks; T01/T02/T03 Runs 1-2, Chat, Conductor, mode, and Storage regressions green; enforced gate green | T03 in progress; migration 004, bounded persisted retry schedules, typed redacted failures, one-way recovery commands, and same-run cancellation fencing persist locally with no live runtime switch |
+| 2026-08-03 | T03 Run 3B | T03 Run 3B delivery commit | Red import test; 16/16 loop-control checks; T01/T02/T03 Runs 1-3A, Coding Agent V2, Chat, Conductor, mode, and Storage regressions green; enforced gate green | T03 in progress; migration 005, immutable iteration history, lower-wins hard budgets across eight dimensions, exact-once usage aggregation, evidence-backed loop completion, and deterministic limit recovery persist locally with no live runtime switch |

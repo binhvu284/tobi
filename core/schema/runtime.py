@@ -10,6 +10,7 @@ RUNTIME_SCHEMA_VERSIONS = (
     "mc-runtime-v2-002",
     "mc-runtime-v2-003",
     "mc-runtime-v2-004",
+    "mc-runtime-v2-005",
 )
 RUNTIME_SCHEMA_VERSION = RUNTIME_SCHEMA_VERSIONS[-1]
 _SCHEMA_LOCK = threading.Lock()
@@ -25,6 +26,7 @@ _RUNTIME_TABLES = {
     "mc_run_commands",
     "mc_loop_recipes",
     "mc_loop_runs",
+    "mc_loop_iterations",
 }
 
 _STEP_LEASE_COLUMNS = {
@@ -43,6 +45,20 @@ _STEP_CONTROL_COLUMNS = {
 _RUN_CONTROL_COLUMNS = {
     "cancel_requested_at": "TEXT",
     "cancel_requested_by": "TEXT",
+}
+
+_LOOP_CONTROL_COLUMNS = {
+    "loop_version": "INTEGER NOT NULL DEFAULT 0 CHECK (loop_version >= 0)",
+    "model_calls": "INTEGER NOT NULL DEFAULT 0 CHECK (model_calls >= 0)",
+    "tool_calls": "INTEGER NOT NULL DEFAULT 0 CHECK (tool_calls >= 0)",
+    "prompt_tokens": "INTEGER NOT NULL DEFAULT 0 CHECK (prompt_tokens >= 0)",
+    "completion_tokens": "INTEGER NOT NULL DEFAULT 0 CHECK (completion_tokens >= 0)",
+    "runtime_ms": "INTEGER NOT NULL DEFAULT 0 CHECK (runtime_ms >= 0)",
+    "cost_microusd": "INTEGER NOT NULL DEFAULT 0 CHECK (cost_microusd >= 0)",
+    "download_bytes": "INTEGER NOT NULL DEFAULT 0 CHECK (download_bytes >= 0)",
+    "storage_bytes": "INTEGER NOT NULL DEFAULT 0 CHECK (storage_bytes >= 0)",
+    "started_at": "TEXT",
+    "stopped_at": "TEXT",
 }
 
 
@@ -286,14 +302,71 @@ _STATEMENTS = (
         owner_override_json TEXT NOT NULL DEFAULT '{}',
         enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
         iteration INTEGER NOT NULL DEFAULT 0 CHECK (iteration >= 0),
+        loop_version INTEGER NOT NULL DEFAULT 0 CHECK (loop_version >= 0),
+        model_calls INTEGER NOT NULL DEFAULT 0 CHECK (model_calls >= 0),
+        tool_calls INTEGER NOT NULL DEFAULT 0 CHECK (tool_calls >= 0),
+        prompt_tokens INTEGER NOT NULL DEFAULT 0 CHECK (prompt_tokens >= 0),
+        completion_tokens INTEGER NOT NULL DEFAULT 0 CHECK (completion_tokens >= 0),
+        runtime_ms INTEGER NOT NULL DEFAULT 0 CHECK (runtime_ms >= 0),
+        cost_microusd INTEGER NOT NULL DEFAULT 0 CHECK (cost_microusd >= 0),
+        download_bytes INTEGER NOT NULL DEFAULT 0 CHECK (download_bytes >= 0),
+        storage_bytes INTEGER NOT NULL DEFAULT 0 CHECK (storage_bytes >= 0),
         status TEXT NOT NULL DEFAULT 'accepted',
         stop_reason TEXT,
+        started_at TEXT,
+        stopped_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY (run_id) REFERENCES mc_runs(run_id),
         FOREIGN KEY (recipe_id, recipe_version) REFERENCES mc_loop_recipes(recipe_id, version)
     )""",
     "CREATE INDEX IF NOT EXISTS idx_mc_loop_runs_status ON mc_loop_runs(status, updated_at)",
+    """CREATE TABLE IF NOT EXISTS mc_loop_iterations (
+        iteration_id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        iteration INTEGER NOT NULL CHECK (iteration > 0),
+        started_run_version INTEGER NOT NULL CHECK (started_run_version > 0),
+        finished_run_version INTEGER,
+        actor TEXT NOT NULL,
+        finished_by TEXT,
+        start_hash TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'stopped')),
+        usage_json TEXT NOT NULL DEFAULT '{}',
+        usage_hash TEXT,
+        result_json TEXT NOT NULL DEFAULT '{}',
+        result_hash TEXT,
+        contract_version TEXT NOT NULL DEFAULT '1',
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        UNIQUE (run_id, iteration),
+        FOREIGN KEY (run_id) REFERENCES mc_loop_runs(run_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_mc_loop_iterations_run ON mc_loop_iterations(run_id, iteration)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mc_loop_iterations_active ON mc_loop_iterations(run_id) WHERE status='running'",
+    """CREATE TRIGGER IF NOT EXISTS mc_loop_iterations_identity_guard
+        BEFORE UPDATE OF iteration_id, run_id, iteration, started_run_version,
+                         actor, start_hash, contract_version, started_at
+        ON mc_loop_iterations BEGIN
+            SELECT RAISE(ABORT, 'mc_loop_iterations identity is immutable');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_loop_iterations_lifecycle_guard
+        BEFORE UPDATE OF status, finished_run_version, finished_by, usage_json,
+                         usage_hash, result_json, result_hash, completed_at
+        ON mc_loop_iterations
+        WHEN OLD.status != 'running'
+          OR NEW.status NOT IN ('completed', 'stopped')
+          OR NEW.finished_run_version IS NULL
+          OR NEW.finished_by IS NULL
+          OR NEW.usage_hash IS NULL
+          OR NEW.result_hash IS NULL
+          OR NEW.completed_at IS NULL
+        BEGIN
+            SELECT RAISE(ABORT, 'mc_loop_iterations can only finish once');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_loop_iterations_delete_guard
+        BEFORE DELETE ON mc_loop_iterations BEGIN
+            SELECT RAISE(ABORT, 'mc_loop_iterations history is immutable');
+        END""",
     """CREATE TRIGGER IF NOT EXISTS mc_loop_recipes_update_guard
         BEFORE UPDATE ON mc_loop_recipes BEGIN
             SELECT RAISE(ABORT, 'mc_loop_recipes versions are immutable');
@@ -344,10 +417,14 @@ def _schema_is_ready(conn: sqlite3.Connection) -> bool:
     run_columns = {
         row[1] for row in conn.execute("PRAGMA table_info(mc_runs)").fetchall()
     }
+    loop_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(mc_loop_runs)").fetchall()
+    }
     return (
         set(_STEP_LEASE_COLUMNS).issubset(step_columns)
         and set(_STEP_CONTROL_COLUMNS).issubset(step_columns)
         and set(_RUN_CONTROL_COLUMNS).issubset(run_columns)
+        and set(_LOOP_CONTROL_COLUMNS).issubset(loop_columns)
     )
 
 
@@ -373,6 +450,14 @@ def _apply_runtime_schema(conn: sqlite3.Connection) -> None:
         for name, declaration in _RUN_CONTROL_COLUMNS.items():
             if name not in run_columns:
                 conn.execute(f"ALTER TABLE mc_runs ADD COLUMN {name} {declaration}")
+        loop_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(mc_loop_runs)").fetchall()
+        }
+        for name, declaration in _LOOP_CONTROL_COLUMNS.items():
+            if name not in loop_columns:
+                conn.execute(
+                    f"ALTER TABLE mc_loop_runs ADD COLUMN {name} {declaration}"
+                )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_mc_run_steps_lease "
             "ON mc_run_steps(status, lease_expires_at, run_id, position)"

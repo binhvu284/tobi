@@ -9,21 +9,22 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T03 Run 3B - hard budgets and persisted loop control (not started)
+**Package:** T03 Run 4 - action receipts and duplicate-effect protection (not started)
 
 **Purpose (one sentence, plain words):**
-A canonical run records its actual attempts, runtime, and cost, then stops predictably when its
-persisted hard limits or effective loop-policy stop condition is reached.
+A restarted or retried canonical run can prove whether an external action already happened and
+will not apply the same effect twice.
 
 **Not doing:**
 - No live Chat or Agent adapter switch; T04 owns it.
-- No action receipts or duplicate-effect protection; T03 Run 4 owns them.
 - No central policy or canonical tool-registry migration; T05 and T06 own them.
-- No expansion of Run 3A recovery-command application or live API wiring.
-- No Conductor rewrite, Runs page, or remaining-surface adapters.
+- No migration of real file, terminal, or project tools; T07 owns them.
+- No expansion of Run 3B budgets or loop-policy semantics.
+- No new owner API or Runs page.
+- No Conductor rewrite or remaining-surface adapters.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
-**Files expected:** To be fixed during the approved T03 Run 3B plan.
+**Files expected:** To be fixed during the approved T03 Run 4 plan.
 
 **Gate: no**
 

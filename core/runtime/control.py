@@ -7,8 +7,11 @@ from datetime import datetime, timedelta
 from typing import Any, Mapping
 
 from core.database import get_connection
+from core.runtime.budget import effective_limits
 from core.runtime.contracts import (
+    LoopIterationResult,
     RecoveryAction,
+    RunUsageDelta,
     RuntimeToolResult,
     contract_to_dict,
 )
@@ -78,16 +81,16 @@ def _retry_rule(value: str) -> _RetryRule | None:
 
 def _effective_loop_attempts(conn: sqlite3.Connection, run_id: str) -> int:
     row = conn.execute(
-        "SELECT policy_json FROM mc_loop_runs WHERE run_id=?", (run_id,)
+        """SELECT loop.policy_json,run.budget_json
+           FROM mc_loop_runs AS loop JOIN mc_runs AS run ON run.run_id=loop.run_id
+           WHERE loop.run_id=?""",
+        (run_id,),
     ).fetchone()
     if row is None:
         return 1
     policy = _load_json(row["policy_json"], {})
-    override = policy.get("owner_override", {})
-    value = override.get("max_attempts", policy.get("max_attempts", 1))
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        return 1
-    return min(value, 100)
+    plan_budget = _load_json(row["budget_json"], {})
+    return effective_limits(policy, plan_budget)["max_attempts"]
 
 
 class RuntimeControl:
@@ -452,10 +455,56 @@ class RuntimeControl:
                 )
                 conn.execute(
                     """UPDATE mc_loop_runs
-                       SET status='cancelled',stop_reason='owner_cancelled',updated_at=?
+                       SET status='cancelled',stop_reason='owner_cancelled',updated_at=?,
+                           stopped_at=?
                        WHERE run_id=?""",
-                    (created_at_iso, run_id),
+                    (created_at_iso, created_at_iso, run_id),
                 )
+                empty_usage = contract_to_dict(RunUsageDelta())
+                cancel_result = contract_to_dict(
+                    LoopIterationResult(
+                        stop_condition_met=False,
+                        summary="Cancelled by the owner",
+                    )
+                )
+                stored_usage = redact_payload(empty_usage)
+                stored_result = redact_payload(cancel_result)
+                active_iterations = conn.execute(
+                    """SELECT iteration_id FROM mc_loop_iterations
+                       WHERE run_id=? AND status='running'""",
+                    (run_id,),
+                ).fetchall()
+                for iteration in active_iterations:
+                    conn.execute(
+                        """UPDATE mc_loop_iterations
+                           SET status='stopped',finished_run_version=?,finished_by=?,
+                               usage_json=?,usage_hash=?,result_json=?,result_hash=?,
+                               completed_at=?
+                           WHERE iteration_id=? AND status='running'""",
+                        (
+                            new_version,
+                            actor,
+                            _canonical_json(stored_usage),
+                            _hash(empty_usage),
+                            _canonical_json(stored_result),
+                            _hash(cancel_result),
+                            created_at_iso,
+                            iteration["iteration_id"],
+                        ),
+                    )
+                    _append_run_event(
+                        conn,
+                        run_id=run_id,
+                        event_type="loop.iteration_stopped",
+                        stage="cancelled",
+                        actor=actor,
+                        payload={
+                            "iteration_id": iteration["iteration_id"],
+                            "stop_reason": "owner_cancelled",
+                        },
+                        event_id=f"{run_id}:iteration-stopped:{iteration['iteration_id']}",
+                        timestamp=created_at_iso,
+                    )
                 conn.execute(
                     """UPDATE mc_run_commands
                        SET status='consumed',consumed_by='runtime.control',consumed_at=?

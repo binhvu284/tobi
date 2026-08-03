@@ -159,6 +159,10 @@ class RuntimeRepository:
                 loop_result.pop("owner_override_json"), {}
             )
             loop_result["enabled"] = bool(loop_result["enabled"])
+            loop_result["cost_usd"] = round(
+                int(loop_result.get("cost_microusd", 0) or 0) / 1_000_000,
+                6,
+            )
             result["loop"] = loop_result
         else:
             result["loop"] = None

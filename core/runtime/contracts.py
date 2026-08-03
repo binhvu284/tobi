@@ -464,6 +464,50 @@ class RuntimeToolResult:
 
 
 @dataclass(frozen=True)
+class RunUsageDelta:
+    model_calls: int = 0
+    tool_calls: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    runtime_ms: int = 0
+    cost_microusd: int = 0
+    download_bytes: int = 0
+    storage_bytes: int = 0
+
+    def __post_init__(self) -> None:
+        for name in (
+            "model_calls",
+            "tool_calls",
+            "prompt_tokens",
+            "completion_tokens",
+            "runtime_ms",
+            "cost_microusd",
+            "download_bytes",
+            "storage_bytes",
+        ):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
+
+    @property
+    def total_tokens(self) -> int:
+        return self.prompt_tokens + self.completion_tokens
+
+
+@dataclass(frozen=True)
+class LoopIterationResult:
+    stop_condition_met: bool
+    summary: str
+    evidence_refs: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.stop_condition_met, bool):
+            raise ValueError("stop_condition_met must be a bool")
+        _require_text(self.summary, "summary")
+        _require_tuple(self.evidence_refs, "evidence_refs", str)
+
+
+@dataclass(frozen=True)
 class ActionReceipt:
     receipt_id: str
     run_id: str
@@ -496,6 +540,11 @@ class LoopRecipe:
     max_attempts: int
     max_runtime_s: int
     max_cost_usd: float
+    max_model_calls: int = 50
+    max_tool_calls: int = 100
+    max_total_tokens: int = 500_000
+    max_download_bytes: int = 100_000_000
+    max_storage_bytes: int = 500_000_000
     allowed_tools: tuple[str, ...] = ()
     approval_gates: tuple[str, ...] = ()
     required_evals: tuple[str, ...] = ()
@@ -509,6 +558,14 @@ class LoopRecipe:
         _require_positive_int(self.max_attempts, "max_attempts")
         _require_positive_int(self.max_runtime_s, "max_runtime_s")
         _require_non_negative(self.max_cost_usd, "max_cost_usd")
+        for name in (
+            "max_model_calls",
+            "max_tool_calls",
+            "max_total_tokens",
+            "max_download_bytes",
+            "max_storage_bytes",
+        ):
+            _require_positive_int(getattr(self, name), name)
         _require_tuple(self.allowed_tools, "allowed_tools", str)
         _require_tuple(self.approval_gates, "approval_gates", str)
         _require_tuple(self.required_evals, "required_evals", str)
@@ -529,6 +586,11 @@ class LoopPolicy:
     max_attempts: int
     max_runtime_s: int
     max_cost_usd: float
+    max_model_calls: int = 50
+    max_tool_calls: int = 100
+    max_total_tokens: int = 500_000
+    max_download_bytes: int = 100_000_000
+    max_storage_bytes: int = 500_000_000
     allowed_tools: tuple[str, ...] = ()
     approval_gates: tuple[str, ...] = ()
     required_evals: tuple[str, ...] = ()
@@ -547,6 +609,14 @@ class LoopPolicy:
         _require_positive_int(self.max_attempts, "max_attempts")
         _require_positive_int(self.max_runtime_s, "max_runtime_s")
         _require_non_negative(self.max_cost_usd, "max_cost_usd")
+        for name in (
+            "max_model_calls",
+            "max_tool_calls",
+            "max_total_tokens",
+            "max_download_bytes",
+            "max_storage_bytes",
+        ):
+            _require_positive_int(getattr(self, name), name)
         _require_tuple(self.allowed_tools, "allowed_tools", str)
         _require_tuple(self.approval_gates, "approval_gates", str)
         _require_tuple(self.required_evals, "required_evals", str)
@@ -581,6 +651,11 @@ class LoopPolicy:
             max_attempts=recipe.max_attempts,
             max_runtime_s=recipe.max_runtime_s,
             max_cost_usd=recipe.max_cost_usd,
+            max_model_calls=recipe.max_model_calls,
+            max_tool_calls=recipe.max_tool_calls,
+            max_total_tokens=recipe.max_total_tokens,
+            max_download_bytes=recipe.max_download_bytes,
+            max_storage_bytes=recipe.max_storage_bytes,
             allowed_tools=recipe.allowed_tools,
             approval_gates=recipe.approval_gates,
             required_evals=recipe.required_evals,
