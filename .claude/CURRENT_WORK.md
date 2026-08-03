@@ -9,21 +9,20 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T03 Run 2 - exclusive leases and durable checkpoints (not started)
+**Package:** T03 Run 3 - bounded retries, cancellation, recovery, budgets, and loop control (not started)
 
 **Purpose (one sentence, plain words):**
-A worker can claim one canonical run without a second worker taking it, and restart from the last
-durable save point instead of starting over.
+A failed or stopped canonical run stays the same run and can continue only through persisted
+commands, declared retry rules, hard limits, and its effective loop policy.
 
 **Not doing:**
 - No live Chat or Agent adapter switch; T04 owns it.
-- No retries, recovery commands, cancellation flow, budget enforcement, loop controller, or
-  receipts; later T03 runs own them.
+- No action receipts or duplicate-effect protection; T03 Run 4 owns them.
 - No central policy or canonical tool-registry migration; T05 and T06 own them.
 - No Conductor rewrite, Runs page, or remaining-surface adapters.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
-**Files expected:** To be fixed during the approved T03 Run 2 plan.
+**Files expected:** To be fixed during the approved T03 Run 3 plan.
 
 **Gate: no**
 

@@ -5,7 +5,11 @@ import sqlite3
 import threading
 
 
-RUNTIME_SCHEMA_VERSIONS = ("mc-runtime-v2-001", "mc-runtime-v2-002")
+RUNTIME_SCHEMA_VERSIONS = (
+    "mc-runtime-v2-001",
+    "mc-runtime-v2-002",
+    "mc-runtime-v2-003",
+)
 RUNTIME_SCHEMA_VERSION = RUNTIME_SCHEMA_VERSIONS[-1]
 _SCHEMA_LOCK = threading.Lock()
 _RUNTIME_TABLES = {
@@ -16,8 +20,16 @@ _RUNTIME_TABLES = {
     "mc_system_edges",
     "mc_runs",
     "mc_run_steps",
+    "mc_run_checkpoints",
     "mc_loop_recipes",
     "mc_loop_runs",
+}
+
+_STEP_LEASE_COLUMNS = {
+    "lease_owner": "TEXT",
+    "lease_token_hash": "TEXT",
+    "lease_expires_at": "TEXT",
+    "lease_epoch": "INTEGER NOT NULL DEFAULT 0 CHECK (lease_epoch >= 0)",
 }
 
 
@@ -160,12 +172,39 @@ _STATEMENTS = (
         updated_at TEXT NOT NULL,
         started_at TEXT,
         completed_at TEXT,
+        lease_owner TEXT,
+        lease_token_hash TEXT,
+        lease_expires_at TEXT,
+        lease_epoch INTEGER NOT NULL DEFAULT 0 CHECK (lease_epoch >= 0),
         PRIMARY KEY (run_id, step_id),
         UNIQUE (run_id, position),
         FOREIGN KEY (run_id) REFERENCES mc_runs(run_id)
     )""",
     "CREATE INDEX IF NOT EXISTS idx_mc_run_steps_runnable ON mc_run_steps(status, run_id, position)",
     "CREATE INDEX IF NOT EXISTS idx_mc_run_steps_idempotency ON mc_run_steps(idempotency_key)",
+    """CREATE TABLE IF NOT EXISTS mc_run_checkpoints (
+        checkpoint_id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        sequence INTEGER NOT NULL CHECK (sequence > 0),
+        lease_epoch INTEGER NOT NULL CHECK (lease_epoch > 0),
+        worker_id TEXT NOT NULL,
+        state_json TEXT NOT NULL,
+        state_hash TEXT NOT NULL,
+        contract_version TEXT NOT NULL DEFAULT '1',
+        created_at TEXT NOT NULL,
+        UNIQUE (run_id, sequence),
+        FOREIGN KEY (run_id, step_id) REFERENCES mc_run_steps(run_id, step_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_mc_run_checkpoints_step ON mc_run_checkpoints(run_id, step_id, sequence)",
+    """CREATE TRIGGER IF NOT EXISTS mc_run_checkpoints_update_guard
+        BEFORE UPDATE ON mc_run_checkpoints BEGIN
+            SELECT RAISE(ABORT, 'mc_run_checkpoints is append-only');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_run_checkpoints_delete_guard
+        BEFORE DELETE ON mc_run_checkpoints BEGIN
+            SELECT RAISE(ABORT, 'mc_run_checkpoints is append-only');
+        END""",
     """CREATE TABLE IF NOT EXISTS mc_loop_recipes (
         recipe_id TEXT NOT NULL,
         version TEXT NOT NULL,
@@ -240,7 +279,12 @@ def _schema_is_ready(conn: sqlite3.Connection) -> bool:
             "SELECT name FROM sqlite_master WHERE type='table' AND name GLOB 'mc_*'"
         ).fetchall()
     }
-    return _RUNTIME_TABLES.issubset(tables)
+    if not _RUNTIME_TABLES.issubset(tables):
+        return False
+    step_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(mc_run_steps)").fetchall()
+    }
+    return set(_STEP_LEASE_COLUMNS).issubset(step_columns)
 
 
 def _apply_runtime_schema(conn: sqlite3.Connection) -> None:
@@ -248,6 +292,18 @@ def _apply_runtime_schema(conn: sqlite3.Connection) -> None:
     try:
         for statement in _STATEMENTS:
             conn.execute(statement)
+        step_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(mc_run_steps)").fetchall()
+        }
+        for name, declaration in _STEP_LEASE_COLUMNS.items():
+            if name not in step_columns:
+                conn.execute(
+                    f"ALTER TABLE mc_run_steps ADD COLUMN {name} {declaration}"
+                )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mc_run_steps_lease "
+            "ON mc_run_steps(status, lease_expires_at, run_id, position)"
+        )
         conn.executemany(
             "INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)",
             [(version,) for version in RUNTIME_SCHEMA_VERSIONS],

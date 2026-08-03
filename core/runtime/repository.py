@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import sqlite3
 import uuid
-from datetime import datetime, timezone
-from typing import Any
+from datetime import datetime, timedelta, timezone
+from typing import Any, Mapping
 
 from core.database import get_connection
 from core.runtime.contracts import (
@@ -43,8 +44,52 @@ class PlanValidationError(ValueError):
     """An execution plan has invalid identities or dependencies."""
 
 
+class LeaseConflictError(ValueError):
+    """A worker does not hold the current unexpired step lease."""
+
+
+class CheckpointConflictError(ValueError):
+    """A checkpoint identity was reused for different durable state."""
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _lease_now(value: datetime | None) -> datetime:
+    if value is None:
+        return datetime.now(timezone.utc)
+    if not isinstance(value, datetime) or value.tzinfo is None:
+        raise ValueError("now must be a timezone-aware datetime")
+    return value.astimezone(timezone.utc)
+
+
+def _iso(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _parse_iso(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _require_lease_input(worker_id: str, lease_seconds: int | None = None) -> None:
+    if not isinstance(worker_id, str) or not worker_id.strip():
+        raise ValueError("worker_id must be a non-empty string")
+    if lease_seconds is not None:
+        if (
+            isinstance(lease_seconds, bool)
+            or not isinstance(lease_seconds, int)
+            or not 1 <= lease_seconds <= 3600
+        ):
+            raise ValueError("lease_seconds must be an integer from 1 to 3600")
 
 
 def _canonical_json(value: Any) -> str:
@@ -118,6 +163,88 @@ class RuntimeRepository:
         else:
             result["loop"] = None
         return result
+
+    @staticmethod
+    def _step_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        step = dict(row)
+        step.pop("lease_token_hash", None)
+        step["arguments"] = _load_json(step.pop("arguments_json"), {})
+        step["depends_on"] = _load_json(step.pop("depends_on_json"), [])
+        step["required_capabilities"] = _load_json(
+            step.pop("required_capabilities_json"), []
+        )
+        step["output_contract"] = _load_json(
+            step.pop("output_contract_json"), {}
+        )
+        return step
+
+    @staticmethod
+    def _checkpoint_from_row(row: sqlite3.Row) -> dict[str, Any]:
+        checkpoint = dict(row)
+        checkpoint["state"] = _load_json(checkpoint.pop("state_json"), {})
+        return checkpoint
+
+    @classmethod
+    def _latest_checkpoint_from_conn(
+        cls,
+        conn: sqlite3.Connection,
+        run_id: str,
+        step_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        if step_id is None:
+            row = conn.execute(
+                "SELECT * FROM mc_run_checkpoints WHERE run_id=? "
+                "ORDER BY sequence DESC LIMIT 1",
+                (run_id,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM mc_run_checkpoints WHERE run_id=? AND step_id=? "
+                "ORDER BY sequence DESC LIMIT 1",
+                (run_id, step_id),
+            ).fetchone()
+        return cls._checkpoint_from_row(row) if row is not None else None
+
+    @staticmethod
+    def _require_active_lease(
+        conn: sqlite3.Connection,
+        *,
+        run_id: str,
+        step_id: str,
+        worker_id: str,
+        lease_token: str,
+        lease_epoch: int,
+        now: datetime,
+    ) -> sqlite3.Row:
+        if not isinstance(lease_token, str) or not lease_token:
+            raise LeaseConflictError("lease token is required")
+        if (
+            isinstance(lease_epoch, bool)
+            or not isinstance(lease_epoch, int)
+            or lease_epoch <= 0
+        ):
+            raise LeaseConflictError("lease epoch must be a positive integer")
+        row = conn.execute(
+            "SELECT * FROM mc_run_steps WHERE run_id=? AND step_id=?",
+            (run_id, step_id),
+        ).fetchone()
+        expires = _parse_iso(row["lease_expires_at"]) if row is not None else None
+        token_matches = (
+            row is not None
+            and isinstance(row["lease_token_hash"], str)
+            and hmac.compare_digest(row["lease_token_hash"], _hash(lease_token))
+        )
+        if not (
+            row is not None
+            and row["status"] == "running"
+            and row["lease_owner"] == worker_id
+            and row["lease_epoch"] == lease_epoch
+            and token_matches
+            and expires is not None
+            and expires > now
+        ):
+            raise LeaseConflictError("the current unexpired step lease is required")
+        return row
 
     def save_loop_recipe(self, recipe: LoopRecipe, *, created_at: str | None = None) -> dict[str, Any]:
         if not isinstance(recipe, LoopRecipe):
@@ -312,19 +439,363 @@ class RuntimeRepository:
             rows = conn.execute(
                 "SELECT * FROM mc_run_steps WHERE run_id=? ORDER BY position", (run_id,)
             ).fetchall()
-            result = []
+            return [self._step_from_row(row) for row in rows]
+        finally:
+            conn.close()
+
+    def latest_checkpoint(
+        self, run_id: str, step_id: str | None = None
+    ) -> dict[str, Any] | None:
+        conn = get_connection()
+        try:
+            _ensure_runtime_schema(conn)
+            return self._latest_checkpoint_from_conn(conn, run_id, step_id)
+        finally:
+            conn.close()
+
+    def claim_step(
+        self,
+        run_id: str,
+        *,
+        worker_id: str,
+        lease_seconds: int = 60,
+        now: datetime | None = None,
+        event_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        _require_lease_input(worker_id, lease_seconds)
+        claimed_at = _lease_now(now)
+        claimed_at_iso = _iso(claimed_at)
+        expires_at = _iso(claimed_at + timedelta(seconds=lease_seconds))
+        conn = get_connection()
+        try:
+            _ensure_runtime_schema(conn)
+            conn.execute("BEGIN IMMEDIATE")
+            run = conn.execute(
+                "SELECT status FROM mc_runs WHERE run_id=?", (run_id,)
+            ).fetchone()
+            if run is None:
+                raise RunNotFoundError(run_id)
+            if run["status"] != RunStatus.RUNNING.value:
+                conn.commit()
+                return None
+
+            rows = conn.execute(
+                "SELECT * FROM mc_run_steps WHERE run_id=? ORDER BY position",
+                (run_id,),
+            ).fetchall()
+            statuses = {row["step_id"]: row["status"] for row in rows}
+            candidate = None
             for row in rows:
-                step = dict(row)
-                step["arguments"] = _load_json(step.pop("arguments_json"), {})
-                step["depends_on"] = _load_json(step.pop("depends_on_json"), [])
-                step["required_capabilities"] = _load_json(
-                    step.pop("required_capabilities_json"), []
+                if row["status"] not in {"pending", "running"}:
+                    continue
+                dependencies = _load_json(row["depends_on_json"], [])
+                if any(
+                    statuses.get(dependency) not in {"succeeded", "skipped"}
+                    for dependency in dependencies
+                ):
+                    continue
+                lease_expires = _parse_iso(row["lease_expires_at"])
+                if lease_expires is not None and lease_expires > claimed_at:
+                    continue
+                candidate = row
+                break
+            if candidate is None:
+                conn.commit()
+                return None
+
+            reclaimed = bool(candidate["lease_owner"] or candidate["status"] == "running")
+            lease_epoch = int(candidate["lease_epoch"] or 0) + 1
+            lease_token = uuid.uuid4().hex
+            updated = conn.execute(
+                """UPDATE mc_run_steps
+                   SET status='running',lease_owner=?,lease_token_hash=?,
+                       lease_expires_at=?,lease_epoch=?,updated_at=?,
+                       started_at=COALESCE(started_at,?)
+                   WHERE run_id=? AND step_id=? AND status=? AND lease_epoch=?""",
+                (
+                    worker_id,
+                    _hash(lease_token),
+                    expires_at,
+                    lease_epoch,
+                    claimed_at_iso,
+                    claimed_at_iso,
+                    run_id,
+                    candidate["step_id"],
+                    candidate["status"],
+                    candidate["lease_epoch"],
+                ),
+            )
+            if updated.rowcount != 1:
+                raise LeaseConflictError("step changed while its lease was being claimed")
+            event_type = "step.reclaimed" if reclaimed else "step.claimed"
+            _append_run_event(
+                conn,
+                run_id=run_id,
+                event_type=event_type,
+                stage="execute",
+                actor=worker_id,
+                payload={
+                    "step_id": candidate["step_id"],
+                    "lease_epoch": lease_epoch,
+                    "lease_expires_at": expires_at,
+                },
+                event_id=event_id
+                or f"{run_id}:{candidate['step_id']}:lease:{lease_epoch}",
+                timestamp=claimed_at_iso,
+            )
+            row = conn.execute(
+                "SELECT * FROM mc_run_steps WHERE run_id=? AND step_id=?",
+                (run_id, candidate["step_id"]),
+            ).fetchone()
+            checkpoint = self._latest_checkpoint_from_conn(
+                conn, run_id, candidate["step_id"]
+            )
+            conn.commit()
+            return {
+                "worker_id": worker_id,
+                "lease_token": lease_token,
+                "lease_epoch": lease_epoch,
+                "lease_expires_at": expires_at,
+                "reclaimed": reclaimed,
+                "step": self._step_from_row(row),
+                "checkpoint": checkpoint,
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def renew_step_lease(
+        self,
+        run_id: str,
+        step_id: str,
+        *,
+        worker_id: str,
+        lease_token: str,
+        lease_epoch: int,
+        lease_seconds: int = 60,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        _require_lease_input(worker_id, lease_seconds)
+        renewed_at = _lease_now(now)
+        expires_at = _iso(renewed_at + timedelta(seconds=lease_seconds))
+        conn = get_connection()
+        try:
+            _ensure_runtime_schema(conn)
+            conn.execute("BEGIN IMMEDIATE")
+            self._require_active_lease(
+                conn,
+                run_id=run_id,
+                step_id=step_id,
+                worker_id=worker_id,
+                lease_token=lease_token,
+                lease_epoch=lease_epoch,
+                now=renewed_at,
+            )
+            updated = conn.execute(
+                """UPDATE mc_run_steps SET lease_expires_at=?,updated_at=?
+                   WHERE run_id=? AND step_id=? AND lease_owner=? AND lease_epoch=?
+                     AND lease_token_hash=?""",
+                (
+                    expires_at,
+                    _iso(renewed_at),
+                    run_id,
+                    step_id,
+                    worker_id,
+                    lease_epoch,
+                    _hash(lease_token),
+                ),
+            )
+            if updated.rowcount != 1:
+                raise LeaseConflictError("step lease changed during renewal")
+            row = conn.execute(
+                "SELECT * FROM mc_run_steps WHERE run_id=? AND step_id=?",
+                (run_id, step_id),
+            ).fetchone()
+            conn.commit()
+            return self._step_from_row(row)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def release_step_lease(
+        self,
+        run_id: str,
+        step_id: str,
+        *,
+        worker_id: str,
+        lease_token: str,
+        lease_epoch: int,
+        now: datetime | None = None,
+        event_id: str | None = None,
+    ) -> dict[str, Any]:
+        _require_lease_input(worker_id)
+        released_at = _lease_now(now)
+        released_at_iso = _iso(released_at)
+        conn = get_connection()
+        try:
+            _ensure_runtime_schema(conn)
+            conn.execute("BEGIN IMMEDIATE")
+            self._require_active_lease(
+                conn,
+                run_id=run_id,
+                step_id=step_id,
+                worker_id=worker_id,
+                lease_token=lease_token,
+                lease_epoch=lease_epoch,
+                now=released_at,
+            )
+            updated = conn.execute(
+                """UPDATE mc_run_steps
+                   SET status='pending',lease_owner=NULL,lease_token_hash=NULL,
+                       lease_expires_at=NULL,updated_at=?
+                   WHERE run_id=? AND step_id=? AND lease_owner=? AND lease_epoch=?
+                     AND lease_token_hash=?""",
+                (
+                    released_at_iso,
+                    run_id,
+                    step_id,
+                    worker_id,
+                    lease_epoch,
+                    _hash(lease_token),
+                ),
+            )
+            if updated.rowcount != 1:
+                raise LeaseConflictError("step lease changed during release")
+            _append_run_event(
+                conn,
+                run_id=run_id,
+                event_type="step.lease_released",
+                stage="execute",
+                actor=worker_id,
+                payload={"step_id": step_id, "lease_epoch": lease_epoch},
+                event_id=event_id or f"{run_id}:{step_id}:lease-released:{lease_epoch}",
+                timestamp=released_at_iso,
+            )
+            row = conn.execute(
+                "SELECT * FROM mc_run_steps WHERE run_id=? AND step_id=?",
+                (run_id, step_id),
+            ).fetchone()
+            conn.commit()
+            return self._step_from_row(row)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def save_checkpoint(
+        self,
+        checkpoint_id: str,
+        run_id: str,
+        step_id: str,
+        *,
+        worker_id: str,
+        lease_token: str,
+        lease_epoch: int,
+        state: Mapping[str, Any],
+        contract_version: str = "1",
+        now: datetime | None = None,
+        event_id: str | None = None,
+    ) -> dict[str, Any]:
+        _require_lease_input(worker_id)
+        if not isinstance(checkpoint_id, str) or not checkpoint_id.strip():
+            raise ValueError("checkpoint_id must be a non-empty string")
+        if not isinstance(state, Mapping):
+            raise ValueError("state must be a mapping")
+        if not isinstance(contract_version, str) or not contract_version.strip():
+            raise ValueError("contract_version must be a non-empty string")
+        saved_at = _lease_now(now)
+        saved_at_iso = _iso(saved_at)
+        stored_state = redact_payload(state)
+        state_json = _canonical_json(stored_state)
+        state_hash = _hash(stored_state)
+        conn = get_connection()
+        try:
+            _ensure_runtime_schema(conn)
+            conn.execute("BEGIN IMMEDIATE")
+            existing = conn.execute(
+                "SELECT * FROM mc_run_checkpoints WHERE checkpoint_id=?",
+                (checkpoint_id,),
+            ).fetchone()
+            if existing is not None:
+                same = (
+                    existing["run_id"] == run_id
+                    and existing["step_id"] == step_id
+                    and existing["lease_epoch"] == lease_epoch
+                    and existing["worker_id"] == worker_id
+                    and existing["state_hash"] == state_hash
+                    and existing["contract_version"] == contract_version
                 )
-                step["output_contract"] = _load_json(
-                    step.pop("output_contract_json"), {}
-                )
-                result.append(step)
-            return result
+                if not same:
+                    raise CheckpointConflictError(
+                        f"checkpoint_id {checkpoint_id!r} already has different state"
+                    )
+                conn.commit()
+                return self._checkpoint_from_row(existing)
+
+            self._require_active_lease(
+                conn,
+                run_id=run_id,
+                step_id=step_id,
+                worker_id=worker_id,
+                lease_token=lease_token,
+                lease_epoch=lease_epoch,
+                now=saved_at,
+            )
+            sequence = int(
+                conn.execute(
+                    "SELECT COALESCE(MAX(sequence),0)+1 FROM mc_run_checkpoints "
+                    "WHERE run_id=?",
+                    (run_id,),
+                ).fetchone()[0]
+            )
+            conn.execute(
+                """INSERT INTO mc_run_checkpoints (
+                    checkpoint_id,run_id,step_id,sequence,lease_epoch,worker_id,
+                    state_json,state_hash,contract_version,created_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    checkpoint_id,
+                    run_id,
+                    step_id,
+                    sequence,
+                    lease_epoch,
+                    worker_id,
+                    state_json,
+                    state_hash,
+                    contract_version,
+                    saved_at_iso,
+                ),
+            )
+            _append_run_event(
+                conn,
+                run_id=run_id,
+                event_type="step.checkpointed",
+                stage="execute",
+                actor=worker_id,
+                payload={
+                    "checkpoint_id": checkpoint_id,
+                    "step_id": step_id,
+                    "checkpoint_sequence": sequence,
+                    "lease_epoch": lease_epoch,
+                },
+                event_id=event_id or f"{run_id}:checkpoint:{sequence}",
+                timestamp=saved_at_iso,
+                contract_version=contract_version,
+            )
+            row = conn.execute(
+                "SELECT * FROM mc_run_checkpoints WHERE checkpoint_id=?",
+                (checkpoint_id,),
+            ).fetchone()
+            conn.commit()
+            return self._checkpoint_from_row(row)
+        except Exception:
+            conn.rollback()
+            raise
         finally:
             conn.close()
 
