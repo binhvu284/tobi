@@ -199,4 +199,41 @@ ok(
     and repository.get_run(agent.run_id or "")["loop"]["enabled"] is False,
 )
 
-print(f"{PASS}/{PASS} T04 RUN 1 GATEWAY CHECKS PASS")
+linked = gateway.link_legacy_run(agent, 701)
+linked_again = gateway.link_legacy_run(agent, 701)
+ok(
+    "legacy Agent linking is persisted and replay safe",
+    linked["legacy_run_id"] == "701"
+    and linked_again["legacy_run_id"] == "701"
+    and [event.event_type for event in list_run_events(agent.run_id or "")].count(
+        "run.legacy_linked"
+    )
+    == 1,
+)
+
+resumed = gateway.accept_turn(TurnRequest(
+    session_id=41,
+    message="Continue the project inspection",
+    mode="agent",
+    client_turn_id="turn-agent-resume",
+    resume_run_id=701,
+))
+ok(
+    "Agent resume reuses the linked canonical run with a new request identity",
+    resumed.run_id == agent.run_id
+    and resumed.request_id == "turn-agent-resume"
+    and repository.get_run_by_legacy_run_id("701")["run_id"] == agent.run_id,
+)
+
+other_agent = gateway.accept_turn(TurnRequest(
+    session_id=41,
+    message="Inspect another project",
+    mode="agent",
+    client_turn_id="turn-agent-other",
+))
+ok(
+    "one legacy Agent run cannot link to two canonical runs",
+    raises(RunConflictError, lambda: gateway.link_legacy_run(other_agent, 701)),
+)
+
+print(f"{PASS}/{PASS} T04 GATEWAY CHECKS PASS")

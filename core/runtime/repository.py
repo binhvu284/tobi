@@ -442,6 +442,69 @@ class RuntimeRepository:
         finally:
             conn.close()
 
+    def get_run_by_legacy_run_id(self, legacy_run_id: str) -> dict[str, Any] | None:
+        if not isinstance(legacy_run_id, str) or not legacy_run_id.strip():
+            raise ValueError("legacy_run_id must be a non-empty string")
+        conn = get_connection()
+        try:
+            _ensure_runtime_schema(conn)
+            row = conn.execute(
+                "SELECT run_id FROM mc_runs WHERE legacy_run_id=? ORDER BY created_at LIMIT 1",
+                (legacy_run_id,),
+            ).fetchone()
+            return self._run_from_conn(conn, row["run_id"]) if row is not None else None
+        finally:
+            conn.close()
+
+    def link_legacy_run(self, run_id: str, legacy_run_id: str) -> dict[str, Any]:
+        if not isinstance(run_id, str) or not run_id.strip():
+            raise ValueError("run_id must be a non-empty string")
+        if not isinstance(legacy_run_id, str) or not legacy_run_id.strip():
+            raise ValueError("legacy_run_id must be a non-empty string")
+        timestamp = _now()
+        conn = get_connection()
+        try:
+            _ensure_runtime_schema(conn)
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT legacy_run_id,contract_version FROM mc_runs WHERE run_id=?", (run_id,)
+            ).fetchone()
+            if row is None:
+                raise RunNotFoundError(run_id)
+            other = conn.execute(
+                "SELECT run_id FROM mc_runs WHERE legacy_run_id=? AND run_id<>?",
+                (legacy_run_id, run_id),
+            ).fetchone()
+            if other is not None:
+                raise RunConflictError(
+                    f"legacy run {legacy_run_id!r} is already linked to another canonical run"
+                )
+            if row["legacy_run_id"] not in (None, legacy_run_id):
+                raise RunConflictError("this canonical run is already linked to a different legacy run")
+            if row["legacy_run_id"] is None:
+                conn.execute(
+                    "UPDATE mc_runs SET legacy_run_id=?,updated_at=? WHERE run_id=?",
+                    (legacy_run_id, timestamp, run_id),
+                )
+                _append_run_event(
+                    conn,
+                    run_id=run_id,
+                    event_type="run.legacy_linked",
+                    stage="compatibility",
+                    actor="legacy-adapter",
+                    payload={"legacy_run_id": legacy_run_id},
+                    event_id=f"{run_id}:legacy-run:{legacy_run_id}",
+                    timestamp=timestamp,
+                    contract_version=row["contract_version"],
+                )
+            conn.commit()
+            return self._run_from_conn(conn, run_id) or {}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     def list_steps(self, run_id: str) -> list[dict[str, Any]]:
         conn = get_connection()
         try:

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio  # noqa: F401 - used by streaming/background handlers
 import json  # noqa: F401 - used by some handlers
+import logging
 from typing import Optional  # noqa: F401 - used in models/signatures
 
 from fastapi import APIRouter, HTTPException, Request
@@ -21,6 +22,8 @@ from pydantic import BaseModel, Field
 from core import brain
 
 router = APIRouter(tags=["chat"])
+logger = logging.getLogger(__name__)
+_SHADOW_IO_TIMEOUT_S = 0.10
 
 
 # ── Premium Chat (#8 P1): multi-model sessions + vault-backed LLM config ─────────
@@ -168,6 +171,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
     from core import chat_store, conductor, model_router, attachments as attach
     from core import premium_readers, youtube_reader, chat_modes, chat_runtime, context_manager
     from core.chat_runtime_contracts import TurnError, TurnRequest
+    from core.runtime.gateway import TurnGateway, submit_gateway_accept, submit_gateway_mirror
     from core.task_classifier import classify
     import time as _time
 
@@ -214,19 +218,114 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
 
     async def gen():
         loop = asyncio.get_event_loop()
+
+        async def poll_background_result(future, timeout: float):
+            deadline = loop.time() + timeout
+            while not future.done():
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    return False, None
+                await asyncio.sleep(min(0.01, remaining))
+            return True, future.result()
+
         if not message and not img_urls and not att_text:
             yield "event: done\ndata: {}\n\n"
             return
+        shadow_gateway = TurnGateway()
+        shadow_acceptance = None
+        accept_future = submit_gateway_accept(
+            lambda: shadow_gateway.accept_turn(runtime_request, attachments=payload.attachments)
+        )
+        if accept_future is not None:
+            try:
+                completed, result = await poll_background_result(
+                    accept_future, _SHADOW_IO_TIMEOUT_S
+                )
+                if completed:
+                    shadow_acceptance = result
+                else:
+                    logger.warning("Runtime V2 shadow acceptance timed out; legacy turn continues")
+            except Exception as exc:
+                logger.warning(
+                    "Runtime V2 shadow acceptance failed; legacy turn continues: %s",
+                    type(exc).__name__,
+                )
+        else:
+            logger.warning("Runtime V2 shadow acceptance queue is full; legacy turn continues")
+
         recorder = (chat_runtime.TurnRecorder.start(runtime_request, route_decision)
                     if runtime_state in ("shadow", "on") else None)
+        shadow_active = shadow_acceptance is not None and shadow_acceptance.run_id is not None
+        runtime_tracking = recorder is not None or shadow_active
+        shadow_source_sequence = 0
+
+        def _shadow_done(future):
+            try:
+                future.result()
+            except Exception as exc:
+                logger.warning(
+                    "Runtime V2 shadow observation failed; legacy turn continues: %s",
+                    type(exc).__name__,
+                )
+
+        def shadow_observe(event_type: str, stage: str, data: Optional[dict] = None) -> None:
+            nonlocal shadow_source_sequence
+            if not shadow_active:
+                return
+            shadow_source_sequence += 1
+            future = submit_gateway_mirror(
+                shadow_gateway,
+                shadow_acceptance,
+                source_sequence=shadow_source_sequence,
+                event_type=event_type,
+                stage=stage,
+                payload=data or {},
+            )
+            if future is None:
+                logger.warning("Runtime V2 shadow observation queue is full; event dropped")
+            else:
+                future.add_done_callback(_shadow_done)
 
         def runtime_frame(event_type: str, stage: str, data: Optional[dict] = None) -> str:
+            shadow_observe(event_type, stage, data)
             if recorder is None:
                 return ""
             envelope = recorder.event(event_type, stage, data or {})
             return f"event: {event_type}\ndata: {json.dumps(envelope)}\n\n"
 
-        if recorder:
+        def runtime_event(event_type: str, stage: str, data: Optional[dict] = None) -> None:
+            shadow_observe(event_type, stage, data)
+            if recorder is not None:
+                recorder.event(event_type, stage, data or {})
+
+        def runtime_complete(status: str, error=None) -> None:
+            if recorder is not None:
+                recorder.complete(status, error)
+
+        async def link_shadow_run(legacy_run_id: int) -> None:
+            if not shadow_active:
+                return
+            future = submit_gateway_accept(
+                lambda: shadow_gateway.link_legacy_run(shadow_acceptance, legacy_run_id)
+            )
+            if future is None:
+                logger.warning("Runtime V2 legacy-link queue is full; legacy turn continues")
+                return
+            try:
+                completed, _result = await poll_background_result(
+                    future, _SHADOW_IO_TIMEOUT_S
+                )
+                if completed:
+                    return
+                else:
+                    logger.warning("Runtime V2 legacy-link timed out; legacy turn continues")
+            except Exception as exc:
+                logger.warning(
+                    "Runtime V2 legacy-link failed; legacy turn continues: %s",
+                    type(exc).__name__,
+                )
+
+        if runtime_tracking:
             yield runtime_frame("turn_started", "gateway", {
                 "route": route_decision.route, "intent": route_decision.intent,
                 "confidence": route_decision.confidence, "runtime_mode": runtime_state,
@@ -254,12 +353,12 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                 sid, "assistant", reply, model=model,
                 meta=json.dumps({"mode": ctx["mode"], "turn_id": recorder.turn_id if recorder else None})))
             await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", reply))
-            if recorder:
+            if runtime_tracking:
                 yield runtime_frame("recovery_required", "clarification", {
                     "code": "turn.agent_mode_required", "actions": ["switch_to_agent"],
                     "message": route_decision.reason,
                 })
-                recorder.complete("waiting_user", TurnError(
+                runtime_complete("waiting_user", TurnError(
                     "turn.agent_mode_required", "clarification", route_decision.reason, False))
                 yield runtime_frame("turn_completed", "gateway", {"status": "waiting_user"})
             yield "event: done\ndata: {}\n\n"
@@ -308,6 +407,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                 message, ctx["mode"], history, pctx, base_attachment_context))
             if recorder:
                 recorder.set_context(manifest.to_dict())
+            if runtime_tracking:
                 yield runtime_frame("context_ready", "context", {
                     "total_tokens": manifest.total_tokens,
                     "token_budget": manifest.token_budget,
@@ -329,7 +429,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         # skipped with an honest notice); YouTube/attachment context rides in as evidence. ──
         if mode_v2 and ctx["capabilities"]["deep_research"]:
             from core import deep_research
-            if recorder:
+            if runtime_tracking:
                 yield runtime_frame("step_started", "deep_research", {"label": "Deep Research"})
             if img_urls:
                 yield f"event: notice\ndata: {json.dumps({'kind': 'dr_images_skipped'})}\n\n"
@@ -353,10 +453,10 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                     yield f"event: thinking\ndata: {json.dumps({'phase': ev.get('phase', ''), 'tools': ['deep_research']})}\n\n"
                 dr = await fut
             except Exception as e:
-                if recorder:
+                if runtime_tracking:
                     err = TurnError("research.failed", "deep_research", "Deep Research failed", True, str(e)[:200])
                     yield runtime_frame("step_failed", "deep_research", err.to_dict())
-                    recorder.complete("failed", err)
+                    runtime_complete("failed", err)
                 yield f"event: error\ndata: {json.dumps({'detail': str(e)[:200]})}\n\n"
                 yield "event: done\ndata: {}\n\n"
                 return
@@ -385,9 +485,9 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                      "attempts": dr.get("model_attempts") or 0,
                      "latency_ms": round((_time.time() - t0) * 1000)}
             yield f"event: usage\ndata: {json.dumps(usage)}\n\n"
-            if recorder:
+            if runtime_tracking:
                 yield runtime_frame("step_completed", "deep_research", {"artifact_id": aid})
-                recorder.complete("done")
+                runtime_complete("done")
                 yield runtime_frame("turn_completed", "gateway", {"status": "done"})
             yield "event: done\ndata: {}\n\n"
             return
@@ -404,7 +504,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             if alt:
                 vision_model, borrowed = alt, True
         if img_urls and vision_model:
-            if recorder:
+            if runtime_tracking:
                 yield runtime_frame("step_started", "vision", {"model": vision_model})
             yield f"event: thinking\ndata: {json.dumps({'phase': 'Looking at the image…', 'tools': ['vision']})}\n\n"
             try:
@@ -454,9 +554,9 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                 "latency_ms": round((_time.time() - t0) * 1000),
             }
             yield f"event: usage\ndata: {json.dumps(usage)}\n\n"
-            if recorder:
+            if runtime_tracking:
                 yield runtime_frame("step_completed", "vision", {"model": vision_model})
-                recorder.complete("done")
+                runtime_complete("done")
                 yield runtime_frame("turn_completed", "gateway", {"status": "done"})
             yield "event: done\ndata: {}\n\n"
             return
@@ -480,9 +580,9 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                 existing_run = await loop.run_in_executor(None, lambda: agent_runs.get_run(payload.resume_run_id))
                 if not existing_run or int(existing_run.get("session_id") or 0) != sid:
                     err = TurnError("run.not_found", "recovery", "The Agent run could not be resumed", False)
-                    if recorder:
+                    if runtime_tracking:
                         yield runtime_frame("step_failed", "recovery", err.to_dict())
-                        recorder.complete("failed", err)
+                        runtime_complete("failed", err)
                     yield f"event: error\ndata: {json.dumps({'detail': err.message})}\n\n"
                     yield "event: done\ndata: {}\n\n"
                     return
@@ -499,6 +599,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             turn_meta["run_id"] = run_id
             if recorder:
                 recorder.bind_run(run_id)
+            await link_shadow_run(run_id)
 
         # ── Standard tool-loop turn — live tool-step + token events via a thread→async queue ──
         yield f"event: thinking\ndata: {json.dumps({'phase': 'Thinking…'})}\n\n"
@@ -573,6 +674,9 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                         model=bg_res.get("actual_model") or bg_res.get("requested_model") or model,
                         tokens=bg_ctok, thinking=bg_thinking))
                 await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", bg_reply))
+                shadow_observe("turn_completed", "gateway", {
+                    "status": "done", "run_id": run_id, "detached": True,
+                })
             except Exception:
                 pass
 
@@ -586,6 +690,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             while not fut.done() or not q.empty():
                 # Client disconnect check — spawn bg persistence and stop yielding
                 if await request.is_disconnected():
+                    shadow_observe("client_disconnected", "gateway", {"run_id": run_id})
                     if not fut.done() and not _persisted:
                         asyncio.ensure_future(_bg_persist())
                     return
@@ -594,8 +699,8 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                 except asyncio.TimeoutError:
                     continue
                 if ev.get("type") == "delta":
-                    if recorder and not first_delta_recorded:
-                        recorder.event("delta", "response", {"chars": len(ev.get("text", ""))})
+                    if runtime_tracking and not first_delta_recorded:
+                        runtime_event("delta", "response", {"chars": len(ev.get("text", ""))})
                         first_delta_recorded = True
                     yield f"event: delta\ndata: {json.dumps({'text': ev.get('text', '')})}\n\n"
                 elif ev.get("type") == "terminal":
@@ -608,7 +713,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                     notice = {"kind": "model_escalated", "from_model": ev.get("from_model"),
                               "to_model": ev.get("to_model"), "reason": ev.get("reason")}
                     yield f"event: notice\ndata: {json.dumps(notice)}\n\n"
-                    if recorder:
+                    if runtime_tracking:
                         yield runtime_frame("model_escalated", "model", notice)
                 elif ev.get("type") == "plan":
                     # agent-mode declared plan (#16 D9) → structured timeline event
@@ -618,7 +723,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                         f"Planned {len(plan_steps)} step{'s' if len(plan_steps) != 1 else ''}")
                     checkpoint_steps.extend(
                         f"{index}. {step}" for index, step in enumerate(plan_steps[:12], 1))
-                    if recorder:
+                    if runtime_tracking:
                         yield runtime_frame("plan_ready", "planning", {
                             "steps": plan_steps, "title": ev.get("title", "")})
                     step = _record_step("plan", ev.get("title") or "Plan",
@@ -638,7 +743,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                     if phase:
                         seen_phases.append(phase)
                         checkpoint_steps.append(phase)
-                        if recorder:
+                        if runtime_tracking:
                             yield runtime_frame("step_started", "execution", {
                                 "label": phase, "tool": tool_name})
                     yield f"event: thinking\ndata: {json.dumps({'phase': ev.get('phase', ''), 'tools': seen_tools})}\n\n"
@@ -648,9 +753,9 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             if run_id is not None:
                 from core import agent_runs
                 await loop.run_in_executor(None, lambda: agent_runs.complete_run(run_id, "failed", error=str(e)[:300]))
-            if recorder:
+            if runtime_tracking:
                 yield runtime_frame("step_failed", "execution", err.to_dict())
-                recorder.complete("failed", err)
+                runtime_complete("failed", err)
             yield f"event: error\ndata: {json.dumps({'detail': str(e)[:200]})}\n\n"
             yield "event: done\ndata: {}\n\n"
             return
@@ -662,14 +767,14 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         # The streamed answer already reached the client via on_delta; only special replies
         # (proposals, failures, model-issue notices) still need to be sent here.
         if not res.get("streamed"):
-            if recorder and reply and not first_delta_recorded:
-                recorder.event("delta", "response", {"chars": min(len(reply), 32)})
+            if runtime_tracking and reply and not first_delta_recorded:
+                runtime_event("delta", "response", {"chars": min(len(reply), 32)})
                 first_delta_recorded = True
             for chunk in conductor._stream_chunks(reply):
                 yield f"event: delta\ndata: {json.dumps({'text': chunk})}\n\n"
         if res.get("model_issue"):
             yield f"event: notice\ndata: {json.dumps({'kind': 'model_issue'})}\n\n"
-            if recorder:
+            if runtime_tracking:
                 yield runtime_frame("recovery_required", "model", {
                     "run_id": run_id, "code": "model.malformed_output",
                     "actions": ["retry_step", "revise", "cancel"],
@@ -678,7 +783,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         # (Retry / Skip / Revise quick actions in the UI) [D10].
         if res.get("stopped_on_error"):
             yield f"event: notice\ndata: {json.dumps({'kind': 'run_paused', 'run_id': run_id})}\n\n"
-            if recorder:
+            if runtime_tracking:
                 yield runtime_frame("recovery_required", "execution", {
                     "run_id": run_id, "actions": ["resume", "retry_step", "skip_step", "revise", "cancel"],
                     "code": "tool.execution",
@@ -759,15 +864,15 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             "latency_ms": round((_time.time() - t0) * 1000),
         }
         yield f"event: usage\ndata: {json.dumps(usage)}\n\n"
-        if recorder:
-            final_status = ("waiting_user" if res.get("stopped_on_error")
-                            else "waiting_approval" if pending
-                            else "failed" if res.get("model_issue") else "done")
+        final_status = ("waiting_user" if res.get("stopped_on_error")
+                        else "waiting_approval" if pending
+                        else "failed" if res.get("model_issue") else "done")
+        if runtime_tracking:
             yield runtime_frame("step_completed", "response", {
                 "tools": tools, "model": usage["model"],
                 "requested_model": requested_model, "actual_model": actual_model,
                 "latency_ms": usage["latency_ms"]})
-            recorder.complete(final_status)
+            runtime_complete(final_status)
             yield runtime_frame("turn_completed", "gateway", {"status": final_status, "run_id": run_id})
         # Trigger brain auto-learning sweep (non-blocking — runs in background thread)
         loop.run_in_executor(None, lambda: model_router.run_with_usage_context(

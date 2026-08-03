@@ -1,24 +1,30 @@
-"""Dormant Chat/Agent gateway foundation for Mission Control Runtime V2.
+"""Chat/Agent shadow gateway for Mission Control Runtime V2.
 
-T04 Run 1 creates canonical shadow records only. The live Chat route does not
-import this module yet, and a shadow policy can never enter execution.
+The live Chat route uses this only for fail-closed shadow recording; a shadow
+policy can never enter execution.
 """
 from __future__ import annotations
 
 import re
+import threading
 import uuid
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from core.chat_runtime_contracts import TurnRequest
 from core.runtime import config
 from core.runtime.contracts import LoopPolicy, LoopRecipe, LoopType, RunRequest, Surface
 from core.runtime.event_store import append_run_event, list_run_events
-from core.runtime.repository import RuntimeRepository
+from core.runtime.repository import RunConflictError, RuntimeRepository
 
 
 _EVENT_TYPE = re.compile(r"^[a-z][a-z0-9_.-]*$")
 _ATTACHMENT_FIELDS = ("name", "mime", "kind", "size", "bytes")
+_ACCEPT_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tobi-gateway-accept")
+_ACCEPT_SLOTS = threading.BoundedSemaphore(2)
+_MIRROR_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tobi-gateway-mirror")
+_MIRROR_SLOTS = threading.BoundedSemaphore(65)
 
 
 class GatewayNotReadyError(RuntimeError):
@@ -31,6 +37,50 @@ class GatewayAcceptance:
     request_id: str
     run_id: str | None
     sequence: int
+
+
+def _bounded_submit(
+    pool: ThreadPoolExecutor,
+    slots: threading.BoundedSemaphore,
+    callback: Callable[[], Any],
+) -> Future | None:
+    if not slots.acquire(blocking=False):
+        return None
+    try:
+        future = pool.submit(callback)
+    except Exception:
+        slots.release()
+        raise
+    future.add_done_callback(lambda _future: slots.release())
+    return future
+
+
+def submit_gateway_accept(callback: Callable[[], Any]) -> Future | None:
+    """Submit one acceptance-side storage call without an unbounded queue."""
+    return _bounded_submit(_ACCEPT_POOL, _ACCEPT_SLOTS, callback)
+
+
+def submit_gateway_mirror(
+    gateway: "TurnGateway",
+    acceptance: GatewayAcceptance,
+    *,
+    source_sequence: int,
+    event_type: str,
+    stage: str,
+    payload: Mapping[str, Any] | None = None,
+) -> Future | None:
+    """Queue one ordered shadow write; return None when the bounded queue is full."""
+    return _bounded_submit(
+        _MIRROR_POOL,
+        _MIRROR_SLOTS,
+        lambda: gateway.mirror_event(
+            acceptance,
+            source_sequence=source_sequence,
+            event_type=event_type,
+            stage=stage,
+            payload=payload,
+        ),
+    )
 
 
 def _shadow_recipe() -> LoopRecipe:
@@ -102,6 +152,21 @@ class TurnGateway:
         if request.mode not in ("chat", "agent"):
             raise ValueError("request mode must be chat or agent")
 
+        if request.resume_run_id is not None:
+            existing = self.repository.get_run_by_legacy_run_id(str(request.resume_run_id))
+            if existing is not None:
+                if existing["surface"] != Surface.AGENT.value:
+                    raise RunConflictError("the resumed canonical run is not an Agent run")
+                if existing["session_id"] != str(request.session_id):
+                    raise RunConflictError("the resumed canonical run belongs to another session")
+                accepted = list_run_events(existing["run_id"], after_sequence=0)[0]
+                return GatewayAcceptance(
+                    mode=mode,
+                    request_id=request_id,
+                    run_id=existing["run_id"],
+                    sequence=accepted.sequence,
+                )
+
         recipe = _shadow_recipe()
         self.repository.save_loop_recipe(recipe)
         canonical = RunRequest(
@@ -127,6 +192,13 @@ class TurnGateway:
             sequence=accepted.sequence,
         )
 
+    def link_legacy_run(
+        self, acceptance: GatewayAcceptance, legacy_run_id: str | int
+    ) -> dict[str, Any]:
+        if not isinstance(acceptance, GatewayAcceptance) or not acceptance.run_id:
+            raise ValueError("a canonical gateway acceptance is required")
+        return self.repository.link_legacy_run(acceptance.run_id, str(legacy_run_id))
+
     def mirror_event(
         self,
         acceptance: GatewayAcceptance,
@@ -149,11 +221,13 @@ class TurnGateway:
         if payload is not None and not isinstance(payload, Mapping):
             raise ValueError("payload must be a mapping")
 
+        event_payload = dict(payload or {})
+        event_payload.setdefault("request_id", acceptance.request_id)
         return append_run_event(
             run_id=acceptance.run_id,
             event_type=f"shadow.{event_type}",
             stage=stage,
             actor="legacy-adapter",
-            payload=dict(payload or {}),
-            event_id=f"{acceptance.run_id}:shadow:{source_sequence}",
+            payload=event_payload,
+            event_id=f"{acceptance.run_id}:shadow:{acceptance.request_id}:{source_sequence}",
         )
