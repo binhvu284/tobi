@@ -246,7 +246,9 @@ def test_system_contracts_and_flags_fail_closed() -> None:
     assert entity.version == "1"
     assert edge.version == "1"
     assert edge.confidence == 1.0
-    assert len(RUNTIME_V2_FLAGS) == 7
+    assert len(RUNTIME_V2_FLAGS) == 9
+    assert owner_flags.RUNTIME_V2_CHAT_EXECUTION in RUNTIME_V2_FLAGS
+    assert owner_flags.RUNTIME_V2_AGENT_EXECUTION in RUNTIME_V2_FLAGS
     assert all(flag in owner_flags.KEYS for flag in RUNTIME_V2_FLAGS)
     original_get_bool = owner_flags.get_bool
     owner_flags.get_bool = lambda _flag, default=False: default

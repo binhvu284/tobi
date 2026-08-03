@@ -1,7 +1,7 @@
-"""Chat/Agent shadow gateway for Mission Control Runtime V2.
+"""Chat/Agent acceptance gateway for Mission Control Runtime V2.
 
-The live Chat route uses this only for fail-closed shadow recording; a shadow
-policy can never enter execution.
+The live Chat route does not send the internal readiness signal, so it remains
+limited to fail-closed shadow recording until T04 Run 4B.
 """
 from __future__ import annotations
 
@@ -26,10 +26,6 @@ _ACCEPT_SLOTS = threading.BoundedSemaphore(2)
 _MIRROR_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tobi-gateway-mirror")
 _MIRROR_SLOTS = threading.BoundedSemaphore(65)
 REPLAY_PAGE_LIMIT = 200
-
-
-class GatewayNotReadyError(RuntimeError):
-    """The requested rollout state is not implemented by this package."""
 
 
 @dataclass(frozen=True)
@@ -104,13 +100,16 @@ def _shadow_recipe() -> LoopRecipe:
     )
 
 
-def _shadow_policy(recipe: LoopRecipe, request_id: str) -> LoopPolicy:
+def _compatibility_policy(
+    recipe: LoopRecipe, request_id: str, *, enabled: bool
+) -> LoopPolicy:
+    mode = "active" if enabled else "shadow"
     return LoopPolicy.from_recipe(
-        policy_id="mc.compat.chat-turn.shadow",
+        policy_id=f"mc.compat.chat-turn.{mode}",
         version="1",
         recipe=recipe,
-        policy_decision_id=f"shadow:{request_id}",
-        enabled=False,
+        policy_decision_id=f"{mode}:{request_id}",
+        enabled=enabled,
     )
 
 
@@ -141,35 +140,15 @@ class TurnGateway:
         *,
         attachments: Iterable[Mapping[str, Any]] = (),
         owner_id: str = "owner",
+        activation_ready: bool = False,
     ) -> GatewayAcceptance:
         if not isinstance(request, TurnRequest):
             raise ValueError("request must be a validated TurnRequest")
-        mode = config.gateway_mode()
-        request_id = request.client_turn_id or str(uuid.uuid4())
-        if mode == "off":
-            return GatewayAcceptance(mode=mode, request_id=request_id, run_id=None, sequence=0)
-        if mode != "shadow":
-            raise GatewayNotReadyError("gateway-on execution is deferred to T04 Run 4")
+        if not isinstance(activation_ready, bool):
+            raise ValueError("activation_ready must be a boolean")
         if request.mode not in ("chat", "agent"):
             raise ValueError("request mode must be chat or agent")
-
-        if request.resume_run_id is not None:
-            existing = self.repository.get_run_by_legacy_run_id(str(request.resume_run_id))
-            if existing is not None:
-                if existing["surface"] != Surface.AGENT.value:
-                    raise RunConflictError("the resumed canonical run is not an Agent run")
-                if existing["session_id"] != str(request.session_id):
-                    raise RunConflictError("the resumed canonical run belongs to another session")
-                accepted = list_run_events(existing["run_id"], after_sequence=0)[0]
-                return GatewayAcceptance(
-                    mode=mode,
-                    request_id=request_id,
-                    run_id=existing["run_id"],
-                    sequence=accepted.sequence,
-                )
-
-        recipe = _shadow_recipe()
-        self.repository.save_loop_recipe(recipe)
+        request_id = request.client_turn_id or str(uuid.uuid4())
         canonical = RunRequest(
             request_id=request_id,
             surface=Surface.AGENT if request.mode == "agent" else Surface.CHAT,
@@ -180,9 +159,37 @@ class TurnGateway:
             attachments=_sanitize_attachments(attachments),
             budget_profile="compatibility-shadow",
         )
+
+        replay = self.repository.find_matching_run(canonical)
+        if replay is not None:
+            return self._accept_existing(replay, request_id)
+
+        if request.resume_run_id is not None:
+            existing = self.repository.get_run_by_legacy_run_id(str(request.resume_run_id))
+            if existing is not None:
+                if existing["surface"] != Surface.AGENT.value:
+                    raise RunConflictError("the resumed canonical run is not an Agent run")
+                if existing["session_id"] != str(request.session_id):
+                    raise RunConflictError("the resumed canonical run belongs to another session")
+                accepted = list_run_events(existing["run_id"], after_sequence=0)[0]
+                return GatewayAcceptance(
+                    mode=self._persisted_mode(existing),
+                    request_id=request_id,
+                    run_id=existing["run_id"],
+                    sequence=accepted.sequence,
+                )
+
+        mode = config.surface_gateway_mode(
+            request.mode, activation_ready=activation_ready
+        )
+        if mode == "off":
+            return GatewayAcceptance(mode=mode, request_id=request_id, run_id=None, sequence=0)
+
+        recipe = _shadow_recipe()
+        self.repository.save_loop_recipe(recipe)
         run = self.repository.create_run(
             canonical,
-            loop_policy=_shadow_policy(recipe, request_id),
+            loop_policy=_compatibility_policy(recipe, request_id, enabled=mode == "on"),
             actor="gateway",
         )
         accepted = list_run_events(run["run_id"], after_sequence=0)[0]
@@ -190,6 +197,20 @@ class TurnGateway:
             mode=mode,
             request_id=request_id,
             run_id=run["run_id"],
+            sequence=accepted.sequence,
+        )
+
+    @staticmethod
+    def _persisted_mode(run: Mapping[str, Any]) -> str:
+        loop = run.get("loop")
+        return "on" if isinstance(loop, Mapping) and loop.get("enabled") is True else "shadow"
+
+    def _accept_existing(self, run: Mapping[str, Any], request_id: str) -> GatewayAcceptance:
+        accepted = list_run_events(str(run["run_id"]), after_sequence=0)[0]
+        return GatewayAcceptance(
+            mode=self._persisted_mode(run),
+            request_id=request_id,
+            run_id=str(run["run_id"]),
             sequence=accepted.sequence,
         )
 

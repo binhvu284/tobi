@@ -18,7 +18,7 @@ from core import database, owner_flags  # noqa: E402
 from core.chat_runtime_contracts import TurnRequest  # noqa: E402
 from core.runtime import config  # noqa: E402
 from core.runtime.event_store import EventConflictError, list_run_events  # noqa: E402
-from core.runtime.gateway import GatewayNotReadyError, TurnGateway  # noqa: E402
+from core.runtime.gateway import TurnGateway  # noqa: E402
 from core.runtime.repository import RunConflictError, RuntimeRepository  # noqa: E402
 
 
@@ -66,17 +66,17 @@ ok("execution without events fails closed", config.gateway_mode() == "off")
 
 set_rollout(events=True, execution=True)
 ok(
-    "Run 1 refuses gateway-on execution",
+    "global execution alone remains shadow without a surface and route gate",
     config.gateway_mode() == "on"
-    and raises(
-        GatewayNotReadyError,
-        lambda: gateway.accept_turn(TurnRequest(
+    and gateway.accept_turn(
+        TurnRequest(
             session_id=41,
             message="do not execute yet",
             mode="agent",
             client_turn_id="turn-on-deferred",
-        )),
-    ),
+        )
+    ).mode
+    == "shadow",
 )
 
 set_rollout(events=True, execution=False)

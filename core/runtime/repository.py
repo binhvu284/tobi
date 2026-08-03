@@ -442,6 +442,28 @@ class RuntimeRepository:
         finally:
             conn.close()
 
+    def find_matching_run(self, request: RunRequest) -> dict[str, Any] | None:
+        """Return an idempotent request replay, rejecting reused IDs with new content."""
+        if not isinstance(request, RunRequest):
+            raise ValueError("request must be a validated RunRequest")
+        request_hash = _hash(contract_to_dict(request))
+        conn = get_connection()
+        try:
+            _ensure_runtime_schema(conn)
+            row = conn.execute(
+                "SELECT run_id,request_hash FROM mc_runs WHERE request_id=?",
+                (request.request_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            if row["request_hash"] != request_hash:
+                raise RunConflictError(
+                    f"request_id {request.request_id!r} already has different content"
+                )
+            return self._run_from_conn(conn, row["run_id"])
+        finally:
+            conn.close()
+
     def get_run_by_legacy_run_id(self, legacy_run_id: str) -> dict[str, Any] | None:
         if not isinstance(legacy_run_id, str) or not legacy_run_id.strip():
             raise ValueError("legacy_run_id must be a non-empty string")

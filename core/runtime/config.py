@@ -6,6 +6,8 @@ from core import owner_flags
 
 RUNTIME_V2_EVENTS = owner_flags.RUNTIME_V2_EVENTS
 RUNTIME_V2_EXECUTION = owner_flags.RUNTIME_V2_EXECUTION
+RUNTIME_V2_CHAT_EXECUTION = owner_flags.RUNTIME_V2_CHAT_EXECUTION
+RUNTIME_V2_AGENT_EXECUTION = owner_flags.RUNTIME_V2_AGENT_EXECUTION
 RUNTIME_V2_TOOLS = owner_flags.RUNTIME_V2_TOOLS
 RUNTIME_V2_POLICY = owner_flags.RUNTIME_V2_POLICY
 RUNTIME_V2_CONTEXT = owner_flags.RUNTIME_V2_CONTEXT
@@ -15,6 +17,8 @@ RUNTIME_V2_UI = owner_flags.RUNTIME_V2_UI
 RUNTIME_V2_FLAGS = (
     RUNTIME_V2_EVENTS,
     RUNTIME_V2_EXECUTION,
+    RUNTIME_V2_CHAT_EXECUTION,
+    RUNTIME_V2_AGENT_EXECUTION,
     RUNTIME_V2_TOOLS,
     RUNTIME_V2_POLICY,
     RUNTIME_V2_CONTEXT,
@@ -46,3 +50,23 @@ def gateway_mode() -> str:
     if events_enabled:
         return "shadow"
     return "off"
+
+
+_SURFACE_EXECUTION_FLAGS = {
+    "chat": RUNTIME_V2_CHAT_EXECUTION,
+    "agent": RUNTIME_V2_AGENT_EXECUTION,
+}
+
+
+def surface_gateway_mode(surface: str, *, activation_ready: bool = False) -> str:
+    """Require global, surface, and internal readiness before gateway-on acceptance."""
+    if surface not in _SURFACE_EXECUTION_FLAGS:
+        raise ValueError("surface must be chat or agent")
+    if not isinstance(activation_ready, bool):
+        raise ValueError("activation_ready must be a boolean")
+    global_mode = gateway_mode()
+    if global_mode != "on":
+        return global_mode
+    if not rollout_enabled(_SURFACE_EXECUTION_FLAGS[surface]):
+        return "shadow"
+    return "on" if activation_ready else "shadow"

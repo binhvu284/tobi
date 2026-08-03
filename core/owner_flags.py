@@ -46,6 +46,8 @@ KEYS = {
     "news.v2_shadow": "#23 News V2 shadow collection — scheduled adapter refreshes build history while V1 UI stays live (bool, default off)",
     "runtime.v2_events": "#21 event and trace mirroring (bool, default off)",
     "runtime.v2_execution": "#21 shared workflow execution (bool, default off)",
+    "runtime.v2_chat_execution": "#21 Chat gateway execution (bool, default off)",
+    "runtime.v2_agent_execution": "#21 Agent gateway execution (bool, default off)",
     "runtime.v2_tools": "#21 canonical tool routing (bool, default off)",
     "runtime.v2_policy": "#21 central policy decisions (bool, default off)",
     "runtime.v2_context": "#21 shared context service (bool, default off)",
@@ -69,6 +71,8 @@ NEWS_V2_SHADOW = "news.v2_shadow"
 # T01 only registers them. Later packages decide when each domain reads its flag.
 RUNTIME_V2_EVENTS = "runtime.v2_events"
 RUNTIME_V2_EXECUTION = "runtime.v2_execution"
+RUNTIME_V2_CHAT_EXECUTION = "runtime.v2_chat_execution"
+RUNTIME_V2_AGENT_EXECUTION = "runtime.v2_agent_execution"
 RUNTIME_V2_TOOLS = "runtime.v2_tools"
 RUNTIME_V2_POLICY = "runtime.v2_policy"
 RUNTIME_V2_CONTEXT = "runtime.v2_context"

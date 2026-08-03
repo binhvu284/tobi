@@ -9,16 +9,16 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T04 Run 4 - gateway-on activation and rollback (not started)
+**Package:** T04 Run 4B - live route cutover and rollback (not started)
 
 **Purpose (one sentence, plain words):**
-Chat and Agent can use canonical gateway execution only under explicit fail-closed rollout flags,
-with the legacy path retained as a tested rollback.
+Chat can use the canonical gateway only under every activation gate, while one rollback change
+returns new work to the legacy path without losing the identity of runs already accepted.
 
 **Not doing:**
-- No implementation before the owner approves the T04 Run 4 plan.
-- No default-on activation or irreversible Chat/Agent cutover.
+- No implementation before the owner approves the T04 Run 4B plan.
 - No default-on or irreversible Chat/Agent cutover.
+- No Agent live execution before central policy, tools, and security are ready.
 - No central policy or canonical tool-registry migration; T05 and T06 own them.
 - No migration of real file, terminal, or project tools; T07 owns them.
 - No Conductor decomposition; T08 owns it.
@@ -26,12 +26,12 @@ with the legacy path retained as a tested rollback.
 - No Telegram, CLI, Office, scheduler, or remaining-surface adapters.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
-**Files expected:** To be set during T04 Run 4 planning.
+**Files expected:** To be set during T04 Run 4B planning.
 
 **Gate: no**
 
 ```gate
-# Set during T04 Run 4 planning.
+# Set during T04 Run 4B planning.
 ```
 
 ---
