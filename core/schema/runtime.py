@@ -9,6 +9,7 @@ RUNTIME_SCHEMA_VERSIONS = (
     "mc-runtime-v2-001",
     "mc-runtime-v2-002",
     "mc-runtime-v2-003",
+    "mc-runtime-v2-004",
 )
 RUNTIME_SCHEMA_VERSION = RUNTIME_SCHEMA_VERSIONS[-1]
 _SCHEMA_LOCK = threading.Lock()
@@ -21,6 +22,7 @@ _RUNTIME_TABLES = {
     "mc_runs",
     "mc_run_steps",
     "mc_run_checkpoints",
+    "mc_run_commands",
     "mc_loop_recipes",
     "mc_loop_runs",
 }
@@ -30,6 +32,17 @@ _STEP_LEASE_COLUMNS = {
     "lease_token_hash": "TEXT",
     "lease_expires_at": "TEXT",
     "lease_epoch": "INTEGER NOT NULL DEFAULT 0 CHECK (lease_epoch >= 0)",
+}
+
+_STEP_CONTROL_COLUMNS = {
+    "last_error_json": "TEXT",
+    "last_error_hash": "TEXT",
+    "next_attempt_at": "TEXT",
+}
+
+_RUN_CONTROL_COLUMNS = {
+    "cancel_requested_at": "TEXT",
+    "cancel_requested_by": "TEXT",
 }
 
 
@@ -147,7 +160,9 @@ _STATEMENTS = (
         legacy_action_id TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        completed_at TEXT
+        completed_at TEXT,
+        cancel_requested_at TEXT,
+        cancel_requested_by TEXT
     )""",
     "CREATE INDEX IF NOT EXISTS idx_mc_runs_status_time ON mc_runs(status, updated_at)",
     "CREATE INDEX IF NOT EXISTS idx_mc_runs_session ON mc_runs(session_id, created_at)",
@@ -176,6 +191,9 @@ _STATEMENTS = (
         lease_token_hash TEXT,
         lease_expires_at TEXT,
         lease_epoch INTEGER NOT NULL DEFAULT 0 CHECK (lease_epoch >= 0),
+        last_error_json TEXT,
+        last_error_hash TEXT,
+        next_attempt_at TEXT,
         PRIMARY KEY (run_id, step_id),
         UNIQUE (run_id, position),
         FOREIGN KEY (run_id) REFERENCES mc_runs(run_id)
@@ -204,6 +222,45 @@ _STATEMENTS = (
     """CREATE TRIGGER IF NOT EXISTS mc_run_checkpoints_delete_guard
         BEFORE DELETE ON mc_run_checkpoints BEGIN
             SELECT RAISE(ABORT, 'mc_run_checkpoints is append-only');
+        END""",
+    """CREATE TABLE IF NOT EXISTS mc_run_commands (
+        command_id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        action TEXT NOT NULL CHECK (action IN (
+            'resume', 'retry_step', 'skip_step', 'revise', 'provide_input',
+            'approve', 'reject', 'cancel'
+        )),
+        payload_json TEXT NOT NULL,
+        payload_hash TEXT NOT NULL,
+        expected_run_version INTEGER NOT NULL CHECK (expected_run_version > 0),
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'consumed')),
+        actor TEXT NOT NULL,
+        consumed_by TEXT,
+        contract_version TEXT NOT NULL DEFAULT '1',
+        created_at TEXT NOT NULL,
+        consumed_at TEXT,
+        FOREIGN KEY (run_id) REFERENCES mc_runs(run_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_mc_run_commands_pending ON mc_run_commands(run_id, status, created_at, command_id)",
+    """CREATE TRIGGER IF NOT EXISTS mc_run_commands_identity_guard
+        BEFORE UPDATE OF command_id, run_id, action, payload_json, payload_hash,
+                         expected_run_version, actor, contract_version, created_at
+        ON mc_run_commands BEGIN
+            SELECT RAISE(ABORT, 'mc_run_commands identity is immutable');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_run_commands_lifecycle_guard
+        BEFORE UPDATE OF status, consumed_by, consumed_at
+        ON mc_run_commands
+        WHEN OLD.status != 'pending'
+          OR NEW.status != 'consumed'
+          OR NEW.consumed_by IS NULL
+          OR NEW.consumed_at IS NULL
+        BEGIN
+            SELECT RAISE(ABORT, 'mc_run_commands can only be consumed once');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_run_commands_delete_guard
+        BEFORE DELETE ON mc_run_commands BEGIN
+            SELECT RAISE(ABORT, 'mc_run_commands history is immutable');
         END""",
     """CREATE TABLE IF NOT EXISTS mc_loop_recipes (
         recipe_id TEXT NOT NULL,
@@ -284,7 +341,14 @@ def _schema_is_ready(conn: sqlite3.Connection) -> bool:
     step_columns = {
         row[1] for row in conn.execute("PRAGMA table_info(mc_run_steps)").fetchall()
     }
-    return set(_STEP_LEASE_COLUMNS).issubset(step_columns)
+    run_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(mc_runs)").fetchall()
+    }
+    return (
+        set(_STEP_LEASE_COLUMNS).issubset(step_columns)
+        and set(_STEP_CONTROL_COLUMNS).issubset(step_columns)
+        and set(_RUN_CONTROL_COLUMNS).issubset(run_columns)
+    )
 
 
 def _apply_runtime_schema(conn: sqlite3.Connection) -> None:
@@ -295,14 +359,27 @@ def _apply_runtime_schema(conn: sqlite3.Connection) -> None:
         step_columns = {
             row[1] for row in conn.execute("PRAGMA table_info(mc_run_steps)").fetchall()
         }
-        for name, declaration in _STEP_LEASE_COLUMNS.items():
+        for name, declaration in {
+            **_STEP_LEASE_COLUMNS,
+            **_STEP_CONTROL_COLUMNS,
+        }.items():
             if name not in step_columns:
                 conn.execute(
                     f"ALTER TABLE mc_run_steps ADD COLUMN {name} {declaration}"
                 )
+        run_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(mc_runs)").fetchall()
+        }
+        for name, declaration in _RUN_CONTROL_COLUMNS.items():
+            if name not in run_columns:
+                conn.execute(f"ALTER TABLE mc_runs ADD COLUMN {name} {declaration}")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_mc_run_steps_lease "
             "ON mc_run_steps(status, lease_expires_at, run_id, position)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mc_run_steps_retry_due "
+            "ON mc_run_steps(status, next_attempt_at, run_id, position)"
         )
         conn.executemany(
             "INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)",

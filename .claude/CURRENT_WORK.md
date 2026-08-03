@@ -9,20 +9,21 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T03 Run 3 - bounded retries, cancellation, recovery, budgets, and loop control (not started)
+**Package:** T03 Run 3B - hard budgets and persisted loop control (not started)
 
 **Purpose (one sentence, plain words):**
-A failed or stopped canonical run stays the same run and can continue only through persisted
-commands, declared retry rules, hard limits, and its effective loop policy.
+A canonical run records its actual attempts, runtime, and cost, then stops predictably when its
+persisted hard limits or effective loop-policy stop condition is reached.
 
 **Not doing:**
 - No live Chat or Agent adapter switch; T04 owns it.
 - No action receipts or duplicate-effect protection; T03 Run 4 owns them.
 - No central policy or canonical tool-registry migration; T05 and T06 own them.
+- No expansion of Run 3A recovery-command application or live API wiring.
 - No Conductor rewrite, Runs page, or remaining-surface adapters.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
-**Files expected:** To be fixed during the approved T03 Run 3 plan.
+**Files expected:** To be fixed during the approved T03 Run 3B plan.
 
 **Gate: no**
 

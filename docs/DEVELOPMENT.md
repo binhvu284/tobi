@@ -101,6 +101,7 @@ venv\Scripts\python.exe tests\test_net_guard.py
 venv\Scripts\python.exe tests\test_chat_runtime.py
 venv\Scripts\python.exe tests\test_chat_runtime_route.py
 venv\Scripts\python.exe tests\test_conductor_final_guard.py
+venv\Scripts\python.exe tests\test_mc_runtime_control.py
 venv\Scripts\python.exe tests\test_awakening.py
 venv\Scripts\python.exe tests\test_awakening_route.py
 venv\Scripts\python.exe tests\test_resource_access.py

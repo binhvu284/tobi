@@ -176,6 +176,7 @@ class RuntimeRepository:
         step["output_contract"] = _load_json(
             step.pop("output_contract_json"), {}
         )
+        step["last_error"] = _load_json(step.pop("last_error_json", None), None)
         return step
 
     @staticmethod
@@ -228,6 +229,9 @@ class RuntimeRepository:
             "SELECT * FROM mc_run_steps WHERE run_id=? AND step_id=?",
             (run_id, step_id),
         ).fetchone()
+        run = conn.execute(
+            "SELECT status FROM mc_runs WHERE run_id=?", (run_id,)
+        ).fetchone()
         expires = _parse_iso(row["lease_expires_at"]) if row is not None else None
         token_matches = (
             row is not None
@@ -236,6 +240,8 @@ class RuntimeRepository:
         )
         if not (
             row is not None
+            and run is not None
+            and run["status"] == RunStatus.RUNNING.value
             and row["status"] == "running"
             and row["lease_owner"] == worker_id
             and row["lease_epoch"] == lease_epoch
@@ -486,7 +492,7 @@ class RuntimeRepository:
             statuses = {row["step_id"]: row["status"] for row in rows}
             candidate = None
             for row in rows:
-                if row["status"] not in {"pending", "running"}:
+                if row["status"] not in {"pending", "running", "retry_wait"}:
                     continue
                 dependencies = _load_json(row["depends_on_json"], [])
                 if any(
@@ -494,6 +500,10 @@ class RuntimeRepository:
                     for dependency in dependencies
                 ):
                     continue
+                if row["status"] == "retry_wait":
+                    retry_due = _parse_iso(row["next_attempt_at"])
+                    if retry_due is None or retry_due > claimed_at:
+                        continue
                 lease_expires = _parse_iso(row["lease_expires_at"])
                 if lease_expires is not None and lease_expires > claimed_at:
                     continue
@@ -510,7 +520,8 @@ class RuntimeRepository:
                 """UPDATE mc_run_steps
                    SET status='running',lease_owner=?,lease_token_hash=?,
                        lease_expires_at=?,lease_epoch=?,updated_at=?,
-                       started_at=COALESCE(started_at,?)
+                       started_at=COALESCE(started_at,?),attempts=attempts+1,
+                       next_attempt_at=NULL
                    WHERE run_id=? AND step_id=? AND status=? AND lease_epoch=?""",
                 (
                     worker_id,
