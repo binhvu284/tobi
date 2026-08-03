@@ -511,6 +511,23 @@ class RuntimeRepository:
                 lease_expires = _parse_iso(row["lease_expires_at"])
                 if lease_expires is not None and lease_expires > claimed_at:
                     continue
+                if row["status"] == "running" and row["idempotency_key"]:
+                    action = conn.execute(
+                        "SELECT * FROM mc_idempotency WHERE idempotency_key=?",
+                        (row["idempotency_key"],),
+                    ).fetchone()
+                    if action is not None and action["status"] == "in_progress":
+                        from core.runtime.actions import mark_interrupted_action
+
+                        mark_interrupted_action(
+                            conn,
+                            action=action,
+                            step=row,
+                            actor=worker_id,
+                            now_iso=claimed_at_iso,
+                        )
+                        conn.commit()
+                        return None
                 candidate = row
                 break
             if candidate is None:

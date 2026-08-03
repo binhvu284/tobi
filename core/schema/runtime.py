@@ -11,6 +11,7 @@ RUNTIME_SCHEMA_VERSIONS = (
     "mc-runtime-v2-003",
     "mc-runtime-v2-004",
     "mc-runtime-v2-005",
+    "mc-runtime-v2-006",
 )
 RUNTIME_SCHEMA_VERSION = RUNTIME_SCHEMA_VERSIONS[-1]
 _SCHEMA_LOCK = threading.Lock()
@@ -27,6 +28,8 @@ _RUNTIME_TABLES = {
     "mc_loop_recipes",
     "mc_loop_runs",
     "mc_loop_iterations",
+    "mc_idempotency",
+    "mc_action_receipts",
 }
 
 _STEP_LEASE_COLUMNS = {
@@ -216,6 +219,94 @@ _STATEMENTS = (
     )""",
     "CREATE INDEX IF NOT EXISTS idx_mc_run_steps_runnable ON mc_run_steps(status, run_id, position)",
     "CREATE INDEX IF NOT EXISTS idx_mc_run_steps_idempotency ON mc_run_steps(idempotency_key)",
+    """CREATE TABLE IF NOT EXISTS mc_idempotency (
+        idempotency_key TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        call_id TEXT NOT NULL,
+        tool_ref TEXT NOT NULL,
+        target TEXT NOT NULL,
+        request_json TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN (
+            'in_progress', 'completed', 'reconciliation_required', 'retry_allowed'
+        )),
+        execution_count INTEGER NOT NULL DEFAULT 1 CHECK (execution_count > 0),
+        lease_epoch INTEGER NOT NULL CHECK (lease_epoch > 0),
+        worker_id TEXT NOT NULL,
+        receipt_id TEXT,
+        result_json TEXT NOT NULL DEFAULT '{}',
+        result_hash TEXT,
+        reconciliation_outcome TEXT CHECK (
+            reconciliation_outcome IS NULL OR
+            reconciliation_outcome IN ('direct', 'applied', 'not_applied', 'unknown', 'cancelled')
+        ),
+        reconciliation_json TEXT NOT NULL DEFAULT '{}',
+        reconciliation_hash TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT,
+        UNIQUE (run_id, step_id),
+        FOREIGN KEY (run_id, step_id) REFERENCES mc_run_steps(run_id, step_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_mc_idempotency_status ON mc_idempotency(status, updated_at)",
+    """CREATE TRIGGER IF NOT EXISTS mc_idempotency_identity_guard
+        BEFORE UPDATE OF idempotency_key, run_id, step_id, call_id, tool_ref,
+                         target, request_json, request_hash, created_at
+        ON mc_idempotency BEGIN
+            SELECT RAISE(ABORT, 'mc_idempotency identity is immutable');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_idempotency_lifecycle_guard
+        BEFORE UPDATE OF status ON mc_idempotency
+        WHEN NOT (
+            (OLD.status='in_progress' AND NEW.status IN (
+                'completed', 'reconciliation_required', 'retry_allowed'
+            )) OR
+            (OLD.status='reconciliation_required' AND NEW.status IN (
+                'completed', 'reconciliation_required', 'retry_allowed'
+            )) OR
+            (OLD.status='retry_allowed' AND NEW.status='in_progress')
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'illegal mc_idempotency lifecycle transition');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_idempotency_delete_guard
+        BEFORE DELETE ON mc_idempotency BEGIN
+            SELECT RAISE(ABORT, 'mc_idempotency history cannot be deleted');
+        END""",
+    """CREATE TABLE IF NOT EXISTS mc_action_receipts (
+        receipt_id TEXT PRIMARY KEY,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        run_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        tool_ref TEXT NOT NULL,
+        target TEXT NOT NULL,
+        effect_summary TEXT NOT NULL,
+        before_ref TEXT,
+        after_ref TEXT,
+        external_ref TEXT,
+        approval_ref TEXT,
+        result_json TEXT NOT NULL,
+        result_hash TEXT NOT NULL,
+        reconciliation_outcome TEXT NOT NULL CHECK (
+            reconciliation_outcome IN ('direct', 'applied')
+        ),
+        evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+        actor TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (idempotency_key) REFERENCES mc_idempotency(idempotency_key),
+        FOREIGN KEY (run_id, step_id) REFERENCES mc_run_steps(run_id, step_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_mc_action_receipts_run ON mc_action_receipts(run_id, step_id, created_at)",
+    """CREATE TRIGGER IF NOT EXISTS mc_action_receipts_update_guard
+        BEFORE UPDATE ON mc_action_receipts BEGIN
+            SELECT RAISE(ABORT, 'mc_action_receipts is immutable');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_action_receipts_delete_guard
+        BEFORE DELETE ON mc_action_receipts BEGIN
+            SELECT RAISE(ABORT, 'mc_action_receipts is immutable');
+        END""",
     """CREATE TABLE IF NOT EXISTS mc_run_checkpoints (
         checkpoint_id TEXT PRIMARY KEY,
         run_id TEXT NOT NULL,

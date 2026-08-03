@@ -7,8 +7,10 @@ from datetime import datetime, timedelta
 from typing import Any, Mapping
 
 from core.database import get_connection
+from core.runtime.actions import cancel_active_actions, finalize_reserved_action
 from core.runtime.budget import effective_limits
 from core.runtime.contracts import (
+    ActionReceipt,
     LoopIterationResult,
     RecoveryAction,
     RunUsageDelta,
@@ -111,6 +113,7 @@ class RuntimeControl:
         lease_token: str,
         lease_epoch: int,
         result: RuntimeToolResult,
+        receipt: ActionReceipt | None = None,
         now: datetime | None = None,
         event_id: str | None = None,
     ) -> dict[str, Any]:
@@ -122,7 +125,7 @@ class RuntimeControl:
         try:
             _ensure_runtime_schema(conn)
             conn.execute("BEGIN IMMEDIATE")
-            RuntimeRepository._require_active_lease(
+            step = RuntimeRepository._require_active_lease(
                 conn,
                 run_id=run_id,
                 step_id=step_id,
@@ -131,6 +134,53 @@ class RuntimeControl:
                 lease_epoch=lease_epoch,
                 now=completed_at,
             )
+            stored_receipt = None
+            if step["idempotency_key"]:
+                if receipt is None:
+                    raise ValueError(
+                        "a step with idempotency_key requires an action receipt"
+                    )
+                action = conn.execute(
+                    "SELECT * FROM mc_idempotency WHERE idempotency_key=?",
+                    (step["idempotency_key"],),
+                ).fetchone()
+                if action is None:
+                    raise ValueError("the action must be reserved before completion")
+                if (
+                    action["status"] != "in_progress"
+                    or action["worker_id"] != worker_id
+                    or int(action["lease_epoch"]) != lease_epoch
+                ):
+                    raise ValueError("the active action reservation does not match this lease")
+                stored_receipt = finalize_reserved_action(
+                    conn,
+                    action=action,
+                    receipt=receipt,
+                    result=result,
+                    actor=worker_id,
+                    completed_at=completed_at_iso,
+                    reconciliation_outcome="direct",
+                )
+                _append_run_event(
+                    conn,
+                    run_id=run_id,
+                    event_type="action.receipt_recorded",
+                    stage="execute",
+                    actor=worker_id,
+                    payload={
+                        "idempotency_key": step["idempotency_key"],
+                        "receipt_id": receipt.receipt_id,
+                        "step_id": step_id,
+                        "reconciliation_outcome": "direct",
+                    },
+                    event_id=event_id
+                    or f"{run_id}:{step_id}:action-receipt:{lease_epoch}",
+                    timestamp=completed_at_iso,
+                )
+            elif receipt is not None or result.receipt_id is not None:
+                raise ValueError(
+                    "a receipt cannot be attached to a step without idempotency_key"
+                )
             conn.execute(
                 """UPDATE mc_run_steps
                    SET status='succeeded',lease_owner=NULL,lease_token_hash=NULL,
@@ -149,8 +199,14 @@ class RuntimeControl:
                     "step_id": step_id,
                     "lease_epoch": lease_epoch,
                     "result": contract_to_dict(result),
+                    "receipt_id": (
+                        stored_receipt["receipt_id"] if stored_receipt else None
+                    ),
                 },
-                event_id=event_id or f"{run_id}:{step_id}:succeeded:{lease_epoch}",
+                event_id=(
+                    f"{event_id}:step" if event_id and stored_receipt else event_id
+                )
+                or f"{run_id}:{step_id}:succeeded:{lease_epoch}",
                 timestamp=completed_at_iso,
             )
             row = conn.execute(
@@ -422,6 +478,12 @@ class RuntimeControl:
             if action_value == RecoveryAction.CANCEL:
                 require_transition(run["status"], RunStatus.CANCELLED)
                 new_version = expected_version + 1
+                cancel_active_actions(
+                    conn,
+                    run_id=run_id,
+                    actor=actor,
+                    now_iso=created_at_iso,
+                )
                 conn.execute(
                     """UPDATE mc_runs
                        SET status='cancelled',version=?,updated_at=?,completed_at=?,

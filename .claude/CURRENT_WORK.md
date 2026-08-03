@@ -9,22 +9,22 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T03 Run 4 - action receipts and duplicate-effect protection (not started)
+**Package:** T04 - shadow Chat/Agent gateway (not started)
 
 **Purpose (one sentence, plain words):**
-A restarted or retried canonical run can prove whether an external action already happened and
-will not apply the same effect twice.
+Chat and Agent send each request through the canonical gateway in shadow mode while the legacy
+path still answers, so differences are measurable without changing owner-visible behavior.
 
 **Not doing:**
-- No live Chat or Agent adapter switch; T04 owns it.
+- No default-on or irreversible Chat/Agent cutover.
 - No central policy or canonical tool-registry migration; T05 and T06 own them.
 - No migration of real file, terminal, or project tools; T07 owns them.
-- No expansion of Run 3B budgets or loop-policy semantics.
-- No new owner API or Runs page.
-- No Conductor rewrite or remaining-surface adapters.
+- No Conductor decomposition; T08 owns it.
+- No Runs page or broad frontend redesign; T13 owns it.
+- No Telegram, CLI, Office, scheduler, or remaining-surface adapters.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
-**Files expected:** To be fixed during the approved T03 Run 4 plan.
+**Files expected:** To be fixed during the approved T04 plan.
 
 **Gate: no**
 

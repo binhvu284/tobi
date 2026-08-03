@@ -115,6 +115,7 @@ venv\Scripts\python.exe tests\test_mc_runtime_event_store.py
 venv\Scripts\python.exe tests\test_mc_runtime_repository.py
 venv\Scripts\python.exe tests\test_mc_runtime_leases.py
 venv\Scripts\python.exe tests\test_mc_runtime_loop_control.py
+venv\Scripts\python.exe tests\test_mc_runtime_action_receipts.py
 ```
 
 Rebuild and verify every dormant MC Runtime V2 projection from local event history:
@@ -125,7 +126,7 @@ venv\Scripts\python.exe -m core.runtime.rebuild --all --verify
 
 Correct output is one JSON object with `"verified": true`. The command changes only derived projection rows; immutable event history is never rewritten.
 
-The repository acceptance scripts verify canonical runs, validated plan graphs, immutable loop-policy snapshots, secret redaction, version-checked state changes, exclusive expiring step leases, stale-worker fencing, append-only restart checkpoints, exact-once loop usage, evidence-backed completion, and deterministic hard-limit stops. These foundations remain dormant until a later adapter package switches a live surface.
+The repository acceptance scripts verify canonical runs, validated plan graphs, immutable loop-policy snapshots, secret redaction, version-checked state changes, exclusive expiring step leases, stale-worker fencing, append-only restart checkpoints, exact-once loop usage, evidence-backed completion, deterministic hard-limit stops, one-winner action reservations, immutable receipts, completed replay, and fail-closed crash reconciliation. These foundations remain dormant until a later adapter package switches a live surface.
 
 The route suites use FastAPI/TestClient and must run with the same Python ABI as the installed `pydantic_core`. If the checked-in virtual-environment launcher points to a removed Windows Store interpreter, recreate the venv rather than mixing an incompatible Python runtime with its site-packages. A dependency-light bundled interpreter can run some unit scripts, but it is not a substitute for the project environment when FastAPI or compiled packages are required.
 

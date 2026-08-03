@@ -13,13 +13,13 @@ Its status column carries the same short progress note this board tracks.
 
 ## Status
 
-**In progress.** T00 through T02 and T03 Runs 1-3B are delivered; T03 remains in progress.
+**In progress.** T00 through T03 are delivered; T04 is next.
 
-**Delivered:** 3 of 17 packages plus the first four T03 runs, about **34-39%** of the total effort.
+**Delivered:** 4 of 17 packages, about **40-45%** of the total effort.
 
-**Next:** T03 Run 4 adds action receipts, so a restarted or retried worker cannot apply the same
-external effect twice. Run 3B now persists loop progress and stops later work at every hard limit,
-but no live surface uses this runtime yet.
+**Next:** T04 points Chat and Agent at the canonical gateway in shadow mode, meaning the new and
+old paths are compared while the old path still answers. T03 now prevents automatic duplicate
+effects and stops uncertain crash outcomes for reconciliation, but no live surface uses it yet.
 
 ---
 
@@ -56,7 +56,7 @@ Ordered. Each one ships and is reviewable on its own. Risk is the plan's own rat
 | T00 | **Check the ground first.** #22 qualification and current ownership are reconciled. Every shared table and API has one declared owner. → [evidence](MC_V2_OWNERSHIP_MATRIX.md) | #22 | Med | Done |
 | T01 | **Agree the shapes.** Shared validated contracts now define runs, tools, loops, errors, evaluations, and system relationships. Seven independent rollout flags default off, so live behavior is unchanged. | T00 | Med | Done |
 | T02 | **Write everything down, in order.** Immutable ordered run/System history, secret redaction before storage, and deterministic current-state rebuilds are delivered locally. No live caller is switched. | T01 | High | Done |
-| T03 | **Make runs survive a crash.** Runs 1-3B delivered canonical storage, versioned states, exclusive leases, restart checkpoints, bounded delayed retries, same-run recovery commands, cancellation that fences stale workers, persisted loop progress, and hard attempt/runtime/cost/usage limits. Duplicate-effect protection remains. | T02 | High | Run 3B/5 |
+| T03 | **Make runs survive a crash.** Canonical storage, versioned states, exclusive leases, restart checkpoints, bounded retries, recovery commands, cancellation fencing, persisted loop progress, hard limits, action reservations, immutable receipts, and fail-closed crash reconciliation are delivered. | T02 | High | Done |
 | T04 | **Point Chat and Agent at the new engine**, quietly at first (both run side by side and get compared before anything switches over). | T03 | High | ☐ |
 | T05 | **One place decides what is allowed.** Permissions, approvals, credentials, budgets — currently spread across many files. | T01 | High | ☐ |
 | T06 | **One list of tools.** Every tool described once, in one format, with its arguments checked before it runs. | T01, T05 | High | ☐ |
