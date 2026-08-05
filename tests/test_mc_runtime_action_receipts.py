@@ -43,7 +43,7 @@ from core.runtime.event_store import (  # noqa: E402
 )
 from core.runtime.repository import RuntimeRepository  # noqa: E402
 from core.runtime.state import RunStatus  # noqa: E402
-from core.schema.runtime import RUNTIME_SCHEMA_VERSION, _ensure_runtime_schema  # noqa: E402
+from core.schema.runtime import RUNTIME_SCHEMA_VERSIONS, _ensure_runtime_schema  # noqa: E402
 
 
 PASS = 0
@@ -197,7 +197,7 @@ versions = [
 ]
 ok(
     "migration 006 is additive, idempotent, and preserves legacy data",
-    RUNTIME_SCHEMA_VERSION == "mc-runtime-v2-006"
+    "mc-runtime-v2-006" in RUNTIME_SCHEMA_VERSIONS
     and {"mc_idempotency", "mc_action_receipts"} <= tables
     and versions.count("mc-runtime-v2-006") == 1
     and upgrade.execute("SELECT value FROM legacy_marker WHERE id='legacy-1'").fetchone()[0]

@@ -12,6 +12,7 @@ RUNTIME_SCHEMA_VERSIONS = (
     "mc-runtime-v2-004",
     "mc-runtime-v2-005",
     "mc-runtime-v2-006",
+    "mc-runtime-v2-007",
 )
 RUNTIME_SCHEMA_VERSION = RUNTIME_SCHEMA_VERSIONS[-1]
 _SCHEMA_LOCK = threading.Lock()
@@ -30,6 +31,7 @@ _RUNTIME_TABLES = {
     "mc_loop_iterations",
     "mc_idempotency",
     "mc_action_receipts",
+    "mc_policy_decisions",
 }
 
 _STEP_LEASE_COLUMNS = {
@@ -306,6 +308,32 @@ _STATEMENTS = (
     """CREATE TRIGGER IF NOT EXISTS mc_action_receipts_delete_guard
         BEFORE DELETE ON mc_action_receipts BEGIN
             SELECT RAISE(ABORT, 'mc_action_receipts is immutable');
+        END""",
+    """CREATE TABLE IF NOT EXISTS mc_policy_decisions (
+        decision_id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        step_id TEXT,
+        tool_ref TEXT NOT NULL,
+        policy_id TEXT NOT NULL,
+        policy_version TEXT NOT NULL,
+        effect TEXT NOT NULL CHECK (effect IN ('allow', 'require_approval', 'deny')),
+        input_json TEXT NOT NULL,
+        input_hash TEXT NOT NULL,
+        decision_json TEXT NOT NULL,
+        decision_hash TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        contract_version TEXT NOT NULL DEFAULT '1',
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (run_id) REFERENCES mc_runs(run_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_mc_policy_decisions_run ON mc_policy_decisions(run_id, created_at, decision_id)",
+    """CREATE TRIGGER IF NOT EXISTS mc_policy_decisions_update_guard
+        BEFORE UPDATE ON mc_policy_decisions BEGIN
+            SELECT RAISE(ABORT, 'mc_policy_decisions is immutable');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_policy_decisions_delete_guard
+        BEFORE DELETE ON mc_policy_decisions BEGIN
+            SELECT RAISE(ABORT, 'mc_policy_decisions is immutable');
         END""",
     """CREATE TABLE IF NOT EXISTS mc_run_checkpoints (
         checkpoint_id TEXT PRIMARY KEY,

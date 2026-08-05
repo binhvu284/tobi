@@ -54,6 +54,62 @@ class SideEffectClass(str, Enum):
     EXTERNAL = "external"
 
 
+class PolicyEffect(str, Enum):
+    ALLOW = "allow"
+    REQUIRE_APPROVAL = "require_approval"
+    DENY = "deny"
+
+
+class ApprovalMode(str, Enum):
+    ASK = "ask"
+    SESSION = "session"
+    ALWAYS = "always"
+
+
+class ApprovalStatus(str, Enum):
+    NONE = "none"
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class CredentialStatus(str, Enum):
+    NOT_REQUIRED = "not_required"
+    AVAILABLE = "available"
+    MISSING = "missing"
+    LOCKED = "locked"
+    PURPOSE_MISMATCH = "purpose_mismatch"
+
+
+class TrustClass(str, Enum):
+    OWNER_DIRECT = "owner_direct"
+    SYSTEM_VERIFIED = "system_verified"
+    CONNECTOR_VERIFIED = "connector_verified"
+    DERIVED = "derived"
+    UNTRUSTED_CONTENT = "untrusted_content"
+
+
+class Certainty(str, Enum):
+    KNOWN = "known"
+    INFERRED = "inferred"
+    CONTRADICTED = "contradicted"
+    STALE = "stale"
+
+
+class IsolationLevel(str, Enum):
+    IN_PROCESS = "in_process"
+    SUBPROCESS = "subprocess"
+    WORKSPACE = "workspace"
+    CONTAINER = "container"
+    REMOTE = "remote"
+
+
+class BudgetStatus(str, Enum):
+    AVAILABLE = "available"
+    EXHAUSTED = "exhausted"
+    UNKNOWN = "unknown"
+
+
 class LoopType(str, Enum):
     TURN = "turn"
     GOAL = "goal"
@@ -391,6 +447,107 @@ class RuntimeToolSpec:
             idempotency_policy="required" if spec.idempotent else "none",
             adapter=adapter,
         )
+
+
+@dataclass(frozen=True)
+class PolicyInput:
+    decision_id: str
+    run_id: str
+    owner_id: str
+    session_id: str
+    surface: Surface
+    mode: str
+    tool: RuntimeToolSpec
+    target: str
+    step_id: Optional[str] = None
+    granted_permissions: tuple[str, ...] = ()
+    available_integrations: tuple[str, ...] = ()
+    credential_status: CredentialStatus = CredentialStatus.NOT_REQUIRED
+    trust_class: TrustClass = TrustClass.OWNER_DIRECT
+    certainty: Certainty = Certainty.KNOWN
+    instruction_authority: bool = False
+    available_isolations: tuple[IsolationLevel, ...] = (IsolationLevel.IN_PROCESS,)
+    budget_status: BudgetStatus = BudgetStatus.AVAILABLE
+    approval_mode: ApprovalMode = ApprovalMode.ASK
+    approval_status: ApprovalStatus = ApprovalStatus.NONE
+    approval_id: Optional[str] = None
+    active_kill_switches: tuple[str, ...] = ()
+    contract_version: str = "1"
+
+    def __post_init__(self) -> None:
+        for name in (
+            "decision_id",
+            "run_id",
+            "owner_id",
+            "session_id",
+            "mode",
+            "target",
+            "contract_version",
+        ):
+            _require_text(getattr(self, name), name)
+        _require_optional_text(self.step_id, "step_id")
+        if not isinstance(self.tool, RuntimeToolSpec):
+            raise ValueError("tool must be a RuntimeToolSpec")
+        _require_enum(self.surface, Surface, "surface")
+        _require_tuple(self.granted_permissions, "granted_permissions", str)
+        _require_tuple(self.available_integrations, "available_integrations", str)
+        _require_enum(self.credential_status, CredentialStatus, "credential_status")
+        _require_enum(self.trust_class, TrustClass, "trust_class")
+        _require_enum(self.certainty, Certainty, "certainty")
+        if not isinstance(self.instruction_authority, bool):
+            raise ValueError("instruction_authority must be a bool")
+        _require_tuple(self.available_isolations, "available_isolations", IsolationLevel)
+        _require_enum(self.budget_status, BudgetStatus, "budget_status")
+        _require_enum(self.approval_mode, ApprovalMode, "approval_mode")
+        _require_enum(self.approval_status, ApprovalStatus, "approval_status")
+        _require_optional_text(self.approval_id, "approval_id")
+        _require_tuple(self.active_kill_switches, "active_kill_switches", str)
+        if self.approval_status is ApprovalStatus.NONE and self.approval_id is not None:
+            raise ValueError("approval_id requires an approval status")
+        if self.approval_status is not ApprovalStatus.NONE and self.approval_id is None:
+            raise ValueError("approval status requires approval_id")
+
+
+@dataclass(frozen=True)
+class PolicyDecision:
+    decision_id: str
+    run_id: str
+    tool_ref: str
+    policy_id: str
+    policy_version: str
+    effect: PolicyEffect
+    reason_codes: tuple[str, ...]
+    owner_message: str
+    required_approval: bool
+    isolation: str
+    step_id: Optional[str] = None
+    approval_id: Optional[str] = None
+    credential_purpose: Optional[str] = None
+    contract_version: str = "1"
+
+    def __post_init__(self) -> None:
+        for name in (
+            "decision_id",
+            "run_id",
+            "tool_ref",
+            "policy_id",
+            "policy_version",
+            "owner_message",
+            "isolation",
+            "contract_version",
+        ):
+            _require_text(getattr(self, name), name)
+        _require_optional_text(self.step_id, "step_id")
+        _require_enum(self.effect, PolicyEffect, "effect")
+        _require_tuple(self.reason_codes, "reason_codes", str)
+        if not self.reason_codes:
+            raise ValueError("reason_codes must not be empty")
+        if not isinstance(self.required_approval, bool):
+            raise ValueError("required_approval must be a bool")
+        _require_optional_text(self.approval_id, "approval_id")
+        _require_optional_text(self.credential_purpose, "credential_purpose")
+        if self.effect is PolicyEffect.REQUIRE_APPROVAL and not self.required_approval:
+            raise ValueError("require_approval effect must set required_approval")
 
 
 @dataclass(frozen=True)

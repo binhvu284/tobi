@@ -9,14 +9,17 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T05 - central policy engine (not started)
+**Package:** T05 Run 2 - durable owner approval lifecycle (not started)
 
 **Purpose (one sentence, plain words):**
-One versioned server-side decision will determine whether a requested action may run, needs owner
-approval, or must be denied, with an auditable reason every time.
+A durable approval request will pause the same run, accept exactly one authenticated owner
+decision, expire safely, and return that evidence to central policy without executing a tool.
 
 **Not doing:**
-- No implementation before the owner approves the T05 run plan.
+- No implementation before the owner approves the T05 Run 2 plan.
+- No live policy cutover or caller integration.
+- No tool execution from the approval service.
+- No raw credential access or Vault broker work.
 - No canonical tool-registry migration; T06 owns it.
 - No migration of real file, terminal, or project tools; T07 owns them.
 - No Conductor decomposition; T08 owns it.
