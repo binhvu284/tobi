@@ -9,35 +9,28 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T05 Run 3 - credential readiness and legacy-policy compatibility
+**Package:** T06 Run 1 - canonical tool registry planning (not started)
 
 **Purpose (one sentence, plain words):**
-Central policy will receive truthful metadata-only credential readiness and conservative legacy
-mode facts without changing any live caller or exposing raw credentials.
+The first canonical tool-registry run will be mapped into one reviewable package before any
+tool catalog, validation, adapter, or live caller changes.
 
 **Not doing:**
-- No live policy cutover or caller integration.
-- No tool execution from the approval service.
-- No raw credential access or Vault broker work.
-- No canonical tool-registry migration; T06 owns it.
+- No implementation before the owner approves the T06 Run 1 plan.
+- No live tool discovery, routing, policy cutover, or caller integration.
+- No duplicate catalog authority alongside existing tool registries.
 - No migration of real file, terminal, or project tools; T07 owns them.
+- No raw credential access, Vault broker work, or tool execution.
 - No Conductor decomposition; T08 owns it.
 - No Runs page or broad frontend redesign; T13 owns it.
 - No Telegram, CLI, Office, scheduler, or remaining-surface adapters.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
-**Files expected:**
-- `.claude/CURRENT_WORK.md`
-- `core/runtime/contracts.py`
-- `core/runtime/policy.py`
-- `core/runtime/policy_facts.py`
-- `tests/test_mc_runtime_policy_facts.py`
-- current architecture, board, queue, and implementation-log docs
+**Files expected:** Planning and evidence docs only until the owner approves implementation.
 
-**Gate: green**
+**Gate: no**
 
 ```gate
-python tests/test_mc_runtime_policy_facts.py
 ```
 
 ---
