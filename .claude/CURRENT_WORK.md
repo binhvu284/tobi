@@ -9,14 +9,13 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T05 Run 3 - remaining central-policy integration boundary (planning not started)
+**Package:** T05 Run 3 - credential readiness and legacy-policy compatibility
 
 **Purpose (one sentence, plain words):**
-The remaining credential-readiness and legacy-policy compatibility boundaries will be mapped
-into one reviewable next run before any live caller changes.
+Central policy will receive truthful metadata-only credential readiness and conservative legacy
+mode facts without changing any live caller or exposing raw credentials.
 
 **Not doing:**
-- No implementation before the owner approves the T05 Run 3 plan.
 - No live policy cutover or caller integration.
 - No tool execution from the approval service.
 - No raw credential access or Vault broker work.
@@ -27,11 +26,18 @@ into one reviewable next run before any live caller changes.
 - No Telegram, CLI, Office, scheduler, or remaining-surface adapters.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
-**Files expected:** Planning and evidence docs only until the owner approves implementation.
+**Files expected:**
+- `.claude/CURRENT_WORK.md`
+- `core/runtime/contracts.py`
+- `core/runtime/policy.py`
+- `core/runtime/policy_facts.py`
+- `tests/test_mc_runtime_policy_facts.py`
+- current architecture, board, queue, and implementation-log docs
 
-**Gate: no**
+**Gate: green**
 
 ```gate
+python tests/test_mc_runtime_policy_facts.py
 ```
 
 ---

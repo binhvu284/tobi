@@ -63,7 +63,7 @@ class PolicyEngine:
             raise ValueError("policy_input must be a PolicyInput")
 
         tool = policy_input.tool
-        blockers: list[str] = []
+        blockers: list[str] = list(policy_input.compatibility_denials)
         if policy_input.active_kill_switches:
             blockers.append("kill_switch.active")
         if policy_input.surface not in tool.allowed_surfaces:
@@ -81,6 +81,8 @@ class PolicyEngine:
                 CredentialStatus.MISSING: "credential.missing",
                 CredentialStatus.LOCKED: "credential.locked",
                 CredentialStatus.PURPOSE_MISMATCH: "credential.purpose_mismatch",
+                CredentialStatus.UNAVAILABLE: "credential.unavailable",
+                CredentialStatus.UNKNOWN: "credential.unknown",
             }.get(policy_input.credential_status)
             if credential_reason:
                 blockers.append(credential_reason)

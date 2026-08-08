@@ -80,6 +80,8 @@ class CredentialStatus(str, Enum):
     MISSING = "missing"
     LOCKED = "locked"
     PURPOSE_MISMATCH = "purpose_mismatch"
+    UNAVAILABLE = "unavailable"
+    UNKNOWN = "unknown"
 
 
 class TrustClass(str, Enum):
@@ -195,6 +197,44 @@ def _require_text(value: Any, name: str) -> None:
 def _require_optional_text(value: Any, name: str) -> None:
     if value is not None and (not isinstance(value, str) or not value.strip()):
         raise ValueError(f"{name} must be None or a non-empty string")
+
+
+@dataclass(frozen=True)
+class CredentialRequirement:
+    purpose: str
+    secret_name: str
+    integration_id: Optional[str] = None
+    contract_version: str = "1"
+
+    def __post_init__(self) -> None:
+        _require_text(self.purpose, "purpose")
+        _require_text(self.secret_name, "secret_name")
+        _require_optional_text(self.integration_id, "integration_id")
+        _require_text(self.contract_version, "contract_version")
+
+
+@dataclass(frozen=True)
+class LegacyPolicyFacts:
+    source: str
+    source_mode: str
+    approval_mode: ApprovalMode
+    execution_allowed: bool
+    denial_reason: Optional[str] = None
+    contract_version: str = "1"
+
+    def __post_init__(self) -> None:
+        if self.source not in {"chat_review", "terminal"}:
+            raise ValueError("source must be chat_review or terminal")
+        _require_text(self.source_mode, "source_mode")
+        _require_enum(self.approval_mode, ApprovalMode, "approval_mode")
+        if not isinstance(self.execution_allowed, bool):
+            raise ValueError("execution_allowed must be a bool")
+        _require_optional_text(self.denial_reason, "denial_reason")
+        _require_text(self.contract_version, "contract_version")
+        if self.execution_allowed and self.denial_reason is not None:
+            raise ValueError("allowed legacy facts cannot include a denial reason")
+        if not self.execution_allowed and self.denial_reason is None:
+            raise ValueError("denied legacy facts require a denial reason")
 
 
 def _require_enum(value: Any, enum_type: type[Enum], name: str) -> None:
@@ -472,6 +512,7 @@ class PolicyInput:
     approval_mode: ApprovalMode = ApprovalMode.ASK
     approval_status: ApprovalStatus = ApprovalStatus.NONE
     approval_id: Optional[str] = None
+    compatibility_denials: tuple[str, ...] = ()
     active_kill_switches: tuple[str, ...] = ()
     contract_version: str = "1"
 
@@ -502,6 +543,7 @@ class PolicyInput:
         _require_enum(self.approval_mode, ApprovalMode, "approval_mode")
         _require_enum(self.approval_status, ApprovalStatus, "approval_status")
         _require_optional_text(self.approval_id, "approval_id")
+        _require_tuple(self.compatibility_denials, "compatibility_denials", str)
         _require_tuple(self.active_kill_switches, "active_kill_switches", str)
         if self.approval_status is ApprovalStatus.NONE and self.approval_id is not None:
             raise ValueError("approval_id requires an approval status")
