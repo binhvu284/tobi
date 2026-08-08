@@ -5,7 +5,7 @@
 | Field | Decision |
 |---|---|
 | Queue item | `#21` |
-| Status | In progress; T00-T05 and T06 Run 1 delivered, T06 Run 2 planning next |
+| Status | In progress; T00-T05 and T06 Run 1 delivered, T06 Run 2 plan ready for owner approval |
 | Delivered dependency | `#20` Brain V2 is delivered; T00 must reconcile this plan with its actual contracts, migrations, context behavior, and rollback path |
 | Start gate | Satisfied 2026-08-01 by `#22` Codex-only V2 qualification (`e9bc5fe`); other workers remain locked until separately qualified |
 | Deployment confidence | The `#22` 24-hour/72-hour VPS soak remains a deployment confidence gate, not a source-development blocker for `#21` unless the owner explicitly promotes it to one |
@@ -1122,6 +1122,37 @@ For every task package:
 8. Record schema/API/flag changes and exact verification in this plan's implementation log.
 9. Update current-state docs only after behavior is accepted.
 10. Stop and report an actionable blocker when a locked decision cannot be met; do not silently redesign the architecture.
+
+### 25.1 T06 Run 2 - Dormant Catalog Adapter Plan (2026-08-09)
+
+**Outcome:** Existing catalog metadata can be converted into isolated canonical registry snapshots
+for parity tests without changing what any live caller sees or executes.
+
+| Source | Adapter input and identity | Conservative availability and trust rule |
+|---|---|---|
+| Conductor/Chat | Existing `ToolSpec` values from `TOOL_SPECS`; namespace `tobi.conductor`; fixed compatibility version | Read risk becomes canonical `none`; non-read legacy side effects remain conservatively classified; snapshot starts unknown and is never advertised live |
+| Inbound MCP | Tool objects returned by public `FastMCP.list_tools()`; namespace `mcp.inbound.tobi`; fixed local-server version | Local definitions are trusted only for schemas; `SENSITIVE_TOOLS` remains the existing risk source; no callable enters the registry |
+| Outbound MCP | New read-only snapshot joining existing `mcp_tools` and `mcp_connections`; namespace includes stable connection id; content-derived version | External annotations are untrusted; risk/side effects fail closed; disabled/error/not-tested connection states cannot become available; endpoint and `auth_ref` never leave the adapter boundary |
+
+**Implementation order:**
+
+1. Add `tests/test_mc_runtime_tool_adapters.py`, confirm the missing adapter fails, and set the Gate to red.
+2. Add the MCP surface and a small typed adapter result; normalize legacy `read` risk without weakening action risk.
+3. Add pure adapters in `core/runtime/tool_adapters.py`; accept metadata only, deep-copy schemas, use deterministic identities, and never store or call functions.
+4. Add a read-only `mcp_client` catalog snapshot using existing columns only; parse malformed JSON to unknown/unavailable rather than guessing.
+5. Register each snapshot only inside tests, prove exact catalog parity and no live imports, then run regressions and the enforced gate.
+
+**Acceptance checks:** current Conductor names/count match exactly; all six inbound MCP names match
+`TOOL_NAMES`; duplicate outbound names from different connection ids never collide; schema changes
+produce a new deterministic version; malformed/remote schemas fail closed; permission and
+availability remain separate; no endpoint, token, `auth_ref`, callable, or tool output enters a
+contract; `runtime.v2_tools` stays off; existing Chat, Conductor, MCP, terminal, and Storage suites pass.
+
+**Explicit non-goals:** no global registry, startup wiring, invocation validation, execution routing,
+new table/column, API/UI, live discovery, policy cutover, real tool migration, or external service.
+
+**Estimate after delivery:** T06 **70-80%** complete; #21 **66-73%** complete. The remaining T06 run
+will prove shadow parity and define the owner-reviewed activation boundary before T07 starts.
 
 ## 26. Implementation Log
 

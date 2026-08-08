@@ -9,16 +9,18 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T06 Run 2 - legacy catalog adapter planning (not started)
+**Package:** T06 Run 2 - dormant legacy and MCP catalog adapters (plan ready; awaiting approval)
 
 **Purpose (one sentence, plain words):**
-Plan compatibility adapters from the existing Chat, Conductor, and MCP catalogs into the dormant
-canonical registry without changing any live catalog or execution path.
+Adapt existing Conductor/Chat, inbound MCP, and persisted outbound MCP metadata into isolated
+canonical registry snapshots without changing any live catalog or execution path.
 
 **Not doing:**
-- No implementation before the owner approves the Run 2 plan.
+- No implementation before the owner approves this Run 2 plan.
 - No live tool discovery, routing, policy cutover, or caller integration.
 - No second authoritative catalog alongside existing tool registries.
+- No global registry singleton or startup registration.
+- No database migration; outbound MCP uses the already-persisted input schema and truthful fallbacks.
 - No migration of real file, terminal, or project tools; T07 owns them.
 - No raw credential access, Vault broker work, or tool execution.
 - No Conductor decomposition; T08 owns it.
@@ -28,7 +30,11 @@ canonical registry without changing any live catalog or execution path.
 
 **Files expected:**
 - `.claude/CURRENT_WORK.md`
-- T06 Run 2 planning evidence only
+- `core/runtime/contracts.py`
+- `core/runtime/tool_adapters.py`
+- `core/mcp_client.py`
+- `tests/test_mc_runtime_tool_adapters.py`
+- current board, queue, architecture, current-state, and implementation-log docs after delivery
 
 **Gate: no**
 
