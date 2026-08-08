@@ -16,6 +16,7 @@ from core.chat_runtime_contracts import ToolSpec as ChatToolSpec
 class Surface(str, Enum):
     CHAT = "chat"
     AGENT = "agent"
+    MCP = "mcp"
     TELEGRAM = "telegram"
     CLI = "cli"
     SCHEDULER = "scheduler"
@@ -473,10 +474,13 @@ class RuntimeToolSpec:
     ) -> "RuntimeToolSpec":
         if not isinstance(spec, ChatToolSpec):
             raise ValueError("spec must be a Chat Runtime V2 ToolSpec")
-        try:
-            risk = RiskLevel(spec.risk)
-        except ValueError as exc:
-            raise ValueError(f"unsupported Chat tool risk: {spec.risk}") from exc
+        if spec.risk == "read":
+            risk = RiskLevel.NONE
+        else:
+            try:
+                risk = RiskLevel(spec.risk)
+            except ValueError as exc:
+                raise ValueError(f"unsupported Chat tool risk: {spec.risk}") from exc
         return cls(
             name=spec.name,
             namespace=namespace,
@@ -507,6 +511,24 @@ class ToolAvailability:
         _require_text(self.tool_ref, "tool_ref")
         _require_enum(self.status, ToolAvailabilityStatus, "status")
         _require_tuple(self.reason_codes, "reason_codes", str)
+        _require_text(self.contract_version, "contract_version")
+
+
+@dataclass(frozen=True)
+class ToolCatalogEntry:
+    source_key: str
+    spec: RuntimeToolSpec
+    availability: ToolAvailability
+    contract_version: str = "1"
+
+    def __post_init__(self) -> None:
+        _require_text(self.source_key, "source_key")
+        if not isinstance(self.spec, RuntimeToolSpec):
+            raise ValueError("spec must be a RuntimeToolSpec")
+        if not isinstance(self.availability, ToolAvailability):
+            raise ValueError("availability must be a ToolAvailability")
+        if self.availability.tool_ref != self.spec.ref:
+            raise ValueError("availability tool_ref must match spec ref")
         _require_text(self.contract_version, "contract_version")
 
 

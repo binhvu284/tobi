@@ -9,18 +9,16 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T06 Run 2 - dormant legacy and MCP catalog adapters (plan ready; awaiting approval)
+**Package:** T06 Run 3 - shadow parity and activation-boundary planning (not started)
 
 **Purpose (one sentence, plain words):**
-Adapt existing Conductor/Chat, inbound MCP, and persisted outbound MCP metadata into isolated
-canonical registry snapshots without changing any live catalog or execution path.
+Plan how canonical snapshots will be compared with legacy catalogs and define the owner-reviewed
+activation boundary without changing any live catalog or execution path.
 
 **Not doing:**
-- No implementation before the owner approves this Run 2 plan.
+- No implementation before the owner approves the Run 3 plan.
 - No live tool discovery, routing, policy cutover, or caller integration.
 - No second authoritative catalog alongside existing tool registries.
-- No global registry singleton or startup registration.
-- No database migration; outbound MCP uses the already-persisted input schema and truthful fallbacks.
 - No migration of real file, terminal, or project tools; T07 owns them.
 - No raw credential access, Vault broker work, or tool execution.
 - No Conductor decomposition; T08 owns it.
@@ -30,11 +28,7 @@ canonical registry snapshots without changing any live catalog or execution path
 
 **Files expected:**
 - `.claude/CURRENT_WORK.md`
-- `core/runtime/contracts.py`
-- `core/runtime/tool_adapters.py`
-- `core/mcp_client.py`
-- `tests/test_mc_runtime_tool_adapters.py`
-- current board, queue, architecture, current-state, and implementation-log docs after delivery
+- T06 Run 3 planning evidence only
 
 **Gate: no**
 

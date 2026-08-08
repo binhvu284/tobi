@@ -245,6 +245,46 @@ def list_tools(source: Optional[str] = None) -> list[dict]:
         conn.close()
 
 
+def catalog_snapshot(source: Optional[str] = None) -> list[dict]:
+    """Read persisted outbound tool metadata without endpoints or credentials."""
+    conn = get_connection()
+    try:
+        where = "WHERE t.source != 'self'"
+        params: tuple = ()
+        if source is not None:
+            where += " AND t.source=?"
+            params = (str(source),)
+        rows = conn.execute(
+            "SELECT t.id, t.source, t.name, t.schema_json, "
+            "t.enabled AS tool_enabled, t.permission, "
+            "c.enabled AS connection_enabled, c.status AS connection_status, "
+            "c.last_tested_at "
+            "FROM mcp_tools t "
+            "LEFT JOIN mcp_connections c ON CAST(c.id AS TEXT)=t.source "
+            f"{where} ORDER BY t.source, t.name",
+            params,
+        ).fetchall()
+        snapshot: list[dict] = []
+        for raw in rows:
+            row = dict(raw)
+            schema_error = None
+            try:
+                input_schema = json.loads(row.pop("schema_json") or "null")
+                if not isinstance(input_schema, dict):
+                    input_schema = None
+                    schema_error = "schema.not_object"
+            except (TypeError, ValueError, json.JSONDecodeError):
+                row.pop("schema_json", None)
+                input_schema = None
+                schema_error = "schema.invalid_json"
+            row["input_schema"] = input_schema
+            row["schema_error"] = schema_error
+            snapshot.append(row)
+        return snapshot
+    finally:
+        conn.close()
+
+
 def _tool_row(tool_id: int) -> Optional[dict]:
     conn = get_connection()
     try:
