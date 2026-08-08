@@ -114,8 +114,11 @@ class PolicyEngine:
             blockers.append("budget.exhausted")
         elif policy_input.budget_status is BudgetStatus.UNKNOWN:
             blockers.append("budget.unknown")
-        if policy_input.approval_status is ApprovalStatus.REJECTED:
-            blockers.append("approval.rejected")
+        if policy_input.approval_status in {
+            ApprovalStatus.REJECTED,
+            ApprovalStatus.EXPIRED,
+        }:
+            blockers.append(f"approval.{policy_input.approval_status.value}")
 
         if blockers:
             return self._decision(

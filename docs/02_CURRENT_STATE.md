@@ -70,7 +70,7 @@ The largest truth gaps are no longer "nothing is built." Chat/Agent mode policy,
 - #14 Premium Ability is delivered at v1, including the follow-up vision-model borrowing and Ability reorganization.
 - #16 Chat Mode Backend Upgrade is delivered. #17 Awakening Tier 1 Completion reached owner-runtime acceptance at 9/9 on 2026-07-14 through a successful GitHub read verification, advancing Evolution to the Agent tier; connector health still follows the 24-hour evidence-freshness rule. #19 Performance "System Doctor" is delivered (v1).
 - #15 Office V3 is delivered at v1 with owner visual acceptance still open.
-- #18 TOBI Coding Agent v1 remains the base continuous goal/lease/worktree/review/deployment system. #22 Coding Agent V2 is qualified for the Codex-only path; its target-VPS soak remains a deployment gate. #21 is in progress: T00-T04 and T05 Run 1 are delivered. Plain-text direct Chat remains the only active Runtime V2 execution path; the new policy engine is dormant, and T05 Run 2 approval-lifecycle planning is next.
+- #18 TOBI Coding Agent v1 remains the base continuous goal/lease/worktree/review/deployment system. #22 Coding Agent V2 is qualified for the Codex-only path; its target-VPS soak remains a deployment gate. #21 is in progress: T00-T04 and T05 Runs 1-2 are delivered. Plain-text direct Chat remains the only active Runtime V2 execution path; central policy and durable approvals are dormant, and T05 Run 3 planning is next.
 - Original plans remain under `feature-idea-queue/`; they are requirements history, not proof of current behavior.
 
 ## Highest-Risk Gaps

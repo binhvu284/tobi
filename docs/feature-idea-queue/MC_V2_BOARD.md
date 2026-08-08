@@ -13,13 +13,13 @@ Its status column carries the same short progress note this board tracks.
 
 ## Status
 
-**In progress.** T00 through T04 and T05 Run 1 are delivered; T05 Run 2 planning is next.
+**In progress.** T00 through T04 and T05 Runs 1-2 are delivered; T05 Run 3 planning is next.
 
-**Delivered:** 5 of 17 packages plus about 25-35% of T05, about **54-60%** of total effort.
+**Delivered:** 5 of 17 packages plus about 55-65% of T05, about **57-63%** of total effort.
 
-**Next:** T05 Run 2 plans durable owner approvals. Run 1 added typed deterministic policy results
-and immutable redacted `mc_policy_decisions`, but the default-off policy flag has no live caller.
-Conductor, terminal, MCP, Vault, Chat, and Agent behavior is unchanged.
+**Next:** T05 Run 3 plans the remaining credential-readiness and legacy-policy compatibility
+boundary. Run 2 added durable single-winner approvals, safe expiry, and verified evidence return
+to central policy. The default-off policy flag still has no live caller, so existing behavior is unchanged.
 
 ---
 
@@ -58,7 +58,7 @@ Ordered. Each one ships and is reviewable on its own. Risk is the plan's own rat
 | T02 | **Write everything down, in order.** Immutable ordered run/System history, secret redaction before storage, and deterministic current-state rebuilds are delivered locally. No live caller is switched. | T01 | High | Done |
 | T03 | **Make runs survive a crash.** Canonical storage, versioned states, exclusive leases, restart checkpoints, bounded retries, recovery commands, cancellation fencing, persisted loop progress, hard limits, action reservations, immutable receipts, and fail-closed crash reconciliation are delivered. | T02 | High | Done |
 | T04 | **Point Chat and Agent at the new engine**, quietly at first (both run side by side and get compared before anything switches over). | T03 | High | Done |
-| T05 | **One place decides what is allowed.** Permissions, approvals, credentials, budgets — currently spread across many files. | T01 | High | Run 1 delivered; Run 2 next |
+| T05 | **One place decides what is allowed.** Permissions, approvals, credentials, budgets — currently spread across many files. | T01 | High | Runs 1-2 delivered; Run 3 next |
 | T06 | **One list of tools.** Every tool described once, in one format, with its arguments checked before it runs. | T01, T05 | High | ☐ |
 | T07 | **Move the first real tools over:** files, terminal, projects. Each one gets a receipt, and a retry cannot double-apply it. | T03, T06 | High | ☐ |
 | T08 | **Shrink the Conductor.** It currently does routing, planning, permissions, execution, and replies all in one file. Pull those out one at a time until it is a thin wrapper. | T04, T07 | High | ☐ |

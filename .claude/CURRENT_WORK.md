@@ -9,14 +9,14 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T05 Run 2 - durable owner approval lifecycle (not started)
+**Package:** T05 Run 3 - remaining central-policy integration boundary (planning not started)
 
 **Purpose (one sentence, plain words):**
-A durable approval request will pause the same run, accept exactly one authenticated owner
-decision, expire safely, and return that evidence to central policy without executing a tool.
+The remaining credential-readiness and legacy-policy compatibility boundaries will be mapped
+into one reviewable next run before any live caller changes.
 
 **Not doing:**
-- No implementation before the owner approves the T05 Run 2 plan.
+- No implementation before the owner approves the T05 Run 3 plan.
 - No live policy cutover or caller integration.
 - No tool execution from the approval service.
 - No raw credential access or Vault broker work.

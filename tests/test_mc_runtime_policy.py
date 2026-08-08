@@ -39,11 +39,7 @@ from core.runtime.contracts import (  # noqa: E402
 from core.runtime.event_store import EventConflictError, append_run_event, list_run_events  # noqa: E402
 from core.runtime.policy import PolicyConflictError, PolicyEngine, PolicyLedger  # noqa: E402
 from core.runtime.repository import RuntimeRepository  # noqa: E402
-from core.schema.runtime import (  # noqa: E402
-    RUNTIME_SCHEMA_VERSION,
-    RUNTIME_SCHEMA_VERSIONS,
-    _ensure_runtime_schema,
-)
+from core.schema.runtime import RUNTIME_SCHEMA_VERSIONS, _ensure_runtime_schema  # noqa: E402
 
 
 PASS = 0
@@ -200,9 +196,8 @@ tables = {row[0] for row in conn.execute(
 )}
 conn.close()
 ok(
-    "migration 007 is additive and idempotent",
-    RUNTIME_SCHEMA_VERSION == "mc-runtime-v2-007"
-    and "mc-runtime-v2-007" in RUNTIME_SCHEMA_VERSIONS
+    "migration 007 remains additive and idempotent",
+    "mc-runtime-v2-007" in RUNTIME_SCHEMA_VERSIONS
     and versions.count("mc-runtime-v2-007") == 1
     and "mc_policy_decisions" in tables
     and query_one("SELECT value FROM legacy_policy_probe")["value"] == "preserved",

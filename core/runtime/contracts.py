@@ -71,6 +71,7 @@ class ApprovalStatus(str, Enum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
+    EXPIRED = "expired"
 
 
 class CredentialStatus(str, Enum):
@@ -548,6 +549,65 @@ class PolicyDecision:
         _require_optional_text(self.credential_purpose, "credential_purpose")
         if self.effect is PolicyEffect.REQUIRE_APPROVAL and not self.required_approval:
             raise ValueError("require_approval effect must set required_approval")
+
+
+@dataclass(frozen=True)
+class ApprovalRequest:
+    approval_id: str
+    run_id: str
+    step_id: str
+    policy_decision_id: str
+    owner_id: str
+    session_id: str
+    tool_ref: str
+    expires_at: str
+    contract_version: str = "1"
+
+    def __post_init__(self) -> None:
+        for name in (
+            "approval_id",
+            "run_id",
+            "step_id",
+            "policy_decision_id",
+            "owner_id",
+            "session_id",
+            "tool_ref",
+            "expires_at",
+            "contract_version",
+        ):
+            _require_text(getattr(self, name), name)
+
+
+@dataclass(frozen=True)
+class OwnerApprovalDecision:
+    approval_id: str
+    owner_id: str
+    session_id: str
+    status: ApprovalStatus
+    authentication_method: str
+    authentication_evidence_hash: str
+    authenticated_at: str
+    contract_version: str = "1"
+
+    def __post_init__(self) -> None:
+        for name in (
+            "approval_id",
+            "owner_id",
+            "session_id",
+            "authentication_method",
+            "authentication_evidence_hash",
+            "authenticated_at",
+            "contract_version",
+        ):
+            _require_text(getattr(self, name), name)
+        _require_enum(self.status, ApprovalStatus, "status")
+        if self.status not in {ApprovalStatus.APPROVED, ApprovalStatus.REJECTED}:
+            raise ValueError("owner approval status must be approved or rejected")
+        evidence_hash = self.authentication_evidence_hash
+        if len(evidence_hash) != 64 or any(
+            character not in "0123456789abcdef" for character in evidence_hash
+        ):
+            raise ValueError("authentication_evidence_hash must be lowercase SHA-256")
 
 
 @dataclass(frozen=True)

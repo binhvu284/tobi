@@ -13,6 +13,7 @@ RUNTIME_SCHEMA_VERSIONS = (
     "mc-runtime-v2-005",
     "mc-runtime-v2-006",
     "mc-runtime-v2-007",
+    "mc-runtime-v2-008",
 )
 RUNTIME_SCHEMA_VERSION = RUNTIME_SCHEMA_VERSIONS[-1]
 _SCHEMA_LOCK = threading.Lock()
@@ -32,6 +33,7 @@ _RUNTIME_TABLES = {
     "mc_idempotency",
     "mc_action_receipts",
     "mc_policy_decisions",
+    "mc_run_approvals",
 }
 
 _STEP_LEASE_COLUMNS = {
@@ -334,6 +336,63 @@ _STATEMENTS = (
     """CREATE TRIGGER IF NOT EXISTS mc_policy_decisions_delete_guard
         BEFORE DELETE ON mc_policy_decisions BEGIN
             SELECT RAISE(ABORT, 'mc_policy_decisions is immutable');
+        END""",
+    """CREATE TABLE IF NOT EXISTS mc_run_approvals (
+        approval_id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        policy_decision_id TEXT NOT NULL UNIQUE,
+        owner_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        tool_ref TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (
+            status IN ('pending', 'approved', 'rejected', 'expired')
+        ),
+        request_json TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        response_json TEXT,
+        response_hash TEXT,
+        requested_by TEXT NOT NULL,
+        requested_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        decided_by TEXT,
+        decided_at TEXT,
+        contract_version TEXT NOT NULL DEFAULT '1',
+        CHECK (
+            (status = 'pending' AND response_json IS NULL AND response_hash IS NULL
+             AND decided_by IS NULL AND decided_at IS NULL)
+            OR
+            (status IN ('approved', 'rejected', 'expired')
+             AND response_json IS NOT NULL AND response_hash IS NOT NULL
+             AND decided_by IS NOT NULL AND decided_at IS NOT NULL)
+        ),
+        FOREIGN KEY (run_id, step_id) REFERENCES mc_run_steps(run_id, step_id),
+        FOREIGN KEY (policy_decision_id) REFERENCES mc_policy_decisions(decision_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_mc_run_approvals_run ON mc_run_approvals(run_id, requested_at, approval_id)",
+    "CREATE INDEX IF NOT EXISTS idx_mc_run_approvals_pending ON mc_run_approvals(status, expires_at)",
+    """CREATE TRIGGER IF NOT EXISTS mc_run_approvals_identity_guard
+        BEFORE UPDATE OF approval_id, run_id, step_id, policy_decision_id,
+                         owner_id, session_id, tool_ref, request_json, request_hash,
+                         requested_by, requested_at, expires_at, contract_version
+        ON mc_run_approvals BEGIN
+            SELECT RAISE(ABORT, 'mc_run_approvals identity is immutable');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_run_approvals_lifecycle_guard
+        BEFORE UPDATE OF status, response_json, response_hash, decided_by, decided_at
+        ON mc_run_approvals
+        WHEN OLD.status != 'pending'
+          OR NEW.status NOT IN ('approved', 'rejected', 'expired')
+          OR NEW.response_json IS NULL
+          OR NEW.response_hash IS NULL
+          OR NEW.decided_by IS NULL
+          OR NEW.decided_at IS NULL
+        BEGIN
+            SELECT RAISE(ABORT, 'mc_run_approvals can only resolve once');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_run_approvals_delete_guard
+        BEFORE DELETE ON mc_run_approvals BEGIN
+            SELECT RAISE(ABORT, 'mc_run_approvals history is immutable');
         END""",
     """CREATE TABLE IF NOT EXISTS mc_run_checkpoints (
         checkpoint_id TEXT PRIMARY KEY,
