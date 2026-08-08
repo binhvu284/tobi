@@ -9,16 +9,16 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T06 Run 1 - canonical tool registry planning (not started)
+**Package:** T06 Run 2 - legacy catalog adapter planning (not started)
 
 **Purpose (one sentence, plain words):**
-The first canonical tool-registry run will be mapped into one reviewable package before any
-tool catalog, validation, adapter, or live caller changes.
+Plan compatibility adapters from the existing Chat, Conductor, and MCP catalogs into the dormant
+canonical registry without changing any live catalog or execution path.
 
 **Not doing:**
-- No implementation before the owner approves the T06 Run 1 plan.
+- No implementation before the owner approves the Run 2 plan.
 - No live tool discovery, routing, policy cutover, or caller integration.
-- No duplicate catalog authority alongside existing tool registries.
+- No second authoritative catalog alongside existing tool registries.
 - No migration of real file, terminal, or project tools; T07 owns them.
 - No raw credential access, Vault broker work, or tool execution.
 - No Conductor decomposition; T08 owns it.
@@ -26,7 +26,9 @@ tool catalog, validation, adapter, or live caller changes.
 - No Telegram, CLI, Office, scheduler, or remaining-surface adapters.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
-**Files expected:** Planning and evidence docs only until the owner approves implementation.
+**Files expected:**
+- `.claude/CURRENT_WORK.md`
+- T06 Run 2 planning evidence only
 
 **Gate: no**
 

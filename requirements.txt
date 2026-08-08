@@ -3,6 +3,7 @@ openai==2.38.0
 python-dotenv==1.2.2
 python-telegram-bot==22.7
 requests==2.34.2
+jsonschema==4.26.0
 schedule==1.2.2
 tavily-python==0.7.24
 tqdm==4.67.3

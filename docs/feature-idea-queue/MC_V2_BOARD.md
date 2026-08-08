@@ -13,13 +13,13 @@ Its status column carries the same short progress note this board tracks.
 
 ## Status
 
-**In progress.** T00 through T05 are delivered; T06 Run 1 planning is next.
+**In progress.** T00 through T05 and T06 Run 1 are delivered; T06 Run 2 planning is next.
 
-**Delivered:** 6 of 17 packages, about **60-66%** of total effort.
+**Delivered:** 6 of 17 packages plus about **35-45% of T06**, about **63-69%** of total effort.
 
-**Next:** T06 Run 1 plans one canonical, MCP-compatible tool registry with filtered discovery and
-argument validation before execution. No implementation or live caller change starts before the
-owner approves that plan.
+**Next:** T06 Run 2 plans compatibility adapters from the existing Chat, Conductor, and MCP
+catalogs into the dormant canonical registry. No live caller or execution-path change starts before
+the owner approves that plan.
 
 ---
 
@@ -59,7 +59,7 @@ Ordered. Each one ships and is reviewable on its own. Risk is the plan's own rat
 | T03 | **Make runs survive a crash.** Canonical storage, versioned states, exclusive leases, restart checkpoints, bounded retries, recovery commands, cancellation fencing, persisted loop progress, hard limits, action reservations, immutable receipts, and fail-closed crash reconciliation are delivered. | T02 | High | Done |
 | T04 | **Point Chat and Agent at the new engine**, quietly at first (both run side by side and get compared before anything switches over). | T03 | High | Done |
 | T05 | **One place decides what is allowed.** Permissions, approvals, credentials, budgets — currently spread across many files. | T01 | High | Done |
-| T06 | **One list of tools.** Every tool described once, in one format, with its arguments checked before it runs. | T01, T05 | High | Planning next |
+| T06 | **One list of tools.** Every tool described once, in one format, with its arguments checked before it runs. | T01, T05 | High | Run 1 delivered; Run 2 planning next |
 | T07 | **Move the first real tools over:** files, terminal, projects. Each one gets a receipt, and a retry cannot double-apply it. | T03, T06 | High | ☐ |
 | T08 | **Shrink the Conductor.** It currently does routing, planning, permissions, execution, and replies all in one file. Pull those out one at a time until it is a thin wrapper. | T04, T07 | High | ☐ |
 | T09 | **Let Brain memory actually change answers.** Relevant memory influences what TOBI does; stale or private memory does not leak into it. | T00, T08 | High | ☐ |

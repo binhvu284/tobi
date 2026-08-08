@@ -84,6 +84,12 @@ class CredentialStatus(str, Enum):
     UNKNOWN = "unknown"
 
 
+class ToolAvailabilityStatus(str, Enum):
+    AVAILABLE = "available"
+    UNAVAILABLE = "unavailable"
+    UNKNOWN = "unknown"
+
+
 class TrustClass(str, Enum):
     OWNER_DIRECT = "owner_direct"
     SYSTEM_VERIFIED = "system_verified"
@@ -488,6 +494,51 @@ class RuntimeToolSpec:
             idempotency_policy="required" if spec.idempotent else "none",
             adapter=adapter,
         )
+
+
+@dataclass(frozen=True)
+class ToolAvailability:
+    tool_ref: str
+    status: ToolAvailabilityStatus
+    reason_codes: tuple[str, ...] = ()
+    contract_version: str = "1"
+
+    def __post_init__(self) -> None:
+        _require_text(self.tool_ref, "tool_ref")
+        _require_enum(self.status, ToolAvailabilityStatus, "status")
+        _require_tuple(self.reason_codes, "reason_codes", str)
+        _require_text(self.contract_version, "contract_version")
+
+
+@dataclass(frozen=True)
+class ToolDiscoveryQuery:
+    surface: Surface
+    mode: str
+    candidate_tool_refs: tuple[str, ...] = ()
+    limit: int = 20
+    contract_version: str = "1"
+
+    def __post_init__(self) -> None:
+        _require_enum(self.surface, Surface, "surface")
+        _require_text(self.mode, "mode")
+        _require_tuple(self.candidate_tool_refs, "candidate_tool_refs", str)
+        _require_positive_int(self.limit, "limit")
+        if self.limit > 100:
+            raise ValueError("limit must not exceed 100")
+        _require_text(self.contract_version, "contract_version")
+
+
+@dataclass(frozen=True)
+class ToolDiscoveryResult:
+    tools: tuple[RuntimeToolSpec, ...]
+    truncated: bool = False
+    contract_version: str = "1"
+
+    def __post_init__(self) -> None:
+        _require_tuple(self.tools, "tools", RuntimeToolSpec)
+        if not isinstance(self.truncated, bool):
+            raise ValueError("truncated must be a bool")
+        _require_text(self.contract_version, "contract_version")
 
 
 @dataclass(frozen=True)
