@@ -415,7 +415,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                 return
             for chunk in conductor._stream_chunks(replayed["content"]):
                 yield f"event: delta\ndata: {json.dumps({'text': chunk})}\n\n"
-            yield f"event: usage\ndata: {json.dumps({
+            yield "event: usage\ndata: " + json.dumps({
                 'prompt_tokens': 0,
                 'completion_tokens': int(replayed.get('tokens') or 0),
                 'model': replayed.get('model') or 'not_used',
@@ -425,7 +425,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                 'attempts': 0,
                 'latency_ms': 0,
                 'replayed': True,
-            })}\n\n"
+            }) + "\n\n"
             runtime_complete("succeeded")
             yield runtime_frame(
                 "turn_completed", "gateway", {"status": "done", "replayed": True}
