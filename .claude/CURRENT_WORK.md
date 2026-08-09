@@ -9,20 +9,18 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T06 Run 3 - dormant parity, validated call preparation, and activation boundary (delivered; owner closure review pending)
+**Package:** T07 - file, terminal, and project tool migration planning (not started)
 
 **Purpose (one sentence, plain words):**
-Prove canonical catalog parity, prepare only allowlisted and schema-valid calls, and define the
-owner-reviewed activation boundary without changing any live catalog or execution path.
+Plan the first reviewable migration of file, terminal, and project tools to canonical policy,
+receipts, and retry protection without changing live execution before owner approval.
 
 **Not doing:**
-- No T06 closure or T07 start before the owner accepts the delivery evidence.
-- No live tool discovery, routing, policy cutover, or caller integration.
-- No tool invocation, tool output handling, or activation; this run only prepares validated calls
-  and reports whether every later activation condition is satisfied.
-- No second authoritative catalog alongside existing tool registries.
-- No migration of real file, terminal, or project tools; T07 owns them.
-- No raw credential access, Vault broker work, or tool execution.
+- No implementation before the owner approves the T07 plan.
+- No live tool routing, policy cutover, caller integration, or flag change during planning.
+- No attempt to migrate every tool domain in one run; planning must select a small first slice.
+- No deletion or bypass of legacy tool registries.
+- No unrestricted terminal or filesystem authority.
 - No Conductor decomposition; T08 owns it.
 - No Runs page or broad frontend redesign; T13 owns it.
 - No Telegram, CLI, Office, scheduler, or remaining-surface adapters.
@@ -30,17 +28,11 @@ owner-reviewed activation boundary without changing any live catalog or executio
 
 **Files expected:**
 - `.claude/CURRENT_WORK.md`
-- `core/runtime/contracts.py`
-- `core/runtime/tool_catalog.py`
-- `tests/test_mc_runtime_tool_catalog.py`
-- `docs/feature-idea-queue/MC_V2_BOARD.md`
-- `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
-- `docs/feature-idea-queue/QUEUE.md`
+- T07 planning evidence only
 
-**Gate: green**
+**Gate: no**
 
 ```gate
-venv/Scripts/python.exe tests/test_mc_runtime_tool_catalog.py
 ```
 
 ---
