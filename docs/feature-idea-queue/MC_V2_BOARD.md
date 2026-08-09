@@ -13,12 +13,12 @@ Its status column carries the same short progress note this board tracks.
 
 ## Status
 
-**In progress.** T00 through T06 are delivered; T07 planning is next.
+**In progress.** T00 through T06 and T07 Run 1 are delivered; T07 remains open.
 
-**Delivered:** 7 of 17 packages, about **69-76%** of total effort.
+**Delivered:** 7 complete packages plus the first T07 run, about **71-79%** of total effort.
 
-**Next:** start T07 planning and choose the first small file, terminal, or project tool migration.
-No tool migration, live routing change, or execution-path change starts before plan approval.
+**Next:** review and accept T07 Run 1, then plan Run 2 for bounded file tools. The delivered project
+path remains dormant; no live routing or owner-visible behavior changed.
 
 ---
 
@@ -59,7 +59,7 @@ Ordered. Each one ships and is reviewable on its own. Risk is the plan's own rat
 | T04 | **Point Chat and Agent at the new engine**, quietly at first (both run side by side and get compared before anything switches over). | T03 | High | Done |
 | T05 | **One place decides what is allowed.** Permissions, approvals, credentials, budgets — currently spread across many files. | T01 | High | Done |
 | T06 | **One list of tools.** Every tool described once, in one format, with its arguments checked before it runs. | T01, T05 | High | Done |
-| T07 | **Move the first real tools over:** files, terminal, projects. Each one gets a receipt, and a retry cannot double-apply it. | T03, T06 | High | Planning next |
+| T07 | **Move the first real tools over:** files, terminal, projects. Each one gets a receipt, and a retry cannot double-apply it. | T03, T06 | High | Run 1 delivered; review |
 | T08 | **Shrink the Conductor.** It currently does routing, planning, permissions, execution, and replies all in one file. Pull those out one at a time until it is a thin wrapper. | T04, T07 | High | ☐ |
 | T09 | **Let Brain memory actually change answers.** Relevant memory influences what TOBI does; stale or private memory does not leak into it. | T00, T08 | High | ☐ |
 | T10 | **Make Hermes and the coding agent workers, not bosses.** They execute bounded requests; they cannot change the authoritative record. | T00, T03, T06 | High | ☐ |

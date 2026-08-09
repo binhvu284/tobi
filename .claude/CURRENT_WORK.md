@@ -9,16 +9,15 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T07 - file, terminal, and project tool migration planning (not started)
+**Package:** T07 Run 1 - dormant project tool execution slice (delivered; awaiting owner acceptance)
 
 **Purpose (one sentence, plain words):**
-Plan the first reviewable migration of file, terminal, and project tools to canonical policy,
-receipts, and retry protection without changing live execution before owner approval.
+Migrate `list_projects` and `create_task` through canonical validation, central policy, durable
+receipts, and retry protection without changing any live tool route.
 
 **Not doing:**
-- No implementation before the owner approves the T07 plan.
-- No live tool routing, policy cutover, caller integration, or flag change during planning.
-- No attempt to migrate every tool domain in one run; planning must select a small first slice.
+- No live tool routing, policy cutover, caller integration, or flag change.
+- No file or terminal tool migration in Run 1; later T07 runs own those domains.
 - No deletion or bypass of legacy tool registries.
 - No unrestricted terminal or filesystem authority.
 - No Conductor decomposition; T08 owns it.
@@ -27,12 +26,19 @@ receipts, and retry protection without changing live execution before owner appr
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
 **Files expected:**
+- `core/runtime/tool_execution.py`
+- `core/runtime/project_tools.py`
+- `core/runtime/tool_catalog.py`
+- `tests/test_mc_runtime_project_tools.py`
 - `.claude/CURRENT_WORK.md`
-- T07 planning evidence only
+- `docs/feature-idea-queue/MC_V2_BOARD.md`
+- `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
+- `docs/feature-idea-queue/QUEUE.md`
 
-**Gate: no**
+**Gate: green**
 
 ```gate
+venv/Scripts/python.exe tests/test_mc_runtime_project_tools.py
 ```
 
 ---

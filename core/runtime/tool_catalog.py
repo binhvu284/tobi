@@ -9,8 +9,10 @@ from typing import Any, Optional
 
 from core.runtime.contracts import (
     RuntimeToolCall,
+    RuntimeToolSpec,
     Surface,
     ToolActivationReadiness,
+    ToolAvailability,
     ToolAvailabilityStatus,
     ToolCatalogEntry,
     ToolCatalogIssue,
@@ -144,6 +146,24 @@ class CanonicalToolCatalog:
     @property
     def manifest(self) -> ToolCatalogManifest:
         return copy.deepcopy(self._manifest)
+
+    def get_spec(self, tool_ref: str) -> RuntimeToolSpec:
+        """Return an isolated registered contract for policy and execution adapters."""
+        return self._registry.get(tool_ref)
+
+    def availability(self, tool_ref: str) -> ToolAvailability:
+        """Return current catalog availability without exposing the registry."""
+        return copy.deepcopy(self._registry.availability(tool_ref))
+
+    def validate_arguments(
+        self, tool_ref: str, arguments: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Revalidate a prepared call at the execution boundary."""
+        return self._registry.validate_arguments(tool_ref, arguments)
+
+    def validate_output(self, tool_ref: str, output: Any) -> Any:
+        """Validate and isolate tool output before it enters a runtime result."""
+        return self._registry.validate_output(tool_ref, output)
 
     def prepare_call(
         self,

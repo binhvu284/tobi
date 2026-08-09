@@ -1195,6 +1195,67 @@ owns real file/terminal/project migration; T14 owns live comparison, activation,
 #21 **69-76%** complete. T06 is not marked complete and T07 is not released until the owner accepts
 the implementation evidence.
 
+### 25.3 T07 Run 1 - Dormant Project Tool Execution Plan (2026-08-09)
+
+**Outcome:** The current `list_projects` read and `create_task` action execute through one isolated
+canonical path that validates arguments, records central policy, reserves the action before the
+database write, stores an immutable receipt, and replays the result without creating a second task.
+No live Conductor caller imports or uses this path.
+
+| Current node | Run 1 edge | Rule |
+|---|---|---|
+| `conductor_registry.TOOL_SPECS` and existing project callables | Selected metadata is adapted once, then bound privately to the two existing functions | Reuse names, descriptions, and argument definitions; do not create a second full catalog |
+| `CanonicalToolCatalog.prepare_call()` | Produces `RuntimeToolCall` only after exact allowlist, surface, mode, availability, and schema checks | Invalid input or an unavailable/non-allowlisted tool never reaches a callable |
+| `PolicyEngine` and `PolicyLedger` | Evaluate and persist permission/approval facts before invocation | Anything except recorded `allow` returns a typed blocked result and performs no project read or write |
+| `ActionLedger` and `RuntimeControl` | Reserve `create_task`, execute once, then atomically store result, receipt, and step success | The server derives `project:<validated project_id>`; retries replay, and changed arguments conflict |
+
+**T07 run split:**
+
+| Run | Scope | Estimated T07 position after acceptance |
+|---|---|---|
+| Run 1 | Project read plus one task-creation action; reusable dormant executor | 25-35% |
+| Run 2 | File reads/listing, then bounded writes using the accepted coding path policy | 55-70% |
+| Run 3 | Terminal reads plus command actions using the terminal engine's independent deny rules; full T07 closeout | 95-100% |
+
+Run 2 may be split into read/write sub-runs if path-policy evidence cannot remain reviewable in one
+change. Run 3 may be split the same way for terminal streaming and crash reconciliation.
+
+**Implementation order:**
+
+1. Add `tests/test_mc_runtime_project_tools.py`, confirm the missing executor fails, set the Gate to red, and make no production edit before that evidence.
+2. Add a small execution service in `core/runtime/tool_execution.py`; keep callable bindings private and out of contracts/manifests, and require a prepared typed call plus a matching recorded central-policy allow decision.
+3. Add `core/runtime/project_tools.py`; derive the two selected contracts from the existing legacy metadata, add only reviewed project permission/output/idempotency facts, and bind the current project functions outside manifests.
+4. Execute `list_projects` as a receipt-free read; execute `create_task` only after a one-winner action reservation, then persist its typed result and immutable receipt with step completion.
+5. Prove retry replay does not invoke `create_task` twice, prove changed content and caller-supplied target spoofing fail closed, confirm no live module imports the adapter, then run regressions and the enforced gate.
+
+**Acceptance checks:** a real temporary project is returned through a schema-validated
+`RuntimeToolResult`; malformed, denied, unapproved, unavailable, or non-allowlisted calls invoke
+nothing; one approved `create_task` call creates one task and one receipt; the same idempotency key
+returns the stored result without another database write or project log; the key cannot be reused for
+different arguments or a different project; target identity comes from validated `project_id`;
+policy and action events are redacted and ordered; no callable, arguments, output, endpoint, or secret
+enters catalog manifests; existing legacy project behavior is unchanged.
+
+**Verification:** `python tests/test_mc_runtime_project_tools.py`; T03 receipt/control, T05 policy,
+T06 catalog/adapter, Conductor, mode-enforcement, Storage, and compile regressions; finally
+`python scripts/gate.py` and intended-file-only `git status`.
+
+**Explicit non-goals:** no live Conductor/Chat/Agent route, global registry, startup wiring, flag
+change, new database table, project API/UI change, file or terminal migration, Telegram/CLI/Office,
+Conductor extraction, coding-agent workflow change, external service, Supabase, or Vercel.
+
+**Estimate after delivery:** T07 **25-35%** complete; #21 **71-79%** complete. This run is a backend
+foundation and intentionally produces no visible UI progress.
+
+**Delivery evidence (2026-08-09):** the new acceptance test first failed on the missing project
+runtime and the red gate confirmed 1/1 expected failure before production edits. The delivered suite
+passes 10/10 checks for bounded metadata, invalid-call rejection, a schema-validated real project
+read, denial and approval blocking before reservation, one approved task write with one immutable
+receipt, exact replay without a second invocation, changed-content conflict, server-derived target,
+and no live import. T03 receipts/control, T05 policy/facts, T06 registry/adapters/catalog, owner flags,
+Chat and routes, Conductor, mode enforcement, terminal, Storage, compile, and the enforced green gate
+also pass. No live caller, flag, table, API/UI, file/terminal tool, or external service changed.
+
 ## 26. Implementation Log
 
 Planning state only. Add one dated row after each accepted worker package.
@@ -1222,3 +1283,4 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-08 | T06 Run 1 | T06 Run 1 delivery commit | Red missing-contract import; 10/10 registry checks; Runtime contracts/policy/policy facts/approvals, owner flags, Chat, mode enforcement, Conductor, terminal, Storage, and compile regressions green; enforced gate green | T06 in progress; a dormant metadata-only registry now validates versioned MCP-compatible tool contracts, strict JSON Schema 2020-12 inputs and outputs, blocked remote references, explicit fail-closed availability, and deterministic bounded allowlist-only discovery. `runtime.v2_tools` remains off and no live catalog, caller, execution path, database, API, or external service changed |
 | 2026-08-09 | T06 Run 2 | T06 Run 2 delivery commit | Red missing-adapter import; 10/10 adapter checks; Runtime contracts/registry/policy/policy facts/approvals, owner flags, Chat, mode enforcement, Conductor, terminal, Storage, compile, and enforced gate green | T06 in progress; pure adapters convert exact current Conductor/Chat and inbound FastMCP catalogs plus safe persisted outbound MCP metadata into isolated canonical snapshots. Stable connection ids prevent collisions, schema content versions external contracts, malformed/remote schemas fail closed per tool, permission stays separate from availability, and endpoint/credential references are excluded. `runtime.v2_tools` remains off with no global registry, migration, live caller, invocation, API, UI, or external-service change |
 | 2026-08-09 | T06 Run 3 | `911ae27`; Python 3.11 prerequisite `532bf35`; owner closure acceptance | Red missing-service import; 11/11 catalog checks; T01/T05/T06, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, compile, and enforced gate green | Complete; deterministic manifests expose drift without execution data, duplicate authorities fail closed, only exact allowlisted/available/schema-valid calls can be prepared, and activation remains advisory until every explicit policy/owner/flag/rollback condition passes. `runtime.v2_tools` remains off with no live registry, invocation, migration, API/UI, or external-service change; owner accepted T06 closure and released T07 planning |
+| 2026-08-09 | T07 Run 1 | T07 Run 1 delivery commit | Red missing-project-runtime import; 10/10 project-tool checks; T03/T05/T06, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, compile, and enforced gate green | T07 in progress; a dormant executor adapts `list_projects` and `create_task` from current metadata, revalidates input/output, records central policy, derives the project target server-side, reserves mutations before invocation, stores one immutable receipt, and replays completed results without a second write. No live import, flag, schema, API/UI, file/terminal tool, or external-service change; awaiting owner acceptance before Run 2 planning |
