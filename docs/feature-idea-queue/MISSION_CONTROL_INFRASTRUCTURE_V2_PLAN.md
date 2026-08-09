@@ -1154,6 +1154,47 @@ new table/column, API/UI, live discovery, policy cutover, real tool migration, o
 **Estimate after delivery:** T06 **70-80%** complete; #21 **66-73%** complete. The remaining T06 run
 will prove shadow parity and define the owner-reviewed activation boundary before T07 starts.
 
+### 25.2 T06 Run 3 - Dormant Parity And Activation-Boundary Plan (2026-08-09)
+
+**Outcome:** A pure catalog service can produce a deterministic old-versus-canonical parity report,
+prepare a typed call only after the exact candidate allowlist, surface, mode, availability, and input
+schema all pass, and report whether every owner activation condition is satisfied. It cannot invoke a
+tool, change a flag, or replace a live catalog.
+
+| Part | Responsibility | Fail-closed rule |
+|---|---|---|
+| Catalog manifest | Hash sorted source identity, canonical reference, full contract, and availability without retaining functions, endpoints, credentials, arguments, or outputs | Duplicate source ownership or canonical references are rejected; order never changes the digest |
+| Parity report | Compare expected and observed manifests by source identity and contract digest | Missing, extra, changed, rejected, or duplicate entries make parity false with stable reason codes |
+| Call preparation | Use the isolated canonical registry to require an explicit candidate allowlist, exact version, allowed surface/mode, available status, and valid arguments before returning `RuntimeToolCall` | An empty allowlist, unknown/unavailable tool, wrong surface/mode, or malformed arguments returns no executable call and never echoes argument values |
+| Activation boundary | Evaluate parity, adapter health, required-tool availability, central-policy readiness, owner approval, tools flag, and rollback readiness | Every condition must be explicitly true; the result is advisory metadata and performs no activation |
+
+**Implementation order:**
+
+1. Add `tests/test_mc_runtime_tool_catalog.py`, confirm its missing service fails, and set the Gate to red.
+2. Add the smallest typed manifest, parity, and activation results to `core/runtime/contracts.py`.
+3. Add `core/runtime/tool_catalog.py` as a pure consumer of Run 1 registry and Run 2 adapter results; keep all registry instances caller-owned and isolated.
+4. Prepare `RuntimeToolCall` only after allowlisted discovery and `CanonicalToolRegistry.validate_arguments()` succeed; return deep-copied arguments and expose no callable or invocation method.
+5. Prove exact current Conductor and inbound MCP snapshot parity offline, exercise drift and every denial condition, confirm live modules do not import the service, then run regressions and the enforced gate.
+
+**Acceptance checks:** identical catalogs produce the same manifest and digest regardless of input
+order; current Conductor and inbound MCP names have exact offline parity; missing, extra, changed,
+rejected, and duplicate ownership are deterministic failures; no endpoint, credential reference,
+callable, raw argument, or output enters a manifest/report; an empty or mismatched candidate allowlist
+cannot resolve a call; unavailable, unknown, wrong-mode, wrong-surface, and malformed calls fail before
+`RuntimeToolCall` exists; valid arguments are isolated copies; activation remains false until parity,
+adapter health, required availability, policy readiness, explicit owner approval, the tools flag, and
+rollback readiness are all true; `runtime.v2_tools` remains off; existing Chat, Conductor, MCP,
+terminal, policy, and Storage suites pass.
+
+**Explicit non-goals:** no live shadow traffic, startup/global registry, callable registration,
+invocation or result handling, policy execution, owner-setting write, real-tool migration, schema
+migration, API/UI, Conductor extraction, staged rollout, external service, Supabase, or Vercel. T07
+owns real file/terminal/project migration; T14 owns live comparison, activation, and rollback proof.
+
+**Estimate after delivery:** T06 **95-100% technically delivered and ready for owner closure review**;
+#21 **69-76%** complete. T06 is not marked complete and T07 is not released until the owner accepts
+the implementation evidence.
+
 ## 26. Implementation Log
 
 Planning state only. Add one dated row after each accepted worker package.
@@ -1180,3 +1221,4 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-08 | T05 Run 3 | `50e4f74` plus owner closure acceptance | Red missing-contract test; 8/8 policy-fact checks; contracts, policy, approvals, owner flags, Vault, integration reasons, Chat modes, terminal, mode enforcement, Conductor, Storage, and compile regressions green; enforced gate green | Complete; metadata-only Vault readiness reports truthful fail-closed states, normalized Chat/Terminal modes preserve or tighten central policy, and plan or unknown Terminal modes deny. `runtime.v2_policy` remains off with no live caller, schema, tool execution, or external-service change; owner accepted T05 closure and released T06 planning |
 | 2026-08-08 | T06 Run 1 | T06 Run 1 delivery commit | Red missing-contract import; 10/10 registry checks; Runtime contracts/policy/policy facts/approvals, owner flags, Chat, mode enforcement, Conductor, terminal, Storage, and compile regressions green; enforced gate green | T06 in progress; a dormant metadata-only registry now validates versioned MCP-compatible tool contracts, strict JSON Schema 2020-12 inputs and outputs, blocked remote references, explicit fail-closed availability, and deterministic bounded allowlist-only discovery. `runtime.v2_tools` remains off and no live catalog, caller, execution path, database, API, or external service changed |
 | 2026-08-09 | T06 Run 2 | T06 Run 2 delivery commit | Red missing-adapter import; 10/10 adapter checks; Runtime contracts/registry/policy/policy facts/approvals, owner flags, Chat, mode enforcement, Conductor, terminal, Storage, compile, and enforced gate green | T06 in progress; pure adapters convert exact current Conductor/Chat and inbound FastMCP catalogs plus safe persisted outbound MCP metadata into isolated canonical snapshots. Stable connection ids prevent collisions, schema content versions external contracts, malformed/remote schemas fail closed per tool, permission stays separate from availability, and endpoint/credential references are excluded. `runtime.v2_tools` remains off with no global registry, migration, live caller, invocation, API, UI, or external-service change |
+| 2026-08-09 | T06 Run 3 | T06 Run 3 delivery commit; Python 3.11 prerequisite `532bf35` | Red missing-service import; 11/11 catalog checks; T01/T05/T06, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, compile, and enforced gate green | T06 technically delivered pending owner closure; deterministic manifests expose drift without execution data, duplicate authorities fail closed, only exact allowlisted/available/schema-valid calls can be prepared, and activation remains advisory until every explicit policy/owner/flag/rollback condition passes. `runtime.v2_tools` remains off with no live registry, invocation, migration, API/UI, or external-service change |

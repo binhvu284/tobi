@@ -9,15 +9,17 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T06 Run 3 - shadow parity and activation-boundary planning (not started)
+**Package:** T06 Run 3 - dormant parity, validated call preparation, and activation boundary (delivered; owner closure review pending)
 
 **Purpose (one sentence, plain words):**
-Plan how canonical snapshots will be compared with legacy catalogs and define the owner-reviewed
-activation boundary without changing any live catalog or execution path.
+Prove canonical catalog parity, prepare only allowlisted and schema-valid calls, and define the
+owner-reviewed activation boundary without changing any live catalog or execution path.
 
 **Not doing:**
-- No implementation before the owner approves the Run 3 plan.
+- No T06 closure or T07 start before the owner accepts the delivery evidence.
 - No live tool discovery, routing, policy cutover, or caller integration.
+- No tool invocation, tool output handling, or activation; this run only prepares validated calls
+  and reports whether every later activation condition is satisfied.
 - No second authoritative catalog alongside existing tool registries.
 - No migration of real file, terminal, or project tools; T07 owns them.
 - No raw credential access, Vault broker work, or tool execution.
@@ -28,11 +30,17 @@ activation boundary without changing any live catalog or execution path.
 
 **Files expected:**
 - `.claude/CURRENT_WORK.md`
-- T06 Run 3 planning evidence only
+- `core/runtime/contracts.py`
+- `core/runtime/tool_catalog.py`
+- `tests/test_mc_runtime_tool_catalog.py`
+- `docs/feature-idea-queue/MC_V2_BOARD.md`
+- `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
+- `docs/feature-idea-queue/QUEUE.md`
 
-**Gate: no**
+**Gate: green**
 
 ```gate
+venv/Scripts/python.exe tests/test_mc_runtime_tool_catalog.py
 ```
 
 ---

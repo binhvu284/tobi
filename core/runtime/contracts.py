@@ -532,6 +532,103 @@ class ToolCatalogEntry:
         _require_text(self.contract_version, "contract_version")
 
 
+def _require_sha256(value: Any, name: str) -> None:
+    if not isinstance(value, str) or len(value) != 64 or any(
+        character not in "0123456789abcdef" for character in value
+    ):
+        raise ValueError(f"{name} must be a lowercase SHA-256 digest")
+
+
+@dataclass(frozen=True)
+class ToolCatalogManifestEntry:
+    source_key: str
+    tool_ref: str
+    contract_digest: str
+    availability_status: ToolAvailabilityStatus
+    availability_reason_codes: tuple[str, ...] = ()
+    contract_version: str = "1"
+
+    def __post_init__(self) -> None:
+        _require_text(self.source_key, "source_key")
+        _require_text(self.tool_ref, "tool_ref")
+        _require_sha256(self.contract_digest, "contract_digest")
+        _require_enum(self.availability_status, ToolAvailabilityStatus, "availability_status")
+        _require_tuple(self.availability_reason_codes, "availability_reason_codes", str)
+        _require_text(self.contract_version, "contract_version")
+
+
+@dataclass(frozen=True)
+class ToolCatalogIssue:
+    source_key: str
+    code: str
+
+    def __post_init__(self) -> None:
+        _require_text(self.source_key, "source_key")
+        _require_text(self.code, "code")
+
+
+@dataclass(frozen=True)
+class ToolCatalogManifest:
+    entries: tuple[ToolCatalogManifestEntry, ...]
+    issues: tuple[ToolCatalogIssue, ...]
+    digest: str
+    contract_version: str = "1"
+
+    def __post_init__(self) -> None:
+        _require_tuple(self.entries, "entries", ToolCatalogManifestEntry)
+        _require_tuple(self.issues, "issues", ToolCatalogIssue)
+        _require_sha256(self.digest, "digest")
+        _require_text(self.contract_version, "contract_version")
+        source_keys = tuple(entry.source_key for entry in self.entries)
+        tool_refs = tuple(entry.tool_ref for entry in self.entries)
+        if len(source_keys) != len(set(source_keys)):
+            raise ValueError("manifest source keys must be unique")
+        if len(tool_refs) != len(set(tool_refs)):
+            raise ValueError("manifest tool references must be unique")
+
+    @property
+    def issue_codes(self) -> tuple[str, ...]:
+        return tuple(sorted({issue.code for issue in self.issues}))
+
+
+@dataclass(frozen=True)
+class ToolCatalogParityReport:
+    expected_digest: str
+    observed_digest: str
+    exact: bool
+    missing_source_keys: tuple[str, ...] = ()
+    extra_source_keys: tuple[str, ...] = ()
+    changed_source_keys: tuple[str, ...] = ()
+    reason_codes: tuple[str, ...] = ()
+    contract_version: str = "1"
+
+    def __post_init__(self) -> None:
+        _require_sha256(self.expected_digest, "expected_digest")
+        _require_sha256(self.observed_digest, "observed_digest")
+        if not isinstance(self.exact, bool):
+            raise ValueError("exact must be a bool")
+        _require_tuple(self.missing_source_keys, "missing_source_keys", str)
+        _require_tuple(self.extra_source_keys, "extra_source_keys", str)
+        _require_tuple(self.changed_source_keys, "changed_source_keys", str)
+        _require_tuple(self.reason_codes, "reason_codes", str)
+        _require_text(self.contract_version, "contract_version")
+
+
+@dataclass(frozen=True)
+class ToolActivationReadiness:
+    manifest_digest: str
+    ready: bool
+    reason_codes: tuple[str, ...] = ()
+    contract_version: str = "1"
+
+    def __post_init__(self) -> None:
+        _require_sha256(self.manifest_digest, "manifest_digest")
+        if not isinstance(self.ready, bool):
+            raise ValueError("ready must be a bool")
+        _require_tuple(self.reason_codes, "reason_codes", str)
+        _require_text(self.contract_version, "contract_version")
+
+
 @dataclass(frozen=True)
 class ToolDiscoveryQuery:
     surface: Surface
