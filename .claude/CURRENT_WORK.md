@@ -9,22 +9,24 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T07 Run 3A - dormant read-only foreground terminal slice (delivered; awaiting owner acceptance)
+**Package:** T07 Run 3B1 - dormant bounded mutable foreground terminal actions (delivered; awaiting owner acceptance)
 
 **Purpose (one sentence, plain words):**
-Expose terminal status and a strict read-only foreground command subset through canonical validation,
-central policy, and the existing terminal safety gate without changing any live route.
+Add a separate versioned contract for one approved, bounded foreground terminal mutation so exact
+retries replay one receipt and uncertain executions cannot run twice, without changing any live route.
 
 **Not doing:**
 - No live tool routing, policy cutover, caller integration, or flag change.
-- No mutable, network, install, publish, delete, shell-chain, redirect, substitution, or arbitrary command.
-- No caller-selected working directory and no command timeout above the bounded foreground limit.
-- No background process, job list/output, kill, cancellation, or restart recovery; Run 3B owns those.
+- No change to the accepted read-only `terminal_status@1` or `run_command@1` contracts.
+- No network, install, publish, delete, credential, nested-shell, shell-chain, redirect, substitution,
+  multiline, or caller-selected working-directory command.
+- No background process, job list/output, kill, cancellation, heartbeat, or restart recovery; Run 3B2
+  owns those.
 - No `install_package`, `configure_tool`, `connect_tool`, `set_terminal_mode`, or capability-registry migration.
-- No change to the existing terminal engine, its risk classifier, kill-switch, approval modes, shell choice,
-  output redaction, timeout behavior, or legacy callers.
+- No weakening of the existing terminal engine, its risk classifier, kill-switch, approval modes, shell
+  choice, output redaction, timeout behavior, or legacy callers.
 - No new table, migration, owner flag, API, UI, or visible behavior.
-- No T07 closure or T08 release; both wait for Run 3B delivery and owner acceptance.
+- No T07 closure or T08 release; both wait for Run 3B2 delivery and owner acceptance.
 - No Conductor decomposition; T08 owns it.
 - No Runs page or broad frontend redesign; T13 owns it.
 - No Telegram, CLI, Office, scheduler, or remaining-surface adapters.

@@ -1217,10 +1217,12 @@ No live Conductor caller imports or uses this path.
 | Run 2A | File reads/listing through the existing coding broker; no mutation | 40-50% |
 | Run 2B | First bounded file write using the accepted coding path policy, receipts, replay, and crash reconciliation | 55-70% |
 | Run 3A | Terminal status plus a strict read-only foreground command subset; no background process or mutation | 75-82% |
-| Run 3B | Mutable foreground commands, durable background jobs, cancellation, crash handling, and T07 closeout | 95-100% |
+| Run 3B1 | Bounded approved foreground mutations with receipts, exact replay, and fail-closed interruption handling | 85-90% |
+| Run 3B2 | Durable background jobs, output reads, cancellation, restart handling, and T07 closeout | 100% |
 
-Run 2 may be split into read/write sub-runs if path-policy evidence cannot remain reviewable in one
-change. Run 3 may be split the same way for terminal streaming and crash reconciliation.
+Run 2 was split into read/write sub-runs. Source review after Run 3A found that foreground mutation
+and restart-safe process ownership have different failure boundaries, so Run 3B is split into 3B1
+and 3B2. T07 and T08 stay blocked until both are delivered and accepted.
 
 **Implementation order:**
 
@@ -1437,7 +1439,111 @@ Terminal 67/67, mode enforcement 18/18, T03 control/receipts/repository, T05 pol
 T06 registry/adapters/catalog, T07 project/file tools, owner flags, Chat unit/route, Conductor final
 guard, Storage, focused compile, diff checks, and the enforced green gate pass. No mutable/background
 command, action row, receipt, live caller, terminal-engine/Conductor edit, flag, table, migration,
-API/UI, external service, Supabase, or Vercel interaction was added. T07 remains open for Run 3B.
+API/UI, external service, Supabase, or Vercel interaction was added. T07 remains open for Runs 3B1
+and 3B2.
+
+### 25.7 T07 Run 3B1 - Dormant Bounded Mutable Foreground Terminal Plan (2026-08-10)
+
+**Outcome:** Add a separate `tobi.terminal.run_command@2` action contract for one approved local
+foreground mutation. The accepted `run_command@1` inspection contract stays unchanged. A completed
+attempt records one immutable receipt, an exact retry replays its typed result, and an interruption
+after invocation remains outcome-unknown and cannot run again automatically.
+
+| Current node | Run 3B1 edge | Rule |
+|---|---|---|
+| Accepted Run 3A adapter | Add a second version of `run_command`, not a mixed read/write contract | `@1` remains receipt-free inspection; `@2` is high-risk, irreversible, Agent-only, approval-required, foreground-only, and idempotent |
+| New pure mutation validator | Accept one bounded single-line token-only local command in the runtime's fixed working directory | Reject shell syntax, expansion, nested shells, environment mutation, credentials, network/install/publish/delete families, read-only `@1` forms, caller `cwd`, and background mode before policy or execution |
+| Central policy plus legacy terminal facts | Bind the exact command hash, fixed-directory hash, approval, permission, isolation, and current mode to the decision | Plan/unknown mode, kill-switch, terminal refusal, missing approval, wrong surface/mode, or missing permission/isolation invokes nothing; a legacy `confirm` can proceed only after central policy verifies the matching approval |
+| `ActionLedger` plus `CanonicalToolExecutor` | Reserve the exact action before the second terminal-gate check and invocation | Persist only redacted command metadata and hashes; exact replay invokes nothing; changed command, timeout, directory identity, target, or approval conflicts |
+| Existing terminal engine | Retain shell selection, static risk gate, timeout, redaction, and bounded output | A normal zero, non-zero, timeout, or failed-start return gets a truthful typed result and one receipt for the attempt; an exception or persistence failure becomes `unknown` and is never retried blindly |
+
+**Implementation order:**
+
+1. Extend `tests/test_mc_runtime_terminal_tools.py` with a missing `RUN_COMMAND_ACTION_REF` check,
+   confirm it fails, set the Gate to red, and make no production edit before that evidence.
+2. Add the versioned action schema and pure validator to `core/runtime/terminal_tools.py`; keep the
+   Run 3A constants, schemas, metadata, and behavior unchanged.
+3. Apply current terminal mode and the first deterministic gate before central policy; require an
+   authenticated matching approval, then reserve the exact hashed action before a second gate check.
+4. Invoke the existing foreground engine with the fixed runtime directory, persist only redacted
+   metadata/output, and create one receipt describing the command attempt and typed exit state.
+5. Prove one real temporary-directory `mkdir` mutation, exact replay, changed-call conflict,
+   pre-invocation denials, unknown interruption handling, no live imports, regressions, and the gate.
+
+**Acceptance checks:** exactly three contracts are exposed: accepted status `@1`, inspection
+`run_command@1`, and action `run_command@2`; `@2` cannot be prepared without an idempotency key and
+cannot execute without a matching approved policy decision; one approved real foreground mutation
+runs once and records one receipt; zero, non-zero, timeout, and failed-start states remain truthful;
+exact replay returns the stored result without calling the terminal engine; the same key with changed
+command, timeout, target, fixed-directory identity, or approval fails closed; shell controls,
+expansions, multiline input, nested shells, credentials, network/install/publish/delete commands,
+caller `cwd`, background mode, wrong surface/mode, missing permission/isolation, plan/unknown mode,
+kill-switch, and either terminal-gate refusal invoke nothing; raw command and unredacted output are
+absent from policy, action, event, result, and receipt persistence; an exception after reservation is
+`unknown`, exposes no automatic retry, and a reconciliation request stays blocked because a generic
+shell mutation has no universal read-only proof; all Run 3A, file, and project behavior is unchanged.
+
+**Verification:** `D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe tests/test_mc_runtime_terminal_tools.py` plus terminal engine, T03 control/receipts/repository, T05 policy,
+policy-facts, and approvals, T06 registry/catalog, T07 project/file tools, owner flags, Chat unit/route, Conductor final
+guard, mode enforcement, Storage, and compile regressions; finally
+`D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe scripts/gate.py` and intended-file-only
+`git status`.
+
+**Explicit non-goals:** no background start/list/output/cancel, process heartbeat, restart recovery,
+live streaming, caller working directory, network/install/publish/delete/credential command, nested
+shell, specialized install/configure/connect/mode tool migration, terminal-engine redesign, live
+caller, route, flag, table, migration, API/UI, Telegram, CLI, Office, scheduler, external service,
+Supabase, or Vercel interaction. Run 3B2 owns managed background lifecycle and T07 closeout; T13 owns
+the Runs UI and T15 owns remaining surface/specialized-tool cutovers.
+
+**Estimate after acceptance:** T07 **85-90%** complete; #21 **82-88%** complete. Expected unattended
+implementation and verification time is **5-8 hours**. Owner acceptance should take **10-15 minutes**:
+confirm `run_command@1` is unchanged, one approved `@2` call produces one receipt, and no background
+or live caller was added.
+
+**Delivery evidence (2026-08-10):** the expanded acceptance script first failed on the missing
+`RUN_COMMAND_ACTION_REF`, and the enforced red gate confirmed that exact failure before production
+edits. The delivered 24/24 suite proves a separate high-risk, irreversible `run_command@2` action;
+mandatory matching approval and idempotency; hashed fixed-directory and command identity; redacted
+action metadata and output; one immutable receipt; exact replay; changed command, timeout, approval,
+or directory conflicts; truthful zero, non-zero, timeout, and failed-start attempts; late-gate
+not-applied handling; fail-closed unknown interruption; one real temporary-directory mutation; and no
+live imports. Security review replaced a broad executable denylist with the only honest first-run
+allowlist: `mkdir <safe-name>`, with one ASCII name segment and no path or shell syntax. Terminal
+67/67, T03 repository/control/receipts, T05 policy/facts/approvals, T06 registry/adapters/catalog,
+T07 project/file tools, owner flags, mode enforcement, Chat unit/route, Conductor final guard, Storage,
+compile, diff, and enforced green-gate checks pass. No accepted `@1` behavior, terminal engine,
+background process, live caller, flag, table, migration, API/UI, or external service changed. T07
+remains open for Run 3B2 and owner acceptance still gates its planning release.
+
+### 25.8 T07 Run 3B2 - Managed Background Jobs And T07 Closeout Outline (2026-08-10)
+
+**Outcome:** Add dormant canonical start/list/output/cancel tools backed by a managed detached worker
+and an additive `mc_terminal_jobs` record. A job keeps one server-issued identity across app restart,
+exact start/cancel retries cannot duplicate effects, output is redacted and bounded before storage,
+and cancellation never kills a process whose identity TOBI cannot prove.
+
+**Required safety shape:** reserve start before launch; write the job intent before process creation;
+persist run/step/action ownership, command and fixed-directory hashes, worker identity hash, heartbeat,
+bounded output, exit state, and cancel request without raw command text; let the detached worker own
+the child handle and observe durable cancellation; after app restart, a fresh matching heartbeat is
+still running, a completed row is final, a pre-launch intent is not applied, and a started launch with
+no trustworthy worker evidence is `unknown`. Never kill by a reused PID or start a replacement for an
+unknown launch.
+
+**Expected implementation surface:** additive Runtime schema version 009; a small background-job
+repository/worker; canonical `start_job`, `list_jobs`, `job_output`, and `cancel_job` bindings; a new
+focused restart/cancellation test; accepted Run 3A/3B1 and legacy terminal behavior preserved.
+
+**Closeout checks:** real detached start/output/completion, exact start replay, changed-call conflict,
+app-process restart simulation, durable cancel request, bounded terminate-then-kill behavior in the
+owning worker, exact cancel replay, stale heartbeat/PID-reuse refusal, secret redaction, legal database
+state transitions, no raw command persistence, no live imports, full regressions, and green gate.
+T07 closes and T08 planning releases only after delivery plus explicit owner acceptance.
+
+**Estimate after acceptance:** T07 **100%**; #21 **84-90%** complete. Expected unattended implementation
+and verification time is **8-12 hours**. This outline must be rechecked against the delivered 3B1 diff
+before becoming the active package.
 
 ## 26. Implementation Log
 
@@ -1469,4 +1575,5 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-09 | T07 Run 1 | `88412bd`; owner acceptance | Red missing-project-runtime import; 10/10 project-tool checks; T03/T05/T06, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, compile, and enforced gate green | Accepted; a dormant executor adapts `list_projects` and `create_task` from current metadata, revalidates input/output, records central policy, derives the project target server-side, reserves mutations before invocation, stores one immutable receipt, and replays completed results without a second write. No live import, flag, schema, API/UI, file/terminal tool, or external-service change; T07 remains open and Run 2A planning is released |
 | 2026-08-09 | T07 Run 2A | `3c1c35c`; owner acceptance | Red missing-file-runtime import; 9/9 file-tool checks; Run 1 project tools, T03/T05/T06, accepted #22 coding tools/workers, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, repository, compile, and enforced gate green | Accepted; dormant Developer-only `read_file` and `list_files` contracts execute through central policy and the injected existing coding broker. Broker path rules stay authoritative, failures are truthful and sanitized, reads create no receipts, and durable history redacts file content. No live import, broker/policy/worker, flag, schema, API/UI, mutation, terminal, or external-service change; Run 2B planning released |
 | 2026-08-09 | T07 Run 2B | `3a250d3`; owner acceptance | Red missing-write-ref import; 18/18 file-tool checks; Run 1 project tools, T03/T05/T06, accepted #22 coding tools/workers, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, repository, compile, diff, and enforced gate green | Accepted; dormant Developer-only `write_file` adds expected-state protection, exact replay, redacted action identity, immutable before/after receipt hashes, and applied/not-applied/unknown crash reconciliation through the unchanged coding broker. No live import, broker/policy/worker, flag, schema, API/UI, terminal, or external-service change; Run 3A planning released while T07 remains open |
-| 2026-08-10 | T07 Run 3A | T07 Run 3A delivery commit | Red missing-terminal-runtime import; 14/14 terminal-tool checks; terminal engine, mode, T03/T05/T06, T07 project/file, owner flags, Chat unit/route, Conductor, Storage, compile, diff, and enforced gate green | T07 in progress; dormant terminal status plus a fixed read-only foreground command subset execute through central policy and two checks by the unchanged terminal safety gate. Commands have no caller working directory, shell syntax, network/mutation form, background mode, action reservation, or receipt; output is redacted and capped at 6,000 characters. No live import, terminal-engine/Conductor edit, flag, schema, API/UI, or external-service change; awaiting owner acceptance before Run 3B planning |
+| 2026-08-10 | T07 Run 3A | `422fc8e`; owner acceptance | Red missing-terminal-runtime import; 14/14 terminal-tool checks; terminal engine, mode, T03/T05/T06, T07 project/file, owner flags, Chat unit/route, Conductor, Storage, compile, diff, and enforced gate green | Accepted; dormant terminal status plus a fixed read-only foreground command subset execute through central policy and two checks by the unchanged terminal safety gate. Commands have no caller working directory, shell syntax, network/mutation form, background mode, action reservation, or receipt; output is redacted and capped at 6,000 characters. No live import, terminal-engine/Conductor edit, flag, schema, API/UI, or external-service change; Run 3B is split into 3B1 foreground mutation and 3B2 managed background lifecycle while T07 remains open |
+| 2026-08-10 | T07 Run 3B1 | T07 Run 3B1 delivery commit | Red missing-action-ref test; 24/24 terminal-tool checks; terminal engine, T03/T05/T06, T07 project/file, owner flags, mode, Chat unit/route, Conductor, Storage, compile, diff, and enforced gate green | T07 in progress; a dormant high-risk `run_command@2` action permits only `mkdir <safe-name>` in the fixed directory after matching approval and idempotency, records one redacted immutable receipt, replays exact duplicates, conflicts changed identity, and blocks unknown interruption retries. Accepted `@1` reads and all live behavior remain unchanged; awaiting owner acceptance before Run 3B2 planning |
