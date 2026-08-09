@@ -1214,7 +1214,8 @@ No live Conductor caller imports or uses this path.
 | Run | Scope | Estimated T07 position after acceptance |
 |---|---|---|
 | Run 1 | Project read plus one task-creation action; reusable dormant executor | 25-35% |
-| Run 2 | File reads/listing, then bounded writes using the accepted coding path policy | 55-70% |
+| Run 2A | File reads/listing through the existing coding broker; no mutation | 40-50% |
+| Run 2B | First bounded file write using the accepted coding path policy, receipts, replay, and crash reconciliation | 55-70% |
 | Run 3 | Terminal reads plus command actions using the terminal engine's independent deny rules; full T07 closeout | 95-100% |
 
 Run 2 may be split into read/write sub-runs if path-policy evidence cannot remain reviewable in one
@@ -1256,6 +1257,62 @@ and no live import. T03 receipts/control, T05 policy/facts, T06 registry/adapter
 Chat and routes, Conductor, mode enforcement, terminal, Storage, compile, and the enforced green gate
 also pass. No live caller, flag, table, API/UI, file/terminal tool, or external service changed.
 
+### 25.4 T07 Run 2A - Dormant File Read/List Execution Plan (2026-08-09)
+
+**Outcome:** The existing `CodingToolBroker.read_file()` and `list_files()` operations execute through
+one isolated canonical path with strict input/output validation and a recorded central-policy allow
+decision. The broker remains the only filesystem authority and no live worker imports the adapter.
+
+| Current node | Run 2A edge | Rule |
+|---|---|---|
+| `CodingToolBroker` | A caller-created broker is injected behind a small protocol and its existing methods are invoked | Do not copy or weaken approved-worktree containment, excluded-path checks, byte caps, list limits, or event emission |
+| `CanonicalToolCatalog.prepare_call()` | Defines only versioned `read_file` and `list_files` contracts for the Developer surface | Unknown, unavailable, wrong-surface, non-allowlisted, or malformed calls fail before broker invocation |
+| `PolicyEngine` and `PolicyLedger` | Require `files.read` and persist the decision before either read | Anything except recorded `allow` invokes nothing; the target is derived from validated relative-path arguments, never supplied separately by the caller |
+| `CanonicalToolExecutor` | Reuses the Run 1 read path with binding-specific truthful owner errors | Reads complete the leased step with typed output and no action receipt or idempotency row |
+
+**Implementation order:**
+
+1. Add `tests/test_mc_runtime_file_tools.py`, confirm the missing file runtime fails, set the Gate to red, and make no production edit before that evidence.
+2. Generalize only the read-failure owner message in `ToolExecutionBinding`; preserve Run 1 project wording and all action behavior.
+3. Add `core/runtime/file_tools.py` with strict schemas, Developer-only availability, `files.read`, safe relative targets, and an injected broker protocol. Do not import or construct live coding workers.
+4. Execute real temporary-worktree reads and listings through `CodingToolBroker`; retain its path denial, excluded-file, size, result-limit, and event behavior.
+5. Prove no live module imports the adapter, run focused and legacy regressions, then run the enforced gate and intended-file-only status check.
+
+**Acceptance checks:** one real indexable file can be read and listed with schema-validated bounded
+output; listing stays capped and deterministic; malformed input, policy denial, unknown/unavailable
+tools, wrong surfaces, and calls outside the exact allowlist invoke nothing; traversal, absolute-path,
+excluded-file, missing-file, non-directory-prefix, and oversized-file attempts fail without leaking an
+absolute path, file content, or secret; policy and broker events remain redacted and ordered; reads
+create no action receipt or idempotency row; manifests expose no callable, worktree path, arguments,
+output, endpoint, or secret; existing Coding Agent and Run 1 project behavior is unchanged.
+
+**Verification:** `D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe tests/test_mc_runtime_file_tools.py` plus Run 1 project
+tools, T05 policy, T06 registry/catalog, Coding Agent production/tool diagnostics/worker actions,
+Chat, Conductor, mode-enforcement, terminal, Storage, and compile regressions; finally
+`D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe scripts/gate.py` and intended-file-only `git status`.
+
+**Explicit non-goals:** no `write_file`, `replace_text`, search, patch, command, or terminal action;
+no `CodingToolBroker`, coding-policy, accepted #22 workflow, worktree, attachment, Telegram, CLI,
+Office, Conductor, API/UI, table, flag, live caller, external service, Supabase, or Vercel change.
+T10 owns accepted #22 orchestration migration; T15 owns remaining surface cutovers.
+
+**Estimate after delivery:** T07 **40-50%** complete; #21 **73-81%** complete. Expected unattended
+implementation and verification time is **3-5 hours**. Run 2B remains separately reviewable because
+file mutation needs immutable receipts, duplicate-write prevention, and explicit crash reconciliation.
+
+**Delivery evidence (2026-08-09):** the acceptance test first failed on the missing file runtime and
+the red gate confirmed that exact import failure before production edits. The delivered suite passes
+9/9 checks for Developer-only bounded metadata, pre-invocation rejection, real broker reads/listing,
+central-policy denial, path/excluded/missing/oversized/non-folder failure handling, redacted ordered
+history, receipt-free reads, and no live imports. The canonical executor now supports private
+binding-specific read errors and a schema-validated persistence transform: the caller receives file
+content, while durable step history stores `[REDACTED]`. The existing broker remains the only path
+authority and still owns worktree containment, policy exclusions, size caps, list caps, and broker
+events. Run 1 project tools, T03 control/receipts/repository, T05 policy/approvals/facts, T06
+registry/adapters/catalog, accepted #22 production/diagnostic/worker checks, owner flags, Chat and
+routes, Conductor, mode enforcement, Terminal, Storage, and compile regressions pass. No live caller,
+broker, coding policy, worker, flag, table, API/UI, mutation, terminal tool, or external service changed.
+
 ## 26. Implementation Log
 
 Planning state only. Add one dated row after each accepted worker package.
@@ -1283,4 +1340,5 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-08 | T06 Run 1 | T06 Run 1 delivery commit | Red missing-contract import; 10/10 registry checks; Runtime contracts/policy/policy facts/approvals, owner flags, Chat, mode enforcement, Conductor, terminal, Storage, and compile regressions green; enforced gate green | T06 in progress; a dormant metadata-only registry now validates versioned MCP-compatible tool contracts, strict JSON Schema 2020-12 inputs and outputs, blocked remote references, explicit fail-closed availability, and deterministic bounded allowlist-only discovery. `runtime.v2_tools` remains off and no live catalog, caller, execution path, database, API, or external service changed |
 | 2026-08-09 | T06 Run 2 | T06 Run 2 delivery commit | Red missing-adapter import; 10/10 adapter checks; Runtime contracts/registry/policy/policy facts/approvals, owner flags, Chat, mode enforcement, Conductor, terminal, Storage, compile, and enforced gate green | T06 in progress; pure adapters convert exact current Conductor/Chat and inbound FastMCP catalogs plus safe persisted outbound MCP metadata into isolated canonical snapshots. Stable connection ids prevent collisions, schema content versions external contracts, malformed/remote schemas fail closed per tool, permission stays separate from availability, and endpoint/credential references are excluded. `runtime.v2_tools` remains off with no global registry, migration, live caller, invocation, API, UI, or external-service change |
 | 2026-08-09 | T06 Run 3 | `911ae27`; Python 3.11 prerequisite `532bf35`; owner closure acceptance | Red missing-service import; 11/11 catalog checks; T01/T05/T06, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, compile, and enforced gate green | Complete; deterministic manifests expose drift without execution data, duplicate authorities fail closed, only exact allowlisted/available/schema-valid calls can be prepared, and activation remains advisory until every explicit policy/owner/flag/rollback condition passes. `runtime.v2_tools` remains off with no live registry, invocation, migration, API/UI, or external-service change; owner accepted T06 closure and released T07 planning |
-| 2026-08-09 | T07 Run 1 | T07 Run 1 delivery commit | Red missing-project-runtime import; 10/10 project-tool checks; T03/T05/T06, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, compile, and enforced gate green | T07 in progress; a dormant executor adapts `list_projects` and `create_task` from current metadata, revalidates input/output, records central policy, derives the project target server-side, reserves mutations before invocation, stores one immutable receipt, and replays completed results without a second write. No live import, flag, schema, API/UI, file/terminal tool, or external-service change; awaiting owner acceptance before Run 2 planning |
+| 2026-08-09 | T07 Run 1 | `88412bd`; owner acceptance | Red missing-project-runtime import; 10/10 project-tool checks; T03/T05/T06, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, compile, and enforced gate green | Accepted; a dormant executor adapts `list_projects` and `create_task` from current metadata, revalidates input/output, records central policy, derives the project target server-side, reserves mutations before invocation, stores one immutable receipt, and replays completed results without a second write. No live import, flag, schema, API/UI, file/terminal tool, or external-service change; T07 remains open and Run 2A planning is released |
+| 2026-08-09 | T07 Run 2A | T07 Run 2A delivery commit | Red missing-file-runtime import; 9/9 file-tool checks; Run 1 project tools, T03/T05/T06, accepted #22 coding tools/workers, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, repository, compile, and enforced gate green | T07 in progress; dormant Developer-only `read_file` and `list_files` contracts execute through central policy and the injected existing coding broker. Broker path rules stay authoritative, failures are truthful and sanitized, reads create no receipts, and durable history redacts file content. No live import, broker/policy/worker, flag, schema, API/UI, mutation, terminal, or external-service change; awaiting owner acceptance before Run 2B planning |

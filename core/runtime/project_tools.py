@@ -177,6 +177,9 @@ def build_project_tool_runtime(
                 tool_ref=LIST_PROJECTS_REF,
                 invoke=list_projects_tool,
                 target_from_arguments=lambda _arguments: "projects:collection",
+                read_failure_owner_message=(
+                    "TOBI could not read the requested project data."
+                ),
                 evidence_refs=lambda _output: ("projects:collection",),
             ),
             ToolExecutionBinding(

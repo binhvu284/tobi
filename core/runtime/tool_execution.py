@@ -45,6 +45,7 @@ class ToolExecutionBinding:
     target_from_arguments: Callable[[Mapping[str, Any]], str] = field(
         repr=False, compare=False
     )
+    read_failure_owner_message: str = "TOBI could not complete the requested read."
     effect_summary: Callable[[Mapping[str, Any], Any], str] | None = field(
         default=None, repr=False, compare=False
     )
@@ -52,6 +53,9 @@ class ToolExecutionBinding:
         default=None, repr=False, compare=False
     )
     evidence_refs: Callable[[Any], tuple[str, ...]] | None = field(
+        default=None, repr=False, compare=False
+    )
+    read_output_for_persistence: Callable[[Any], Any] | None = field(
         default=None, repr=False, compare=False
     )
     reported_error_is_not_applied: bool = False
@@ -62,7 +66,17 @@ class ToolExecutionBinding:
         for name in ("invoke", "target_from_arguments"):
             if not callable(getattr(self, name)):
                 raise ValueError(f"{name} must be callable")
-        for name in ("effect_summary", "external_ref", "evidence_refs"):
+        if (
+            not isinstance(self.read_failure_owner_message, str)
+            or not self.read_failure_owner_message.strip()
+        ):
+            raise ValueError("read_failure_owner_message must be a non-empty string")
+        for name in (
+            "effect_summary",
+            "external_ref",
+            "evidence_refs",
+            "read_output_for_persistence",
+        ):
             value = getattr(self, name)
             if value is not None and not callable(value):
                 raise ValueError(f"{name} must be callable or None")
@@ -171,6 +185,8 @@ class CanonicalToolExecutor:
                 raise ToolExecutionError("tool.action_binding_incomplete")
             if not mutation and binding.effect_summary is not None:
                 raise ToolExecutionError("tool.read_binding_has_effect")
+            if mutation and binding.read_output_for_persistence is not None:
+                raise ToolExecutionError("tool.action_binding_has_read_persistence")
             resolved[binding.tool_ref] = binding
         if not resolved:
             raise ValueError("at least one execution binding is required")
@@ -276,10 +292,16 @@ class CanonicalToolExecutor:
             if isinstance(output, Mapping) and output.get("error"):
                 raise ToolExecutionError("tool.reported_error")
             validated_output = self.catalog.validate_output(call.tool_ref, output)
+            persisted_output = validated_output
+            if binding.read_output_for_persistence is not None:
+                persisted_output = self.catalog.validate_output(
+                    call.tool_ref,
+                    binding.read_output_for_persistence(copy.deepcopy(validated_output)),
+                )
         except Exception:
             result = _failed_result(
                 code="tool.read_failed",
-                owner_message="TOBI could not read the requested project data.",
+                owner_message=binding.read_failure_owner_message,
                 retryable=False,
             )
             self._control.record_step_failure(
@@ -300,13 +322,18 @@ class CanonicalToolExecutor:
             typed_output=validated_output,
             evidence_refs=evidence_refs,
         )
+        persisted_result = RuntimeToolResult(
+            status="succeeded",
+            typed_output=persisted_output,
+            evidence_refs=evidence_refs,
+        )
         self._control.record_step_success(
             call.run_id,
             call.step_id,
             worker_id=worker_id,
             lease_token=lease_token,
             lease_epoch=lease_epoch,
-            result=result,
+            result=persisted_result,
             now=now,
         )
         return result

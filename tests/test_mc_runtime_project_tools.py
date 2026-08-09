@@ -581,8 +581,9 @@ finally:
 ok("project action receipt remains immutable at the database boundary", immutable)
 
 live_imports = []
+runtime_root = (ROOT / "core" / "runtime").resolve()
 for path in (ROOT / "core").rglob("*.py"):
-    if path.name in {"project_tools.py", "tool_execution.py"}:
+    if path.resolve().is_relative_to(runtime_root):
         continue
     text = path.read_text(encoding="utf-8", errors="ignore")
     if "core.runtime.project_tools" in text or "core.runtime.tool_execution" in text:
