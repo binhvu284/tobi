@@ -1216,7 +1216,8 @@ No live Conductor caller imports or uses this path.
 | Run 1 | Project read plus one task-creation action; reusable dormant executor | 25-35% |
 | Run 2A | File reads/listing through the existing coding broker; no mutation | 40-50% |
 | Run 2B | First bounded file write using the accepted coding path policy, receipts, replay, and crash reconciliation | 55-70% |
-| Run 3 | Terminal reads plus command actions using the terminal engine's independent deny rules; full T07 closeout | 95-100% |
+| Run 3A | Terminal status plus a strict read-only foreground command subset; no background process or mutation | 75-82% |
+| Run 3B | Mutable foreground commands, durable background jobs, cancellation, crash handling, and T07 closeout | 95-100% |
 
 Run 2 may be split into read/write sub-runs if path-policy evidence cannot remain reviewable in one
 change. Run 3 may be split the same way for terminal streaming and crash reconciliation.
@@ -1372,6 +1373,72 @@ catalog, owner flags, accepted #22 production/diagnostic/worker checks, Chat and
 enforcement, Terminal, Storage, compile, diff checks, and the enforced green gate pass. No live caller,
 broker, coding policy, worker, flag, table, migration, API/UI, terminal tool, or external service changed.
 
+### 25.6 T07 Run 3A - Dormant Read-Only Foreground Terminal Plan (2026-08-09)
+
+**Outcome:** The canonical runtime can read terminal status and execute a deliberately small set of
+foreground inspection commands through central policy and the existing terminal engine. The adapter
+cannot mutate state, use the network, chain shell operations, choose another working directory, or
+start a background process, and no live caller imports it.
+
+| Current node | Run 3A edge | Rule |
+|---|---|---|
+| `conductor_registry.TOOL_SPECS` | Adapt only `terminal_status` and `run_command`, then narrow their canonical schemas and availability | Do not create a second full terminal catalog or migrate install/configure/connect/mode tools |
+| New pure command validator | Accept only named read-only forms such as identity/location and bounded version/status checks | Reject newlines, pipelines, redirects, shell control characters, substitutions, environment dumps, network commands, mutations, unknown executables, caller `cwd`, and `background` before invocation |
+| `PolicyEngine` plus terminal compatibility facts | Require `terminal.read` or `terminal.execute`, Agent mode for commands, subprocess isolation, and a recorded allow | Plan/unknown terminal modes, the kill-switch, missing permission/isolation, wrong mode/surface, or any existing terminal refusal can only tighten the central decision |
+| Existing `terminal_engine` | Re-check its deterministic gate immediately before `run()`, retain its shell, redaction, output cap, and timeout | The canonical adapter never bypasses or copies the terminal engine's hard deny rules and never invokes `subprocess` itself |
+| `CanonicalToolExecutor` | Treat both operations as receipt-free reads because the accepted command grammar cannot mutate state | Return bounded schema-validated output, persist only redacted output and a hashed command target, and create no idempotency row or action receipt |
+
+**Implementation order:**
+
+1. Add `tests/test_mc_runtime_terminal_tools.py`, confirm the missing terminal runtime fails, set the Gate to red, and make no production edit before that evidence.
+2. Add `core/runtime/terminal_tools.py` with strict schemas, a pure read-only command validator, hashed targets, and an injected terminal-engine protocol; do not import or construct a live caller.
+3. Adapt only the two existing legacy specs, narrow `run_command` to foreground inspection, and require central permissions plus subprocess isolation before invocation.
+4. Apply current terminal mode and kill-switch facts before central policy, then re-check the existing deterministic terminal gate immediately before the bounded run.
+5. Prove real cross-platform inspection, rejection and redaction cases, no receipts/live imports, focused regressions, the enforced gate, and intended-file-only status.
+
+**Acceptance checks:** the catalog exposes exactly versioned `terminal_status` and `run_command`
+contracts; status is schema-validated and command execution is Agent-only; one real allowlisted
+foreground inspection command returns its exit code and at most the existing 6,000-character redacted
+output; non-zero exit and timeout states remain truthful; shell chaining, pipes, redirects,
+substitutions, newlines, environment dumps, network/mutable/high-risk commands, unknown executable
+forms, caller working directories, background requests, malformed input, wrong surface/mode,
+missing permission/isolation, plan/unknown terminal mode, active kill-switch, and terminal-gate refusal
+invoke no command; the gate is checked again immediately before execution; raw command text is absent
+from durable policy/action/event targets, unredacted output is absent from persisted results, and reads
+create no action reservation or receipt; project/file tools and all legacy terminal behavior remain
+unchanged; no live module imports the new adapter.
+
+**Verification:** `D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe tests/test_mc_runtime_terminal_tools.py` plus terminal engine, mode enforcement, T05 policy/facts, T06 registry/catalog,
+T07 project/file tools, T03 control/receipts/repository, owner flags, Chat, Conductor, Storage, and
+compile regressions; finally `D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe scripts/gate.py` and intended-file-only `git status`.
+
+**Explicit non-goals:** no mutable or arbitrary foreground command, network access, shell chaining,
+caller working directory, background job, list/output/kill/cancellation path, install/configure/connect,
+terminal mode mutation, terminal-engine or Conductor change, live caller, route, flag, schema migration,
+API/UI, Telegram, CLI, Office, scheduler, external service, Supabase, or Vercel interaction. Run 3B
+owns mutable/background execution, durable job identity, cancellation, uncertain-outcome handling,
+T07 closeout, and any release of T08.
+
+**Estimate after delivery:** T07 **75-82%** complete; #21 **79-86%** complete. Expected unattended
+implementation and verification time is **4-6 hours**. Owner acceptance should take **10-15 minutes**:
+confirm the diff contains only the dormant adapter, its focused test, and package-status docs, then
+confirm no mutable/background command or live import was added.
+
+**Delivery evidence (2026-08-10):** the new acceptance script first failed because
+`core.runtime.terminal_tools` did not exist, and the enforced red gate confirmed that exact failure
+before production code was added. The delivered 14/14 suite proves exactly two bounded contracts,
+schema rejection before terminal access, central permission/isolation denial, conservative legacy
+mode and kill-switch facts, terminal-risk tightening, an immediate second gate check, bounded secret
+redaction, truthful non-zero/timeout results, receipt-free persistence, one real `git --version` run,
+and no live imports. The fixed command set contains only identity, location, and version checks;
+`git status` was removed during security review because it can refresh Git index metadata. The
+existing terminal engine remains the sole shell, risk, kill-switch, redaction, and timeout authority.
+Terminal 67/67, mode enforcement 18/18, T03 control/receipts/repository, T05 policy/facts/approvals,
+T06 registry/adapters/catalog, T07 project/file tools, owner flags, Chat unit/route, Conductor final
+guard, Storage, focused compile, diff checks, and the enforced green gate pass. No mutable/background
+command, action row, receipt, live caller, terminal-engine/Conductor edit, flag, table, migration,
+API/UI, external service, Supabase, or Vercel interaction was added. T07 remains open for Run 3B.
+
 ## 26. Implementation Log
 
 Planning state only. Add one dated row after each accepted worker package.
@@ -1401,4 +1468,5 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-09 | T06 Run 3 | `911ae27`; Python 3.11 prerequisite `532bf35`; owner closure acceptance | Red missing-service import; 11/11 catalog checks; T01/T05/T06, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, compile, and enforced gate green | Complete; deterministic manifests expose drift without execution data, duplicate authorities fail closed, only exact allowlisted/available/schema-valid calls can be prepared, and activation remains advisory until every explicit policy/owner/flag/rollback condition passes. `runtime.v2_tools` remains off with no live registry, invocation, migration, API/UI, or external-service change; owner accepted T06 closure and released T07 planning |
 | 2026-08-09 | T07 Run 1 | `88412bd`; owner acceptance | Red missing-project-runtime import; 10/10 project-tool checks; T03/T05/T06, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, compile, and enforced gate green | Accepted; a dormant executor adapts `list_projects` and `create_task` from current metadata, revalidates input/output, records central policy, derives the project target server-side, reserves mutations before invocation, stores one immutable receipt, and replays completed results without a second write. No live import, flag, schema, API/UI, file/terminal tool, or external-service change; T07 remains open and Run 2A planning is released |
 | 2026-08-09 | T07 Run 2A | `3c1c35c`; owner acceptance | Red missing-file-runtime import; 9/9 file-tool checks; Run 1 project tools, T03/T05/T06, accepted #22 coding tools/workers, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, repository, compile, and enforced gate green | Accepted; dormant Developer-only `read_file` and `list_files` contracts execute through central policy and the injected existing coding broker. Broker path rules stay authoritative, failures are truthful and sanitized, reads create no receipts, and durable history redacts file content. No live import, broker/policy/worker, flag, schema, API/UI, mutation, terminal, or external-service change; Run 2B planning released |
-| 2026-08-09 | T07 Run 2B | T07 Run 2B delivery commit | Red missing-write-ref import; 18/18 file-tool checks; Run 1 project tools, T03/T05/T06, accepted #22 coding tools/workers, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, repository, compile, diff, and enforced gate green | T07 in progress; dormant Developer-only `write_file` adds expected-state protection, exact replay, redacted action identity, immutable before/after receipt hashes, and applied/not-applied/unknown crash reconciliation through the unchanged coding broker. No live import, broker/policy/worker, flag, schema, API/UI, terminal, or external-service change; awaiting owner acceptance before Run 3 planning |
+| 2026-08-09 | T07 Run 2B | `3a250d3`; owner acceptance | Red missing-write-ref import; 18/18 file-tool checks; Run 1 project tools, T03/T05/T06, accepted #22 coding tools/workers, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, repository, compile, diff, and enforced gate green | Accepted; dormant Developer-only `write_file` adds expected-state protection, exact replay, redacted action identity, immutable before/after receipt hashes, and applied/not-applied/unknown crash reconciliation through the unchanged coding broker. No live import, broker/policy/worker, flag, schema, API/UI, terminal, or external-service change; Run 3A planning released while T07 remains open |
+| 2026-08-10 | T07 Run 3A | T07 Run 3A delivery commit | Red missing-terminal-runtime import; 14/14 terminal-tool checks; terminal engine, mode, T03/T05/T06, T07 project/file, owner flags, Chat unit/route, Conductor, Storage, compile, diff, and enforced gate green | T07 in progress; dormant terminal status plus a fixed read-only foreground command subset execute through central policy and two checks by the unchanged terminal safety gate. Commands have no caller working directory, shell syntax, network/mutation form, background mode, action reservation, or receipt; output is redacted and capped at 6,000 characters. No live import, terminal-engine/Conductor edit, flag, schema, API/UI, or external-service change; awaiting owner acceptance before Run 3B planning |

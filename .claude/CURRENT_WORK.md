@@ -9,32 +9,30 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T07 Run 2B - dormant bounded file write slice (delivered; awaiting owner acceptance)
+**Package:** T07 Run 3A - dormant read-only foreground terminal slice (delivered; awaiting owner acceptance)
 
 **Purpose (one sentence, plain words):**
-Expose the existing coding broker's `write_file` operation through canonical validation, approval,
-one immutable receipt, exact replay, and hash-based crash reconciliation without changing any live route.
+Expose terminal status and a strict read-only foreground command subset through canonical validation,
+central policy, and the existing terminal safety gate without changing any live route.
 
 **Not doing:**
 - No live tool routing, policy cutover, caller integration, or flag change.
-- No `replace_text`, search, patch, command, or terminal execution; Run 3 owns terminal tools.
-- No change to `CodingToolBroker`, coding policy, accepted #22 workers, worktree setup, or their live imports.
-- No deletion, bypass, or duplication of legacy tool registries or filesystem path authority.
-- No unguarded overwrite: the caller must provide the expected current SHA-256 hash, or `absent` for a new file.
-- No automatic retry while a write outcome is uncertain; current file evidence must reconcile it first.
-- No unrestricted filesystem authority; the existing approved-worktree, protected-path, forbidden-path, and file-size rules remain decisive.
+- No mutable, network, install, publish, delete, shell-chain, redirect, substitution, or arbitrary command.
+- No caller-selected working directory and no command timeout above the bounded foreground limit.
+- No background process, job list/output, kill, cancellation, or restart recovery; Run 3B owns those.
+- No `install_package`, `configure_tool`, `connect_tool`, `set_terminal_mode`, or capability-registry migration.
+- No change to the existing terminal engine, its risk classifier, kill-switch, approval modes, shell choice,
+  output redaction, timeout behavior, or legacy callers.
 - No new table, migration, owner flag, API, UI, or visible behavior.
+- No T07 closure or T08 release; both wait for Run 3B delivery and owner acceptance.
 - No Conductor decomposition; T08 owns it.
 - No Runs page or broad frontend redesign; T13 owns it.
 - No Telegram, CLI, Office, scheduler, or remaining-surface adapters.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
 **Files expected:**
-- `core/runtime/tool_execution.py`
-- `core/runtime/actions.py`
-- `core/runtime/file_tools.py`
-- `tests/test_mc_runtime_file_tools.py`
-- `tests/test_mc_runtime_project_tools.py`
+- `core/runtime/terminal_tools.py`
+- `tests/test_mc_runtime_terminal_tools.py`
 - `.claude/CURRENT_WORK.md`
 - `docs/feature-idea-queue/MC_V2_BOARD.md`
 - `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
@@ -43,7 +41,7 @@ one immutable receipt, exact replay, and hash-based crash reconciliation without
 **Gate: green**
 
 ```gate
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_file_tools.py
+"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_terminal_tools.py
 ```
 
 ---
