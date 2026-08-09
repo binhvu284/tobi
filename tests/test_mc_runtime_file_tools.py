@@ -1,11 +1,13 @@
-"""Acceptance checks for #21 T07 Run 2A dormant file read/list execution."""
+"""Acceptance checks for #21 T07 Runs 2A-2B dormant file execution."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
 import sys
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
 
@@ -19,8 +21,11 @@ os.environ["DB_PATH"] = str(TMP / "agent.db")
 from core.coding_policy import CodingPolicy  # noqa: E402
 from core.coding_tools import CodingToolBroker  # noqa: E402
 from core.database import get_connection, init_database  # noqa: E402
+from core.runtime.actions import ActionConflictError  # noqa: E402
+from core.runtime.control import RuntimeControl  # noqa: E402
 from core.runtime.contracts import (  # noqa: E402
     ApprovalMode,
+    ApprovalStatus,
     BudgetStatus,
     Certainty,
     ExecutionPlan,
@@ -29,6 +34,7 @@ from core.runtime.contracts import (  # noqa: E402
     LoopRecipe,
     LoopType,
     PlanStep,
+    PolicyEffect,
     PolicyInput,
     RiskLevel,
     RunRequest,
@@ -40,11 +46,13 @@ from core.runtime.event_store import list_run_events  # noqa: E402
 from core.runtime.file_tools import (  # noqa: E402
     LIST_FILES_REF,
     READ_FILE_REF,
+    WRITE_FILE_REF,
     build_file_tool_runtime,
 )
 from core.runtime.repository import RuntimeRepository  # noqa: E402
 from core.runtime.state import RunStatus  # noqa: E402
 from core.runtime.tool_catalog import ToolCallPreparationError  # noqa: E402
+from core.runtime.tool_execution import ToolExecutionError  # noqa: E402
 
 
 PASS = 0
@@ -76,6 +84,14 @@ def query_count(table: str) -> int:
         conn.close()
 
 
+def query_one(sql: str, parameters: tuple = ()) -> sqlite3.Row | None:
+    conn = get_connection()
+    try:
+        return conn.execute(sql, parameters).fetchone()
+    finally:
+        conn.close()
+
+
 def prepare_run(
     repository: RuntimeRepository,
     run_id: str,
@@ -83,14 +99,15 @@ def prepare_run(
     step_id: str,
     tool_ref: str,
     arguments: dict,
+    idempotency_key: str | None = None,
 ) -> dict:
     recipe = LoopRecipe(
         recipe_id=f"recipe-{run_id}",
         version="1",
-        name="File read fixture",
+        name="File tool fixture",
         loop_type=LoopType.TURN,
         trigger="owner request",
-        objective="Read one approved worktree path safely",
+        objective="Use one approved worktree path safely",
         stop_condition="typed file result persisted",
         max_attempts=2,
         max_runtime_s=300,
@@ -105,7 +122,7 @@ def prepare_run(
             owner_id="owner",
             session_id="session-t07-run2a",
             mode="agent",
-            message="Read one project file",
+            message="Use one project file",
         ),
         loop_policy=LoopPolicy.from_recipe(
             policy_id=f"loop-policy-{run_id}",
@@ -127,15 +144,16 @@ def prepare_run(
             plan_id=f"plan-{run_id}",
             run_id=run_id,
             version="1",
-            objective="Read one approved worktree path safely",
+            objective="Use one approved worktree path safely",
             steps=(
                 PlanStep(
                     step_id=step_id,
                     kind="tool",
-                    risk=RiskLevel.NONE,
+                    risk=RiskLevel.MEDIUM if idempotency_key else RiskLevel.NONE,
                     tool_name=tool_ref,
                     arguments=arguments,
                     retry_policy="none",
+                    idempotency_key=idempotency_key,
                 ),
             ),
         ),
@@ -162,6 +180,8 @@ def policy_input(
     tool_ref: str,
     target: str,
     permissions: tuple[str, ...] = ("files.read",),
+    approval_status: ApprovalStatus = ApprovalStatus.NONE,
+    approval_id: str | None = None,
 ) -> PolicyInput:
     return PolicyInput(
         decision_id=decision_id,
@@ -180,6 +200,8 @@ def policy_input(
         available_isolations=(IsolationLevel.WORKSPACE,),
         budget_status=BudgetStatus.AVAILABLE,
         approval_mode=ApprovalMode.ASK,
+        approval_status=approval_status,
+        approval_id=approval_id,
     )
 
 
@@ -229,6 +251,65 @@ def execute_read(
     return result
 
 
+def prepare_write(
+    runtime,
+    repository: RuntimeRepository,
+    *,
+    run_id: str,
+    arguments: dict,
+    approval_status: ApprovalStatus = ApprovalStatus.APPROVED,
+    approval_id: str | None = None,
+):
+    step_id = f"step-{run_id}"
+    idempotency_key = f"effect-{run_id}"
+    lease = prepare_run(
+        repository,
+        run_id,
+        step_id=step_id,
+        tool_ref=WRITE_FILE_REF,
+        arguments=arguments,
+        idempotency_key=idempotency_key,
+    )
+    call = runtime.catalog.prepare_call(
+        call_id=f"call-{run_id}",
+        run_id=run_id,
+        step_id=step_id,
+        tool_ref=WRITE_FILE_REF,
+        arguments=arguments,
+        surface=Surface.DEVELOPER,
+        mode="agent",
+        candidate_tool_refs=(WRITE_FILE_REF,),
+        idempotency_key=idempotency_key,
+        approval_id=approval_id,
+    )
+    facts = policy_input(
+        runtime,
+        decision_id=f"policy-{run_id}",
+        run_id=run_id,
+        step_id=step_id,
+        tool_ref=WRITE_FILE_REF,
+        target=f"file:{arguments['path']}",
+        permissions=("files.write",),
+        approval_status=approval_status,
+        approval_id=approval_id,
+    )
+    return call, facts, lease
+
+
+def execute_prepared(runtime, call, facts, lease):
+    return runtime.executor.execute(
+        call,
+        facts,
+        worker_id=lease["worker_id"],
+        lease_token=lease["lease_token"],
+        lease_epoch=lease["lease_epoch"],
+    )
+
+
+def sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
 init_database()
 repository = RuntimeRepository()
 repo_root = TMP / "repo"
@@ -262,11 +343,15 @@ metadata_json = json.dumps(
 )
 ok(
     "file catalog is bounded Developer-only metadata with no private broker material",
-    refs == (LIST_FILES_REF, READ_FILE_REF)
+    refs == (LIST_FILES_REF, READ_FILE_REF, WRITE_FILE_REF)
     and all(spec.allowed_surfaces == (Surface.DEVELOPER,) for spec in specs)
     and all(spec.allowed_modes == ("agent",) for spec in specs)
-    and all(spec.required_permissions == ("files.read",) for spec in specs)
     and all(spec.isolation == "workspace" for spec in specs)
+    and runtime.catalog.get_spec(READ_FILE_REF).required_permissions == ("files.read",)
+    and runtime.catalog.get_spec(LIST_FILES_REF).required_permissions == ("files.read",)
+    and runtime.catalog.get_spec(WRITE_FILE_REF).required_permissions == ("files.write",)
+    and runtime.catalog.get_spec(WRITE_FILE_REF).risk is RiskLevel.MEDIUM
+    and runtime.catalog.get_spec(WRITE_FILE_REF).idempotency_policy == "required"
     and str(worktree).lower() not in metadata_json.lower()
     and secret_value not in metadata_json
     and "callable" not in metadata_json.lower()
@@ -351,6 +436,56 @@ invalid_calls = (
             surface=Surface.DEVELOPER,
             mode="agent",
             candidate_tool_refs=(LIST_FILES_REF,),
+        ),
+    ),
+    raises(
+        ToolCallPreparationError,
+        lambda: runtime.catalog.prepare_call(
+            call_id="call-write-missing-precondition",
+            run_id="run-write-missing-precondition",
+            step_id="write",
+            tool_ref=WRITE_FILE_REF,
+            arguments={"path": "src/new.txt", "content": "new"},
+            surface=Surface.DEVELOPER,
+            mode="agent",
+            candidate_tool_refs=(WRITE_FILE_REF,),
+            idempotency_key="effect-write-missing-precondition",
+        ),
+    ),
+    raises(
+        ToolCallPreparationError,
+        lambda: runtime.catalog.prepare_call(
+            call_id="call-write-absolute",
+            run_id="run-write-absolute",
+            step_id="write",
+            tool_ref=WRITE_FILE_REF,
+            arguments={
+                "path": "C:/outside.txt",
+                "content": "blocked",
+                "expected_sha256": "absent",
+            },
+            surface=Surface.DEVELOPER,
+            mode="agent",
+            candidate_tool_refs=(WRITE_FILE_REF,),
+            idempotency_key="effect-write-absolute",
+        ),
+    ),
+    raises(
+        ToolCallPreparationError,
+        lambda: runtime.catalog.prepare_call(
+            call_id="call-write-oversized",
+            run_id="run-write-oversized",
+            step_id="write",
+            tool_ref=WRITE_FILE_REF,
+            arguments={
+                "path": "src/oversized.txt",
+                "content": "x" * 250_001,
+                "expected_sha256": "absent",
+            },
+            surface=Surface.DEVELOPER,
+            mode="agent",
+            candidate_tool_refs=(WRITE_FILE_REF,),
+            idempotency_key="effect-write-oversized",
         ),
     ),
 )
@@ -505,6 +640,415 @@ ok(
     query_count("mc_action_receipts") == 0 and query_count("mc_idempotency") == 0,
 )
 
+approval_path = worktree / "src" / "approval.txt"
+approval_call, approval_facts, approval_lease = prepare_write(
+    runtime,
+    repository,
+    run_id="file-write-approval",
+    arguments={"path": "src/approval.txt", "content": "not yet\n", "expected_sha256": "absent"},
+    approval_status=ApprovalStatus.NONE,
+)
+approval_events = len(broker_events)
+approval_result = execute_prepared(runtime, approval_call, approval_facts, approval_lease)
+ok(
+    "file mutation requires approval before reservation or broker access",
+    approval_result.status == "blocked"
+    and approval_result.error is not None
+    and approval_result.error.code == "tool.approval_required"
+    and not approval_path.exists()
+    and len(broker_events) == approval_events
+    and query_one(
+        "SELECT effect FROM mc_policy_decisions WHERE decision_id='policy-file-write-approval'"
+    )["effect"]
+    == PolicyEffect.REQUIRE_APPROVAL.value
+    and query_one(
+        "SELECT COUNT(*) AS count FROM mc_idempotency WHERE idempotency_key='effect-file-write-approval'"
+    )["count"]
+    == 0,
+    approval_result,
+)
+
+before_text = (worktree / "src" / "alpha.txt").read_text(encoding="utf-8")
+after_text = "updated alpha\n"
+before_hash = sha256_text(before_text)
+after_hash = sha256_text(after_text)
+write_arguments = {
+    "path": "src/alpha.txt",
+    "content": after_text,
+    "expected_sha256": before_hash,
+}
+write_call, write_facts, write_lease = prepare_write(
+    runtime,
+    repository,
+    run_id="file-write-success",
+    arguments=write_arguments,
+    approval_id="approval-file-write-success",
+)
+write_result = execute_prepared(runtime, write_call, write_facts, write_lease)
+write_receipt = query_one(
+    "SELECT * FROM mc_action_receipts WHERE receipt_id=?", (write_result.receipt_id,)
+)
+write_action = query_one(
+    "SELECT request_json,status,execution_count FROM mc_idempotency "
+    "WHERE idempotency_key='effect-file-write-success'"
+)
+write_request = json.loads(write_action["request_json"])
+write_event_json = json.dumps(
+    contract_to_dict(list_run_events("file-write-success")), sort_keys=True
+)
+ok(
+    "approved overwrite records bounded hashes and one immutable receipt without durable content",
+    write_result.status == "succeeded"
+    and write_result.typed_output
+    == {
+        "path": "src/alpha.txt",
+        "bytes": len(after_text.encode("utf-8")),
+        "before_sha256": before_hash,
+        "after_sha256": after_hash,
+    }
+    and (worktree / "src" / "alpha.txt").read_text(encoding="utf-8") == after_text
+    and write_receipt["before_ref"] == f"file:src/alpha.txt@sha256:{before_hash}"
+    and write_receipt["after_ref"] == f"file:src/alpha.txt@sha256:{after_hash}"
+    and write_receipt["external_ref"] == "file:src/alpha.txt"
+    and write_receipt["approval_ref"] == "approval-file-write-success"
+    and write_action["status"] == "completed"
+    and write_request["validated_arguments"]["content"] == "[REDACTED]"
+    and write_request["validated_arguments"]["content_sha256"] == after_hash
+    and after_text not in write_action["request_json"]
+    and after_text not in write_event_json
+    and metadata_json.find(after_text) == -1,
+    write_result,
+)
+
+replay_event_count = len(broker_events)
+replayed_write = runtime.executor.execute(
+    write_call,
+    write_facts,
+    worker_id="replay-worker",
+    lease_token="unused-completed-replay",
+    lease_epoch=99,
+)
+changed_call = runtime.catalog.prepare_call(
+    call_id=write_call.call_id,
+    run_id=write_call.run_id,
+    step_id=write_call.step_id,
+    tool_ref=WRITE_FILE_REF,
+    arguments={**write_arguments, "content": "changed duplicate\n"},
+    surface=Surface.DEVELOPER,
+    mode="agent",
+    candidate_tool_refs=(WRITE_FILE_REF,),
+    idempotency_key=write_call.idempotency_key,
+    approval_id=write_call.approval_id,
+)
+changed_write = raises(
+    ActionConflictError,
+    lambda: runtime.executor.execute(
+        changed_call,
+        replace(write_facts, decision_id="policy-file-write-changed"),
+        worker_id="changed-worker",
+        lease_token="unused-changed-call",
+        lease_epoch=100,
+    ),
+)
+ok(
+    "completed write replay is side-effect free and changed content conflicts",
+    replayed_write == write_result
+    and changed_write is not None
+    and len(broker_events) == replay_event_count
+    and (worktree / "src" / "alpha.txt").read_text(encoding="utf-8") == after_text
+    and query_one(
+        "SELECT execution_count FROM mc_idempotency "
+        "WHERE idempotency_key='effect-file-write-success'"
+    )["execution_count"]
+    == 1,
+)
+
+stale_before = (worktree / "src" / "beta.py").read_text(encoding="utf-8")
+stale_call, stale_facts, stale_lease = prepare_write(
+    runtime,
+    repository,
+    run_id="file-write-stale",
+    arguments={
+        "path": "src/beta.py",
+        "content": "VALUE = 3\n",
+        "expected_sha256": "0" * 64,
+    },
+    approval_id="approval-file-write-stale",
+)
+stale_result = execute_prepared(runtime, stale_call, stale_facts, stale_lease)
+ok(
+    "stale precondition cannot overwrite a newer file and records not-applied",
+    stale_result.status == "failed"
+    and stale_result.retryable
+    and stale_result.error is not None
+    and stale_result.error.code == "tool.action_not_applied"
+    and (worktree / "src" / "beta.py").read_text(encoding="utf-8") == stale_before
+    and query_one(
+        "SELECT status FROM mc_idempotency WHERE idempotency_key='effect-file-write-stale'"
+    )["status"]
+    == "retry_allowed",
+    stale_result,
+)
+
+outside_before = (repo_root / "outside.txt").read_text(encoding="utf-8")
+traversal_call, traversal_facts, traversal_lease = prepare_write(
+    runtime,
+    repository,
+    run_id="file-write-traversal",
+    arguments={
+        "path": "../../outside.txt",
+        "content": "must stay inside\n",
+        "expected_sha256": "absent",
+    },
+    approval_id="approval-file-write-traversal",
+)
+traversal_result = execute_prepared(
+    runtime, traversal_call, traversal_facts, traversal_lease
+)
+forbidden_path = worktree / ".git" / "config"
+forbidden_path.parent.mkdir(parents=True, exist_ok=True)
+forbidden_path.write_bytes(b"forbidden\n")
+forbidden_call, forbidden_facts, forbidden_lease = prepare_write(
+    runtime,
+    repository,
+    run_id="file-write-forbidden",
+    arguments={
+        "path": ".git/config",
+        "content": "must not change\n",
+        "expected_sha256": sha256_text("forbidden\n"),
+    },
+    approval_id="approval-file-write-forbidden",
+)
+forbidden_result = execute_prepared(
+    runtime, forbidden_call, forbidden_facts, forbidden_lease
+)
+ok(
+    "traversal and forbidden write attempts remain blocked without changing disk",
+    traversal_result.status == "blocked"
+    and forbidden_result.status == "blocked"
+    and (repo_root / "outside.txt").read_text(encoding="utf-8") == outside_before
+    and forbidden_path.read_bytes() == b"forbidden\n"
+    and query_one(
+        "SELECT status FROM mc_idempotency WHERE idempotency_key='effect-file-write-traversal'"
+    )["status"]
+    == "reconciliation_required"
+    and query_one(
+        "SELECT status FROM mc_idempotency WHERE idempotency_key='effect-file-write-forbidden'"
+    )["status"]
+    == "reconciliation_required",
+    (traversal_result, forbidden_result),
+)
+
+protected_path = worktree / "core" / "coding_tools.py"
+protected_path.parent.mkdir(parents=True, exist_ok=True)
+protected_path.write_bytes(b"protected\n")
+protected_call, protected_facts, protected_lease = prepare_write(
+    runtime,
+    repository,
+    run_id="file-write-protected",
+    arguments={
+        "path": "core/coding_tools.py",
+        "content": "must not change\n",
+        "expected_sha256": sha256_text("protected\n"),
+    },
+    approval_id="approval-file-write-protected",
+)
+protected_result = execute_prepared(runtime, protected_call, protected_facts, protected_lease)
+protected_reconciliation = runtime.executor.reconcile_action(
+    protected_call, actor="owner"
+)
+ok(
+    "broker protected-path denial changes nothing and records not-applied evidence",
+    protected_result.status == "blocked"
+    and protected_result.error is not None
+    and protected_result.error.code == "tool.action_reconciliation_required"
+    and protected_path.read_text(encoding="utf-8") == "protected\n"
+    and protected_reconciliation.status == "failed"
+    and protected_reconciliation.retryable
+    and query_one(
+        "SELECT status FROM mc_idempotency WHERE idempotency_key='effect-file-write-protected'"
+    )["status"]
+    == "retry_allowed",
+    protected_result,
+)
+
+
+class FailOnceControl(RuntimeControl):
+    def __init__(self) -> None:
+        self.fail = True
+
+    def record_step_success(self, *args, **kwargs):
+        if self.fail:
+            self.fail = False
+            raise RuntimeError("simulated receipt-storage crash")
+        return super().record_step_success(*args, **kwargs)
+
+
+crash_control = FailOnceControl()
+crash_runtime = build_file_tool_runtime(broker=broker, control=crash_control)
+crash_arguments = {
+    "path": "src/crash.txt",
+    "content": "written before crash\n",
+    "expected_sha256": "absent",
+}
+crash_call, crash_facts, crash_lease = prepare_write(
+    crash_runtime,
+    repository,
+    run_id="file-write-crash-applied",
+    arguments=crash_arguments,
+    approval_id="approval-file-write-crash",
+)
+crash_error = raises(
+    RuntimeError,
+    lambda: execute_prepared(crash_runtime, crash_call, crash_facts, crash_lease),
+)
+events_after_crash = len(broker_events)
+blocked_retry = crash_runtime.executor.execute(
+    crash_call,
+    crash_facts,
+    worker_id="blocked-retry-worker",
+    lease_token="unused-blocked-retry",
+    lease_epoch=101,
+)
+applied_reconciliation = crash_runtime.executor.reconcile_action(
+    crash_call, actor="owner"
+)
+ok(
+    "after-write crash blocks replay then reconciles applied without a second write",
+    crash_error is not None
+    and (worktree / "src" / "crash.txt").read_text(encoding="utf-8")
+    == crash_arguments["content"]
+    and blocked_retry.status == "blocked"
+    and blocked_retry.error is not None
+    and blocked_retry.error.code == "tool.action_reconciliation_required"
+    and applied_reconciliation.status == "succeeded"
+    and applied_reconciliation.typed_output["after_sha256"]
+    == sha256_text(crash_arguments["content"])
+    and len(broker_events) == events_after_crash + 1
+    and query_one(
+        "SELECT COUNT(*) AS count FROM mc_action_receipts "
+        "WHERE idempotency_key='effect-file-write-crash-applied'"
+    )["count"]
+    == 1,
+    applied_reconciliation,
+)
+
+
+class FaultBroker:
+    def __init__(self, delegate: CodingToolBroker) -> None:
+        self.delegate = delegate
+        self.fail_write = True
+        self.write_attempts = 0
+
+    def read_file(self, path: str):
+        return self.delegate.read_file(path)
+
+    def list_files(self, prefix: str = "", limit: int = 200):
+        return self.delegate.list_files(prefix, limit)
+
+    def write_file(self, path: str, content: str):
+        self.write_attempts += 1
+        if self.fail_write:
+            raise RuntimeError("simulated failure before write")
+        return self.delegate.write_file(path, content)
+
+
+fault_broker = FaultBroker(broker)
+fault_runtime = build_file_tool_runtime(broker=fault_broker)
+not_applied_before = (worktree / "src" / "gamma.md").read_text(encoding="utf-8")
+not_applied_arguments = {
+    "path": "src/gamma.md",
+    "content": "gamma updated\n",
+    "expected_sha256": sha256_text(not_applied_before),
+}
+not_applied_call, not_applied_facts, not_applied_lease = prepare_write(
+    fault_runtime,
+    repository,
+    run_id="file-write-crash-not-applied",
+    arguments=not_applied_arguments,
+    approval_id="approval-file-write-not-applied",
+)
+not_applied_initial = execute_prepared(
+    fault_runtime, not_applied_call, not_applied_facts, not_applied_lease
+)
+not_applied_reconciliation = fault_runtime.executor.reconcile_action(
+    not_applied_call, actor="owner"
+)
+fault_broker.fail_write = False
+retry_lease = repository.claim_step(
+    not_applied_call.run_id, worker_id="file-write-retry-worker"
+)
+assert retry_lease is not None
+not_applied_retry = fault_runtime.executor.execute(
+    not_applied_call,
+    replace(not_applied_facts, decision_id="policy-file-write-not-applied-retry"),
+    worker_id=retry_lease["worker_id"],
+    lease_token=retry_lease["lease_token"],
+    lease_epoch=retry_lease["lease_epoch"],
+)
+ok(
+    "before-hash reconciliation permits exactly one later write",
+    not_applied_initial.status == "blocked"
+    and not_applied_reconciliation.status == "failed"
+    and not_applied_reconciliation.retryable
+    and not_applied_retry.status == "succeeded"
+    and fault_broker.write_attempts == 2
+    and (worktree / "src" / "gamma.md").read_text(encoding="utf-8")
+    == not_applied_arguments["content"]
+    and query_one(
+        "SELECT execution_count,status FROM mc_idempotency "
+        "WHERE idempotency_key='effect-file-write-crash-not-applied'"
+    )["execution_count"]
+    == 2,
+    not_applied_retry,
+)
+
+unknown_path = worktree / "src" / "unknown.txt"
+unknown_path.write_bytes(b"before unknown\n")
+unknown_broker = FaultBroker(broker)
+unknown_runtime = build_file_tool_runtime(broker=unknown_broker)
+unknown_arguments = {
+    "path": "src/unknown.txt",
+    "content": "intended unknown\n",
+    "expected_sha256": sha256_text("before unknown\n"),
+}
+unknown_call, unknown_facts, unknown_lease = prepare_write(
+    unknown_runtime,
+    repository,
+    run_id="file-write-crash-unknown",
+    arguments=unknown_arguments,
+    approval_id="approval-file-write-unknown",
+)
+unknown_initial = execute_prepared(
+    unknown_runtime, unknown_call, unknown_facts, unknown_lease
+)
+unknown_path.write_bytes(b"third state\n")
+unknown_reconciliation = unknown_runtime.executor.reconcile_action(
+    unknown_call, actor="owner"
+)
+unknown_retry = unknown_runtime.executor.execute(
+    unknown_call,
+    unknown_facts,
+    worker_id="unknown-retry-worker",
+    lease_token="unused-unknown-retry",
+    lease_epoch=102,
+)
+ok(
+    "third-state reconciliation remains unknown and cannot write again",
+    unknown_initial.status == "blocked"
+    and unknown_reconciliation.status == "blocked"
+    and unknown_reconciliation.error is not None
+    and unknown_reconciliation.error.code == "tool.action_reconciliation_required"
+    and unknown_retry.status == "blocked"
+    and unknown_broker.write_attempts == 1
+    and unknown_path.read_text(encoding="utf-8") == "third state\n"
+    and query_one(
+        "SELECT status FROM mc_idempotency WHERE idempotency_key='effect-file-write-crash-unknown'"
+    )["status"]
+    == "reconciliation_required",
+    unknown_reconciliation,
+)
+
 file_runtime_path = (ROOT / "core" / "runtime" / "file_tools.py").resolve()
 live_imports: list[str] = []
 for source_root in (ROOT / "core", ROOT / "api"):
@@ -520,4 +1064,4 @@ ok(
     live_imports,
 )
 
-print(f"\n{PASS}/9 T07 RUN 2A FILE TOOL CHECKS PASS")
+print(f"\n{PASS}/{PASS} T07 RUNS 2A-2B FILE TOOL CHECKS PASS")

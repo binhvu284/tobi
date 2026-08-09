@@ -1313,6 +1313,65 @@ registry/adapters/catalog, accepted #22 production/diagnostic/worker checks, own
 routes, Conductor, mode enforcement, Terminal, Storage, and compile regressions pass. No live caller,
 broker, coding policy, worker, flag, table, API/UI, mutation, terminal tool, or external service changed.
 
+### 25.5 T07 Run 2B - Dormant Bounded File Write Plan (2026-08-09)
+
+**Outcome:** The existing `CodingToolBroker.write_file()` operation executes through one isolated
+canonical path only after central policy and any required owner approval allow it. A completed write
+has one immutable before/after receipt; a duplicate replays that result; an uncertain write never
+runs again until current-file hash evidence classifies the first attempt.
+
+| Current node | Run 2B edge | Rule |
+|---|---|---|
+| `CanonicalToolCatalog.prepare_call()` | Adds only `tobi.files.write_file@1` for Developer/agent mode with `files.write`, reversible side effect, medium risk, workspace isolation, required idempotency, and a receipt | Inputs are a bounded relative `path`, bounded UTF-8 `content`, and required `expected_sha256` (`absent` for create or the exact current lowercase SHA-256 for overwrite) |
+| `PolicyEngine` and `PolicyLedger` | Decide and persist allow/approval/deny before action reservation | Wrong surface/mode/permission/isolation, missing approval, malformed input, unknown/unavailable tool, or non-allowlisted call invokes no broker method |
+| `CodingToolBroker` | Remains the only write authority and performs its existing atomic replacement | Do not copy or weaken worktree containment, protected/forbidden path checks, byte cap, temporary-file replacement, or broker events |
+| `ActionLedger` and `CanonicalToolExecutor` | Reserve once, hash the exact request, persist redacted write metadata, add before/after receipt refs, and replay completed results | Changed path, expected hash, or content under the same idempotency key conflicts; raw file content does not enter action events, receipts, results, or manifests |
+| Existing crash reconciliation | Compares the current broker-read hash with the intended after hash and expected before hash | After match means applied with one receipt and no rewrite; before match means not applied and permits one retry; any third state remains unknown and blocked |
+
+**Implementation order:**
+
+1. Extend `tests/test_mc_runtime_file_tools.py` with a missing `WRITE_FILE_REF` check, confirm it fails, set the Gate to red, and make no production edit before that evidence.
+2. Add private mutation hooks to `ToolExecutionBinding` only for redacted persisted arguments, truthful not-applied wording, and optional before/after receipt refs; preserve Run 1 project behavior byte-for-byte.
+3. Extend `ActionLedger.prepare_action()` so the stored request can replace write content with `[REDACTED]` plus byte count and SHA-256 while the conflict hash still covers the exact unredacted call.
+4. Add the bounded `write_file` contract and adapter to `core/runtime/file_tools.py`; verify the expected pre-state through the injected broker, call its existing `write_file`, return only path/bytes/hashes, and add a read-only hash reconciliation helper that never writes.
+5. Prove direct success, exact replay, changed-content conflict, approval and path denial, applied/not-applied/unknown interruption outcomes, no live imports, and focused regressions before running the enforced gate and intended-file-only status check.
+
+**Acceptance checks:** one approved write to a real temporary worktree creates or atomically replaces
+one policy-approved file and records one receipt whose before/after refs use SHA-256 evidence; the
+validated result contains path, bytes, and hashes but no content; exact replay invokes neither broker
+read nor write again; the same idempotency key with different content, expected hash, path, or target
+fails closed; a stale expected hash cannot overwrite a newer file; denied, unapproved, malformed,
+oversized, traversal, absolute, protected, or forbidden attempts do not change a file; a simulated
+crash after replacement blocks retry, then an after-hash match completes without rewriting, a before-
+hash match permits one retry, and any other hash remains blocked; raw content is absent from action
+rows, events, receipts, results, and manifests; Run 1 project tools and Run 2A reads remain unchanged.
+
+**Verification:** `D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe tests/test_mc_runtime_file_tools.py` plus Run 1 project tools, T03 receipts/control/repository, T05 policy/approvals,
+T06 registry/catalog, accepted #22 coding production/diagnostic/worker checks, owner flags, Chat,
+Conductor, mode enforcement, terminal, Storage, and compile regressions; finally
+`D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe scripts/gate.py` and intended-file-only `git status`.
+
+**Explicit non-goals:** no `replace_text`, search, patch, command, or terminal tool; no live caller,
+route, policy cutover, owner flag, table, migration, API/UI, `CodingToolBroker`, coding-policy,
+accepted #22 worker/worktree, Conductor, Telegram, CLI, Office, external service, Supabase, or Vercel
+change. T10 owns accepted #22 orchestration migration; T15 owns remaining surface cutovers.
+
+**Estimate after delivery:** T07 **60-70%** complete; #21 **76-84%** complete. Expected unattended
+implementation and verification time is **5-8 hours**. Run 3 remains separately reviewable for
+terminal execution, command allowlists, bounded output, cancellation, and crash behavior.
+
+**Delivery evidence (2026-08-09):** the expanded file-tool test first failed on the missing
+`WRITE_FILE_REF`, and the red gate confirmed that exact failure before production edits. The delivered
+suite passes 18/18 checks for bounded Developer-only metadata, malformed/absolute/oversized rejection,
+approval before reservation, guarded real-worktree overwrite, redacted action identity, before/after
+SHA-256 receipt evidence, exact replay, changed-call conflict, stale-state refusal, traversal/forbidden/
+protected path safety, and applied/not-applied/unknown interruption reconciliation without blind retry.
+The existing broker remains the only path/write authority and still owns atomic replacement and coding
+policy. Run 1 project tools, T03 repository/control/receipts, T05 policy/approvals, T06 registry/adapters/
+catalog, owner flags, accepted #22 production/diagnostic/worker checks, Chat and routes, Conductor, mode
+enforcement, Terminal, Storage, compile, diff checks, and the enforced green gate pass. No live caller,
+broker, coding policy, worker, flag, table, migration, API/UI, terminal tool, or external service changed.
+
 ## 26. Implementation Log
 
 Planning state only. Add one dated row after each accepted worker package.
@@ -1341,4 +1400,5 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-09 | T06 Run 2 | T06 Run 2 delivery commit | Red missing-adapter import; 10/10 adapter checks; Runtime contracts/registry/policy/policy facts/approvals, owner flags, Chat, mode enforcement, Conductor, terminal, Storage, compile, and enforced gate green | T06 in progress; pure adapters convert exact current Conductor/Chat and inbound FastMCP catalogs plus safe persisted outbound MCP metadata into isolated canonical snapshots. Stable connection ids prevent collisions, schema content versions external contracts, malformed/remote schemas fail closed per tool, permission stays separate from availability, and endpoint/credential references are excluded. `runtime.v2_tools` remains off with no global registry, migration, live caller, invocation, API, UI, or external-service change |
 | 2026-08-09 | T06 Run 3 | `911ae27`; Python 3.11 prerequisite `532bf35`; owner closure acceptance | Red missing-service import; 11/11 catalog checks; T01/T05/T06, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, compile, and enforced gate green | Complete; deterministic manifests expose drift without execution data, duplicate authorities fail closed, only exact allowlisted/available/schema-valid calls can be prepared, and activation remains advisory until every explicit policy/owner/flag/rollback condition passes. `runtime.v2_tools` remains off with no live registry, invocation, migration, API/UI, or external-service change; owner accepted T06 closure and released T07 planning |
 | 2026-08-09 | T07 Run 1 | `88412bd`; owner acceptance | Red missing-project-runtime import; 10/10 project-tool checks; T03/T05/T06, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, compile, and enforced gate green | Accepted; a dormant executor adapts `list_projects` and `create_task` from current metadata, revalidates input/output, records central policy, derives the project target server-side, reserves mutations before invocation, stores one immutable receipt, and replays completed results without a second write. No live import, flag, schema, API/UI, file/terminal tool, or external-service change; T07 remains open and Run 2A planning is released |
-| 2026-08-09 | T07 Run 2A | T07 Run 2A delivery commit | Red missing-file-runtime import; 9/9 file-tool checks; Run 1 project tools, T03/T05/T06, accepted #22 coding tools/workers, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, repository, compile, and enforced gate green | T07 in progress; dormant Developer-only `read_file` and `list_files` contracts execute through central policy and the injected existing coding broker. Broker path rules stay authoritative, failures are truthful and sanitized, reads create no receipts, and durable history redacts file content. No live import, broker/policy/worker, flag, schema, API/UI, mutation, terminal, or external-service change; awaiting owner acceptance before Run 2B planning |
+| 2026-08-09 | T07 Run 2A | `3c1c35c`; owner acceptance | Red missing-file-runtime import; 9/9 file-tool checks; Run 1 project tools, T03/T05/T06, accepted #22 coding tools/workers, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, repository, compile, and enforced gate green | Accepted; dormant Developer-only `read_file` and `list_files` contracts execute through central policy and the injected existing coding broker. Broker path rules stay authoritative, failures are truthful and sanitized, reads create no receipts, and durable history redacts file content. No live import, broker/policy/worker, flag, schema, API/UI, mutation, terminal, or external-service change; Run 2B planning released |
+| 2026-08-09 | T07 Run 2B | T07 Run 2B delivery commit | Red missing-write-ref import; 18/18 file-tool checks; Run 1 project tools, T03/T05/T06, accepted #22 coding tools/workers, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, repository, compile, diff, and enforced gate green | T07 in progress; dormant Developer-only `write_file` adds expected-state protection, exact replay, redacted action identity, immutable before/after receipt hashes, and applied/not-applied/unknown crash reconciliation through the unchanged coding broker. No live import, broker/policy/worker, flag, schema, API/UI, terminal, or external-service change; awaiting owner acceptance before Run 3 planning |

@@ -37,6 +37,30 @@ class ToolExecutionError(ValueError):
 
 
 @dataclass(frozen=True)
+class ToolActionReconciliation:
+    """Read-only evidence describing whether one uncertain action took effect."""
+
+    outcome: str
+    summary: str
+    evidence_refs: tuple[str, ...] = ()
+    output: Any = None
+
+    def __post_init__(self) -> None:
+        if self.outcome not in {"applied", "not_applied", "unknown"}:
+            raise ValueError("outcome must be applied, not_applied, or unknown")
+        if not isinstance(self.summary, str) or not self.summary.strip():
+            raise ValueError("summary must be a non-empty string")
+        if not isinstance(self.evidence_refs, tuple) or not all(
+            isinstance(ref, str) and ref for ref in self.evidence_refs
+        ):
+            raise ValueError("evidence_refs must be a tuple of non-empty strings")
+        if self.outcome == "applied" and self.output is None:
+            raise ValueError("applied reconciliation requires output")
+        if self.outcome != "applied" and self.output is not None:
+            raise ValueError("only applied reconciliation may include output")
+
+
+@dataclass(frozen=True)
 class ToolExecutionBinding:
     """Private callable metadata that never enters canonical contracts or manifests."""
 
@@ -55,8 +79,26 @@ class ToolExecutionBinding:
     evidence_refs: Callable[[Any], tuple[str, ...]] | None = field(
         default=None, repr=False, compare=False
     )
+    before_ref: Callable[[Any], str | None] | None = field(
+        default=None, repr=False, compare=False
+    )
+    after_ref: Callable[[Any], str | None] | None = field(
+        default=None, repr=False, compare=False
+    )
     read_output_for_persistence: Callable[[Any], Any] | None = field(
         default=None, repr=False, compare=False
+    )
+    action_arguments_for_persistence: Callable[
+        [Mapping[str, Any]], Mapping[str, Any]
+    ] | None = field(default=None, repr=False, compare=False)
+    action_reconciliation: Callable[
+        [Mapping[str, Any]], ToolActionReconciliation
+    ] | None = field(default=None, repr=False, compare=False)
+    action_not_applied_owner_message: str = (
+        "TOBI could not apply the requested project change."
+    )
+    action_not_applied_summary: str = (
+        "The project tool rejected the action before applying it"
     )
     reported_error_is_not_applied: bool = False
 
@@ -75,11 +117,22 @@ class ToolExecutionBinding:
             "effect_summary",
             "external_ref",
             "evidence_refs",
+            "before_ref",
+            "after_ref",
             "read_output_for_persistence",
+            "action_arguments_for_persistence",
+            "action_reconciliation",
         ):
             value = getattr(self, name)
             if value is not None and not callable(value):
                 raise ValueError(f"{name} must be callable or None")
+        for name in (
+            "action_not_applied_owner_message",
+            "action_not_applied_summary",
+        ):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string")
         if not isinstance(self.reported_error_is_not_applied, bool):
             raise ValueError("reported_error_is_not_applied must be a bool")
 
@@ -187,6 +240,16 @@ class CanonicalToolExecutor:
                 raise ToolExecutionError("tool.read_binding_has_effect")
             if mutation and binding.read_output_for_persistence is not None:
                 raise ToolExecutionError("tool.action_binding_has_read_persistence")
+            if not mutation and any(
+                value is not None
+                for value in (
+                    binding.before_ref,
+                    binding.after_ref,
+                    binding.action_arguments_for_persistence,
+                    binding.action_reconciliation,
+                )
+            ):
+                raise ToolExecutionError("tool.read_binding_has_action_metadata")
             resolved[binding.tool_ref] = binding
         if not resolved:
             raise ValueError("at least one execution binding is required")
@@ -352,12 +415,18 @@ class CanonicalToolExecutor:
     ) -> RuntimeToolResult:
         if not call.idempotency_key:
             raise ToolExecutionError("tool.idempotency_key_required")
+        stored_arguments = None
+        if binding.action_arguments_for_persistence is not None:
+            stored_arguments = binding.action_arguments_for_persistence(
+                copy.deepcopy(arguments)
+            )
         prepared = self._action_ledger.prepare_action(
             call,
             target=target,
             worker_id=worker_id,
             lease_token=lease_token,
             lease_epoch=lease_epoch,
+            stored_arguments=stored_arguments,
             now=now,
         )
         if prepared["decision"] == "replay":
@@ -388,12 +457,12 @@ class CanonicalToolExecutor:
                     call.idempotency_key,
                     outcome="not_applied",
                     actor=worker_id,
-                    summary="The project tool rejected the action before applying it",
+                    summary=binding.action_not_applied_summary,
                     now=now,
                 )
                 return _failed_result(
                     code="tool.action_not_applied",
-                    owner_message="TOBI could not apply the requested project change.",
+                    owner_message=binding.action_not_applied_owner_message,
                     retryable=True,
                 )
             self._mark_unknown(call, worker_id=worker_id, now=now)
@@ -427,6 +496,12 @@ class CanonicalToolExecutor:
             tool_ref=call.tool_ref,
             target=target,
             effect_summary=binding.effect_summary(arguments, validated_output),
+            before_ref=(
+                binding.before_ref(validated_output) if binding.before_ref else None
+            ),
+            after_ref=(
+                binding.after_ref(validated_output) if binding.after_ref else None
+            ),
             external_ref=(
                 binding.external_ref(validated_output) if binding.external_ref else None
             ),
@@ -453,6 +528,117 @@ class CanonicalToolExecutor:
         except Exception:
             self._mark_unknown(call, worker_id=worker_id, now=now)
             raise
+        return result
+
+    def reconcile_action(
+        self,
+        call: RuntimeToolCall,
+        *,
+        actor: str,
+        now: datetime | None = None,
+    ) -> RuntimeToolResult:
+        """Resolve one uncertain mutation from read-only binding evidence."""
+        if not isinstance(call, RuntimeToolCall):
+            raise ToolExecutionError("tool.call_invalid")
+        if not isinstance(actor, str) or not actor.strip():
+            raise ToolExecutionError("tool.reconciliation_actor_invalid")
+        try:
+            binding = self._bindings[call.tool_ref]
+        except KeyError as exc:
+            raise ToolExecutionError("tool.binding_missing") from exc
+        spec = self.catalog.get_spec(call.tool_ref)
+        if spec.side_effect_class is SideEffectClass.NONE:
+            raise ToolExecutionError("tool.reconciliation_read_forbidden")
+        if binding.action_reconciliation is None:
+            raise ToolExecutionError("tool.reconciliation_unavailable")
+        arguments = self.catalog.validate_arguments(
+            call.tool_ref, call.validated_arguments
+        )
+        target = binding.target_from_arguments(arguments)
+        if not isinstance(target, str) or not target.strip():
+            raise ToolExecutionError("tool.target_invalid")
+        action = self._action_ledger.require_matching_action(call, target=target)
+        if action["status"] == "completed":
+            return _stored_result(action["result"])
+        if action["status"] == "retry_allowed":
+            return _failed_result(
+                code="tool.action_not_applied",
+                owner_message=binding.action_not_applied_owner_message,
+                retryable=True,
+            )
+
+        reconciliation = binding.action_reconciliation(
+            copy.deepcopy(arguments)
+        )
+        if not isinstance(reconciliation, ToolActionReconciliation):
+            raise ToolExecutionError("tool.reconciliation_invalid")
+        if reconciliation.outcome == "unknown":
+            return _blocked_result(
+                code="tool.action_reconciliation_required",
+                category=ErrorCategory.CONFLICT,
+                stage=ErrorStage.RECOVER,
+                owner_message="TOBI cannot yet prove whether this action happened.",
+                recovery_actions=(RecoveryAction.PROVIDE_INPUT,),
+            )
+        if reconciliation.outcome == "not_applied":
+            self._action_ledger.reconcile_action(
+                call.idempotency_key or "",
+                outcome="not_applied",
+                actor=actor,
+                summary=reconciliation.summary,
+                evidence_refs=reconciliation.evidence_refs,
+                now=now,
+            )
+            return _failed_result(
+                code="tool.action_not_applied",
+                owner_message=binding.action_not_applied_owner_message,
+                retryable=True,
+            )
+
+        validated_output = self.catalog.validate_output(
+            call.tool_ref, reconciliation.output
+        )
+        receipt_id = _receipt_id(call)
+        evidence_refs = (
+            binding.evidence_refs(validated_output)
+            if binding.evidence_refs
+            else reconciliation.evidence_refs
+        )
+        receipt = ActionReceipt(
+            receipt_id=receipt_id,
+            run_id=call.run_id,
+            step_id=call.step_id,
+            tool_ref=call.tool_ref,
+            target=target,
+            effect_summary=binding.effect_summary(arguments, validated_output),
+            before_ref=(
+                binding.before_ref(validated_output) if binding.before_ref else None
+            ),
+            after_ref=(
+                binding.after_ref(validated_output) if binding.after_ref else None
+            ),
+            external_ref=(
+                binding.external_ref(validated_output) if binding.external_ref else None
+            ),
+            approval_ref=call.approval_id,
+            timestamp=_now_iso(now),
+        )
+        result = RuntimeToolResult(
+            status="succeeded",
+            typed_output=validated_output,
+            evidence_refs=evidence_refs,
+            receipt_id=receipt_id,
+        )
+        self._action_ledger.reconcile_action(
+            call.idempotency_key or "",
+            outcome="applied",
+            actor=actor,
+            summary=reconciliation.summary,
+            evidence_refs=evidence_refs,
+            receipt=receipt,
+            result=result,
+            now=now,
+        )
         return result
 
     def _mark_unknown(

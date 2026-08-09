@@ -9,18 +9,21 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T07 Run 2A - dormant file read/list execution slice (delivered; awaiting owner acceptance)
+**Package:** T07 Run 2B - dormant bounded file write slice (delivered; awaiting owner acceptance)
 
 **Purpose (one sentence, plain words):**
-Expose the existing coding broker's `read_file` and `list_files` operations through canonical
-validation and central policy without changing its path rules or any live tool route.
+Expose the existing coding broker's `write_file` operation through canonical validation, approval,
+one immutable receipt, exact replay, and hash-based crash reconciliation without changing any live route.
 
 **Not doing:**
 - No live tool routing, policy cutover, caller integration, or flag change.
-- No file write, replace, search, command, or terminal execution; Run 2B owns the first bounded file mutation and Run 3 owns terminal tools.
+- No `replace_text`, search, patch, command, or terminal execution; Run 3 owns terminal tools.
 - No change to `CodingToolBroker`, coding policy, accepted #22 workers, worktree setup, or their live imports.
 - No deletion, bypass, or duplication of legacy tool registries or filesystem path authority.
-- No unrestricted filesystem authority; the existing approved-worktree, excluded-path, file-size, and list-limit rules remain decisive.
+- No unguarded overwrite: the caller must provide the expected current SHA-256 hash, or `absent` for a new file.
+- No automatic retry while a write outcome is uncertain; current file evidence must reconcile it first.
+- No unrestricted filesystem authority; the existing approved-worktree, protected-path, forbidden-path, and file-size rules remain decisive.
+- No new table, migration, owner flag, API, UI, or visible behavior.
 - No Conductor decomposition; T08 owns it.
 - No Runs page or broad frontend redesign; T13 owns it.
 - No Telegram, CLI, Office, scheduler, or remaining-surface adapters.
@@ -28,6 +31,7 @@ validation and central policy without changing its path rules or any live tool r
 
 **Files expected:**
 - `core/runtime/tool_execution.py`
+- `core/runtime/actions.py`
 - `core/runtime/file_tools.py`
 - `tests/test_mc_runtime_file_tools.py`
 - `tests/test_mc_runtime_project_tools.py`

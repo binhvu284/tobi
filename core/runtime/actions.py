@@ -58,9 +58,21 @@ def _receipt_from_row(row: sqlite3.Row) -> dict[str, Any]:
     return receipt
 
 
-def _request_identity(call: RuntimeToolCall, target: str) -> tuple[dict[str, Any], str]:
+def _request_identity(
+    call: RuntimeToolCall,
+    target: str,
+    stored_arguments: Mapping[str, Any] | None = None,
+) -> tuple[dict[str, Any], str]:
     identity = {**contract_to_dict(call), "target": target}
-    return redact_payload(identity), _hash(identity)
+    stored_identity = identity
+    if stored_arguments is not None:
+        if not isinstance(stored_arguments, Mapping):
+            raise ValueError("stored_arguments must be a mapping or None")
+        stored_identity = {
+            **identity,
+            "validated_arguments": dict(stored_arguments),
+        }
+    return redact_payload(stored_identity), _hash(identity)
 
 
 def _require_matching_action(
@@ -300,6 +312,32 @@ class ActionLedger:
         finally:
             conn.close()
 
+    def require_matching_action(
+        self, call: RuntimeToolCall, *, target: str
+    ) -> dict[str, Any]:
+        """Return an existing action only when the exact unredacted call identity matches."""
+        if not isinstance(call, RuntimeToolCall):
+            raise ValueError("call must be a RuntimeToolCall")
+        if not call.idempotency_key:
+            raise ValueError("side-effecting calls require idempotency_key")
+        _require_text(target, "target")
+        _, request_hash = _request_identity(call, target)
+        conn = get_connection()
+        try:
+            _ensure_runtime_schema(conn)
+            row = conn.execute(
+                "SELECT * FROM mc_idempotency WHERE idempotency_key=?",
+                (call.idempotency_key,),
+            ).fetchone()
+            if row is None:
+                raise ActionStateError(
+                    f"unknown idempotency_key {call.idempotency_key!r}"
+                )
+            _require_matching_action(row, call, target, request_hash)
+            return _action_from_row(row)
+        finally:
+            conn.close()
+
     def prepare_action(
         self,
         call: RuntimeToolCall,
@@ -308,6 +346,7 @@ class ActionLedger:
         worker_id: str,
         lease_token: str,
         lease_epoch: int,
+        stored_arguments: Mapping[str, Any] | None = None,
         now: datetime | None = None,
         event_id: str | None = None,
     ) -> dict[str, Any]:
@@ -318,7 +357,9 @@ class ActionLedger:
         _require_text(target, "target")
         _require_text(worker_id, "worker_id")
         prepared_at = _iso(_lease_now(now))
-        stored_request, request_hash = _request_identity(call, target)
+        stored_request, request_hash = _request_identity(
+            call, target, stored_arguments
+        )
         conn = get_connection()
         try:
             _ensure_runtime_schema(conn)
