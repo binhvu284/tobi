@@ -49,7 +49,6 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 from core.database import init_database, get_dashboard, get_all_lessons, add_lesson
-from core.model_router import llm_complete
 from core.research_engine import run_research_cycle
 from core.project_executor import execute_all_projects
 from core.ceo_loop import run_ceo_review, format_ceo_telegram_summary
@@ -496,12 +495,24 @@ async def test_connections():
     print("\n🧪 Testing connections...\n")
     all_ok = True
 
-    print("1. LLM...")
+    # A one-shot "Reply: OK" used to print a green LLM line here. On 2026-08-01 it printed it
+    # all day while every Chat request failed, because the defect only existed on the second
+    # message of a conversation. The same check the Health page runs is used instead: a real
+    # short conversation that uses a tool. See core/chat_self_check.py.
+    print("1. Chat...")
     try:
-        r = llm_complete("Reply: OK", task_type="simple", max_tokens=10)
-        print(f"   ✅ LLM: {r.strip()[:30]}")
+        from core.chat_self_check import run_self_check
+        check = run_self_check()
+        icon = "✅" if check["ok"] else "❌"
+        label = {"working": "Chat works", "broken": "Chat is BROKEN",
+                 "model_unavailable": "Model unreachable"}.get(check["state"], check["state"])
+        tools = ", ".join(check["tools_used"]) or "no tool ran"
+        print(f"   {icon} {label} ({tools}, {check['model_turns']} turns, {check['latency_ms']}ms)")
+        if not check["ok"]:
+            print(f"      {check['detail']}")
+            all_ok = False
     except Exception as e:
-        print(f"   ❌ LLM: {e}")
+        print(f"   ❌ Chat: {e}")
         all_ok = False
 
     print("2. Telegram...")

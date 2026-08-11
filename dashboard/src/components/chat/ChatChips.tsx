@@ -1,7 +1,7 @@
 // Presentational chips extracted from pages/Chat.tsx.
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { Loader2, Check, X, Youtube, Wrench, Briefcase, FileText, Search, CheckCircle2, Brain, ThumbsUp, ThumbsDown } from 'lucide-react'
+import { Loader2, Check, X, Youtube, Wrench, Briefcase, FileText, Search, CheckCircle2, Brain, ThumbsUp, ThumbsDown, ChevronRight } from 'lucide-react'
 import type { ReaderChip, ChatModeId, ContextChip, ChatArtifactEvent, MemoryChip } from '../../api.chat'
 import { v2Feedback } from '../../api.brainV2'
 
@@ -115,16 +115,32 @@ function MemoryChip1({ chip, turnRef }: { chip: MemoryChip; turnRef?: string }) 
   )
 }
 
+/** Which memories TOBI leaned on, folded away by default.
+ *
+ * Ten chips pushed the answer itself off the screen — the reader came for the reply, not the
+ * provenance. It stays one line until the owner asks for it, and reopening is one click.
+ */
 export function MemoryChips({ chips, turnRef }: { chips?: MemoryChip[]; turnRef?: string }) {
+  const [open, setOpen] = useState(false)
   if (!chips || chips.length === 0) return null
   return (
     <div className="mt-2 flex flex-col gap-1.5">
-      <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted/70">
-        <Brain size={11} /> Owner memories used · {chips.length}
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {chips.map(c => <MemoryChip1 key={c.memory_id} chip={c} turnRef={turnRef} />)}
-      </div>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        title={open ? 'Hide the memories used' : 'Show the memories used'}
+        className="flex w-fit items-center gap-1.5 rounded text-[10px] font-medium uppercase tracking-wide text-muted/70 transition hover:text-muted focus:outline-none focus-visible:ring-1 focus-visible:ring-border"
+      >
+        <Brain size={11} />
+        Owner memories used · {chips.length}
+        <ChevronRight size={11} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
+      </button>
+      {open && (
+        <div className="flex flex-wrap gap-1.5">
+          {chips.map(c => <MemoryChip1 key={c.memory_id} chip={c} turnRef={turnRef} />)}
+        </div>
+      )}
     </div>
   )
 }
