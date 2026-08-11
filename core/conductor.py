@@ -27,6 +27,11 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
+from core.runtime.intent_router import (
+    needs_episodic_recall as _detect_past_reference,
+    resolve_intent as _resolve_intent,
+)
+
 logger = logging.getLogger("tobi.conductor")
 
 # Shared tool helpers/constants live in core/conductor_tools/common.py (Phase 2 refactor)
@@ -153,24 +158,7 @@ def _failure_report(done: list[str], failed_summary: str, error: str) -> str:
 
 
 
-# ── Episodic recall: cross-session memory ────────────────────────────────────
-
-import re as _re
 from datetime import datetime as _dt, timedelta as _td, timezone as _tz
-
-_PAST_REF_RE = _re.compile(
-    r'(yesterday|last\s+\w+|\d+\s*days?\s*ago|earlier|before|'
-    r'what\s+did\s+we|do\s+you\s+remember|recall|when\s+did\s+we|'
-    r'when\s+were\s+we|what\s+were\s+we\s+discuss\w*|what\s+have\s+we\s+been|'
-    r'previous\s+(session|chat|conversation)|other\s+(session|chat|conversation)|'
-    r'what\s+about\s+our|talked\s+about|discussed)',
-    _re.IGNORECASE,
-)
-
-
-def _detect_past_reference(message: str) -> bool:
-    """True when the owner is likely asking about past conversations."""
-    return bool(_PAST_REF_RE.search(message or ""))
 
 
 
@@ -331,7 +319,6 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
 
     from core import brain
     from core.model_router import get_llm
-    from core.task_classifier import classify
 
     if context_manifest is not None:
         profile = context_manifest.source_content("owner_memory")
@@ -348,17 +335,13 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
             profile = ""
         tier_context = _build_tier_context()
         manifest_text = ""
-    try:
-        intent = classify(message)
-    except Exception:
-        intent = "QUESTION"
+    intent_decision = _resolve_intent(message, mode, route)
+    intent = intent_decision.intent
     # Attachments (P2): the owner's files arrive as extracted text — fold them into the
     # turn as context so the tool-loop and the grounded reply can use them.
     if attachments_text:
         message = f"{message}\n\n[Attached content the owner shared]\n{attachments_text}"
-    tools_enabled = route != "direct" if route else intent not in ("SMALLTALK", "CODING")
-    if mode == "agent" and intent == "CODING":
-        tools_enabled = True
+    tools_enabled = intent_decision.tools_enabled
     system = _system_prompt(profile, tools_enabled, surface, directives, extra_tools,
                             user_message=message, denied_tools=denied_tools,
                             allowed_tools=allowed_tools, tier_context=tier_context,

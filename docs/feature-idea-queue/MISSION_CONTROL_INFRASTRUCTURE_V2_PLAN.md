@@ -1768,7 +1768,8 @@ remain re-exported from `core.conductor` so hidden and legacy imports do not bre
 | Run | Reviewable outcome | T08 complete after acceptance |
 |---|---|---|
 | Run 1 | Model-response boundary extracted; all public behavior unchanged | 15-20% |
-| Run 2 | Context assembly and deterministic intent/tool-route preparation extracted | 35-45% |
+| Run 2A | Compatibility intent/tool-loop decision and episodic-recall detection extracted | 25-30% |
+| Run 2B | Context assembly extracted through existing manifest, Brain, history, attachment, and prompt owners | 35-45% |
 | Run 3 | Recovery and tool-loop execution delegated behind accepted policy, registry, and receipt boundaries | 70-82% |
 | Run 4 | Final response composition extracted; `answer()` becomes a compatibility-only facade; golden closeout | 100% |
 
@@ -1846,7 +1847,105 @@ Awakening suite still fails its recovered-memory dedup assertion; a temporary un
 archive reproduces the identical conflict, proving it is baseline Brain debt rather than this change.
 No route, flag, result field, reply/stream behavior, provider/fallback, context, intent, prompt,
 policy, approval, tool, storage, schema, API, UI, external surface, or external service changed.
-T08 Run 1 is implemented and awaits owner acceptance before Run 2 planning.
+The owner accepted T08 Run 1 on 2026-08-12 and released Run 2 planning.
+
+### 25.11 T08 Run 2A - Compatibility Intent Routing Extraction Plan (2026-08-12)
+
+**Outcome:** Move only Conductor's compatibility intent decision and broad episodic-recall detector
+into `core/runtime/intent_router.py`. The new service returns a frozen typed decision; Conductor
+delegates without changing classification, tool-loop enablement, recall prompting, public answers,
+or any upstream Chat Runtime route.
+
+**Why Run 2 is split:** source review at current commit `d263837` shows two independent boundaries.
+The routing fragment is pure and has no database/model/prompt dependency. Context assembly reads
+Brain or `ContextManifest`, renders untrusted prompt context, appends attachments, loads history, and
+builds the system prompt. Combining them would hide behavior changes across unrelated safety
+boundaries. Run 2A therefore owns routing only; Run 2B requires a later owner-approved plan for
+context assembly.
+
+**Source-grounded map:** Graphify's commit `2d46ab9` identifies Conductor, `route_turn()`,
+`RouteDecision`, `ContextManifest`, task classification, and prompt-context edges, but predates Runtime
+V2 and Run 1. Current source establishes these owners:
+
+| Current node | Current authority | Run 2A rule |
+|---|---|---|
+| `api/routers/chat.py` plus `chat_runtime.route_turn()` | Builds the detailed typed `RouteDecision`: route, allowed tools, clarification, step limits, and token budgets | Unchanged; this remains the authoritative Chat route |
+| `conductor.answer()` compatibility branch | Reclassifies the original message, falls back to `QUESTION`, honors a truthy route override, enables Agent coding tools, and exposes `intent` in results | Move verbatim behind one typed service |
+| `_detect_past_reference()` | Applies Conductor's broader legacy recall regex to the attachment-expanded message and adds the existing recall prompt only when tools are enabled | Move detector only; prompt text and call order stay in Conductor |
+| `task_classifier.classify()` | Seven regex outcomes and precedence | Unchanged; service uses the live module function so existing monkeypatch/tests still work |
+| `context_manager`, Brain, `ContextManifest`, `_system_prompt`, `_history` | Context selection, trust fences, budgets, and prompt/history construction | Excluded until Run 2B |
+
+Run 2A must not introduce another `RouteDecision`, tool allowlist, confidence score, route budget, or
+clarification rule. It is a compatibility adapter beneath the existing detailed Chat router, not a
+second routing authority.
+
+**Contract:** add frozen `ConductorIntentDecision(intent, tools_enabled)`,
+`resolve_intent(message, mode, route_override, classifier=None)`, and
+`needs_episodic_recall(message, tools_enabled)`. The default classifier is resolved dynamically from
+`core.task_classifier` so current tests and callers that replace `task_classifier.classify` keep
+working. Exact legacy truth rules remain: classifier exception becomes `QUESTION`; a truthy route
+override enables tools unless it equals `direct`; absent/empty route uses intent; Chat coding stays
+direct; Agent coding enables tools; recall detection sees the final attachment-expanded message but
+cannot enable tools itself. The service imports neither Conductor nor context/model/tool/storage code.
+
+**Implementation order:**
+
+1. Add `tests/test_mc_runtime_intent_router.py`, run it against unchanged code, capture the missing
+   service failure, and set the Gate red before production edits.
+2. Add the typed pure service and direct cases for every legacy branch: smalltalk, coding in both
+   modes, ordinary question, classifier exception, direct/non-direct/empty route overrides, dynamic
+   classifier replacement, positive/negative past-reference phrases, and recall disabled when tools
+   are off.
+3. Replace only Conductor's classifier try/except, tool-enable decision, and detector body with the
+   typed call/compatibility alias. Keep attachment timing and the existing recall prompt text in place.
+4. Prove `chat_runtime.route_turn`, `RouteDecision`, task-classifier outcomes, Conductor context,
+   response behavior, mode enforcement, and the Run 1 response service remain unchanged; set the Gate
+   green and run the enforced checks.
+5. Publish delivery evidence without starting Run 2B planning until owner acceptance.
+
+**Acceptance checks:** the new test fails before implementation and passes after; the service has no
+reverse Conductor import or side effects; classifier replacement remains live; every current intent,
+route-override, mode, and recall truth table is byte-for-byte compatible; classification still sees
+the original stripped owner message before attachment text; recall detection still sees attachment
+text after it is appended; `inspect.signature(conductor.answer)` and result fields remain unchanged;
+the detailed Chat route's type, tool scopes, confidence, reasons, clarification, limits, and budgets
+are unchanged; and only Conductor imports the new service in live code.
+
+**Expected files:** `core/runtime/intent_router.py`, `core/conductor.py`,
+`tests/test_mc_runtime_intent_router.py`, and the four package/queue documents. Any other source or
+test file requires stopping and revising this plan before editing.
+
+**Verification:** run the new focused suite; `test_task_classifier.py`, `test_chat_runtime.py`,
+`test_chat_runtime_route.py`, `test_mc_runtime_gateway_route.py`,
+`test_mc_runtime_gateway_live_chat.py`, `test_conductor_context.py`,
+`test_conductor_final_guard.py`, `test_conductor_mixed_reply.py`,
+`test_mc_runtime_response_composer.py`, and `test_mode_enforcement.py`; focused `py_compile` plus
+`compileall`; live-import and scope scans; `git diff --check`; the enforced `scripts/gate.py`; and
+intended-file-only `git status`. Planning baseline passes: task classifier 22 checks, Chat Runtime 8
+tests, and Conductor context 9 checks.
+
+**Non-goals:** no `chat_runtime.route_turn` or API caller edit; no new canonical route contract; no
+classifier regex/outcome/precedence change; no ContextManifest, Brain, profile, attachment, history,
+prompt, tool catalog/execution, policy, approval, model, response, persistence, schema, flag, API/UI,
+Telegram/CLI/Office/scheduler, external service, Supabase, or Vercel change. Queue item #30 is
+source-disjoint but must not implement in parallel because both packages own `CURRENT_WORK.md`, the
+gate, and queue documents.
+
+**Estimate after acceptance:** T08 **25-30%** complete and #21 about **86-92%** complete. Expected
+unattended implementation and verification time is **3-5 hours**. Owner acceptance should take
+**10 minutes**: confirm the diff adds one typed pure router and test, changes only the small Conductor
+delegation, and leaves the detailed Chat router plus all context/runtime behavior untouched.
+
+**Delivery evidence (2026-08-12):** the focused test first failed because
+`core.runtime.intent_router` did not exist, while the other 11 gate commands passed. The delivered
+service passes 33 routing/delegation checks, and the enforced gate is green for all 12 commands:
+task classification, Chat Runtime and route/gateway behavior, Conductor context/final/mixed replies,
+the Run 1 response service, mode enforcement, and Python compilation. Only Conductor imports the new
+service in live code. No Chat route, classifier outcome, context, prompt text, result field, tool,
+policy, persistence, flag, API, UI, or external service changed.
+
+**Owner action:** accept **T08 Run 2A** and release Run 2B planning. Run 2B does not start before that
+acceptance.
 
 ## 26. Implementation Log
 
@@ -1882,4 +1981,5 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-10 | T07 Run 3B1 | `f07b8cb`; owner acceptance 2026-08-11 | Red missing-action-ref test; 24/24 terminal-tool checks; terminal engine, T03/T05/T06, T07 project/file, owner flags, mode, Chat unit/route, Conductor, Storage, compile, diff, and enforced gate green | Accepted; a dormant high-risk `run_command@2` action permits only `mkdir <safe-name>` in the fixed directory after matching approval and idempotency, records one redacted immutable receipt, replays exact duplicates, conflicts changed identity, and blocks unknown interruption retries. Accepted `@1` reads and all live behavior remain unchanged; Run 3B2A planning released while T07 remains open |
 | 2026-08-11 | T07 Run 3B2A | `6de9f27`; owner acceptance 2026-08-11 | Red missing-module test; 15/15 terminal-job checks; T03/T05/T06, T07 project/file/terminal, legacy Terminal, owner flags, mode, Chat, Conductor, Storage, compile, diff, and enforced gate green | Accepted; a dormant typed-duration start action, durable managed-job table, authenticated detached worker, restart-safe reads, exact replay, and fail-closed unknown launch reconciliation are delivered without cancellation, PID control, raw caller command persistence, legacy-table change, or live import; Run 3B2B planning released while T07 remains open |
 | 2026-08-11 | T07 Run 3B2B | `1a1f026`; owner closure acceptance 2026-08-11 | Red missing-cancel-ref test; 26/26 terminal-job checks; accepted terminal/project/file, Runtime T01-T06/T03, owner flags, mode, Chat, Conductor, Storage, compile, diff, and enforced gate green | Complete; approved owner-bound cancellation is durable, replay-safe, restart-safe, and completed only by the authenticated worker. Stale proof remains unknown, populated schema 009 upgrades in place, and no PID, signal, legacy kill invocation, replacement launch, live import, caller switch, API/UI, flag, or external-service change was added; owner accepted T07 closure and released T08 planning |
-| 2026-08-12 | T08 Run 1 | T08 Run 1 delivery commit; owner acceptance pending | Red missing-service import; 28/28 response checks; enforced gate 9/9; broader gateway, Chat mode, resources, Office, and Terminal checks green; unchanged `064ed83` reproduces the unrelated Awakening failure | Implemented; typed response handling is extracted and Conductor delegates through compatibility boundaries with no public answer, route, flag, policy, tool, context, storage, API, or UI change. T08 is 15-20% complete; Run 2 planning waits for owner acceptance |
+| 2026-08-12 | T08 Run 1 | `d263837`; owner acceptance 2026-08-12 | Red missing-service import; 28/28 response checks; enforced gate 9/9; broader gateway, Chat mode, resources, Office, and Terminal checks green; unchanged `064ed83` reproduces the unrelated Awakening failure | Accepted; typed response handling is extracted and Conductor delegates through compatibility boundaries with no public answer, route, flag, policy, tool, context, storage, API, or UI change. T08 is 15-20% complete; source review split Run 2 into routing-only 2A and context-only 2B, and Run 2A planning is released |
+| 2026-08-12 | T08 Run 2A | T08 Run 2A delivery commit | Red missing-router import; 33/33 intent-router checks; enforced gate 12/12 green | Delivered, acceptance pending; a frozen pure compatibility decision and recall detector now own Conductor's existing branch while the authoritative Chat route, classifier outcomes, context, prompts, public answers, tools, policy, persistence, flags, API, and UI remain unchanged. T08 is 25-30% complete; Run 2B planning remains locked pending owner acceptance |

@@ -9,19 +9,20 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T08 Run 1 - Model-response boundary extraction (implemented; awaiting owner acceptance)
+**Package:** T08 Run 2A - Compatibility intent routing extraction (implemented; awaiting owner acceptance)
 
 **Purpose (one sentence, plain words):**
-Move Conductor's model-output classification, streaming, continuation, reasoning cleanup, and
-chunking behind one focused Runtime service without changing any public answer behavior.
+Move Conductor's small intent/tool-loop decision and episodic-recall detection behind one typed,
+pure Runtime service without changing Chat routing or any public answer behavior.
 
 **Not doing:**
-- No T08 Run 2 planning or implementation until Run 1 is owner-accepted.
-- No broad rewrite of `core/conductor.py`; Run 1 extracts only the model-response boundary.
-- No change to the `conductor.answer()` signature, result fields, reply text, event order, streaming
-  reset behavior, provider selection, fallback choice, or final-answer escalation behavior.
-- No live-route, owner-flag, policy, approval, tool catalog, tool execution, memory, context, intent,
-  prompt, database, schema, API, or UI change.
+- No Run 2B planning or implementation until the owner accepts Run 2A.
+- No change to `core/chat_runtime.py`, `RouteDecision`, task-classifier patterns/outcomes, route tool
+  scopes, route budgets, clarification behavior, or the Chat API caller.
+- No context extraction: profile, Brain, `ContextManifest`, attachments, history, prompts, and the
+  episodic-recall prompt text stay in their current owners until Run 2B.
+- No change to the `conductor.answer()` signature, result fields, reply text, event order, model
+  selection/fallback, policy, approvals, tool catalog/execution, persistence, or owner flags.
 - No T09 Brain-context integration, T11 observability expansion, T13 Runs page, or T14 activation work.
 - No Telegram, CLI, Office, scheduler, or remaining-surface migration; T15 owns those adapters.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
@@ -31,20 +32,23 @@ chunking behind one focused Runtime service without changing any public answer b
 - `docs/feature-idea-queue/MC_V2_BOARD.md`
 - `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
 - `docs/feature-idea-queue/QUEUE.md`
-- `core/runtime/response_composer.py`
+- `core/runtime/intent_router.py`
 - `core/conductor.py`
-- `tests/test_mc_runtime_response_composer.py`
+- `tests/test_mc_runtime_intent_router.py`
 
 **Gate: green**
 
 ```gate
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_response_composer.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_conductor_final_guard.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_conductor_mixed_reply.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_conductor_context.py
+"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_intent_router.py
+"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_task_classifier.py
 "D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_chat_runtime.py
 "D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_chat_runtime_route.py
+"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_gateway_route.py
 "D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_gateway_live_chat.py
+"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_conductor_context.py
+"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_conductor_final_guard.py
+"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_conductor_mixed_reply.py
+"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_response_composer.py
 "D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mode_enforcement.py
 "D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" -m compileall -q core api
 ```
