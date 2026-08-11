@@ -13,14 +13,14 @@ Its status column carries the same short progress note this board tracks.
 
 ## Status
 
-**In progress.** T00 through T06 and T07 Runs 1-3A are accepted. Run 3B1 is delivered, and T07 remains open.
+**In progress.** T00 through T06 and T07 Runs 1-3B1 are accepted. Run 3B2A is delivered, and T07 remains open.
 
-**Delivered:** 7 complete packages plus T07 Runs 1-3B1, about **82-88%** of total effort.
+**Delivered:** 7 complete packages plus T07 Runs 1-3B2A, about **83-89%** of total effort.
 
-**Next:** review and accept T07 Run 3B1, then recheck the Run 3B2 background-job outline against its
-delivered diff. The dormant action contract permits only `mkdir <safe-name>` in its fixed directory,
-requires approval, records one receipt, replays exact duplicates, and blocks uncertain retries. T07
-and T08 remain closed until Run 3B2 is delivered and explicitly accepted.
+**Next:** review and accept T07 Run 3B2A. It adds a separate durable record and detached worker for
+only a typed 1-300 second wait job, then proves start, list, output, completion, exact replay, and
+truthful restart status without storing a caller command. Run 3B2B will add approved cancellation.
+T07 and T08 remain closed until Run 3B2B is delivered and explicitly accepted.
 
 ---
 
@@ -61,7 +61,7 @@ Ordered. Each one ships and is reviewable on its own. Risk is the plan's own rat
 | T04 | **Point Chat and Agent at the new engine**, quietly at first (both run side by side and get compared before anything switches over). | T03 | High | Done |
 | T05 | **One place decides what is allowed.** Permissions, approvals, credentials, budgets — currently spread across many files. | T01 | High | Done |
 | T06 | **One list of tools.** Every tool described once, in one format, with its arguments checked before it runs. | T01, T05 | High | Done |
-| T07 | **Move the first real tools over:** files, terminal, projects. Each mutation gets a receipt, and a retry cannot double-apply it. | T03, T06 | High | Runs 1-3A accepted; Run 3B1 delivered; review |
+| T07 | **Move the first real tools over:** files, terminal, projects. Each mutation gets a receipt, and a retry cannot double-apply it. | T03, T06 | High | Runs 1-3B1 accepted; Run 3B2A delivered; review |
 | T08 | **Shrink the Conductor.** It currently does routing, planning, permissions, execution, and replies all in one file. Pull those out one at a time until it is a thin wrapper. | T04, T07 | High | ☐ |
 | T09 | **Let Brain memory actually change answers.** Relevant memory influences what TOBI does; stale or private memory does not leak into it. | T00, T08 | High | ☐ |
 | T10 | **Make Hermes and the coding agent workers, not bosses.** They execute bounded requests; they cannot change the authoritative record. | T00, T03, T06 | High | ☐ |

@@ -6,6 +6,7 @@ import hashlib
 import os
 import re
 from collections.abc import Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +22,7 @@ from core.runtime.contracts import (
     ToolAvailability,
     ToolAvailabilityStatus,
     ToolCatalogEntry,
+    RuntimeToolSpec,
 )
 from core.runtime.policy_facts import apply_legacy_policy_facts, resolve_terminal_mode
 from core.runtime.tool_adapters import adapt_legacy_catalog
@@ -30,6 +32,16 @@ from core.runtime.tool_execution import (
     ToolActionReconciliation,
     ToolExecutionBinding,
     ToolExecutionError,
+)
+from core.runtime.terminal_jobs import (
+    MAX_JOB_OUTPUT_CHARS,
+    MAX_WAIT_SECONDS,
+    TerminalJobLauncher,
+    TerminalJobLaunchUnknown,
+    TerminalJobRepository,
+    launch_detached_worker,
+    new_worker_token,
+    terminal_job_id,
 )
 
 
@@ -41,6 +53,9 @@ RUN_COMMAND_ACTION_REF = (
     f"{TERMINAL_NAMESPACE}.run_command@{TERMINAL_ACTION_VERSION}"
 )
 TERMINAL_STATUS_REF = f"{TERMINAL_NAMESPACE}.terminal_status@{TERMINAL_VERSION}"
+START_JOB_REF = f"{TERMINAL_NAMESPACE}.start_job@{TERMINAL_VERSION}"
+LIST_JOBS_REF = f"{TERMINAL_NAMESPACE}.list_jobs@{TERMINAL_VERSION}"
+JOB_OUTPUT_REF = f"{TERMINAL_NAMESPACE}.job_output@{TERMINAL_VERSION}"
 
 MAX_COMMAND_LENGTH = 128
 MAX_OUTPUT_CHARS = 6_000
@@ -174,6 +189,112 @@ ACTION_INPUT_SCHEMA = {
     "required": ["command"],
     "additionalProperties": False,
 }
+START_JOB_INPUT_SCHEMA = {
+    "$schema": JSON_SCHEMA_DIALECT,
+    "type": "object",
+    "properties": {
+        "duration_s": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": MAX_WAIT_SECONDS,
+        },
+    },
+    "required": ["duration_s"],
+    "additionalProperties": False,
+}
+START_JOB_OUTPUT_SCHEMA = {
+    "$schema": JSON_SCHEMA_DIALECT,
+    "type": "object",
+    "properties": {
+        "job_id": {"type": "string", "pattern": "^terminal-job-[0-9a-f]{32}$"},
+        "state": {
+            "type": "string",
+            "enum": ["running", "succeeded", "failed", "unknown"],
+        },
+        "duration_s": {"type": "integer", "minimum": 1, "maximum": MAX_WAIT_SECONDS},
+        "command_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    },
+    "required": ["job_id", "state", "duration_s", "command_sha256"],
+    "additionalProperties": False,
+}
+_JOB_STATES = [
+    "intent",
+    "launching",
+    "running",
+    "succeeded",
+    "failed",
+    "not_started",
+    "unknown",
+]
+_JOB_SUMMARY_PROPERTIES = {
+    "job_id": {"type": "string", "pattern": "^terminal-job-[0-9a-f]{32}$"},
+    "state": {"type": "string", "enum": _JOB_STATES},
+    "duration_s": {"type": "integer", "minimum": 1, "maximum": MAX_WAIT_SECONDS},
+    "command_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "created_at": {"type": "string", "minLength": 1, "maxLength": 64},
+    "started_at": {"type": ["string", "null"], "maxLength": 64},
+    "completed_at": {"type": ["string", "null"], "maxLength": 64},
+    "exit_code": {"type": ["integer", "null"]},
+    "output_chars": {"type": "integer", "minimum": 0, "maximum": MAX_JOB_OUTPUT_CHARS},
+    "truncated": {"type": "boolean"},
+}
+_JOB_SUMMARY_REQUIRED = list(_JOB_SUMMARY_PROPERTIES)
+LIST_JOBS_INPUT_SCHEMA = {
+    "$schema": JSON_SCHEMA_DIALECT,
+    "type": "object",
+    "properties": {
+        "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20}
+    },
+    "additionalProperties": False,
+}
+LIST_JOBS_OUTPUT_SCHEMA = {
+    "$schema": JSON_SCHEMA_DIALECT,
+    "type": "object",
+    "properties": {
+        "count": {"type": "integer", "minimum": 0, "maximum": 100},
+        "jobs": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+                "type": "object",
+                "properties": copy.deepcopy(_JOB_SUMMARY_PROPERTIES),
+                "required": _JOB_SUMMARY_REQUIRED,
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["count", "jobs"],
+    "additionalProperties": False,
+}
+JOB_OUTPUT_INPUT_SCHEMA = {
+    "$schema": JSON_SCHEMA_DIALECT,
+    "type": "object",
+    "properties": {
+        "job_id": {"type": "string", "pattern": "^terminal-job-[0-9a-f]{32}$"},
+        "tail": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": MAX_JOB_OUTPUT_CHARS,
+            "default": MAX_JOB_OUTPUT_CHARS,
+        },
+    },
+    "required": ["job_id"],
+    "additionalProperties": False,
+}
+JOB_OUTPUT_OUTPUT_SCHEMA = {
+    "$schema": JSON_SCHEMA_DIALECT,
+    "type": "object",
+    "properties": {
+        **copy.deepcopy(_JOB_SUMMARY_PROPERTIES),
+        "output": {"type": "string", "maxLength": MAX_JOB_OUTPUT_CHARS},
+    },
+    "required": [*_JOB_SUMMARY_REQUIRED, "output"],
+    "additionalProperties": False,
+}
+
+_TERMINAL_JOB_CALL: ContextVar[RuntimeToolCall | None] = ContextVar(
+    "terminal_job_call", default=None
+)
 
 
 class TerminalToolEngine(Protocol):
@@ -261,6 +382,161 @@ def _action_reconciliation(arguments: Mapping[str, Any]) -> ToolActionReconcilia
         summary="A generic foreground command has no universal read-only effect proof",
         evidence_refs=(f"terminal:command:sha256:{_command_digest(command)}",),
     )
+
+
+def _wait_duration(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ToolExecutionError("tool.terminal_job_duration_denied")
+    if value < 1 or value > MAX_WAIT_SECONDS:
+        raise ToolExecutionError("tool.terminal_job_duration_denied")
+    return value
+
+
+def _wait_command(duration_s: int) -> str:
+    return f"wait {_wait_duration(duration_s)}"
+
+
+def terminal_job_target(
+    duration_s: int, working_directory: str | os.PathLike[str]
+) -> str:
+    command = _wait_command(duration_s)
+    directory = Path(working_directory).resolve()
+    return (
+        f"terminal:job-start:cwd-sha256:{_directory_digest(directory)}:"
+        f"command-sha256:{_command_digest(command)}"
+    )
+
+
+def _current_terminal_job_call() -> RuntimeToolCall:
+    call = _TERMINAL_JOB_CALL.get()
+    if call is None or call.tool_ref != START_JOB_REF:
+        raise ToolExecutionError("tool.terminal_job_context_missing")
+    return call
+
+
+def _start_job_output(job: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "job_id": job["job_id"],
+        "state": job["state"],
+        "duration_s": int(job["duration_s"]),
+        "command_sha256": job["command_sha256"],
+    }
+
+
+def _start_job_arguments_for_persistence(
+    arguments: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    duration_s = _wait_duration(arguments["duration_s"])
+    command = _wait_command(duration_s)
+    return {
+        "operation": "wait",
+        "command_sha256": _command_digest(command),
+        "duration_s": duration_s,
+    }
+
+
+def _start_job_effect_summary(
+    _arguments: Mapping[str, Any], output: Any
+) -> str:
+    return (
+        f"Managed terminal job {output['job_id']} accepted with state "
+        f"{output['state']}"
+    )
+
+
+def _start_job_evidence(output: Any) -> tuple[str, ...]:
+    return (f"terminal:job:{output['job_id']}",)
+
+
+class _TerminalJobAdapter:
+    def __init__(
+        self,
+        repository: TerminalJobRepository,
+        launcher: TerminalJobLauncher,
+        working_directory: Path,
+        *,
+        handshake_timeout_s: float,
+        poll_interval_s: float,
+    ) -> None:
+        self._repository = repository
+        self._launcher = launcher
+        self._working_directory = working_directory
+        self._handshake_timeout_s = handshake_timeout_s
+        self._poll_interval_s = poll_interval_s
+
+    def start_job(self, duration_s: int) -> dict[str, Any]:
+        call = _current_terminal_job_call()
+        duration_s = _wait_duration(duration_s)
+        command = _wait_command(duration_s)
+        target = terminal_job_target(duration_s, self._working_directory)
+        job_id = terminal_job_id(call)
+        worker_token = new_worker_token()
+        try:
+            self._repository.create_intent(
+                call,
+                target=target,
+                command_sha256=_command_digest(command),
+                working_directory_sha256=_directory_digest(self._working_directory),
+                duration_s=duration_s,
+            )
+            self._repository.mark_launching(job_id, worker_token)
+        except Exception:
+            return {"error": "managed job intent was not safely prepared"}
+
+        try:
+            self._launcher(job_id, worker_token)
+        except Exception:
+            try:
+                self._repository.mark_not_started(job_id, worker_token)
+            except Exception:
+                pass
+            return {"error": "managed worker did not start"}
+
+        row = self._repository.wait_for_worker(
+            job_id,
+            worker_token,
+            timeout_s=self._handshake_timeout_s,
+            poll_interval_s=self._poll_interval_s,
+        )
+        if row is None:
+            raise TerminalJobLaunchUnknown(
+                "managed worker launch returned without trustworthy handshake"
+            )
+        return _start_job_output(self._repository.get_job(job_id))
+
+    def list_jobs(self, limit: int = 20) -> dict[str, Any]:
+        return self._repository.list_jobs(limit=limit)
+
+    def job_output(
+        self, job_id: str, tail: int = MAX_JOB_OUTPUT_CHARS
+    ) -> dict[str, Any]:
+        return self._repository.get_job(job_id, tail=tail)
+
+    def reconcile_start(
+        self, _arguments: Mapping[str, Any]
+    ) -> ToolActionReconciliation:
+        call = _current_terminal_job_call()
+        job_id = terminal_job_id(call)
+        outcome, evidence = self._repository.start_evidence(job_id)
+        evidence_refs = (f"terminal:job:{job_id}",)
+        if outcome == "applied" and evidence is not None:
+            return ToolActionReconciliation(
+                outcome="applied",
+                summary="The authenticated managed worker claimed this job",
+                evidence_refs=evidence_refs,
+                output=_start_job_output(evidence),
+            )
+        if outcome == "not_applied":
+            return ToolActionReconciliation(
+                outcome="not_applied",
+                summary="No authenticated managed worker claimed this job",
+                evidence_refs=evidence_refs,
+            )
+        return ToolActionReconciliation(
+            outcome="unknown",
+            summary="The managed launch has no trustworthy worker proof yet",
+            evidence_refs=evidence_refs,
+        )
 
 
 def _bounded_redaction(engine: TerminalToolEngine, value: Any) -> tuple[str, bool]:
@@ -644,3 +920,243 @@ def build_terminal_tool_runtime(
         control=control,
     )
     return TerminalToolRuntime(catalog=catalog, executor=executor, _engine=engine)
+
+
+def _promote_job_entry(entry: ToolCatalogEntry, kind: str) -> ToolCatalogEntry:
+    common = {
+        "version": TERMINAL_VERSION,
+        "allowed_modes": ("agent",),
+        "allowed_surfaces": (Surface.AGENT,),
+        "required_integrations": (),
+        "retry_policy": "none",
+        "adapter": "terminal_job_runtime_v2",
+    }
+    spec: RuntimeToolSpec
+    if kind == "start":
+        spec = replace(
+            entry.spec,
+            **common,
+            name="start_job",
+            description="Start one approved bounded managed wait job.",
+            input_schema=copy.deepcopy(START_JOB_INPUT_SCHEMA),
+            output_schema=copy.deepcopy(START_JOB_OUTPUT_SCHEMA),
+            side_effect_class=SideEffectClass.REVERSIBLE,
+            risk=RiskLevel.HIGH,
+            required_permissions=("terminal.execute",),
+            timeout_s=10,
+            idempotency_policy="required",
+            isolation="subprocess",
+            audit_policy="terminal_managed_job_start",
+        )
+        reason = "terminal.migration_run3b2a_start"
+    elif kind == "list":
+        spec = replace(
+            entry.spec,
+            **common,
+            description="List bounded canonical managed terminal job summaries.",
+            input_schema=copy.deepcopy(LIST_JOBS_INPUT_SCHEMA),
+            output_schema=copy.deepcopy(LIST_JOBS_OUTPUT_SCHEMA),
+            side_effect_class=SideEffectClass.NONE,
+            risk=RiskLevel.NONE,
+            required_permissions=("terminal.read",),
+            timeout_s=30,
+            idempotency_policy="none",
+            isolation="in_process",
+            audit_policy="terminal_managed_job_list",
+        )
+        reason = "terminal.migration_run3b2a_list"
+    elif kind == "output":
+        spec = replace(
+            entry.spec,
+            **common,
+            description="Read bounded redacted output for one canonical managed terminal job.",
+            input_schema=copy.deepcopy(JOB_OUTPUT_INPUT_SCHEMA),
+            output_schema=copy.deepcopy(JOB_OUTPUT_OUTPUT_SCHEMA),
+            side_effect_class=SideEffectClass.NONE,
+            risk=RiskLevel.NONE,
+            required_permissions=("terminal.read",),
+            timeout_s=30,
+            idempotency_policy="none",
+            isolation="in_process",
+            audit_policy="terminal_managed_job_output",
+        )
+        reason = "terminal.migration_run3b2a_output"
+    else:
+        raise ToolExecutionError("tool.terminal_job_source_unexpected")
+    return ToolCatalogEntry(
+        source_key=f"{entry.source_key}:managed-{kind}",
+        spec=spec,
+        availability=_availability(spec, reason),
+    )
+
+
+@dataclass(frozen=True)
+class TerminalJobToolRuntime:
+    catalog: CanonicalToolCatalog
+    executor: CanonicalToolExecutor
+    _engine: Any
+
+    def execute(
+        self,
+        call: RuntimeToolCall,
+        policy_input: PolicyInput,
+        *,
+        worker_id: str,
+        lease_token: str,
+        lease_epoch: int,
+        now: datetime | None = None,
+    ) -> RuntimeToolResult:
+        if call.tool_ref == START_JOB_REF:
+            arguments = self.catalog.validate_arguments(
+                call.tool_ref, call.validated_arguments
+            )
+            _wait_duration(arguments["duration_s"])
+            if not call.idempotency_key:
+                raise ToolExecutionError("tool.idempotency_key_required")
+            try:
+                effective_mode = self._engine.effective_mode(surface="mc")
+            except Exception:
+                effective_mode = "unknown"
+            policy_input = apply_legacy_policy_facts(
+                policy_input, resolve_terminal_mode(effective_mode)
+            )
+            try:
+                status = self._engine.status()
+            except Exception:
+                status = {}
+            if not isinstance(status, Mapping) or status.get("enabled") is not True:
+                policy_input = _with_denial(
+                    policy_input, "compatibility.terminal.disabled_or_unknown"
+                )
+        token = _TERMINAL_JOB_CALL.set(call)
+        try:
+            return self.executor.execute(
+                call,
+                policy_input,
+                worker_id=worker_id,
+                lease_token=lease_token,
+                lease_epoch=lease_epoch,
+                now=now,
+            )
+        finally:
+            _TERMINAL_JOB_CALL.reset(token)
+
+    def reconcile_action(
+        self,
+        call: RuntimeToolCall,
+        *,
+        actor: str,
+        now: datetime | None = None,
+    ) -> RuntimeToolResult:
+        token = _TERMINAL_JOB_CALL.set(call)
+        try:
+            return self.executor.reconcile_action(call, actor=actor, now=now)
+        finally:
+            _TERMINAL_JOB_CALL.reset(token)
+
+
+def build_terminal_job_runtime(
+    *,
+    engine: Any = None,
+    job_repository: TerminalJobRepository | None = None,
+    launcher: TerminalJobLauncher | None = None,
+    working_directory: str | os.PathLike[str] | None = None,
+    handshake_timeout_s: float = 5.0,
+    poll_interval_s: float = 0.05,
+    control: Any = None,
+) -> TerminalJobToolRuntime:
+    """Build isolated start/list/output bindings without registering a live caller."""
+    from core import conductor_registry
+
+    if engine is None:
+        from core import terminal_engine
+
+        engine = terminal_engine
+    for name in ("effective_mode", "status"):
+        if not callable(getattr(engine, name, None)):
+            raise ToolExecutionError("tool.terminal_engine_invalid")
+    if handshake_timeout_s <= 0 or poll_interval_s <= 0:
+        raise ToolExecutionError("tool.terminal_job_timing_invalid")
+
+    directory = Path(working_directory or os.getcwd()).resolve()
+    if not directory.is_dir():
+        raise ToolExecutionError("tool.terminal_working_directory_invalid")
+    jobs = job_repository or TerminalJobRepository()
+    if not isinstance(jobs, TerminalJobRepository):
+        raise ToolExecutionError("tool.terminal_job_repository_invalid")
+
+    adapted = adapt_legacy_catalog(
+        {
+            "run_command": conductor_registry.TOOL_SPECS["run_command"],
+            "list_jobs": conductor_registry.TOOL_SPECS["list_jobs"],
+            "job_output": conductor_registry.TOOL_SPECS["job_output"],
+        },
+        namespace=TERMINAL_NAMESPACE,
+        version=TERMINAL_VERSION,
+    )
+    if adapted.issues or len(adapted.entries) != 3:
+        raise ToolExecutionError("tool.terminal_job_catalog_invalid")
+    sources = {entry.spec.name: entry for entry in adapted.entries}
+    entries = (
+        _promote_job_entry(sources["run_command"], "start"),
+        _promote_job_entry(sources["list_jobs"], "list"),
+        _promote_job_entry(sources["job_output"], "output"),
+    )
+    catalog = CanonicalToolCatalog(entries)
+
+    if launcher is None:
+        def managed_launcher(job_id: str, worker_token: str) -> None:
+            launch_detached_worker(
+                job_id, worker_token, working_directory=directory
+            )
+
+        launcher = managed_launcher
+    adapter = _TerminalJobAdapter(
+        jobs,
+        launcher,
+        directory,
+        handshake_timeout_s=handshake_timeout_s,
+        poll_interval_s=poll_interval_s,
+    )
+    executor = CanonicalToolExecutor(
+        catalog,
+        (
+            ToolExecutionBinding(
+                tool_ref=START_JOB_REF,
+                invoke=adapter.start_job,
+                target_from_arguments=lambda arguments: terminal_job_target(
+                    arguments["duration_s"], directory
+                ),
+                effect_summary=_start_job_effect_summary,
+                external_ref=lambda output: f"terminal:job:{output['job_id']}",
+                evidence_refs=_start_job_evidence,
+                action_arguments_for_persistence=_start_job_arguments_for_persistence,
+                action_reconciliation=adapter.reconcile_start,
+                action_not_applied_owner_message=(
+                    "TOBI did not start that managed terminal job. It is safe to retry."
+                ),
+                action_not_applied_summary=(
+                    "The managed worker was proven not to have started"
+                ),
+                reported_error_is_not_applied=True,
+            ),
+            ToolExecutionBinding(
+                tool_ref=LIST_JOBS_REF,
+                invoke=adapter.list_jobs,
+                target_from_arguments=lambda _arguments: "terminal:jobs",
+                read_failure_owner_message="TOBI could not list managed terminal jobs.",
+                evidence_refs=lambda _output: ("terminal:jobs",),
+            ),
+            ToolExecutionBinding(
+                tool_ref=JOB_OUTPUT_REF,
+                invoke=adapter.job_output,
+                target_from_arguments=lambda arguments: (
+                    f"terminal:job:{arguments['job_id']}"
+                ),
+                read_failure_owner_message="TOBI could not read that managed job output.",
+                evidence_refs=lambda output: (f"terminal:job:{output['job_id']}",),
+            ),
+        ),
+        control=control,
+    )
+    return TerminalJobToolRuntime(catalog=catalog, executor=executor, _engine=engine)

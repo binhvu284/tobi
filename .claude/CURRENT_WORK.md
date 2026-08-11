@@ -9,32 +9,37 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T07 Run 3B1 - dormant bounded mutable foreground terminal actions (delivered; awaiting owner acceptance)
+**Package:** T07 Run 3B2A - dormant managed background start/read/restart foundation (delivered; awaiting owner acceptance)
 
 **Purpose (one sentence, plain words):**
-Add a separate versioned contract for one approved, bounded foreground terminal mutation so exact
-retries replay one receipt and uncertain executions cannot run twice, without changing any live route.
+Add one durable, bounded background wait job whose typed duration, identity, status, redacted output,
+and restart truth survive the app process, without changing any live route or adding cancellation yet.
 
 **Not doing:**
 - No live tool routing, policy cutover, caller integration, or flag change.
-- No change to the accepted read-only `terminal_status@1` or `run_command@1` contracts.
-- No network, install, publish, delete, credential, nested-shell, shell-chain, redirect, substitution,
-  multiline, or caller-selected working-directory command.
-- No background process, job list/output, kill, cancellation, heartbeat, or restart recovery; Run 3B2
-  owns those.
+- No change to accepted `terminal_status@1`, `run_command@1`, or `run_command@2` behavior.
+- No arbitrary shell command: the only new start input is a typed 1-300 second duration translated
+  to an internal managed wait worker, with no caller command string or working directory.
+- No cancellation, terminate, kill, or OS-PID targeting; Run 3B2B owns approved cancellation.
+- No replacement launch when a started job has stale or missing worker evidence; report it as unknown.
+- No reuse, migration, or write to legacy `terminal_jobs`; the additive `mc_terminal_jobs` record is
+  canonical and stores no raw command, directory, secret, or worker token.
 - No `install_package`, `configure_tool`, `connect_tool`, `set_terminal_mode`, or capability-registry migration.
-- No weakening of the existing terminal engine, its risk classifier, kill-switch, approval modes, shell
-  choice, output redaction, timeout behavior, or legacy callers.
-- No new table, migration, owner flag, API, UI, or visible behavior.
-- No T07 closure or T08 release; both wait for Run 3B2 delivery and owner acceptance.
+- No weakening or redesign of the existing terminal engine, legacy background jobs, or callers.
+- No owner flag, API, UI, visible behavior, live streaming, or external queue/service.
+- No T07 closure or T08 release; both wait for Run 3B2B delivery and owner acceptance.
 - No Conductor decomposition; T08 owns it.
 - No Runs page or broad frontend redesign; T13 owns it.
 - No Telegram, CLI, Office, scheduler, or remaining-surface adapters.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
 **Files expected:**
+- `core/schema/runtime.py`
+- `core/runtime/terminal_jobs.py`
+- `core/runtime/terminal_job_worker.py`
 - `core/runtime/terminal_tools.py`
-- `tests/test_mc_runtime_terminal_tools.py`
+- `tests/test_mc_runtime_terminal_jobs.py`
+- `tests/test_mc_runtime_approvals.py`
 - `.claude/CURRENT_WORK.md`
 - `docs/feature-idea-queue/MC_V2_BOARD.md`
 - `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
@@ -43,7 +48,7 @@ retries replay one receipt and uncertain executions cannot run twice, without ch
 **Gate: green**
 
 ```gate
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_terminal_tools.py
+"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_terminal_jobs.py
 ```
 
 ---

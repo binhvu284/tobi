@@ -14,6 +14,7 @@ RUNTIME_SCHEMA_VERSIONS = (
     "mc-runtime-v2-006",
     "mc-runtime-v2-007",
     "mc-runtime-v2-008",
+    "mc-runtime-v2-009",
 )
 RUNTIME_SCHEMA_VERSION = RUNTIME_SCHEMA_VERSIONS[-1]
 _SCHEMA_LOCK = threading.Lock()
@@ -34,6 +35,7 @@ _RUNTIME_TABLES = {
     "mc_action_receipts",
     "mc_policy_decisions",
     "mc_run_approvals",
+    "mc_terminal_jobs",
 }
 
 _STEP_LEASE_COLUMNS = {
@@ -393,6 +395,87 @@ _STATEMENTS = (
     """CREATE TRIGGER IF NOT EXISTS mc_run_approvals_delete_guard
         BEFORE DELETE ON mc_run_approvals BEGIN
             SELECT RAISE(ABORT, 'mc_run_approvals history is immutable');
+        END""",
+    """CREATE TABLE IF NOT EXISTS mc_terminal_jobs (
+        job_id TEXT PRIMARY KEY,
+        start_idempotency_key TEXT NOT NULL UNIQUE,
+        run_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        call_id TEXT NOT NULL,
+        tool_ref TEXT NOT NULL,
+        target TEXT NOT NULL,
+        operation TEXT NOT NULL CHECK (operation = 'wait'),
+        command_sha256 TEXT NOT NULL CHECK (length(command_sha256) = 64),
+        working_directory_sha256 TEXT NOT NULL CHECK (
+            length(working_directory_sha256) = 64
+        ),
+        duration_s INTEGER NOT NULL CHECK (duration_s BETWEEN 1 AND 300),
+        status TEXT NOT NULL CHECK (status IN (
+            'intent', 'launching', 'running', 'succeeded', 'failed', 'not_started'
+        )),
+        launch_count INTEGER NOT NULL DEFAULT 0 CHECK (launch_count >= 0),
+        worker_identity_sha256 TEXT CHECK (
+            worker_identity_sha256 IS NULL OR length(worker_identity_sha256) = 64
+        ),
+        output TEXT NOT NULL DEFAULT '' CHECK (length(output) <= 6000),
+        output_sha256 TEXT NOT NULL CHECK (length(output_sha256) = 64),
+        output_truncated INTEGER NOT NULL DEFAULT 0 CHECK (output_truncated IN (0, 1)),
+        exit_code INTEGER,
+        error_code TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        launch_started_at TEXT,
+        worker_started_at TEXT,
+        heartbeat_at TEXT,
+        completed_at TEXT,
+        version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+        FOREIGN KEY (start_idempotency_key) REFERENCES mc_idempotency(idempotency_key),
+        FOREIGN KEY (run_id, step_id) REFERENCES mc_run_steps(run_id, step_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_mc_terminal_jobs_run ON mc_terminal_jobs(run_id, created_at, job_id)",
+    "CREATE INDEX IF NOT EXISTS idx_mc_terminal_jobs_status ON mc_terminal_jobs(status, heartbeat_at, updated_at)",
+    """CREATE TRIGGER IF NOT EXISTS mc_terminal_jobs_identity_guard
+        BEFORE UPDATE OF job_id, start_idempotency_key, run_id, step_id, call_id,
+                         tool_ref, target, operation, command_sha256,
+                         working_directory_sha256, duration_s, created_at
+        ON mc_terminal_jobs BEGIN
+            SELECT RAISE(ABORT, 'mc_terminal_jobs identity is immutable');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_terminal_jobs_lifecycle_guard
+        BEFORE UPDATE OF status ON mc_terminal_jobs
+        WHEN OLD.status != NEW.status AND NOT (
+            (OLD.status='intent' AND NEW.status IN ('launching', 'not_started')) OR
+            (OLD.status='not_started' AND NEW.status='launching') OR
+            (OLD.status='launching' AND NEW.status IN ('running', 'not_started')) OR
+            (OLD.status='running' AND NEW.status IN ('succeeded', 'failed'))
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'illegal mc_terminal_jobs lifecycle transition');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_terminal_jobs_terminal_guard
+        BEFORE UPDATE ON mc_terminal_jobs
+        WHEN OLD.status IN ('succeeded', 'failed') AND (
+            NEW.status IS NOT OLD.status OR
+            NEW.launch_count IS NOT OLD.launch_count OR
+            NEW.worker_identity_sha256 IS NOT OLD.worker_identity_sha256 OR
+            NEW.output IS NOT OLD.output OR
+            NEW.output_sha256 IS NOT OLD.output_sha256 OR
+            NEW.output_truncated IS NOT OLD.output_truncated OR
+            NEW.exit_code IS NOT OLD.exit_code OR
+            NEW.error_code IS NOT OLD.error_code OR
+            NEW.updated_at IS NOT OLD.updated_at OR
+            NEW.launch_started_at IS NOT OLD.launch_started_at OR
+            NEW.worker_started_at IS NOT OLD.worker_started_at OR
+            NEW.heartbeat_at IS NOT OLD.heartbeat_at OR
+            NEW.completed_at IS NOT OLD.completed_at OR
+            NEW.version IS NOT OLD.version
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'completed mc_terminal_jobs rows are immutable');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_terminal_jobs_delete_guard
+        BEFORE DELETE ON mc_terminal_jobs BEGIN
+            SELECT RAISE(ABORT, 'mc_terminal_jobs history cannot be deleted');
         END""",
     """CREATE TABLE IF NOT EXISTS mc_run_checkpoints (
         checkpoint_id TEXT PRIMARY KEY,

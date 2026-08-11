@@ -1218,11 +1218,14 @@ No live Conductor caller imports or uses this path.
 | Run 2B | First bounded file write using the accepted coding path policy, receipts, replay, and crash reconciliation | 55-70% |
 | Run 3A | Terminal status plus a strict read-only foreground command subset; no background process or mutation | 75-82% |
 | Run 3B1 | Bounded approved foreground mutations with receipts, exact replay, and fail-closed interruption handling | 85-90% |
-| Run 3B2 | Durable background jobs, output reads, cancellation, restart handling, and T07 closeout | 100% |
+| Run 3B2A | Durable bounded background start/list/output plus worker heartbeat and restart truth; no cancellation | 93-96% |
+| Run 3B2B | Approved durable cancellation, restart-safe outcome reporting, and T07 closeout | 100% |
 
 Run 2 was split into read/write sub-runs. Source review after Run 3A found that foreground mutation
 and restart-safe process ownership have different failure boundaries, so Run 3B is split into 3B1
-and 3B2. T07 and T08 stay blocked until both are delivered and accepted.
+and 3B2. The accepted 3B1 diff then confirmed that detached launch/restart proof and cancellation
+have separate uncertainty boundaries, so 3B2 is split into 3B2A and 3B2B. T07 and T08 stay blocked
+until all are delivered and accepted.
 
 **Implementation order:**
 
@@ -1514,36 +1517,122 @@ allowlist: `mkdir <safe-name>`, with one ASCII name segment and no path or shell
 T07 project/file tools, owner flags, mode enforcement, Chat unit/route, Conductor final guard, Storage,
 compile, diff, and enforced green-gate checks pass. No accepted `@1` behavior, terminal engine,
 background process, live caller, flag, table, migration, API/UI, or external service changed. T07
-remains open for Run 3B2 and owner acceptance still gates its planning release.
+remains open for Runs 3B2A and 3B2B. The owner accepted Run 3B1 on 2026-08-11 and released Run 3B2
+planning.
 
-### 25.8 T07 Run 3B2 - Managed Background Jobs And T07 Closeout Outline (2026-08-10)
+### 25.8 T07 Run 3B2A - Managed Background Start, Read, And Restart Plan (2026-08-11)
 
-**Outcome:** Add dormant canonical start/list/output/cancel tools backed by a managed detached worker
-and an additive `mc_terminal_jobs` record. A job keeps one server-issued identity across app restart,
-exact start/cancel retries cannot duplicate effects, output is redacted and bounded before storage,
-and cancellation never kills a process whose identity TOBI cannot prove.
+**Outcome:** Add dormant canonical `start_job`, `list_jobs`, and `job_output` contracts backed by an
+additive `mc_terminal_jobs` record and a detached worker. The start contract accepts only a typed
+`duration_s` integer from 1 through 300; the server derives a fixed wait operation, so no caller
+command reaches a shell or persisted run plan. One job keeps the same server-issued identity across
+app restart, exact start retries cannot launch twice, and reads report stale worker evidence as
+unknown instead of inventing an outcome.
 
-**Required safety shape:** reserve start before launch; write the job intent before process creation;
-persist run/step/action ownership, command and fixed-directory hashes, worker identity hash, heartbeat,
-bounded output, exit state, and cancel request without raw command text; let the detached worker own
-the child handle and observe durable cancellation; after app restart, a fresh matching heartbeat is
-still running, a completed row is final, a pre-launch intent is not applied, and a started launch with
-no trustworthy worker evidence is `unknown`. Never kill by a reused PID or start a replacement for an
-unknown launch.
+| Current node | Run 3B2A edge | Rule |
+|---|---|---|
+| Legacy `terminal_jobs` plus `_LIVE` process handles | Add a separate canonical repository and detached worker | Do not read, migrate, or write the legacy table; it stores raw command/path data and loses its process handle when the app restarts |
+| Accepted `CanonicalToolExecutor` action path | Add `start_job@1` as a high-risk, approval-required, idempotent action | Reserve the action first; a receipt means the managed worker accepted this job, not that the wait already completed |
+| New pure start validator | Accept only a typed `duration_s` integer from 1 through 300 and derive the fixed wait operation server-side | Reject caller command text, shell syntax, paths, environment data, caller working directory, arbitrary executable, and additional arguments before policy or persistence |
+| Runtime schema version 009 | Add `mc_terminal_jobs` with immutable action/job identity and guarded lifecycle fields | Persist hashes, operation metadata, redacted bounded output, launch state, worker identity hash, heartbeat, and final result; persist no raw command, directory, secret, worker token, or unbounded output |
+| Detached worker handshake | Write deterministic job intent before spawn, pass only job id on its command line, and pass a one-use worker token outside persisted clear text | A definite pre-spawn failure is not applied and may retry; once process creation may have happened, missing trustworthy handshake is unknown and cannot auto-relaunch |
+| Repository reads after app restart | Derive running from a fresh matching heartbeat and unknown from stale/missing proof | A final row stays final; never infer liveness from PID alone, kill a PID, or start a replacement for an uncertain launch |
 
-**Expected implementation surface:** additive Runtime schema version 009; a small background-job
-repository/worker; canonical `start_job`, `list_jobs`, `job_output`, and `cancel_job` bindings; a new
-focused restart/cancellation test; accepted Run 3A/3B1 and legacy terminal behavior preserved.
+**Lifecycle:** `intent -> launching -> running -> succeeded|failed`; a definitely failed pre-spawn
+launch becomes `not_started`. Identity columns and terminal states are immutable. A `launching` or
+`running` row with stale heartbeat remains stored history but is reported as `unknown`; a late valid
+worker update may still finish it. The worker writes only when its secret token matches the stored
+hash, so an unrelated process cannot take over the row.
 
-**Closeout checks:** real detached start/output/completion, exact start replay, changed-call conflict,
-app-process restart simulation, durable cancel request, bounded terminate-then-kill behavior in the
-owning worker, exact cancel replay, stale heartbeat/PID-reuse refusal, secret redaction, legal database
-state transitions, no raw command persistence, no live imports, full regressions, and green gate.
-T07 closes and T08 planning releases only after delivery plus explicit owner acceptance.
+**Implementation order:**
+
+1. Add `tests/test_mc_runtime_terminal_jobs.py`, confirm the missing schema/table and job runtime fail,
+   set the Gate to red, and make no production edit before that evidence.
+2. Add additive schema version 009, indexes, identity/update/delete guards, legal state transitions,
+   and idempotent upgrade checks for `mc_terminal_jobs`.
+3. Add `core/runtime/terminal_jobs.py` with deterministic job identity, parameterized repository
+   writes, bounded reads, fresh-heartbeat derivation, and no PID-based control.
+4. Add `core/runtime/terminal_job_worker.py` and the fixed wait operation; persist intent before a
+   detached launch, require a token-hash handshake, heartbeat while running, and redact/cap output at
+   6,000 characters before every write.
+5. Extend a separate dormant terminal-job catalog with start/list/output bindings, then prove replay, restart,
+   stale-heartbeat refusal, regressions, green gate, and no live imports.
+
+**Acceptance checks:** exactly one approved typed-duration `start_job@1` call creates one deterministic job row,
+launches one worker, and records one action receipt after the worker handshake; an exact retry returns
+the stored job id without another launch; the same key with changed duration, target, approval, run,
+step, or call identity conflicts; a definite pre-spawn failure is retryable while a possible launch
+without handshake is unknown and cannot retry; list and output are receipt-free bounded reads; a new
+repository instance can see a fresh worker continue and then finish after the original app-side
+objects are discarded; stale or mismatched heartbeat evidence reports unknown and never triggers a
+replacement or PID action; output is redacted and capped before storage; raw command, directory,
+secret, token, and unbounded output are absent from the table, events, policy decisions, actions,
+results, and receipts; invalid grammar and all policy/approval/mode/isolation denials launch nothing;
+accepted Run 3A/3B1 and legacy terminal behavior remain unchanged; no live module imports the worker
+or canonical bindings.
+
+**Verification:**
+
+- `D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe tests/test_mc_runtime_terminal_jobs.py`
+- existing T07 terminal/project/file, Runtime schema/repository/control/receipts, T05 policy/facts/
+  approvals, T06 registry/catalog, terminal engine, owner flags, mode, Chat, Conductor, and Storage tests
+- focused `py_compile`/`compileall`, `git diff --check`, then
+  `D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe scripts/gate.py`
+
+**Explicit non-goals:** no cancellation request, terminate/kill path, caller command or arbitrary
+shell/external process command, live stream, caller directory, legacy-table migration, existing terminal-engine edit,
+live caller, flag, API/UI, Telegram, CLI, Office, scheduler, external queue/service, Supabase, or
+Vercel interaction. Run 3B2B owns cancellation and T07 closeout; T15 owns broader terminal command
+and remaining-surface migration.
+
+**Estimate after acceptance:** T07 **93-96%** complete; #21 **83-89%** complete. Expected unattended
+implementation and verification time is **8-12 hours**. Owner acceptance should take **10-15 minutes**:
+confirm one exact retry returns the same job id, restart evidence remains truthful, and the diff adds
+no cancellation, arbitrary command, legacy-table edit, or live import.
+
+**Delivery evidence (2026-08-11):** the focused test first failed because
+`core.runtime.terminal_jobs` did not exist, and the enforced red gate confirmed that exact missing
+boundary before production edits. Runtime schema 009 adds a separate `mc_terminal_jobs` table with
+immutable identity, guarded lifecycle/final rows, bounded redacted output, worker identity hashes,
+heartbeats, and no raw command, directory, PID, or worker token columns. A separate dormant three-tool
+builder exposes high-risk approved `start_job@1` plus receipt-free `list_jobs@1` and `job_output@1`;
+the accepted foreground builder remains 24/24 unchanged. Security review replaced caller
+`wait <seconds>` text with typed `duration_s` so the persisted run step also contains no raw command.
+The worker receives only job id on its command line, receives a one-use token through a reduced
+environment, survives app-side object replacement, and never exposes PID control. The 15/15 focused
+suite proves policy/mode/kill-switch denial, intent-before-launch, exact replay, changed approval/
+duration conflict, safe pre-spawn retry, unknown launch blocking plus evidence reconciliation,
+fresh/stale heartbeat truth, database guards, bounded redaction, no live imports, and one real
+detached completion. T03, T05, T06, T07 project/file/terminal, legacy Terminal 67/67, owner flags,
+mode, Chat, Conductor, Storage 36/36, compile, diff, and enforced green-gate checks pass. No
+cancellation, parent-side terminate/kill, legacy terminal-table write, live caller, flag, API/UI, or
+external service changed. T07 remains open for Run 3B2B and owner acceptance gates its planning.
+
+### 25.9 T07 Run 3B2B - Approved Cancellation And T07 Closeout Outline (2026-08-11)
+
+**Outcome:** Add a high-risk, approval-required, idempotent `cancel_job@1` action. It durably records
+one cancellation request; the matching worker notices it and exits itself. The app process never
+terminates or kills an OS PID and never claims the job stopped until the authenticated worker records
+the final `cancelled` state.
+
+**Required safety shape:** bind the cancel action to the exact canonical job and owner/run identity;
+reserve it before writing `cancel_requested_at`; exact replay writes nothing; changed job/approval
+identity conflicts; a fresh matching worker acknowledges and finalizes cancellation; stale or missing
+worker proof remains unknown even though the request is durably recorded. The worker checks the
+request at least every 250 ms during the fixed wait operation. No parent-side signal, PID lookup,
+replacement worker, or legacy `kill_job` call is allowed.
+
+**Expected implementation surface:** extend the 3B2A repository/worker and terminal contracts; expand
+`tests/test_mc_runtime_terminal_jobs.py`; update package/queue documents. No additional table is
+expected unless the red test proves a separate append-only cancellation record is required.
+
+**Closeout checks:** real cancellation after app-side restart, exact cancel replay, changed-call
+conflict, already-final job behavior, stale-heartbeat truth, no PID control, no duplicate worker,
+bounded/redacted persistence, accepted Run 3A/3B1/3B2A and legacy regressions, no live imports, and
+green gate. T07 closes and T08 planning releases only after delivery plus explicit owner acceptance.
 
 **Estimate after acceptance:** T07 **100%**; #21 **84-90%** complete. Expected unattended implementation
-and verification time is **8-12 hours**. This outline must be rechecked against the delivered 3B1 diff
-before becoming the active package.
+and verification time is **4-6 hours**. Owner acceptance should take **10-15 minutes**.
 
 ## 26. Implementation Log
 
@@ -1576,4 +1665,5 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-09 | T07 Run 2A | `3c1c35c`; owner acceptance | Red missing-file-runtime import; 9/9 file-tool checks; Run 1 project tools, T03/T05/T06, accepted #22 coding tools/workers, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, repository, compile, and enforced gate green | Accepted; dormant Developer-only `read_file` and `list_files` contracts execute through central policy and the injected existing coding broker. Broker path rules stay authoritative, failures are truthful and sanitized, reads create no receipts, and durable history redacts file content. No live import, broker/policy/worker, flag, schema, API/UI, mutation, terminal, or external-service change; Run 2B planning released |
 | 2026-08-09 | T07 Run 2B | `3a250d3`; owner acceptance | Red missing-write-ref import; 18/18 file-tool checks; Run 1 project tools, T03/T05/T06, accepted #22 coding tools/workers, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, repository, compile, diff, and enforced gate green | Accepted; dormant Developer-only `write_file` adds expected-state protection, exact replay, redacted action identity, immutable before/after receipt hashes, and applied/not-applied/unknown crash reconciliation through the unchanged coding broker. No live import, broker/policy/worker, flag, schema, API/UI, terminal, or external-service change; Run 3A planning released while T07 remains open |
 | 2026-08-10 | T07 Run 3A | `422fc8e`; owner acceptance | Red missing-terminal-runtime import; 14/14 terminal-tool checks; terminal engine, mode, T03/T05/T06, T07 project/file, owner flags, Chat unit/route, Conductor, Storage, compile, diff, and enforced gate green | Accepted; dormant terminal status plus a fixed read-only foreground command subset execute through central policy and two checks by the unchanged terminal safety gate. Commands have no caller working directory, shell syntax, network/mutation form, background mode, action reservation, or receipt; output is redacted and capped at 6,000 characters. No live import, terminal-engine/Conductor edit, flag, schema, API/UI, or external-service change; Run 3B is split into 3B1 foreground mutation and 3B2 managed background lifecycle while T07 remains open |
-| 2026-08-10 | T07 Run 3B1 | T07 Run 3B1 delivery commit | Red missing-action-ref test; 24/24 terminal-tool checks; terminal engine, T03/T05/T06, T07 project/file, owner flags, mode, Chat unit/route, Conductor, Storage, compile, diff, and enforced gate green | T07 in progress; a dormant high-risk `run_command@2` action permits only `mkdir <safe-name>` in the fixed directory after matching approval and idempotency, records one redacted immutable receipt, replays exact duplicates, conflicts changed identity, and blocks unknown interruption retries. Accepted `@1` reads and all live behavior remain unchanged; awaiting owner acceptance before Run 3B2 planning |
+| 2026-08-10 | T07 Run 3B1 | `f07b8cb`; owner acceptance 2026-08-11 | Red missing-action-ref test; 24/24 terminal-tool checks; terminal engine, T03/T05/T06, T07 project/file, owner flags, mode, Chat unit/route, Conductor, Storage, compile, diff, and enforced gate green | Accepted; a dormant high-risk `run_command@2` action permits only `mkdir <safe-name>` in the fixed directory after matching approval and idempotency, records one redacted immutable receipt, replays exact duplicates, conflicts changed identity, and blocks unknown interruption retries. Accepted `@1` reads and all live behavior remain unchanged; Run 3B2A planning released while T07 remains open |
+| 2026-08-11 | T07 Run 3B2A | T07 Run 3B2A delivery commit | Red missing-module test; 15/15 terminal-job checks; T03/T05/T06, T07 project/file/terminal, legacy Terminal, owner flags, mode, Chat, Conductor, Storage, compile, diff, and enforced gate green | T07 in progress; a dormant typed-duration start action, durable managed-job table, authenticated detached worker, restart-safe reads, exact replay, and fail-closed unknown launch reconciliation are delivered without cancellation, PID control, raw caller command persistence, legacy-table change, or live import; awaiting owner acceptance before Run 3B2B planning |

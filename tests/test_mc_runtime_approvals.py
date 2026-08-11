@@ -45,7 +45,6 @@ from core.runtime.policy import PolicyEngine, PolicyLedger  # noqa: E402
 from core.runtime.repository import RuntimeRepository  # noqa: E402
 from core.runtime.state import RunStatus  # noqa: E402
 from core.schema.runtime import (  # noqa: E402
-    RUNTIME_SCHEMA_VERSION,
     RUNTIME_SCHEMA_VERSIONS,
     _ensure_runtime_schema,
 )
@@ -226,9 +225,8 @@ tables = {row[0] for row in conn.execute(
 )}
 conn.close()
 ok(
-    "migration 008 is additive and idempotent",
-    RUNTIME_SCHEMA_VERSION == "mc-runtime-v2-008"
-    and "mc-runtime-v2-008" in RUNTIME_SCHEMA_VERSIONS
+    "migration 008 remains additive and idempotent after later versions",
+    "mc-runtime-v2-008" in RUNTIME_SCHEMA_VERSIONS
     and versions.count("mc-runtime-v2-008") == 1
     and "mc_run_approvals" in tables
     and query_one("SELECT value FROM legacy_approval_probe")["value"] == "preserved",
