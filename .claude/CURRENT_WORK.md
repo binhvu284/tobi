@@ -9,16 +9,19 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T08 - Conductor strangler extraction (released for planning; not started)
+**Package:** T08 Run 1 - Model-response boundary extraction (implemented; awaiting owner acceptance)
 
 **Purpose (one sentence, plain words):**
-Prepare a source-grounded run split that extracts one Conductor responsibility at a time while
-preserving its public answer behavior and every accepted Runtime V2 safety boundary.
+Move Conductor's model-output classification, streaming, continuation, reasoning cleanup, and
+chunking behind one focused Runtime service without changing any public answer behavior.
 
 **Not doing:**
-- No T08 implementation until its first run plan is owner-approved.
-- No broad rewrite of `core/conductor.py`; extract one responsibility per reviewable run.
-- No live-route, response-shape, policy, approval, tool, memory, model, or owner-flag change during planning.
+- No T08 Run 2 planning or implementation until Run 1 is owner-accepted.
+- No broad rewrite of `core/conductor.py`; Run 1 extracts only the model-response boundary.
+- No change to the `conductor.answer()` signature, result fields, reply text, event order, streaming
+  reset behavior, provider selection, fallback choice, or final-answer escalation behavior.
+- No live-route, owner-flag, policy, approval, tool catalog, tool execution, memory, context, intent,
+  prompt, database, schema, API, or UI change.
 - No T09 Brain-context integration, T11 observability expansion, T13 Runs page, or T14 activation work.
 - No Telegram, CLI, Office, scheduler, or remaining-surface migration; T15 owns those adapters.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
@@ -28,9 +31,23 @@ preserving its public answer behavior and every accepted Runtime V2 safety bound
 - `docs/feature-idea-queue/MC_V2_BOARD.md`
 - `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
 - `docs/feature-idea-queue/QUEUE.md`
-- Implementation files and focused tests will be named by the approved T08 Run 1 plan.
+- `core/runtime/response_composer.py`
+- `core/conductor.py`
+- `tests/test_mc_runtime_response_composer.py`
 
-**Gate: no**
+**Gate: green**
+
+```gate
+"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_response_composer.py
+"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_conductor_final_guard.py
+"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_conductor_mixed_reply.py
+"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_conductor_context.py
+"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_chat_runtime.py
+"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_chat_runtime_route.py
+"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_gateway_live_chat.py
+"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mode_enforcement.py
+"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" -m compileall -q core api
+```
 
 ---
 

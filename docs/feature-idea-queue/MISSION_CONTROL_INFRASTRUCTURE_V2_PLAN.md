@@ -1740,6 +1740,114 @@ replacement worker, raw command/path/token, live import, caller switch, API/UI, 
 write, external service, Supabase, or Vercel interaction was added. The owner accepted Run 3B2B and
 closed T07 on 2026-08-11. T08 planning is released; no T08 implementation has started.
 
+### 25.10 T08 Run 1 - Model-Response Boundary Extraction Plan (2026-08-11)
+
+**Outcome:** Begin the Conductor strangler with its lowest-risk internal boundary. Move model-output
+classification, safe streaming/reset behavior, token-limit continuation, private-reasoning cleanup,
+and finished-text chunking into `core/runtime/response_composer.py`. `core/conductor.py` delegates to
+that service and keeps compatibility aliases; its public signature, returned fields, text, event
+order, routes, tools, permissions, flags, and persistence remain unchanged.
+
+**Source-grounded map:** Graphify was used first, but its index is stale at commit `2d46ab9`; current
+source is commit `064ed83`. The current 936-line `core/conductor.py` has a 491-line `answer()` and the
+following extraction boundaries, verified in source and callers:
+
+| Current responsibility | Current location/callers | Planned owner/run |
+|---|---|---|
+| Output prefix classification, stream buffering/reset, continuation, reasoning cleanup, chunking | `_looks_like_tool_start`, `_gen_step`, `_continue_answer`, `_strip_reasoning`, `_stream_chunks`; chunking is also called by Brain and Chat routes | `response_composer`, Run 1 |
+| Profile/manifest/history/attachment/prompt assembly plus intent and tool-route preparation | `answer()` before model acquisition; covered by `test_conductor_context.py` | `context_service` plus `intent_router`/`planner`, Run 2 |
+| Recovery checkpoint replay and the read/act/terminal tool loop | `answer()` recovery and loop branches; accepted T05-T07 policy, catalog, executor, and receipts sit behind it | workflow execution compatibility service, Run 3 |
+| Final guard, mixed tool/prose recovery, model metadata/escalation, and public wrappers | nested `_final`, forced-final path, `conductor_chat*` | `response_composer` plus thin facade, Run 4 |
+
+`answer()` is called directly by the accepted Chat Runtime V2 route and by Office, Telegram, terminal,
+Awakening, Brain, Health, and tests. Run 1 therefore changes no caller. Existing internal helper names
+remain re-exported from `core.conductor` so hidden and legacy imports do not break.
+
+**T08 run split:**
+
+| Run | Reviewable outcome | T08 complete after acceptance |
+|---|---|---|
+| Run 1 | Model-response boundary extracted; all public behavior unchanged | 15-20% |
+| Run 2 | Context assembly and deterministic intent/tool-route preparation extracted | 35-45% |
+| Run 3 | Recovery and tool-loop execution delegated behind accepted policy, registry, and receipt boundaries | 70-82% |
+| Run 4 | Final response composition extracted; `answer()` becomes a compatibility-only facade; golden closeout | 100% |
+
+Run 3 may be split after Run 2 if its red-test/source review proves recovery replay and ordinary tool
+execution cannot be isolated safely in one diff. A split requires its own owner-approved plan and
+cannot widen T08.
+
+**Run 1 contract:** the new service owns one typed model-step result and pure/publicly testable
+functions for answer-versus-tool classification, reasoning separation, exact-text chunking, streamed
+delta/reset handling, and bounded continuation. It imports parsing helpers directly and must not
+import `core.conductor`, call the database, select a provider/model, execute a tool, make a policy
+decision, or persist anything. Conductor retains model selection, final-answer escalation, metadata,
+the tool loop, and every external wrapper in this run.
+
+**Implementation order:**
+
+1. Add `tests/test_mc_runtime_response_composer.py`; make its first import/check fail against the
+   unchanged tree, record that evidence, and set the Gate to red before production edits.
+2. Add the focused response service with a typed step result. Prove tool JSON stays buffered, a
+   prose-first stream is reset when a tool signature appears, clean prose streams in order, private
+   reasoning is separated, capped output continues within the existing bound, and chunks reassemble
+   to the exact original text.
+3. Replace only the five Conductor helper bodies with imports/delegation and compatibility aliases.
+   Preserve constants and callback semantics where existing callers can observe them.
+4. Run direct service tests and golden Conductor response/context tests, then Chat Runtime, gateway,
+   mode, compile, diff, and enforced-gate regressions. Confirm only Conductor imports the new service
+   in live code.
+5. Publish delivery evidence without closing T08. Run 2 planning begins only after owner acceptance.
+
+**Acceptance checks:** the new test must prove red before implementation and green after it; the exact
+`inspect.signature(conductor.answer)` value and result keys stay unchanged; tool-only output never
+leaks; mixed tool/prose output keeps the useful prose; streamed preambles reset before tool JSON;
+ordinary prose and legitimate fenced JSON remain untouched; continuation is bounded; chunking loses
+no characters; existing context placement remains identical; no route, flag, policy, registry,
+executor, storage, schema, API, UI, or external surface changes; and `answer()` still owns all tool
+execution until Run 3.
+
+**Expected files:** `core/runtime/response_composer.py`, `core/conductor.py`,
+`tests/test_mc_runtime_response_composer.py`, and the four package/queue documents. Any other source
+or test file requires stopping and revising this plan before editing.
+
+**Verification:** run the new focused suite; `test_conductor_final_guard.py`,
+`test_conductor_mixed_reply.py`, `test_conductor_context.py`, `test_chat_runtime.py`,
+`test_chat_runtime_route.py`, `test_mc_runtime_gateway_live_chat.py`, and
+`test_mode_enforcement.py`; focused `py_compile` plus `compileall`; `git diff --check`; the enforced
+`scripts/gate.py`; and intended-file-only `git status`. Planning baseline is green: final guard 9/9,
+mixed reply 11/11, and context 9/9 on current source.
+
+**Non-goals:** no final `_final` extraction, provider/model selection or fallback change, intent or
+context change, prompt change, tool-loop/recovery move, canonical tool activation, live-route switch,
+new owner flag, database/schema/migration, API/UI, Telegram/CLI/Office/scheduler adaptation, external
+service, Supabase, or Vercel interaction. Queue item #30 is source-disjoint except for shared package
+documents; do not implement it in parallel with T08.
+
+**Estimate after acceptance:** T08 **15-20%** complete and #21 about **85-91%** complete. Expected
+unattended implementation and verification time is **4-6 hours**. Owner acceptance should take
+**10-15 minutes**: confirm the diff adds one response service and one focused test, makes only helper
+delegations in Conductor, and changes no live behavior or unrelated boundary.
+
+**Owner action:** approve **T08 Run 1 implementation**. No code work starts before that approval.
+
+**Delivery evidence (2026-08-12):** the new focused suite first failed because
+`core.runtime.response_composer` did not exist while every compatibility command passed. The new
+service now owns a frozen typed model-step result, tool-prefix classification, buffered stream/reset
+handling, reasoning separation, exact-text chunking, and bounded continuation without importing
+Conductor or selecting models, executing tools, deciding policy, or persisting state. Conductor is
+117 lines smaller and retains its exact 22-parameter `answer()` signature, tuple wrappers, helper
+aliases, final guard, model selection/escalation, context, routing, tool loop, persistence, and public
+wrappers. Only Conductor imports the service in live code.
+
+The focused suite passes 28/28 and the enforced gate passes 9/9: response composer, final guard,
+mixed reply, context, Chat Runtime unit/route, live gateway, mode enforcement, and compileall. Broader
+gateway 9/9, Chat modes 76/76, resources 14/14, Office 19/19, and Terminal 67/67 checks pass. The
+Awakening suite still fails its recovered-memory dedup assertion; a temporary untouched `064ed83`
+archive reproduces the identical conflict, proving it is baseline Brain debt rather than this change.
+No route, flag, result field, reply/stream behavior, provider/fallback, context, intent, prompt,
+policy, approval, tool, storage, schema, API, UI, external surface, or external service changed.
+T08 Run 1 is implemented and awaits owner acceptance before Run 2 planning.
+
 ## 26. Implementation Log
 
 Planning state only. Add one dated row after each accepted worker package.
@@ -1774,3 +1882,4 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-10 | T07 Run 3B1 | `f07b8cb`; owner acceptance 2026-08-11 | Red missing-action-ref test; 24/24 terminal-tool checks; terminal engine, T03/T05/T06, T07 project/file, owner flags, mode, Chat unit/route, Conductor, Storage, compile, diff, and enforced gate green | Accepted; a dormant high-risk `run_command@2` action permits only `mkdir <safe-name>` in the fixed directory after matching approval and idempotency, records one redacted immutable receipt, replays exact duplicates, conflicts changed identity, and blocks unknown interruption retries. Accepted `@1` reads and all live behavior remain unchanged; Run 3B2A planning released while T07 remains open |
 | 2026-08-11 | T07 Run 3B2A | `6de9f27`; owner acceptance 2026-08-11 | Red missing-module test; 15/15 terminal-job checks; T03/T05/T06, T07 project/file/terminal, legacy Terminal, owner flags, mode, Chat, Conductor, Storage, compile, diff, and enforced gate green | Accepted; a dormant typed-duration start action, durable managed-job table, authenticated detached worker, restart-safe reads, exact replay, and fail-closed unknown launch reconciliation are delivered without cancellation, PID control, raw caller command persistence, legacy-table change, or live import; Run 3B2B planning released while T07 remains open |
 | 2026-08-11 | T07 Run 3B2B | `1a1f026`; owner closure acceptance 2026-08-11 | Red missing-cancel-ref test; 26/26 terminal-job checks; accepted terminal/project/file, Runtime T01-T06/T03, owner flags, mode, Chat, Conductor, Storage, compile, diff, and enforced gate green | Complete; approved owner-bound cancellation is durable, replay-safe, restart-safe, and completed only by the authenticated worker. Stale proof remains unknown, populated schema 009 upgrades in place, and no PID, signal, legacy kill invocation, replacement launch, live import, caller switch, API/UI, flag, or external-service change was added; owner accepted T07 closure and released T08 planning |
+| 2026-08-12 | T08 Run 1 | T08 Run 1 delivery commit; owner acceptance pending | Red missing-service import; 28/28 response checks; enforced gate 9/9; broader gateway, Chat mode, resources, Office, and Terminal checks green; unchanged `064ed83` reproduces the unrelated Awakening failure | Implemented; typed response handling is extracted and Conductor delegates through compatibility boundaries with no public answer, route, flag, policy, tool, context, storage, API, or UI change. T08 is 15-20% complete; Run 2 planning waits for owner acceptance |

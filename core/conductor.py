@@ -24,7 +24,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
@@ -98,6 +97,14 @@ from core.conductor_parsing import (  # noqa: F401 - re-exported: tests and othe
     _confirm_reply_batch, _default_chat_id, _history, _is_affirm, _is_negate, _norm,
     _parse_tool_call, _parse_tool_calls, _phase_for, _propose_actions, _propose_reply,
     _safe_complete, strip_tool_calls
+)
+from core.runtime.response_composer import (
+    TOOL_SIGNATURE_RE as _TOOL_SIG_RE,
+    continue_answer as _continue_model_answer,
+    generate_step as _generate_model_step,
+    looks_like_tool_start as _looks_like_tool_start,
+    split_reasoning as _strip_reasoning,
+    stream_chunks as _stream_chunks,
 )
 
 MAX_TOOL_STEPS = 8  # enough for a chain: read → create project → tasks → assign → answer
@@ -239,134 +246,22 @@ _MODEL_STRUGGLING = (
     "I'll pick this straight back up."
 )
 
-_THINK_RE = re.compile(r"<think(?:ing)?>.*?</think(?:ing)?>", re.S | re.I)
-_REASON_LEAD_RE = re.compile(r"^\s*(?:reasoning|thought|thinking|analysis)\s*:\s*", re.I)
-# A tool-call JSON object emerging anywhere in a streamed reply (even after a prose preamble
-# from a chatty model) — used to reclassify "answer"→"tool" mid-stream and retract the leak.
-# Matches as soon as `{"tool"` appears (before the value), so the JSON body never streams.
-_TOOL_SIG_RE = re.compile(r'\{\s*"tool"')
-
-
-def _looks_like_tool_start(stripped: str) -> bool:
-    """Cheap classifier for a (streamed) prefix: is this the start of a tool-call JSON?"""
-    if not stripped:
-        return False
-    if stripped[0] == "{":
-        return True
-    return bool(re.match(r"```(?:json)?\s*\{", stripped))
-
-
-def _strip_reasoning(text: str) -> tuple[str, str]:
-    """Split a reply into (clean_answer, reasoning). Removes <think>…</think> blocks, OpenAI
-    'harmony' channels and a leading 'Reasoning:' preamble so the answer body never shows the
-    model's private thinking — that goes to the collapsible panel instead (decision #5/#6)."""
-    if not text:
-        return "", ""
-    reasoning = "\n".join(_THINK_RE.findall(text)).strip()
-    clean = _THINK_RE.sub("", text)
-    if "<|channel|>" in clean or "<|start|>" in clean:
-        finals = re.findall(r"final\s*<\|message\|>(.*?)(?:<\|end\|>|<\|return\|>|$)", clean, re.S)
-        if finals:
-            reasoning = (reasoning + "\n" + clean).strip()
-            clean = "\n".join(f.strip() for f in finals)
-    low = clean.lower()
-    if "<think" in low and "</think" not in low:  # unclosed → it's all reasoning, no answer yet
-        idx = low.find("<think")
-        reasoning = (reasoning + "\n" + clean[idx:]).strip()
-        clean = clean[:idx]
-    clean = _REASON_LEAD_RE.sub("", clean).strip()
-    return clean, reasoning
-
-
 def _gen_step(client, msgs: list, system: str, max_tokens: int,
               on_delta: Optional[Callable[[str], None]],
               on_reset: Optional[Callable[[], None]] = None) -> tuple[str, bool, Optional[str]]:
-    """Run one model turn. Returns (text, is_answer, finish_reason).
-
-    When `on_delta` is set and the client can stream, a *final answer* streams live via
-    on_delta while a *tool-call* is buffered silently (classified from its prefix), so only
-    real answers reach the chat as tokens — tool deliberation never shows.
-
-    A chatty model sometimes writes a prose preamble *before* the tool-call JSON ("Of course,
-    sir…\\n{\"tool\":…}"). The prefix then looks like an answer, so we start streaming it; once
-    the `{\"tool\":` signature appears we reclassify to a tool call, fire `on_reset` (the UI
-    drops the leaked preamble) and buffer the rest silently — so the JSON never lingers in chat
-    and the tool actually runs."""
-    streamer = getattr(client, "complete_stream", None)
-    if not on_delta or streamer is None:
-        try:
-            text = client.complete(list(msgs), system=system, max_tokens=max_tokens) or ""
-        except Exception as e:  # noqa: BLE001
-            logger.warning("conductor step failed: %s", e)
-            return "", False, "error"
-        # A parseable tool call (even behind a prose preamble) is a tool call, not an answer.
-        is_answer = _parse_tool_call(text) is None and not _looks_like_tool_start(text.lstrip())
-        if is_answer and on_delta:
-            for ch in _stream_chunks(text):
-                on_delta(ch)
-        return text, is_answer, getattr(client, "last_finish_reason", None)
-
-    buf = ""; decided: Optional[str] = None; emitted = 0; reset = False
-
-    def _to_tool():
-        """Reclassify a mid-stream answer as a tool call: retract whatever leaked, buffer on."""
-        nonlocal decided, reset
-        decided = "tool"; reset = True
-        if emitted and on_reset:
-            try: on_reset()
-            except Exception: pass
-
-    try:
-        for delta in streamer(list(msgs), system=system, max_tokens=max_tokens):
-            buf += delta
-            if decided is None:
-                s = buf.lstrip()
-                if len(s) >= 8 or "\n" in buf:
-                    decided = "tool" if _looks_like_tool_start(s) else "answer"
-                    if decided == "answer" and _TOOL_SIG_RE.search(buf):
-                        _to_tool()
-                    elif decided == "answer":
-                        on_delta(buf[emitted:]); emitted = len(buf)
-            elif decided == "answer":
-                if _TOOL_SIG_RE.search(buf):           # a tool call surfaced after prose → retract
-                    _to_tool()
-                else:
-                    on_delta(buf[emitted:]); emitted = len(buf)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("conductor stream failed: %s", e)
-        try:
-            buf = client.complete(list(msgs), system=system, max_tokens=max_tokens) or buf
-        except Exception:
-            pass
-    if decided is None:  # very short output
-        decided = "tool" if (_looks_like_tool_start(buf.lstrip()) or _parse_tool_call(buf)) else "answer"
-        if decided == "answer" and emitted == 0 and buf:
-            on_delta(buf)
-    elif decided == "answer" and not reset and _parse_tool_call(buf):
-        # streamed fully as an answer but it actually parses as a tool call → retract + run it
-        _to_tool()
-    return buf, (decided == "answer"), getattr(client, "last_finish_reason", None)
+    """Compatibility tuple wrapper around the typed Runtime service."""
+    return _generate_model_step(
+        client, msgs, system, max_tokens, on_delta, on_reset
+    ).as_legacy_tuple()
 
 
 def _continue_answer(client, msgs: list, partial: str, system: str,
                      on_delta: Optional[Callable[[str], None]], rounds: int = 2) -> str:
-    """If a streamed/compiled answer stopped on the token cap, ask the model to continue from
-    where it left off (streaming the continuation too). Returns the appended text."""
-    extra = ""
-    cur = partial
-    for _ in range(rounds):
-        if getattr(client, "last_finish_reason", None) != "length":
-            break
-        cont = list(msgs) + [
-            {"role": "assistant", "content": cur},
-            {"role": "user", "content": "Continue from exactly where you stopped. Do not repeat anything."},
-        ]
-        piece, _isa, _fr = _gen_step(client, cont, system, FINAL_TOKENS, on_delta)
-        if not piece:
-            break
-        extra += piece
-        cur = piece
-    return extra
+    """Compatibility wrapper using the historical final-answer token cap."""
+    return _continue_model_answer(
+        client, msgs, partial, system, on_delta,
+        max_tokens=FINAL_TOKENS, rounds=rounds,
+    )
 
 
 def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
@@ -884,18 +779,6 @@ def conductor_chat(message: str, chat_id: Optional[int] = None, surface: str = "
     res = answer(message, chat_id, surface)
     _persist_and_learn(chat_id, message, res.get("reply", ""))
     return res
-
-
-def _stream_chunks(text: str):
-    """Split a finished answer into small pieces so the chat reveals it like a stream."""
-    buf = ""
-    for piece in re.findall(r"\S+\s*", text):
-        buf += piece
-        if len(buf) >= 18:
-            yield buf
-            buf = ""
-    if buf:
-        yield buf
 
 
 def conductor_chat_stream(message: str, chat_id: Optional[int] = None, surface: str = "mc"):

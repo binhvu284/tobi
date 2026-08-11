@@ -13,13 +13,14 @@ Its status column carries the same short progress note this board tracks.
 
 ## Status
 
-**In progress.** T00 through T07 are complete and owner-accepted. T08 is released for planning.
+**In progress.** T00 through T07 are complete and owner-accepted. T08 Run 1 is implemented and
+awaits owner acceptance.
 
-**Delivered:** 8 complete packages, about **84-90%** of total effort.
+**Delivered:** 8 complete packages plus T08 Run 1, about **85-91%** of total effort.
 
-**Next:** start T08 planning. It will split the Conductor into small extraction runs, preserving
-public answers while moving routing, planning, context, tool execution, and response composition
-behind focused services one responsibility at a time. No implementation begins before Run 1 approval.
+**Next:** accept T08 Run 1, then start Run 2 planning. Run 1 moved only model-response handling
+behind a focused service; public answers, stream events, routes, tools, permissions, and flags remain
+unchanged.
 
 ---
 
@@ -61,7 +62,7 @@ Ordered. Each one ships and is reviewable on its own. Risk is the plan's own rat
 | T05 | **One place decides what is allowed.** Permissions, approvals, credentials, budgets — currently spread across many files. | T01 | High | Done |
 | T06 | **One list of tools.** Every tool described once, in one format, with its arguments checked before it runs. | T01, T05 | High | Done |
 | T07 | **Move the first real tools over:** files, terminal, projects. Each mutation gets a receipt, and a retry cannot double-apply it. | T03, T06 | High | Done |
-| T08 | **Shrink the Conductor.** It currently does routing, planning, permissions, execution, and replies all in one file. Pull those out one at a time until it is a thin wrapper. | T04, T07 | High | Ready for planning |
+| T08 | **Shrink the Conductor.** It currently does routing, planning, permissions, execution, and replies all in one file. Pull those out one at a time until it is a thin wrapper. | T04, T07 | High | Run 1 delivered; acceptance pending |
 | T09 | **Let Brain memory actually change answers.** Relevant memory influences what TOBI does; stale or private memory does not leak into it. | T00, T08 | High | ☐ |
 | T10 | **Make Hermes and the coding agent workers, not bosses.** They execute bounded requests; they cannot change the authoritative record. | T00, T03, T06 | High | ☐ |
 | T11 | **See everything.** One trace per request joining context, model, tools, approvals, cost, and outcome — plus the quality gates that block a release on regression. | T09, T10 | Med | ☐ |
@@ -76,6 +77,19 @@ Phases group these into checkpoints you can stop at: **T00** (ground truth) · *
 **T10–T12** (observability and security) · **T13–T14** (UI and rollout) · **T15** (the rest).
 
 Stopping after any phase leaves a working system. That is the point of the ordering.
+
+### T08 run split
+
+| Run | What moves out of `conductor.py` | T08 after acceptance |
+|---|---|---|
+| 1 | Model output classification, safe streaming/reset, continuation, reasoning cleanup, and text chunking | 15-20% |
+| 2 | Context assembly plus deterministic intent/tool-route preparation | 35-45% |
+| 3 | Recovery and tool-loop execution behind the accepted policy, registry, and receipt boundaries | 70-82% |
+| 4 | Final response composition and a thin compatibility-only `answer()` facade; golden-case closeout | 100% |
+
+**Owner action now:** accept **T08 Run 1**, then request **T08 Run 2 planning**. Review one condition:
+the diff adds one response service/test and makes Conductor delegate to it, with no live behavior,
+route, flag, tool, policy, database, API, or UI change.
 
 ---
 
