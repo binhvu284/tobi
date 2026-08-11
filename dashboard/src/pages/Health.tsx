@@ -358,15 +358,29 @@ export default function Health() {
 
         {!deepLoading && deep && (
           <Stagger className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3" step={0.07}>
-            <StaggerItem className="relative flex items-center gap-2 overflow-hidden rounded border border-border bg-bg p-2.5">
+            {/* Chat round-trip. The old card said "LLM" and went green on a one-shot ping,
+                which stayed green through a full day of Chat being broken. It now reports
+                what the owner actually cares about, and when it fails the reason is shown in
+                full rather than truncated — the whole point is that he can act on it. */}
+            <StaggerItem className={`relative flex items-center gap-2 overflow-hidden rounded border border-border bg-bg p-2.5${deep.llm.ok ? '' : ' sm:col-span-2 lg:col-span-3'}`}>
               <SnapRing ok={deep.llm.ok} />
               <Dot ok={deep.llm.ok} />
               <div className="relative z-10 min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-text">LLM ({deep.llm.provider ?? 'model'})</span>
+                  <span className="text-xs font-medium text-text">
+                    {deep.llm.state === 'working' ? 'Chat works'
+                      : deep.llm.state === 'model_unavailable' ? 'Model unavailable'
+                      : deep.llm.state === 'broken' ? 'Chat is broken'
+                      : `LLM (${deep.llm.provider ?? 'model'})`}
+                    {deep.llm.tools_used?.length ? (
+                      <span className="ml-1.5 font-normal text-muted">· ran {deep.llm.tools_used.join(', ')}</span>
+                    ) : null}
+                  </span>
                   {deep.llm.latency_ms != null && <span className="shrink-0 font-mono text-[10px] text-muted">{deep.llm.latency_ms}ms</span>}
                 </div>
-                <div className="truncate text-[10px] text-muted">{deep.llm.detail}</div>
+                <div className={deep.llm.ok ? 'truncate text-[10px] text-muted' : 'mt-0.5 break-words text-[10px] text-muted'}>
+                  {deep.llm.detail}
+                </div>
               </div>
             </StaggerItem>
             {Object.entries(deep.integrations).map(([name, c]) => (

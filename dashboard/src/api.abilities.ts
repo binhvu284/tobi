@@ -30,7 +30,16 @@ export type HealthReport = {
 
 export type DeepTestReport = {
   timestamp: string
-  llm: LivenessCheck & { provider?: string }
+  // Not a one-shot model ping any more: a real short conversation that uses a tool. `state`
+  // separates "the model could not be reached" from "the model answered and Chat still could
+  // not finish" — the second is what a one-shot probe could never see. See
+  // core/chat_self_check.py.
+  llm: LivenessCheck & {
+    provider?: string
+    state?: 'working' | 'broken' | 'model_unavailable'
+    tools_used?: string[]
+    model_turns?: number
+  }
   integrations: Record<string, LivenessCheck>
   summary?: { ok: number; total: number }
 }

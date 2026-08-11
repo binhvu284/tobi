@@ -229,13 +229,22 @@ async def api_health_deep():
     integration. Each result carries latency; a summary gives reachable/total."""
     result: dict = {"timestamp": datetime.now().isoformat()}
 
-    # 1) LLM round-trip (real call via the model router)
-    def _llm():
-        from core.model_router import llm_complete
-        reply = llm_complete("Reply with exactly: OK", task_type="simple", max_tokens=10)
-        return bool(reply and reply.strip()), ((reply or "").strip()[:60] or "empty reply")
-    result["llm"] = _timed_check(_llm)
-    result["llm"]["provider"] = os.getenv("PRIMARY_MODEL", "openrouter")
+    # 1) Chat round-trip — a real short conversation that uses a tool, not a one-shot ping.
+    # The old probe asked the model "Reply with exactly: OK" and passed. On 2026-08-01 it
+    # passed all day while every Chat request failed, because the defect only existed on the
+    # second message of a conversation and a one-shot probe never sends one. See
+    # core/chat_self_check.py for the full account.
+    from core.chat_self_check import run_self_check
+    check = run_self_check()
+    result["llm"] = {
+        "ok": check["ok"],
+        "detail": check["detail"][:400],
+        "latency_ms": check["latency_ms"],
+        "state": check["state"],              # working | broken | model_unavailable
+        "tools_used": check["tools_used"],
+        "model_turns": check["model_turns"],
+        "provider": os.getenv("PRIMARY_MODEL", "openrouter"),
+    }
 
     integrations: dict = {}
 
