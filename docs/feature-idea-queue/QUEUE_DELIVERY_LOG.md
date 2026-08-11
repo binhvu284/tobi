@@ -92,7 +92,7 @@ Bounded Codex development with an independent reviewer is qualified. Same-run re
 
 `FOUND_BASE-CORE-5D20H-002`
 
-Run 2A commit `9125ec5` is owner-accepted with 33/33 focused checks, its 12/12 gate, and 109 broader checks green. Run 2B is scoped to move only Conductor's existing manifest/legacy source resolution, attachment and prompt composition, recall suffix, and model-message assembly behind a typed service while preserving their exact order around classification and model selection. No context, Brain, prompt, history, route, flag, policy, tool, API, or UI owner changes. Gate is `no` pending approval. T08 is 25-30% complete and should reach 35-45% after Run 2B acceptance; #21 should reach about 87-93%.
+Run 2A commit `9125ec5` is owner-accepted. Run 2B is delivered and awaits owner acceptance: a typed staged assembler now owns Conductor's existing manifest/legacy source resolution, exact attachment and prompt composition, recall suffix, and model-message assembly while preserving their order around classification and model selection. The focused suite is 36/36 and its enforced gate is 16/16 green; the separate Awakening run reproduces only its accepted deferred-memory conflict. No context, Brain, prompt, history, route, flag, policy, tool, API, or UI owner changed. T08 is 35-45% complete and #21 about 87-93%; owner acceptance releases Run 3 planning.
 
 
 <a id="item-20"></a>

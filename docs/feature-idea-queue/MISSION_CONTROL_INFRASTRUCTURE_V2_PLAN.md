@@ -1944,7 +1944,128 @@ the Run 1 response service, mode enforcement, and Python compilation. Only Condu
 service in live code. No Chat route, classifier outcome, context, prompt text, result field, tool,
 policy, persistence, flag, API, UI, or external service changed.
 
-**Owner action:** accept **T08 Run 2A** and release Run 2B planning. Run 2B does not start before that
+The owner accepted T08 Run 2A on 2026-08-12 and released Run 2B planning.
+
+### 25.12 T08 Run 2B - Compatibility Context Assembly Extraction Plan (2026-08-12)
+
+**Outcome:** Move only Conductor's existing context assembly into
+`core/runtime/context_assembler.py`. Conductor delegates context-source resolution, exact attachment
+expansion, system-prompt composition, the episodic-recall prompt suffix, and final model-message
+assembly without changing any context source, content, trust rule, budget, call order, or answer.
+
+**Why this is one bounded run:** Run 2A already isolated intent routing. Current source at commit
+`9125ec5` leaves three small context stages in `conductor.answer()` around two boundaries that must
+not move: classification stays between source resolution and prompt composition, while model
+selection stays between prompt composition and fallback history loading. A three-function service
+can preserve those positions exactly; changing `context_manager`, prompt owners, storage, or callers
+would be a separate behavior change and is excluded.
+
+**Source-grounded map:** Graphify was used first and identifies `conductor.answer()` calls to
+`_build_tier_context()`, `_system_prompt()`, and `_history()`, plus `ContextManifest` and
+`prompt_context()` edges. Its index is stale at `2d46ab9`; the following ownership was verified in
+current source and tests:
+
+| Current node | Current authority | Run 2B rule |
+|---|---|---|
+| `api/routers/chat.py` | Builds the budgeted `ContextManifest`, records it, and passes it only on the active Runtime path | Unchanged; the assembler consumes a manifest but never builds one |
+| `context_manager.py` and `ContextManifest` | Select owner memory/recall/evolution/project/attachment/conversation sources, apply budgets and trust fences, and render non-dedicated prompt context | Unchanged; no new selection, truncation, fallback, or duplicate injection |
+| `conductor.answer()` source branch | Reads owner/evolution slots from a manifest, or falls back to `brain.profile_summary()` plus `_build_tier_context()`; a profile/render failure becomes empty | Move verbatim behind typed `ContextSources` |
+| Attachment and prompt branch | Appends the exact attachment marker, calls `_system_prompt()` with current arguments, then appends the existing recall suffix after Run 2A detection | Move orchestration only; prompt text and prompt builder remain owned by `conductor_prompts.py` |
+| Model/history branch | Selects the model first; explicit history, including `[]`, bypasses storage; otherwise `_history(chat_id, limit=6)` loads legacy history; the expanded message is appended last | Move message assembly only and preserve model-before-history order |
+| Office and legacy surfaces | Call `conductor.answer()` with explicit empty history or no manifest | No caller edit; compatibility behavior remains identical |
+
+**Contract:** add frozen `ContextSources(profile, tier_context, manifest_text)` and
+`PreparedPrompt(message, system)` values plus three typed functions:
+
+1. `resolve_context_sources(context_manifest, profile_loader, tier_loader, manifest_renderer=None)`
+   preserves the manifest/no-manifest branch and its exact failure behavior.
+2. `prepare_prompt_context(...)` appends attachments exactly once, calls the injected existing
+   `_system_prompt`, and appends the byte-identical episodic-recall suffix only when the Run 2A
+   detector says the tool-enabled expanded message refers to past conversation.
+3. `prepare_model_messages(message, history, chat_id, history_loader)` copies explicit history or
+   calls the injected existing `_history(..., limit=6)`, then appends the final user message.
+
+Dependencies stay injectable so current `conductor._build_tier_context`, `_system_prompt`, and
+`_history` compatibility aliases remain replaceable in tests/callers. The new module reuses
+`ContextManifest` and `needs_episodic_recall`; it must not import Conductor, Brain, database, model
+routing, tools, policy, or storage at import time. It does not call `build_manifest()`.
+
+**Order that must remain visible in Conductor:**
+
+1. Pending confirmation handling remains first and unchanged.
+2. Resolve manifest/legacy sources.
+3. Resolve the Run 2A intent/tool decision from the original message.
+4. Prepare the attachment-expanded message and system prompt, including recall suffix.
+5. Select the model and preserve the current truthful model-down return.
+6. Prepare prior messages only after model selection, then enter the unchanged recovery/tool loop.
+
+**Implementation order:**
+
+1. Add `tests/test_mc_runtime_context_assembler.py`, run it against unchanged code, capture the
+   missing-module failure, and set the Gate red before production edits.
+2. Add the two frozen values and three assembly functions with injected owner callables and exact
+   current fallback/order rules.
+3. Replace only Conductor's source branch, attachment/prompt/recall block, and history/message lines
+   with staged service calls. Preserve `_build_tier_context`, `_system_prompt`, and `_history` aliases.
+4. Prove byte-identical manifest and legacy prompts/messages, exact call order, attachment timing,
+   recall behavior, profile/render failure fallback, explicit-history bypass, and model-down behavior.
+5. Set the Gate green, run compatibility checks, publish delivery evidence, and stop before Run 3
+   planning until owner acceptance.
+
+**Acceptance checks:** the new test fails before implementation and passes after; importing the
+service does not import Conductor; manifest source slots and `prompt_context()` are used exactly once;
+legacy profile failure still becomes empty; renderer failure still becomes empty; tier fallback is
+unchanged; classification sees the original message; datetime detection and recall see the expanded
+message; the recall suffix is byte-identical and cannot enable tools; explicit `history=[]` never
+loads the database; `history=None` loads six turns only after successful model selection; input
+history is not mutated; `inspect.signature(conductor.answer)` and every result/event field remain
+unchanged; and only Conductor imports the new service in live code.
+
+**Expected files:** `core/runtime/context_assembler.py`, `core/conductor.py`,
+`tests/test_mc_runtime_context_assembler.py`, the four original package/queue documents, and
+`QUEUE_DELIVERY_LOG.md` after commit `d40bc5c` split detailed Queue notes into that file. No edit to
+`context_manager.py`, `chat_runtime_contracts.py`, `conductor_prompts.py`, `conductor_parsing.py`,
+Brain, Chat/API callers, or any other source/test file is permitted without stopping and revising
+this plan.
+
+**Verification:** run the new focused suite; `test_mc_runtime_intent_router.py`,
+`test_mc_runtime_response_composer.py`, `test_conductor_context.py`, `test_context_manager.py`,
+`test_premium_readers_route.py`, `test_chat_runtime.py`, `test_chat_runtime_route.py`,
+`test_mc_runtime_gateway_route.py`, `test_mc_runtime_gateway_live_chat.py`,
+`test_conductor_final_guard.py`, `test_conductor_mixed_reply.py`, `test_chat_modes.py`,
+`test_resource_access.py`, and `test_mode_enforcement.py`; `compileall`; live import/order scans;
+`git diff --check`; the enforced `scripts/gate.py`; and intended-file-only `git status`.
+
+Planning baseline is green for Conductor context 9/9, Context Manager 26/26, premium-reader routing
+16/16, and Chat Runtime 8/8. `test_awakening.py` separately reproduces its already accepted single
+deferred-memory recovery conflict after 63 prior checks; keep it outside the green gate and require
+the identical baseline result with no new failure after implementation.
+
+**Non-goals:** no new context source or canonical context contract; no `build_manifest()` move; no
+Brain V2/T09 retrieval or feedback change; no owner-memory/evolution/project/attachment/conversation
+selection, priority, trust, fencing, budget, caching, or token change; no prompt wording/tool docs or
+datetime behavior change; no history query/storage/limit change; no intent, route, model, response,
+tool-loop/recovery, policy, approval, persistence, schema, flag, API/UI, Telegram/CLI/Office/scheduler,
+external service, Supabase, or Vercel change. Queue item #30 remains source-disjoint but must not run
+in parallel because both packages own `CURRENT_WORK.md`, the gate, and queue documents.
+
+**Estimate after acceptance:** T08 **35-45%** complete and #21 about **87-93%** complete. Expected
+unattended implementation and verification time is **4-6 hours**. Owner acceptance should take
+**10-15 minutes**: confirm the diff adds one typed assembler and focused test, makes only staged
+Conductor delegations, and leaves every context/prompt/history owner plus live behavior unchanged.
+
+**Delivery evidence (2026-08-12):** the focused test first failed because
+`core.runtime.context_assembler` did not exist, while the other 15 gate commands passed. The
+delivered service passes 36 source/prompt/message/delegation checks, and the enforced gate is green
+for all 16 commands covering Run 1/2A Runtime services, manifest and legacy context, premium-reader
+attachments, Chat routes/gateways, Conductor replies, mode boundaries, and compilation. Only
+Conductor imports the new service in live code. `test_awakening.py` separately reproduces the exact
+accepted deferred-memory conflict with no new failure. Concurrent commit `d40bc5c` changed only the
+Queue document layout, so delivery adopted its new `QUEUE_DELIVERY_LOG.md` without changing source
+scope. No context source/content/order, Brain selection, prompt text, history behavior, route, result,
+event, model, tool, policy, persistence, flag, API, UI, or external service changed.
+
+**Owner action:** accept **T08 Run 2B** and release Run 3 planning. Run 3 does not start before that
 acceptance.
 
 ## 26. Implementation Log
@@ -1982,4 +2103,5 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-11 | T07 Run 3B2A | `6de9f27`; owner acceptance 2026-08-11 | Red missing-module test; 15/15 terminal-job checks; T03/T05/T06, T07 project/file/terminal, legacy Terminal, owner flags, mode, Chat, Conductor, Storage, compile, diff, and enforced gate green | Accepted; a dormant typed-duration start action, durable managed-job table, authenticated detached worker, restart-safe reads, exact replay, and fail-closed unknown launch reconciliation are delivered without cancellation, PID control, raw caller command persistence, legacy-table change, or live import; Run 3B2B planning released while T07 remains open |
 | 2026-08-11 | T07 Run 3B2B | `1a1f026`; owner closure acceptance 2026-08-11 | Red missing-cancel-ref test; 26/26 terminal-job checks; accepted terminal/project/file, Runtime T01-T06/T03, owner flags, mode, Chat, Conductor, Storage, compile, diff, and enforced gate green | Complete; approved owner-bound cancellation is durable, replay-safe, restart-safe, and completed only by the authenticated worker. Stale proof remains unknown, populated schema 009 upgrades in place, and no PID, signal, legacy kill invocation, replacement launch, live import, caller switch, API/UI, flag, or external-service change was added; owner accepted T07 closure and released T08 planning |
 | 2026-08-12 | T08 Run 1 | `d263837`; owner acceptance 2026-08-12 | Red missing-service import; 28/28 response checks; enforced gate 9/9; broader gateway, Chat mode, resources, Office, and Terminal checks green; unchanged `064ed83` reproduces the unrelated Awakening failure | Accepted; typed response handling is extracted and Conductor delegates through compatibility boundaries with no public answer, route, flag, policy, tool, context, storage, API, or UI change. T08 is 15-20% complete; source review split Run 2 into routing-only 2A and context-only 2B, and Run 2A planning is released |
-| 2026-08-12 | T08 Run 2A | T08 Run 2A delivery commit | Red missing-router import; 33/33 intent-router checks; enforced gate 12/12 green | Delivered, acceptance pending; a frozen pure compatibility decision and recall detector now own Conductor's existing branch while the authoritative Chat route, classifier outcomes, context, prompts, public answers, tools, policy, persistence, flags, API, and UI remain unchanged. T08 is 25-30% complete; Run 2B planning remains locked pending owner acceptance |
+| 2026-08-12 | T08 Run 2A | `9125ec5`; owner acceptance 2026-08-12 | Red missing-router import; 33/33 intent-router checks; enforced gate 12/12 plus 109 broader compatibility checks green | Accepted; a frozen pure compatibility decision and recall detector now own Conductor's existing branch while the authoritative Chat route, classifier outcomes, context, prompts, public answers, tools, policy, persistence, flags, API, and UI remain unchanged. T08 is 25-30% complete and Run 2B planning is released |
+| 2026-08-12 | T08 Run 2B | T08 Run 2B delivery commit | Red missing-assembler import; 36/36 context-assembler checks; enforced gate 16/16 green; unchanged Awakening baseline reproduced | Delivered, acceptance pending; typed staged context assembly now owns Conductor's existing source, attachment, prompt/recall, and model-message preparation while every context/prompt/history owner and all live behavior remain unchanged. T08 is 35-45% complete; Run 3 planning remains locked pending owner acceptance |

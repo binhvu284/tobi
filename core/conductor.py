@@ -27,6 +27,11 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
+from core.runtime.context_assembler import (
+    prepare_model_messages as _prepare_model_messages,
+    prepare_prompt_context as _prepare_prompt_context,
+    resolve_context_sources as _resolve_context_sources,
+)
 from core.runtime.intent_router import (
     needs_episodic_recall as _detect_past_reference,
     resolve_intent as _resolve_intent,
@@ -320,45 +325,31 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
     from core import brain
     from core.model_router import get_llm
 
-    if context_manifest is not None:
-        profile = context_manifest.source_content("owner_memory")
-        tier_context = context_manifest.source_content("evolution")
-        try:
-            from core.context_manager import prompt_context
-            manifest_text = prompt_context(context_manifest)
-        except Exception:
-            manifest_text = ""
-    else:
-        try:
-            profile = brain.profile_summary()
-        except Exception:
-            profile = ""
-        tier_context = _build_tier_context()
-        manifest_text = ""
+    context_sources = _resolve_context_sources(
+        context_manifest,
+        profile_loader=brain.profile_summary,
+        tier_loader=_build_tier_context,
+    )
     intent_decision = _resolve_intent(message, mode, route)
     intent = intent_decision.intent
     # Attachments (P2): the owner's files arrive as extracted text — fold them into the
     # turn as context so the tool-loop and the grounded reply can use them.
-    if attachments_text:
-        message = f"{message}\n\n[Attached content the owner shared]\n{attachments_text}"
     tools_enabled = intent_decision.tools_enabled
-    system = _system_prompt(profile, tools_enabled, surface, directives, extra_tools,
-                            user_message=message, denied_tools=denied_tools,
-                            allowed_tools=allowed_tools, tier_context=tier_context,
-                            context_text=manifest_text)
-
-    # Smart trigger: when the owner references past conversations, nudge the LLM
-    # to use the recall_conversations tool before answering.
-    if tools_enabled and _detect_past_reference(message):
-        system += (
-            "\n\n⚠ EPISODIC RECALL: The owner is asking about past conversations. "
-            "Use the recall_conversations tool to retrieve relevant messages BEFORE responding. "
-            "Extract the time reference (e.g., 'yesterday', 'last week') and topic from their "
-            "message and pass them as the 'when' and 'query' args. "
-            "If the owner asks broadly ('what did we discuss yesterday?'), summarize the returned "
-            "messages. If they ask specifically ('when did we discuss X?'), report exact messages "
-            "with timestamps and which session they came from."
-        )
+    prompt_context = _prepare_prompt_context(
+        message,
+        attachments_text,
+        context_sources,
+        tools_enabled=tools_enabled,
+        surface=surface,
+        directives=directives,
+        extra_tools=extra_tools,
+        denied_tools=denied_tools,
+        allowed_tools=allowed_tools,
+        prompt_builder=_system_prompt,
+        recall_detector=_detect_past_reference,
+    )
+    message = prompt_context.message
+    system = prompt_context.system
 
     try:
         # Keep the legacy call shape when no model override is given, so callers/tests that
@@ -386,8 +377,7 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
         })
         return payload
 
-    prior = history if history is not None else _history(chat_id, limit=6)
-    msgs = list(prior) + [{"role": "user", "content": message}]
+    msgs = _prepare_model_messages(message, history, chat_id, history_loader=_history)
     used: list[str] = []
     done_acts: list[str] = []  # successfully executed acts in this chain (for stop-on-failure)
     step_fails = 0             # truncated/garbled steps → model self-diagnosis
