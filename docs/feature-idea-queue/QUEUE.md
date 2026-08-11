@@ -1,72 +1,6 @@
 # Feature Development Queue
 
-Delivery ledger and future feature queue. One row per item, newest first; insert a new item directly below the table header. Never split an item into several rows — a large item reports its packages inside its own status and spec.
-
-Six columns, and each answers one question:
-
-| Column | Answers |
-|---|---|
-| **#** | Which item, in the order it was created |
-| **ID** | What kind of work, where, how big — see [Item Code](#item-code) below |
-| **Name** | What it is called, linked to its spec |
-| **Description** | What it does, in one plain sentence anyone can picture |
-| **Status** | Where it stands right now, with a short note in brackets |
-| **Notes** | The one thing everyone working on TOBI needs to know today |
-
-Full delivery detail for every item lives in [QUEUE_DELIVERY_LOG.md](QUEUE_DELIVERY_LOG.md), linked from each row. It is the evidence behind the status; the queue itself stays readable. Preserve old plans as design history.
-
-> Gate update (2026-07-14): #17 reached 9/9 owner-runtime acceptance through a verified GitHub read, Evolution advanced to Agent, and #18's start prerequisite is now satisfied. Connector health remains evidence-gated and subject to the 24-hour freshness rule.
-
-## Solo-Founder Time
-
-`Solo time` is `full scope -> work left`. `done` means no planned implementation remains; `same` means the full estimate remains.
-
-One focus day means 3-5 focused owner hours using Claude Code and/or Codex: preparing the prompt or plan, running the agent, reviewing its diff, testing locally, fixing ordinary mistakes, and recording the handoff. Calendar estimates assume 3-4 productive focus days per week and include a 25-35% allowance for AI rework and integration debugging. They exclude external approvals, provider outages, and major scope changes.
-
-Token totals are no longer the primary measure because subscription tools, hidden context, retries, and model choice make Claude Code/Codex token counts difficult to compare reliably.
-
-### Calibration Versus The Previous Model
-
-| Previous band | Previous generic estimate | New solo-founder calibration |
-|---|---|---|
-| `XS` | <=0.5 day; <25k tokens | 1-3 focused hours; same day |
-| `S` | 0.5-1 day; 25k-75k tokens | 2-5 focused hours; 1-2 calendar days |
-| `M` | 1-3 days; 75k-200k tokens | 1-2 focus days; 1-4 calendar days |
-| `L` | 3-7 days; 200k-500k tokens | 3-5 focus days; 1-2 calendar weeks |
-| `XL` | 1-3 weeks; 500k-1M tokens | 5-8 focus days; 2-3 calendar weeks |
-| `XXL` | 3-6 weeks; 1M-2M tokens | 10-18 focus days; 3-6 calendar weeks |
-| `EPIC` | 6+ weeks; 2M+ tokens | 20-35 focus days; 2-4 calendar months |
-
-## Item Code
-<a id="item-code"></a>
-
-Every row carries a code you can read at a glance, and use as the item's name in commits, branches, or conversation.
-
-```
-TYPE - AREA - TIME - NNN            FOUND_BASE-CORE-5D20H-002
- |      |      |     |              a hidden foundation, in the MC platform,
- |      |      |     +-- unique     about 140 hours of work, second one ever
- |      |      +-- how much work
- |      +-- where in TOBI
- +-- what kind of work
-```
-
-**TYPE** — what kind of work it is:
-
-| Code | Means |
-|---|---|
-| `NEW` | Adds a feature to an area that already exists |
-| `FOUND` | Creates a **new area**, and you can see and try it |
-| `FOUND_BASE` | Creates a new foundation you **cannot** see — everything else stands on it |
-| `UPG` | Rebuilds or extends an existing area |
-| `FIX` | Repairs something broken |
-| `CHECK` | Proves a feature actually works |
-
-**AREA** — where in TOBI, six letters or fewer. Today: `BRAIN` `CHAT` `NEWS` `DEV` `PROJ` `OFFICE` `LINK` `SKILL` `THEME` `CORE` `CLI`. New ones arrive through `FOUND`.
-
-**TIME** — real working hours. `1D` = 24H, `1M` = 30D, at most two units, minimum `0H` (under an hour). Taken from the upper end of this table's own estimate, counting one focus day as four working hours — so the code never promises something smaller than it turns out to be.
-
-**NNN** — three digits, counted separately for each TYPE, oldest first. `UPG-…-001` was the first upgrade ever; `CHECK-…-006` is the sixth check. The code is unique on its own.
+One row per item, newest first. Everything explaining the columns is below the table.
 
 | # | ID | Name | Description | Status | Notes |
 |---|----|------|-------------|--------|-------|
@@ -100,6 +34,76 @@ TYPE - AREA - TIME - NNN            FOUND_BASE-CORE-5D20H-002
 | 3 | `FOUND-OFFICE-20H-002` | [**Living Office**](OFFICE_LIVING_SPEC.md) | A small game-like office where you watch TOBI's agents work. | ✅ Done (v1) | [history](QUEUE_DELIVERY_LOG.md#item-3) |
 | 2 | `NEW-BRAIN-20H-001` | [**Graph View**](GRAPH_VIEW_SPEC.md) | A map of your notes and how they connect, like a web you can explore. | ✅ Done (v1) | [history](QUEUE_DELIVERY_LOG.md#item-2) |
 | 1 | `FOUND-BRAIN-1D8H-001` | [**Brain**](BRAIN_SPEC.md) | TOBI remembers what matters about you, learns from chats, and keeps a profile. | ✅ Done (v1+v2) | Rebuilt by #20. [history](QUEUE_DELIVERY_LOG.md#item-1) |
+
+---
+
+## How To Read A Row
+
+Six columns, and each answers one question:
+
+| Column | Answers |
+|---|---|
+| **#** | Which item, in the order it was created |
+| **ID** | What kind of work, where, how big — see [Item Code](#item-code) below |
+| **Name** | What it is called, linked to its spec |
+| **Description** | What it does, in one plain sentence anyone can picture |
+| **Status** | Where it stands right now, with a short note in brackets |
+| **Notes** | The one thing everyone working on TOBI needs to know today |
+
+Full delivery detail for every item lives in [QUEUE_DELIVERY_LOG.md](QUEUE_DELIVERY_LOG.md), linked from each row. It is the evidence behind the status; the queue itself stays readable. Preserve old plans as design history.
+
+## Item Code
+<a id="item-code"></a>
+
+Every row carries a code you can read at a glance, and use as the item's name in commits, branches, or conversation.
+
+```
+TYPE - AREA - TIME - NNN            FOUND_BASE-CORE-5D20H-002
+ |      |      |     |              a hidden foundation, in the MC platform,
+ |      |      |     +-- unique     about 140 hours of work, second one ever
+ |      |      +-- how much work
+ |      +-- where in TOBI
+ +-- what kind of work
+```
+
+**TYPE** — what kind of work it is:
+
+| Code | Means |
+|---|---|
+| `NEW` | Adds a feature to an area that already exists |
+| `FOUND` | Creates a **new area**, and you can see and try it |
+| `FOUND_BASE` | Creates a new foundation you **cannot** see — everything else stands on it |
+| `UPG` | Rebuilds or extends an existing area |
+| `FIX` | Repairs something broken |
+| `CHECK` | Proves a feature actually works |
+
+**AREA** — where in TOBI, six letters or fewer. Today: `BRAIN` `CHAT` `NEWS` `DEV` `PROJ` `OFFICE` `LINK` `SKILL` `THEME` `CORE` `CLI`. New ones arrive through `FOUND`.
+
+**TIME** — real working hours. `1D` = 24H, `1M` = 30D, at most two units, minimum `0H` (under an hour). Taken from the upper end of this table's own estimate, counting one focus day as four working hours — so the code never promises something smaller than it turns out to be.
+
+**NNN** — three digits, counted separately for each TYPE, oldest first. `UPG-…-001` was the first upgrade ever; `CHECK-…-006` is the sixth check. The code is unique on its own.
+
+## Solo-Founder Time
+
+`Solo time` is `full scope -> work left`. `done` means no planned implementation remains; `same` means the full estimate remains.
+
+One focus day means 3-5 focused owner hours using Claude Code and/or Codex: preparing the prompt or plan, running the agent, reviewing its diff, testing locally, fixing ordinary mistakes, and recording the handoff. Calendar estimates assume 3-4 productive focus days per week and include a 25-35% allowance for AI rework and integration debugging. They exclude external approvals, provider outages, and major scope changes.
+
+Token totals are no longer the primary measure because subscription tools, hidden context, retries, and model choice make Claude Code/Codex token counts difficult to compare reliably.
+
+### Calibration Versus The Previous Model
+
+| Previous band | Previous generic estimate | New solo-founder calibration |
+|---|---|---|
+| `XS` | <=0.5 day; <25k tokens | 1-3 focused hours; same day |
+| `S` | 0.5-1 day; 25k-75k tokens | 2-5 focused hours; 1-2 calendar days |
+| `M` | 1-3 days; 75k-200k tokens | 1-2 focus days; 1-4 calendar days |
+| `L` | 3-7 days; 200k-500k tokens | 3-5 focus days; 1-2 calendar weeks |
+| `XL` | 1-3 weeks; 500k-1M tokens | 5-8 focus days; 2-3 calendar weeks |
+| `XXL` | 3-6 weeks; 1M-2M tokens | 10-18 focus days; 3-6 calendar weeks |
+| `EPIC` | 6+ weeks; 2M+ tokens | 20-35 focus days; 2-4 calendar months |
+
+> Gate update (2026-07-14): #17 reached 9/9 owner-runtime acceptance through a verified GitHub read, Evolution advanced to Agent, and #18's start prerequisite is now satisfied. Connector health remains evidence-gated and subject to the 24-hour freshness rule.
 
 ### Review Closure — Items #14 and #16 (2026-07-12)
 
