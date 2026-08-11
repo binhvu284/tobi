@@ -1,4 +1,4 @@
-"""T07 Run 3B2A: dormant restart-safe managed terminal jobs."""
+"""T07 Run 3B2B: dormant restart-safe managed terminal job cancellation."""
 from __future__ import annotations
 
 import hashlib
@@ -44,18 +44,23 @@ from core.runtime.contracts import (  # noqa: E402
 from core.runtime.repository import RuntimeRepository  # noqa: E402
 from core.runtime.state import RunStatus  # noqa: E402
 from core.runtime.terminal_jobs import (  # noqa: E402
+    CANCELLATION_POLL_SECONDS,
     HEARTBEAT_STALE_SECONDS,
     MAX_JOB_OUTPUT_CHARS,
+    TerminalJobError,
     TerminalJobRepository,
 )
 from core.runtime.terminal_tools import (  # noqa: E402
+    CANCEL_JOB_REF,
     JOB_OUTPUT_REF,
     LIST_JOBS_REF,
     START_JOB_REF,
     build_terminal_job_runtime,
+    terminal_job_cancel_target,
     terminal_job_target,
 )
 from core.runtime.tool_catalog import ToolCallPreparationError  # noqa: E402
+from core.runtime.tool_execution import ToolExecutionError  # noqa: E402
 from core.schema.runtime import (  # noqa: E402
     RUNTIME_SCHEMA_VERSION,
     RUNTIME_SCHEMA_VERSIONS,
@@ -171,7 +176,11 @@ def prepare_run(
                 PlanStep(
                     step_id=step_id,
                     kind="tool",
-                    risk=RiskLevel.HIGH if tool_ref == START_JOB_REF else RiskLevel.NONE,
+                    risk=(
+                        RiskLevel.HIGH
+                        if tool_ref in {START_JOB_REF, CANCEL_JOB_REF}
+                        else RiskLevel.NONE
+                    ),
                     tool_name=tool_ref,
                     arguments=arguments,
                     retry_policy="none",
@@ -295,6 +304,12 @@ class FailingLauncher:
         raise OSError("simulated definite pre-spawn failure")
 
 
+class RaiseAfterCancelRepository(TerminalJobRepository):
+    def request_cancellation(self, *args, **kwargs):
+        super().request_cancellation(*args, **kwargs)
+        raise RuntimeError("simulated response loss after committed cancel request")
+
+
 init_database()
 conn = get_connection()
 try:
@@ -320,14 +335,95 @@ columns = {
     for row in query_all("PRAGMA table_info(mc_terminal_jobs)")
 }
 ok(
-    "migration 009 is additive idempotent and excludes raw command path and PID columns",
-    RUNTIME_SCHEMA_VERSION == "mc-runtime-v2-009"
-    and RUNTIME_SCHEMA_VERSIONS.count("mc-runtime-v2-009") == 1
+    "migration 010 adds cancellation evidence without raw command path or PID columns",
+    RUNTIME_SCHEMA_VERSION == "mc-runtime-v2-010"
+    and RUNTIME_SCHEMA_VERSIONS.count("mc-runtime-v2-010") == 1
     and migrations >= len(RUNTIME_SCHEMA_VERSIONS)
-    and {"job_id", "command_sha256", "working_directory_sha256", "heartbeat_at"}.issubset(columns)
+    and {
+        "job_id",
+        "command_sha256",
+        "working_directory_sha256",
+        "heartbeat_at",
+        "cancel_idempotency_key",
+        "cancel_requested_at",
+        "cancel_requested_by",
+        "cancel_acknowledged_at",
+    }.issubset(columns)
     and {"command", "cwd", "pid", "worker_token"}.isdisjoint(columns)
     and query_count("terminal_jobs") == 1,
     columns,
+)
+
+upgrade_path = TMP / "upgrade-from-v009.db"
+upgrade_conn = sqlite3.connect(upgrade_path)
+try:
+    _ensure_runtime_schema(upgrade_conn)
+    for statement in (
+        "DROP TRIGGER IF EXISTS mc_terminal_jobs_cancel_request_guard",
+        "DROP TRIGGER IF EXISTS mc_terminal_jobs_cancel_ack_guard",
+        "DROP INDEX IF EXISTS idx_mc_terminal_jobs_cancel_request",
+    ):
+        upgrade_conn.execute(statement)
+    for column in (
+        "cancel_acknowledged_at",
+        "cancel_requested_by",
+        "cancel_requested_at",
+        "cancel_idempotency_key",
+    ):
+        upgrade_conn.execute(f"ALTER TABLE mc_terminal_jobs DROP COLUMN {column}")
+    upgrade_conn.execute(
+        "DELETE FROM schema_migrations WHERE version='mc-runtime-v2-010'"
+    )
+    empty_hash = hashlib.sha256(b"").hexdigest()
+    upgrade_conn.execute(
+        """INSERT INTO mc_terminal_jobs (
+            job_id,start_idempotency_key,run_id,step_id,call_id,tool_ref,target,
+            operation,command_sha256,working_directory_sha256,duration_s,status,
+            output_sha256,created_at,updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            "terminal-job-00000000000000000000000000000000",
+            "v009-start-key",
+            "v009-run",
+            "v009-step",
+            "v009-call",
+            START_JOB_REF,
+            "terminal:job-start:v009",
+            "wait",
+            "1" * 64,
+            "2" * 64,
+            10,
+            "running",
+            empty_hash,
+            "2026-08-11T00:00:00+00:00",
+            "2026-08-11T00:00:00+00:00",
+        ),
+    )
+    upgrade_conn.commit()
+    _ensure_runtime_schema(upgrade_conn)
+    upgraded_columns = {
+        row[1] for row in upgrade_conn.execute("PRAGMA table_info(mc_terminal_jobs)")
+    }
+    upgraded_row = upgrade_conn.execute(
+        "SELECT status,duration_s FROM mc_terminal_jobs WHERE job_id=?",
+        ("terminal-job-00000000000000000000000000000000",),
+    ).fetchone()
+    upgraded_versions = {
+        row[0] for row in upgrade_conn.execute("SELECT version FROM schema_migrations")
+    }
+finally:
+    upgrade_conn.close()
+ok(
+    "a populated version 009 terminal job upgrades in place without data loss",
+    {
+        "cancel_idempotency_key",
+        "cancel_requested_at",
+        "cancel_requested_by",
+        "cancel_acknowledged_at",
+    }.issubset(upgraded_columns)
+    and upgraded_row == ("running", 10)
+    and "mc-runtime-v2-010" in upgraded_versions,
+    (upgraded_columns, upgraded_row, upgraded_versions),
 )
 
 repository = RuntimeRepository()
@@ -345,11 +441,12 @@ refs = tuple(entry.tool_ref for entry in runtime.catalog.manifest.entries)
 start_spec = runtime.catalog.get_spec(START_JOB_REF)
 list_spec = runtime.catalog.get_spec(LIST_JOBS_REF)
 output_spec = runtime.catalog.get_spec(JOB_OUTPUT_REF)
+cancel_spec = runtime.catalog.get_spec(CANCEL_JOB_REF)
 manifest_json = json.dumps(contract_to_dict(runtime.catalog.manifest), sort_keys=True)
 ok(
-    "job catalog exposes only bounded start list and output contracts",
-    set(refs) == {START_JOB_REF, LIST_JOBS_REF, JOB_OUTPUT_REF}
-    and len(refs) == 3
+    "job catalog exposes bounded start list output and approved cancel contracts",
+    set(refs) == {START_JOB_REF, LIST_JOBS_REF, JOB_OUTPUT_REF, CANCEL_JOB_REF}
+    and len(refs) == 4
     and start_spec.side_effect_class is SideEffectClass.REVERSIBLE
     and start_spec.risk is RiskLevel.HIGH
     and start_spec.required_permissions == ("terminal.execute",)
@@ -357,6 +454,11 @@ ok(
     and start_spec.isolation == "subprocess"
     and list_spec.side_effect_class is SideEffectClass.NONE
     and output_spec.side_effect_class is SideEffectClass.NONE
+    and cancel_spec.side_effect_class is SideEffectClass.IRREVERSIBLE
+    and cancel_spec.risk is RiskLevel.HIGH
+    and cancel_spec.required_permissions == ("terminal.execute",)
+    and cancel_spec.idempotency_policy == "required"
+    and cancel_spec.isolation == "in_process"
     and list_spec.required_permissions == ("terminal.read",)
     and output_spec.required_permissions == ("terminal.read",)
     and "callable" not in manifest_json.lower()
@@ -404,6 +506,39 @@ ok(
     "only one typed wait duration from 1 through 300 passes schema validation",
     all(error is not None for error in invalid) and launcher.calls == [],
     invalid,
+)
+
+invalid_cancel_arguments = (
+    {},
+    {"job_id": "terminal-job-short"},
+    {"job_id": "terminal-job-" + "g" * 32},
+    {"job_id": "terminal-job-" + "0" * 32, "pid": 1234},
+    {"pid": 1234},
+)
+invalid_cancel = [
+    raises(
+        ToolCallPreparationError,
+        lambda arguments=arguments: runtime.catalog.prepare_call(
+            call_id="invalid-cancel-" + hashlib.sha256(
+                json.dumps(arguments, sort_keys=True).encode()
+            ).hexdigest()[:8],
+            run_id="invalid-cancel-run",
+            step_id="invalid-cancel-step",
+            tool_ref=CANCEL_JOB_REF,
+            arguments=arguments,
+            surface=Surface.AGENT,
+            mode="agent",
+            candidate_tool_refs=(CANCEL_JOB_REF,),
+            idempotency_key="effect-invalid-cancel",
+            approval_id="approval-invalid-cancel",
+        ),
+    )
+    for arguments in invalid_cancel_arguments
+]
+ok(
+    "cancel accepts only one canonical job id and never a PID or process argument",
+    all(error is not None for error in invalid_cancel) and launcher.calls == [],
+    invalid_cancel,
 )
 
 denied_results = []
@@ -777,6 +912,374 @@ ok(
     (unknown_initial, reconciled),
 )
 
+cancel_job_id = failed_job_id
+cancel_target = terminal_job_cancel_target(cancel_job_id)
+missing_approval_call, missing_approval_facts, missing_approval_lease = prepare_call(
+    runtime,
+    repository,
+    run_id="job-cancel-missing-approval",
+    tool_ref=CANCEL_JOB_REF,
+    arguments={"job_id": cancel_job_id},
+    target=cancel_target,
+    permissions=("terminal.execute",),
+    isolations=(IsolationLevel.IN_PROCESS,),
+    idempotency_key="effect-job-cancel-missing-approval",
+)
+missing_approval = execute_prepared(
+    runtime, missing_approval_call, missing_approval_facts, missing_approval_lease
+)
+wrong_owner_call, wrong_owner_facts, wrong_owner_lease = prepare_call(
+    runtime,
+    repository,
+    run_id="job-cancel-wrong-owner",
+    tool_ref=CANCEL_JOB_REF,
+    arguments={"job_id": cancel_job_id},
+    target=cancel_target,
+    permissions=("terminal.execute",),
+    isolations=(IsolationLevel.IN_PROCESS,),
+    idempotency_key="effect-job-cancel-wrong-owner",
+    approval_status=ApprovalStatus.APPROVED,
+    approval_id="approval-job-cancel-wrong-owner",
+)
+wrong_owner = raises(
+    ToolExecutionError,
+    lambda: execute_prepared(
+        runtime,
+        wrong_owner_call,
+        replace(wrong_owner_facts, owner_id="other-owner"),
+        wrong_owner_lease,
+    ),
+)
+missing_job_id = "terminal-job-" + "0" * 32
+missing_job_call, missing_job_facts, missing_job_lease = prepare_call(
+    runtime,
+    repository,
+    run_id="job-cancel-missing-job",
+    tool_ref=CANCEL_JOB_REF,
+    arguments={"job_id": missing_job_id},
+    target=terminal_job_cancel_target(missing_job_id),
+    permissions=("terminal.execute",),
+    isolations=(IsolationLevel.IN_PROCESS,),
+    idempotency_key="effect-job-cancel-missing-job",
+    approval_status=ApprovalStatus.APPROVED,
+    approval_id="approval-job-cancel-missing-job",
+)
+missing_job = raises(
+    ToolExecutionError,
+    lambda: execute_prepared(
+        runtime, missing_job_call, missing_job_facts, missing_job_lease
+    ),
+)
+ok(
+    "cancel requires approval existing job and matching owner before reservation",
+    missing_approval.status == "blocked"
+    and missing_approval.error is not None
+    and wrong_owner is not None
+    and missing_job is not None
+    and query_one(
+        "SELECT 1 FROM mc_idempotency WHERE idempotency_key=?",
+        ("effect-job-cancel-missing-approval",),
+    )
+    is None
+    and query_one(
+        "SELECT 1 FROM mc_idempotency WHERE idempotency_key=?",
+        ("effect-job-cancel-wrong-owner",),
+    )
+    is None,
+    (missing_approval, wrong_owner, missing_job),
+)
+
+cancel_call, cancel_facts, cancel_lease = prepare_call(
+    runtime,
+    repository,
+    run_id="job-cancel-request",
+    tool_ref=CANCEL_JOB_REF,
+    arguments={"job_id": cancel_job_id},
+    target=cancel_target,
+    permissions=("terminal.execute",),
+    isolations=(IsolationLevel.IN_PROCESS,),
+    idempotency_key="effect-job-cancel-request",
+    approval_status=ApprovalStatus.APPROVED,
+    approval_id="approval-job-cancel-request",
+)
+engine.enabled = False
+engine.mode = "plan"
+cancel_result = execute_prepared(runtime, cancel_call, cancel_facts, cancel_lease)
+engine.enabled = True
+engine.mode = "ask"
+cancel_row = query_one(
+    "SELECT * FROM mc_terminal_jobs WHERE job_id=?", (cancel_job_id,)
+)
+cancel_future = datetime.now(timezone.utc) + timedelta(
+    seconds=HEARTBEAT_STALE_SECONDS + 2
+)
+cancel_stale = TerminalJobRepository().get_job(cancel_job_id, now=cancel_future)
+ok(
+    "approved cancel stores one request even when legacy launch mode is disabled",
+    cancel_result.status == "succeeded"
+    and cancel_result.typed_output["request_state"] == "requested"
+    and cancel_result.typed_output["state"] == "running"
+    and cancel_result.typed_output["cancellation_requested"] is True
+    and cancel_result.typed_output["cancellation_acknowledged"] is False
+    and cancel_result.receipt_id is not None
+    and cancel_row is not None
+    and cancel_row["cancel_idempotency_key"] == "effect-job-cancel-request"
+    and cancel_row["cancel_requested_by"] == "owner"
+    and cancel_row["cancel_requested_at"]
+    and cancel_row["cancel_acknowledged_at"] is None
+    and cancel_stale["state"] == "unknown"
+    and cancel_stale["cancellation_requested"] is True
+    and cancel_stale["cancellation_acknowledged"] is False,
+    (cancel_result, cancel_stale),
+)
+
+second_cancel_call, second_cancel_facts, second_cancel_lease = prepare_call(
+    runtime,
+    repository,
+    run_id="job-cancel-second-key",
+    tool_ref=CANCEL_JOB_REF,
+    arguments={"job_id": cancel_job_id},
+    target=cancel_target,
+    permissions=("terminal.execute",),
+    isolations=(IsolationLevel.IN_PROCESS,),
+    idempotency_key="effect-job-cancel-second-key",
+    approval_status=ApprovalStatus.APPROVED,
+    approval_id="approval-job-cancel-second-key",
+)
+second_cancel = execute_prepared(
+    runtime, second_cancel_call, second_cancel_facts, second_cancel_lease
+)
+after_second_cancel = query_one(
+    "SELECT * FROM mc_terminal_jobs WHERE job_id=?", (cancel_job_id,)
+)
+ok(
+    "a second approved key reports the existing request without replacing it",
+    second_cancel.status == "succeeded"
+    and second_cancel.typed_output["request_state"] == "already_requested"
+    and after_second_cancel["cancel_idempotency_key"]
+    == "effect-job-cancel-request"
+    and after_second_cancel["cancel_requested_at"] == cancel_row["cancel_requested_at"]
+    and sql_rejected(
+        """UPDATE mc_terminal_jobs
+           SET cancel_idempotency_key='tampered',cancel_requested_by='other'
+           WHERE job_id=?""",
+        (cancel_job_id,),
+    ),
+    second_cancel,
+)
+
+cancel_receipts = query_count("mc_action_receipts")
+cancel_replay = runtime.execute(
+    cancel_call,
+    cancel_facts,
+    worker_id="cancel-replay-worker",
+    lease_token="unused-cancel-replay-token",
+    lease_epoch=200,
+)
+changed_cancel_call = runtime.catalog.prepare_call(
+    call_id=cancel_call.call_id,
+    run_id=cancel_call.run_id,
+    step_id=cancel_call.step_id,
+    tool_ref=CANCEL_JOB_REF,
+    arguments={"job_id": job_id},
+    surface=Surface.AGENT,
+    mode="agent",
+    candidate_tool_refs=(CANCEL_JOB_REF,),
+    idempotency_key=cancel_call.idempotency_key,
+    approval_id=cancel_call.approval_id,
+)
+changed_cancel = raises(
+    ActionConflictError,
+    lambda: runtime.execute(
+        changed_cancel_call,
+        replace(
+            cancel_facts,
+            decision_id="policy-job-cancel-changed-job",
+            target=terminal_job_cancel_target(job_id),
+        ),
+        worker_id="cancel-changed-worker",
+        lease_token="unused-cancel-changed-token",
+        lease_epoch=201,
+    ),
+)
+changed_cancel_approval_call = runtime.catalog.prepare_call(
+    call_id=cancel_call.call_id,
+    run_id=cancel_call.run_id,
+    step_id=cancel_call.step_id,
+    tool_ref=CANCEL_JOB_REF,
+    arguments={"job_id": cancel_job_id},
+    surface=Surface.AGENT,
+    mode="agent",
+    candidate_tool_refs=(CANCEL_JOB_REF,),
+    idempotency_key=cancel_call.idempotency_key,
+    approval_id="approval-job-cancel-changed",
+)
+changed_cancel_approval = raises(
+    ActionConflictError,
+    lambda: runtime.execute(
+        changed_cancel_approval_call,
+        replace(
+            cancel_facts,
+            decision_id="policy-job-cancel-changed-approval",
+            approval_id="approval-job-cancel-changed",
+        ),
+        worker_id="cancel-changed-approval-worker",
+        lease_token="unused-cancel-changed-approval-token",
+        lease_epoch=202,
+    ),
+)
+ok(
+    "exact cancel replay writes nothing and changed job or approval conflicts",
+    cancel_replay == cancel_result
+    and changed_cancel is not None
+    and changed_cancel_approval is not None
+    and query_count("mc_action_receipts") == cancel_receipts
+    and query_one(
+        "SELECT execution_count FROM mc_idempotency WHERE idempotency_key=?",
+        ("effect-job-cancel-request",),
+    )["execution_count"]
+    == 1,
+    (cancel_replay, changed_cancel, changed_cancel_approval),
+)
+
+cancel_token = retry_launcher.calls[0][1]
+wrong_token_finish = raises(
+    TerminalJobError,
+    lambda: jobs.finish_cancelled(cancel_job_id, "x" * 32),
+)
+natural_finish = raises(
+    TerminalJobError,
+    lambda: jobs.finish_job(
+        cancel_job_id,
+        cancel_token,
+        status="succeeded",
+        exit_code=0,
+        output="Wait job completed despite cancellation.",
+    ),
+)
+jobs.finish_cancelled(cancel_job_id, cancel_token)
+cancelled_public = TerminalJobRepository().get_job(cancel_job_id)
+cancelled_stored = query_one(
+    "SELECT * FROM mc_terminal_jobs WHERE job_id=?", (cancel_job_id,)
+)
+ok(
+    "only the authenticated worker can acknowledge cancellation and win the finish race",
+    wrong_token_finish is not None
+    and natural_finish is not None
+    and cancelled_public["state"] == "cancelled"
+    and cancelled_public["cancellation_requested"] is True
+    and cancelled_public["cancellation_acknowledged"] is True
+    and cancelled_stored["status"] == "failed"
+    and cancelled_stored["error_code"] == "managed_job_cancelled"
+    and cancelled_stored["cancel_acknowledged_at"]
+    and cancelled_stored["completed_at"],
+    (cancelled_public, dict(cancelled_stored)),
+)
+
+inactive_call, inactive_facts, inactive_lease = prepare_call(
+    runtime,
+    repository,
+    run_id="job-cancel-already-inactive",
+    tool_ref=CANCEL_JOB_REF,
+    arguments={"job_id": job_id},
+    target=terminal_job_cancel_target(job_id),
+    permissions=("terminal.execute",),
+    isolations=(IsolationLevel.IN_PROCESS,),
+    idempotency_key="effect-job-cancel-already-inactive",
+    approval_status=ApprovalStatus.APPROVED,
+    approval_id="approval-job-cancel-already-inactive",
+)
+inactive_result = execute_prepared(runtime, inactive_call, inactive_facts, inactive_lease)
+inactive_row = query_one("SELECT * FROM mc_terminal_jobs WHERE job_id=?", (job_id,))
+ok(
+    "cancelling an already inactive job is a receipted no-op",
+    inactive_result.status == "succeeded"
+    and inactive_result.typed_output["request_state"] == "already_inactive"
+    and inactive_result.typed_output["state"] == "succeeded"
+    and inactive_result.typed_output["cancellation_requested"] is False
+    and inactive_result.receipt_id is not None
+    and inactive_row["cancel_requested_at"] is None
+    and inactive_row["cancel_acknowledged_at"] is None,
+    inactive_result,
+)
+
+uncertain_start_call, uncertain_start_facts, uncertain_start_lease = prepare_call(
+    runtime,
+    repository,
+    run_id="job-cancel-post-commit-start",
+    tool_ref=START_JOB_REF,
+    arguments={"duration_s": 20},
+    target=terminal_job_target(20, ROOT),
+    permissions=("terminal.execute",),
+    isolations=(IsolationLevel.SUBPROCESS,),
+    idempotency_key="effect-job-cancel-post-commit-start",
+    approval_status=ApprovalStatus.APPROVED,
+    approval_id="approval-job-cancel-post-commit-start",
+)
+uncertain_start = execute_prepared(
+    runtime, uncertain_start_call, uncertain_start_facts, uncertain_start_lease
+)
+uncertain_cancel_job_id = uncertain_start.typed_output["job_id"]
+ok(
+    "database guards reject a cancellation request without its reserved action",
+    sql_rejected(
+        """UPDATE mc_terminal_jobs
+           SET cancel_idempotency_key='unreserved-cancel',
+               cancel_requested_at='2026-08-11T00:00:00Z',
+               cancel_requested_by='owner'
+           WHERE job_id=?""",
+        (uncertain_cancel_job_id,),
+    ),
+)
+uncertain_jobs = RaiseAfterCancelRepository()
+uncertain_cancel_runtime = build_terminal_job_runtime(
+    engine=engine,
+    job_repository=uncertain_jobs,
+    launcher=launcher,
+    working_directory=ROOT,
+)
+uncertain_cancel_call, uncertain_cancel_facts, uncertain_cancel_lease = prepare_call(
+    uncertain_cancel_runtime,
+    repository,
+    run_id="job-cancel-post-commit",
+    tool_ref=CANCEL_JOB_REF,
+    arguments={"job_id": uncertain_cancel_job_id},
+    target=terminal_job_cancel_target(uncertain_cancel_job_id),
+    permissions=("terminal.execute",),
+    isolations=(IsolationLevel.IN_PROCESS,),
+    idempotency_key="effect-job-cancel-post-commit",
+    approval_status=ApprovalStatus.APPROVED,
+    approval_id="approval-job-cancel-post-commit",
+)
+uncertain_cancel = execute_prepared(
+    uncertain_cancel_runtime,
+    uncertain_cancel_call,
+    uncertain_cancel_facts,
+    uncertain_cancel_lease,
+)
+uncertain_reconciled = uncertain_cancel_runtime.reconcile_action(
+    uncertain_cancel_call, actor="owner"
+)
+ok(
+    "a lost response after the cancel commit stays blocked until durable evidence reconciles it",
+    uncertain_cancel.status == "blocked"
+    and uncertain_cancel.error is not None
+    and uncertain_cancel.error.code == "tool.action_reconciliation_required"
+    and uncertain_reconciled.status == "succeeded"
+    and uncertain_reconciled.typed_output["request_state"] == "requested"
+    and uncertain_reconciled.receipt_id is not None
+    and query_one(
+        "SELECT status FROM mc_idempotency WHERE idempotency_key=?",
+        ("effect-job-cancel-post-commit",),
+    )["status"]
+    == "completed",
+    (uncertain_cancel, uncertain_reconciled),
+)
+uncertain_token = next(
+    token for launched_job_id, token in launcher.calls if launched_job_id == uncertain_cancel_job_id
+)
+jobs.finish_cancelled(uncertain_cancel_job_id, uncertain_token)
+
 real_runtime = build_terminal_job_runtime(
     engine=engine,
     job_repository=TerminalJobRepository(),
@@ -811,6 +1314,71 @@ ok(
     and real_finished["exit_code"] == 0
     and "completed" in real_finished["output"].lower(),
     (real_start, real_finished),
+)
+
+real_cancel_start_runtime = build_terminal_job_runtime(
+    engine=engine,
+    job_repository=TerminalJobRepository(),
+    working_directory=ROOT,
+)
+real_cancel_start_call, real_cancel_start_facts, real_cancel_start_lease = prepare_call(
+    real_cancel_start_runtime,
+    repository,
+    run_id="job-real-cancel-start",
+    tool_ref=START_JOB_REF,
+    arguments={"duration_s": 5},
+    target=terminal_job_target(5, ROOT),
+    permissions=("terminal.execute",),
+    isolations=(IsolationLevel.SUBPROCESS,),
+    idempotency_key="effect-job-real-cancel-start",
+    approval_status=ApprovalStatus.APPROVED,
+    approval_id="approval-job-real-cancel-start",
+)
+real_cancel_start = execute_prepared(
+    real_cancel_start_runtime,
+    real_cancel_start_call,
+    real_cancel_start_facts,
+    real_cancel_start_lease,
+)
+real_cancel_job_id = real_cancel_start.typed_output["job_id"]
+real_cancel_runtime = build_terminal_job_runtime(
+    engine=engine,
+    job_repository=TerminalJobRepository(),
+    working_directory=ROOT,
+)
+real_cancel_call, real_cancel_facts, real_cancel_lease = prepare_call(
+    real_cancel_runtime,
+    repository,
+    run_id="job-real-cancel-request",
+    tool_ref=CANCEL_JOB_REF,
+    arguments={"job_id": real_cancel_job_id},
+    target=terminal_job_cancel_target(real_cancel_job_id),
+    permissions=("terminal.execute",),
+    isolations=(IsolationLevel.IN_PROCESS,),
+    idempotency_key="effect-job-real-cancel-request",
+    approval_status=ApprovalStatus.APPROVED,
+    approval_id="approval-job-real-cancel-request",
+)
+real_cancel_requested = execute_prepared(
+    real_cancel_runtime, real_cancel_call, real_cancel_facts, real_cancel_lease
+)
+real_cancel_reader = TerminalJobRepository()
+real_cancel_deadline = time.monotonic() + 8
+real_cancelled = real_cancel_reader.get_job(real_cancel_job_id)
+while real_cancelled["state"] != "cancelled" and time.monotonic() < real_cancel_deadline:
+    time.sleep(0.05)
+    real_cancelled = real_cancel_reader.get_job(real_cancel_job_id)
+ok(
+    "a real worker observes cancellation after app-side restart and exits itself",
+    CANCELLATION_POLL_SECONDS <= 0.25
+    and real_cancel_start.status == "succeeded"
+    and real_cancel_requested.status == "succeeded"
+    and real_cancel_requested.typed_output["request_state"] == "requested"
+    and real_cancelled["state"] == "cancelled"
+    and real_cancelled["cancellation_acknowledged"] is True
+    and real_cancelled["exit_code"] is None
+    and "cancel" in real_cancelled["output"].lower(),
+    (real_cancel_requested, real_cancelled),
 )
 
 persisted_rows = []
@@ -856,4 +1424,4 @@ for source_root in (ROOT / "core", ROOT / "api"):
             live_imports.append(source_path.relative_to(ROOT).as_posix())
 ok("no live caller imports the dormant terminal job runtime", live_imports == [], live_imports)
 
-print(f"\n{PASS}/{PASS} T07 RUN 3B2A TERMINAL JOB CHECKS PASS")
+print(f"\n{PASS}/{PASS} T07 RUN 3B2B TERMINAL JOB CHECKS PASS")

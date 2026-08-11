@@ -38,6 +38,7 @@ from core.runtime.terminal_jobs import (
     MAX_WAIT_SECONDS,
     TerminalJobLauncher,
     TerminalJobLaunchUnknown,
+    TerminalJobError,
     TerminalJobRepository,
     launch_detached_worker,
     new_worker_token,
@@ -56,6 +57,7 @@ TERMINAL_STATUS_REF = f"{TERMINAL_NAMESPACE}.terminal_status@{TERMINAL_VERSION}"
 START_JOB_REF = f"{TERMINAL_NAMESPACE}.start_job@{TERMINAL_VERSION}"
 LIST_JOBS_REF = f"{TERMINAL_NAMESPACE}.list_jobs@{TERMINAL_VERSION}"
 JOB_OUTPUT_REF = f"{TERMINAL_NAMESPACE}.job_output@{TERMINAL_VERSION}"
+CANCEL_JOB_REF = f"{TERMINAL_NAMESPACE}.cancel_job@{TERMINAL_VERSION}"
 
 MAX_COMMAND_LENGTH = 128
 MAX_OUTPUT_CHARS = 6_000
@@ -83,6 +85,7 @@ _ALLOWED_COMMANDS = (
 _ALLOWED_COMMAND_SET = frozenset(_ALLOWED_COMMANDS)
 _COMMAND_PATTERN = "^(?:" + "|".join(re.escape(item) for item in _ALLOWED_COMMANDS) + ")$"
 _ACTION_COMMAND_PATTERN = r"^mkdir [A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+_TERMINAL_JOB_ID_PATTERN = r"^terminal-job-[0-9a-f]{32}$"
 
 STATUS_INPUT_SCHEMA = {
     "$schema": JSON_SCHEMA_DIALECT,
@@ -209,7 +212,7 @@ START_JOB_OUTPUT_SCHEMA = {
         "job_id": {"type": "string", "pattern": "^terminal-job-[0-9a-f]{32}$"},
         "state": {
             "type": "string",
-            "enum": ["running", "succeeded", "failed", "unknown"],
+            "enum": ["running", "succeeded", "failed", "cancelled", "unknown"],
         },
         "duration_s": {"type": "integer", "minimum": 1, "maximum": MAX_WAIT_SECONDS},
         "command_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
@@ -223,6 +226,7 @@ _JOB_STATES = [
     "running",
     "succeeded",
     "failed",
+    "cancelled",
     "not_started",
     "unknown",
 ]
@@ -237,6 +241,10 @@ _JOB_SUMMARY_PROPERTIES = {
     "exit_code": {"type": ["integer", "null"]},
     "output_chars": {"type": "integer", "minimum": 0, "maximum": MAX_JOB_OUTPUT_CHARS},
     "truncated": {"type": "boolean"},
+    "cancellation_requested": {"type": "boolean"},
+    "cancellation_acknowledged": {"type": "boolean"},
+    "cancel_requested_at": {"type": ["string", "null"], "maxLength": 64},
+    "cancel_acknowledged_at": {"type": ["string", "null"], "maxLength": 64},
 }
 _JOB_SUMMARY_REQUIRED = list(_JOB_SUMMARY_PROPERTIES)
 LIST_JOBS_INPUT_SCHEMA = {
@@ -291,9 +299,43 @@ JOB_OUTPUT_OUTPUT_SCHEMA = {
     "required": [*_JOB_SUMMARY_REQUIRED, "output"],
     "additionalProperties": False,
 }
+CANCEL_JOB_INPUT_SCHEMA = {
+    "$schema": JSON_SCHEMA_DIALECT,
+    "type": "object",
+    "properties": {
+        "job_id": {"type": "string", "pattern": "^terminal-job-[0-9a-f]{32}$"}
+    },
+    "required": ["job_id"],
+    "additionalProperties": False,
+}
+CANCEL_JOB_OUTPUT_SCHEMA = {
+    "$schema": JSON_SCHEMA_DIALECT,
+    "type": "object",
+    "properties": {
+        "job_id": {"type": "string", "pattern": "^terminal-job-[0-9a-f]{32}$"},
+        "request_state": {
+            "type": "string",
+            "enum": ["requested", "already_requested", "already_inactive"],
+        },
+        "state": {"type": "string", "enum": _JOB_STATES},
+        "cancellation_requested": {"type": "boolean"},
+        "cancellation_acknowledged": {"type": "boolean"},
+    },
+    "required": [
+        "job_id",
+        "request_state",
+        "state",
+        "cancellation_requested",
+        "cancellation_acknowledged",
+    ],
+    "additionalProperties": False,
+}
 
 _TERMINAL_JOB_CALL: ContextVar[RuntimeToolCall | None] = ContextVar(
     "terminal_job_call", default=None
+)
+_TERMINAL_JOB_OWNER: ContextVar[str | None] = ContextVar(
+    "terminal_job_owner", default=None
 )
 
 
@@ -407,11 +449,28 @@ def terminal_job_target(
     )
 
 
-def _current_terminal_job_call() -> RuntimeToolCall:
+def _require_terminal_job_id(value: Any) -> str:
+    if not isinstance(value, str) or re.fullmatch(_TERMINAL_JOB_ID_PATTERN, value) is None:
+        raise ToolExecutionError("tool.terminal_job_id_invalid")
+    return value
+
+
+def terminal_job_cancel_target(job_id: str) -> str:
+    return f"terminal:job:{_require_terminal_job_id(job_id)}:cancel"
+
+
+def _current_terminal_job_call(expected_ref: str) -> RuntimeToolCall:
     call = _TERMINAL_JOB_CALL.get()
-    if call is None or call.tool_ref != START_JOB_REF:
+    if call is None or call.tool_ref != expected_ref:
         raise ToolExecutionError("tool.terminal_job_context_missing")
     return call
+
+
+def _current_terminal_job_owner() -> str:
+    owner_id = _TERMINAL_JOB_OWNER.get()
+    if not isinstance(owner_id, str) or not owner_id.strip():
+        raise ToolExecutionError("tool.terminal_job_owner_missing")
+    return owner_id
 
 
 def _start_job_output(job: Mapping[str, Any]) -> dict[str, Any]:
@@ -448,6 +507,35 @@ def _start_job_evidence(output: Any) -> tuple[str, ...]:
     return (f"terminal:job:{output['job_id']}",)
 
 
+def _cancel_job_output(job: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "job_id": job["job_id"],
+        "request_state": job["request_state"],
+        "state": job["state"],
+        "cancellation_requested": bool(job["cancellation_requested"]),
+        "cancellation_acknowledged": bool(job["cancellation_acknowledged"]),
+    }
+
+
+def _cancel_job_arguments_for_persistence(
+    arguments: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    return {"job_id": _require_terminal_job_id(arguments["job_id"])}
+
+
+def _cancel_job_effect_summary(
+    _arguments: Mapping[str, Any], output: Any
+) -> str:
+    return (
+        f"Managed terminal job {output['job_id']} cancellation request finished with "
+        f"request state {output['request_state']}"
+    )
+
+
+def _cancel_job_evidence(output: Any) -> tuple[str, ...]:
+    return (f"terminal:job:{output['job_id']}:cancel-request",)
+
+
 class _TerminalJobAdapter:
     def __init__(
         self,
@@ -465,7 +553,7 @@ class _TerminalJobAdapter:
         self._poll_interval_s = poll_interval_s
 
     def start_job(self, duration_s: int) -> dict[str, Any]:
-        call = _current_terminal_job_call()
+        call = _current_terminal_job_call(START_JOB_REF)
         duration_s = _wait_duration(duration_s)
         command = _wait_command(duration_s)
         target = terminal_job_target(duration_s, self._working_directory)
@@ -512,10 +600,19 @@ class _TerminalJobAdapter:
     ) -> dict[str, Any]:
         return self._repository.get_job(job_id, tail=tail)
 
+    def cancel_job(self, job_id: str) -> dict[str, Any]:
+        call = _current_terminal_job_call(CANCEL_JOB_REF)
+        row = self._repository.request_cancellation(
+            call,
+            job_id=_require_terminal_job_id(job_id),
+            owner_id=_current_terminal_job_owner(),
+        )
+        return _cancel_job_output(row)
+
     def reconcile_start(
         self, _arguments: Mapping[str, Any]
     ) -> ToolActionReconciliation:
-        call = _current_terminal_job_call()
+        call = _current_terminal_job_call(START_JOB_REF)
         job_id = terminal_job_id(call)
         outcome, evidence = self._repository.start_evidence(job_id)
         evidence_refs = (f"terminal:job:{job_id}",)
@@ -535,6 +632,35 @@ class _TerminalJobAdapter:
         return ToolActionReconciliation(
             outcome="unknown",
             summary="The managed launch has no trustworthy worker proof yet",
+            evidence_refs=evidence_refs,
+        )
+
+    def reconcile_cancel(
+        self, arguments: Mapping[str, Any]
+    ) -> ToolActionReconciliation:
+        call = _current_terminal_job_call(CANCEL_JOB_REF)
+        job_id = _require_terminal_job_id(arguments["job_id"])
+        try:
+            outcome, evidence = self._repository.cancel_evidence(
+                job_id, call.idempotency_key or ""
+            )
+        except Exception:
+            return ToolActionReconciliation(
+                outcome="unknown",
+                summary="The managed cancellation request cannot yet be verified",
+                evidence_refs=(f"terminal:job:{job_id}:cancel-request",),
+            )
+        evidence_refs = (f"terminal:job:{job_id}:cancel-request",)
+        if outcome == "applied" and evidence is not None:
+            return ToolActionReconciliation(
+                outcome="applied",
+                summary="The matching managed cancellation request is durable",
+                evidence_refs=evidence_refs,
+                output=_cancel_job_output(evidence),
+            )
+        return ToolActionReconciliation(
+            outcome="not_applied",
+            summary="No matching managed cancellation request was stored",
             evidence_refs=evidence_refs,
         )
 
@@ -981,6 +1107,23 @@ def _promote_job_entry(entry: ToolCatalogEntry, kind: str) -> ToolCatalogEntry:
             audit_policy="terminal_managed_job_output",
         )
         reason = "terminal.migration_run3b2a_output"
+    elif kind == "cancel":
+        spec = replace(
+            entry.spec,
+            **common,
+            name="cancel_job",
+            description="Request approved cancellation of one managed terminal job.",
+            input_schema=copy.deepcopy(CANCEL_JOB_INPUT_SCHEMA),
+            output_schema=copy.deepcopy(CANCEL_JOB_OUTPUT_SCHEMA),
+            side_effect_class=SideEffectClass.IRREVERSIBLE,
+            risk=RiskLevel.HIGH,
+            required_permissions=("terminal.execute",),
+            timeout_s=10,
+            idempotency_policy="required",
+            isolation="in_process",
+            audit_policy="terminal_managed_job_cancel",
+        )
+        reason = "terminal.migration_run3b2b_cancel"
     else:
         raise ToolExecutionError("tool.terminal_job_source_unexpected")
     return ToolCatalogEntry(
@@ -995,6 +1138,7 @@ class TerminalJobToolRuntime:
     catalog: CanonicalToolCatalog
     executor: CanonicalToolExecutor
     _engine: Any
+    _jobs: TerminalJobRepository
 
     def execute(
         self,
@@ -1028,7 +1172,19 @@ class TerminalJobToolRuntime:
                 policy_input = _with_denial(
                     policy_input, "compatibility.terminal.disabled_or_unknown"
                 )
-        token = _TERMINAL_JOB_CALL.set(call)
+        elif call.tool_ref == CANCEL_JOB_REF:
+            arguments = self.catalog.validate_arguments(
+                call.tool_ref, call.validated_arguments
+            )
+            job_id = _require_terminal_job_id(arguments["job_id"])
+            if not call.idempotency_key:
+                raise ToolExecutionError("tool.idempotency_key_required")
+            try:
+                self._jobs.require_owner(job_id, policy_input.owner_id)
+            except TerminalJobError:
+                raise ToolExecutionError("tool.terminal_job_unavailable") from None
+        call_token = _TERMINAL_JOB_CALL.set(call)
+        owner_token = _TERMINAL_JOB_OWNER.set(policy_input.owner_id)
         try:
             return self.executor.execute(
                 call,
@@ -1039,7 +1195,8 @@ class TerminalJobToolRuntime:
                 now=now,
             )
         finally:
-            _TERMINAL_JOB_CALL.reset(token)
+            _TERMINAL_JOB_OWNER.reset(owner_token)
+            _TERMINAL_JOB_CALL.reset(call_token)
 
     def reconcile_action(
         self,
@@ -1065,7 +1222,7 @@ def build_terminal_job_runtime(
     poll_interval_s: float = 0.05,
     control: Any = None,
 ) -> TerminalJobToolRuntime:
-    """Build isolated start/list/output bindings without registering a live caller."""
+    """Build isolated managed-job bindings without registering a live caller."""
     from core import conductor_registry
 
     if engine is None:
@@ -1090,17 +1247,19 @@ def build_terminal_job_runtime(
             "run_command": conductor_registry.TOOL_SPECS["run_command"],
             "list_jobs": conductor_registry.TOOL_SPECS["list_jobs"],
             "job_output": conductor_registry.TOOL_SPECS["job_output"],
+            "kill_job": conductor_registry.TOOL_SPECS["kill_job"],
         },
         namespace=TERMINAL_NAMESPACE,
         version=TERMINAL_VERSION,
     )
-    if adapted.issues or len(adapted.entries) != 3:
+    if adapted.issues or len(adapted.entries) != 4:
         raise ToolExecutionError("tool.terminal_job_catalog_invalid")
     sources = {entry.spec.name: entry for entry in adapted.entries}
     entries = (
         _promote_job_entry(sources["run_command"], "start"),
         _promote_job_entry(sources["list_jobs"], "list"),
         _promote_job_entry(sources["job_output"], "output"),
+        _promote_job_entry(sources["kill_job"], "cancel"),
     )
     catalog = CanonicalToolCatalog(entries)
 
@@ -1156,7 +1315,30 @@ def build_terminal_job_runtime(
                 read_failure_owner_message="TOBI could not read that managed job output.",
                 evidence_refs=lambda output: (f"terminal:job:{output['job_id']}",),
             ),
+            ToolExecutionBinding(
+                tool_ref=CANCEL_JOB_REF,
+                invoke=adapter.cancel_job,
+                target_from_arguments=lambda arguments: terminal_job_cancel_target(
+                    arguments["job_id"]
+                ),
+                effect_summary=_cancel_job_effect_summary,
+                external_ref=lambda output: (
+                    f"terminal:job:{output['job_id']}:cancel-request"
+                ),
+                evidence_refs=_cancel_job_evidence,
+                action_arguments_for_persistence=_cancel_job_arguments_for_persistence,
+                action_reconciliation=adapter.reconcile_cancel,
+                action_not_applied_owner_message=(
+                    "TOBI did not store that managed job cancellation request. "
+                    "It is safe to retry."
+                ),
+                action_not_applied_summary=(
+                    "No matching managed job cancellation request was stored"
+                ),
+            ),
         ),
         control=control,
     )
-    return TerminalJobToolRuntime(catalog=catalog, executor=executor, _engine=engine)
+    return TerminalJobToolRuntime(
+        catalog=catalog, executor=executor, _engine=engine, _jobs=jobs
+    )

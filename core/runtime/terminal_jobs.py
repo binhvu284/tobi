@@ -24,6 +24,7 @@ MAX_JOB_OUTPUT_CHARS = 6_000
 MAX_WAIT_SECONDS = 300
 HEARTBEAT_STALE_SECONDS = 3.0
 HANDSHAKE_STALE_SECONDS = 5.0
+CANCELLATION_POLL_SECONDS = 0.2
 WORKER_TOKEN_ENV = "TOBI_TERMINAL_JOB_TOKEN"
 
 
@@ -357,6 +358,7 @@ class TerminalJobRepository:
                        error_code=?,updated_at=?,heartbeat_at=?,completed_at=?,
                        version=version+1
                    WHERE job_id=? AND status='running'
+                     AND cancel_requested_at IS NULL
                      AND worker_identity_sha256=?""",
                 (
                     status,
@@ -385,6 +387,165 @@ class TerminalJobRepository:
         finally:
             conn.close()
 
+    def require_owner(self, job_id: str, owner_id: str) -> None:
+        if not isinstance(owner_id, str) or not owner_id.strip():
+            raise TerminalJobError("managed job owner is invalid")
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                """SELECT r.owner_id
+                   FROM mc_terminal_jobs AS j
+                   JOIN mc_runs AS r ON r.run_id=j.run_id
+                   WHERE j.job_id=?""",
+                (job_id,),
+            ).fetchone()
+            if row is None or row["owner_id"] != owner_id:
+                raise TerminalJobError("managed job is unavailable to this owner")
+        finally:
+            conn.close()
+
+    def request_cancellation(
+        self,
+        call: RuntimeToolCall,
+        *,
+        job_id: str,
+        owner_id: str,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        if not isinstance(call, RuntimeToolCall) or not call.idempotency_key:
+            raise TerminalJobError("cancel action requires idempotency")
+        if not isinstance(owner_id, str) or not owner_id.strip():
+            raise TerminalJobError("managed job owner is invalid")
+        timestamp = _iso(now)
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                """SELECT j.*,r.owner_id AS originating_owner_id
+                   FROM mc_terminal_jobs AS j
+                   JOIN mc_runs AS r ON r.run_id=j.run_id
+                   WHERE j.job_id=?""",
+                (job_id,),
+            ).fetchone()
+            if row is None or row["originating_owner_id"] != owner_id:
+                raise TerminalJobError("managed job is unavailable to this owner")
+
+            request_state: str
+            if row["cancel_idempotency_key"] is not None:
+                request_state = (
+                    "requested"
+                    if row["cancel_idempotency_key"] == call.idempotency_key
+                    else "already_requested"
+                )
+            elif row["status"] in {"succeeded", "failed", "not_started"}:
+                request_state = "already_inactive"
+            elif row["status"] not in {"launching", "running"}:
+                raise TerminalJobError("managed job is not ready for cancellation")
+            else:
+                changed = conn.execute(
+                    """UPDATE mc_terminal_jobs
+                       SET cancel_idempotency_key=?,cancel_requested_at=?,
+                           cancel_requested_by=?,updated_at=?,version=version+1
+                       WHERE job_id=? AND status IN ('launching','running')
+                         AND cancel_idempotency_key IS NULL
+                         AND cancel_requested_at IS NULL
+                         AND cancel_requested_by IS NULL""",
+                    (
+                        call.idempotency_key,
+                        timestamp,
+                        owner_id,
+                        timestamp,
+                        job_id,
+                    ),
+                )
+                if changed.rowcount != 1:
+                    raise TerminalJobError("managed cancellation request conflicted")
+                request_state = "requested"
+
+            stored = conn.execute(
+                "SELECT * FROM mc_terminal_jobs WHERE job_id=?", (job_id,)
+            ).fetchone()
+            conn.commit()
+            value = self._public(stored, include_output=False, now=now)
+            value["request_state"] = request_state
+            return value
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def cancellation_requested(self, job_id: str, worker_token: str) -> bool:
+        identity_hash = worker_identity_sha256(worker_token)
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                """SELECT status,worker_identity_sha256,cancel_requested_at
+                   FROM mc_terminal_jobs WHERE job_id=?""",
+                (job_id,),
+            ).fetchone()
+            if (
+                row is None
+                or row["status"] != "running"
+                or row["worker_identity_sha256"] != identity_hash
+            ):
+                raise TerminalJobError("worker lost managed job ownership")
+            return row["cancel_requested_at"] is not None
+        finally:
+            conn.close()
+
+    def finish_cancelled(
+        self,
+        job_id: str,
+        worker_token: str,
+        *,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        timestamp = _iso(now)
+        bounded, truncated, output_hash = _bounded_output(
+            "Managed wait job cancelled."
+        )
+        conn = self._connect()
+        try:
+            changed = conn.execute(
+                """UPDATE mc_terminal_jobs
+                   SET status='failed',output=?,output_sha256=?,output_truncated=?,
+                       exit_code=NULL,error_code='managed_job_cancelled',
+                       updated_at=?,heartbeat_at=?,completed_at=?,
+                       cancel_acknowledged_at=?,version=version+1
+                   WHERE job_id=? AND status='running'
+                     AND worker_identity_sha256=?
+                     AND cancel_idempotency_key IS NOT NULL
+                     AND cancel_requested_at IS NOT NULL
+                     AND cancel_requested_by IS NOT NULL
+                     AND cancel_acknowledged_at IS NULL""",
+                (
+                    bounded,
+                    output_hash,
+                    int(truncated),
+                    timestamp,
+                    timestamp,
+                    timestamp,
+                    timestamp,
+                    job_id,
+                    worker_identity_sha256(worker_token),
+                ),
+            )
+            if changed.rowcount != 1:
+                raise TerminalJobError(
+                    "worker could not acknowledge managed job cancellation"
+                )
+            row = conn.execute(
+                "SELECT * FROM mc_terminal_jobs WHERE job_id=?", (job_id,)
+            ).fetchone()
+            conn.commit()
+            return dict(row)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
     def _stored_row(self, job_id: str) -> sqlite3.Row:
         conn = self._connect()
         try:
@@ -401,6 +562,8 @@ class TerminalJobRepository:
         self, row: Mapping[str, Any], *, now: datetime | None = None
     ) -> str:
         status = str(row["status"])
+        if status == "failed" and row["error_code"] == "managed_job_cancelled":
+            return "cancelled"
         observed_at = _now(now)
         if status == "launching":
             launch_at = _parse_iso(row["launch_started_at"])
@@ -436,6 +599,10 @@ class TerminalJobRepository:
             "exit_code": row["exit_code"],
             "output_chars": len(output),
             "truncated": bool(row["output_truncated"]),
+            "cancellation_requested": row["cancel_requested_at"] is not None,
+            "cancellation_acknowledged": row["cancel_acknowledged_at"] is not None,
+            "cancel_requested_at": row["cancel_requested_at"],
+            "cancel_acknowledged_at": row["cancel_acknowledged_at"],
         }
         if include_output:
             value["output"] = output[-max(1, min(int(tail), MAX_JOB_OUTPUT_CHARS)) :]
@@ -509,6 +676,23 @@ class TerminalJobRepository:
         if row["worker_started_at"] and row["worker_identity_sha256"]:
             return "applied", public
         return "unknown", public
+
+    def cancel_evidence(
+        self,
+        job_id: str,
+        cancel_idempotency_key: str,
+        *,
+        now: datetime | None = None,
+    ) -> tuple[str, dict[str, Any] | None]:
+        try:
+            row = self._stored_row(job_id)
+        except TerminalJobNotFoundError:
+            return "not_applied", None
+        public = self._public(row, include_output=False, now=now)
+        if row["cancel_idempotency_key"] == cancel_idempotency_key:
+            public["request_state"] = "requested"
+            return "applied", public
+        return "not_applied", public
 
 
 def _worker_environment(worker_token: str) -> dict[str, str]:

@@ -9,25 +9,27 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T07 Run 3B2A - dormant managed background start/read/restart foundation (delivered; awaiting owner acceptance)
+**Package:** T07 Run 3B2B - approved cooperative managed-job cancellation (delivered; awaiting owner acceptance)
 
 **Purpose (one sentence, plain words):**
-Add one durable, bounded background wait job whose typed duration, identity, status, redacted output,
-and restart truth survive the app process, without changing any live route or adding cancellation yet.
+Add one approved, idempotent cancellation request that the matching authenticated managed wait
+worker observes and completes itself, while restart reads remain truthful and no app process targets an OS PID.
 
 **Not doing:**
-- No live tool routing, policy cutover, caller integration, or flag change.
-- No change to accepted `terminal_status@1`, `run_command@1`, or `run_command@2` behavior.
-- No arbitrary shell command: the only new start input is a typed 1-300 second duration translated
-  to an internal managed wait worker, with no caller command string or working directory.
-- No cancellation, terminate, kill, or OS-PID targeting; Run 3B2B owns approved cancellation.
-- No replacement launch when a started job has stale or missing worker evidence; report it as unknown.
-- No reuse, migration, or write to legacy `terminal_jobs`; the additive `mc_terminal_jobs` record is
-  canonical and stores no raw command, directory, secret, or worker token.
+- No live tool routing, policy cutover, caller integration, owner-flag change, API, or UI.
+- No change to accepted start/list/output or foreground terminal behavior.
+- No arbitrary command, caller directory, environment input, or broader background operation.
+- No parent-side terminate, signal, PID lookup/storage, process-tree control, replacement worker, or
+  call to legacy `kill_job`; only the authenticated worker may finalize cancellation.
+- No claim that a job stopped when only a request exists: stale or missing worker proof stays unknown.
+- No rebuild of `mc_terminal_jobs`, new cancellation table, or write to legacy `terminal_jobs`.
+- No cancellation of another owner's job; the canonical job's originating owner must match the
+  approved cancel action owner.
+- No automatic retry after an uncertain cancellation write; reconcile durable evidence first.
 - No `install_package`, `configure_tool`, `connect_tool`, `set_terminal_mode`, or capability-registry migration.
-- No weakening or redesign of the existing terminal engine, legacy background jobs, or callers.
-- No owner flag, API, UI, visible behavior, live streaming, or external queue/service.
-- No T07 closure or T08 release; both wait for Run 3B2B delivery and owner acceptance.
+- No weakening or redesign of the existing terminal engine, legacy jobs, or callers.
+- No T07 closure or T08 release in the implementation commit; both require explicit owner acceptance
+  after delivery.
 - No Conductor decomposition; T08 owns it.
 - No Runs page or broad frontend redesign; T13 owns it.
 - No Telegram, CLI, Office, scheduler, or remaining-surface adapters.
@@ -39,7 +41,6 @@ and restart truth survive the app process, without changing any live route or ad
 - `core/runtime/terminal_job_worker.py`
 - `core/runtime/terminal_tools.py`
 - `tests/test_mc_runtime_terminal_jobs.py`
-- `tests/test_mc_runtime_approvals.py`
 - `.claude/CURRENT_WORK.md`
 - `docs/feature-idea-queue/MC_V2_BOARD.md`
 - `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`

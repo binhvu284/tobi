@@ -6,6 +6,7 @@ import sys
 import time
 
 from core.runtime.terminal_jobs import (
+    CANCELLATION_POLL_SECONDS,
     WORKER_TOKEN_ENV,
     TerminalJobRepository,
 )
@@ -24,12 +25,21 @@ def run_wait_job(job_id: str, worker_token: str) -> int:
         duration_s = int(row["duration_s"])
         deadline = time.monotonic() + duration_s
         next_heartbeat = time.monotonic() + HEARTBEAT_INTERVAL_SECONDS
+        next_cancel_check = time.monotonic()
         while time.monotonic() < deadline:
             now = time.monotonic()
+            if now >= next_cancel_check:
+                if jobs.cancellation_requested(job_id, worker_token):
+                    jobs.finish_cancelled(job_id, worker_token)
+                    return 0
+                next_cancel_check = now + CANCELLATION_POLL_SECONDS
             if now >= next_heartbeat:
                 jobs.heartbeat(job_id, worker_token)
                 next_heartbeat = now + HEARTBEAT_INTERVAL_SECONDS
             time.sleep(min(WAIT_POLL_SECONDS, max(0.0, deadline - now)))
+        if jobs.cancellation_requested(job_id, worker_token):
+            jobs.finish_cancelled(job_id, worker_token)
+            return 0
         jobs.finish_job(
             job_id,
             worker_token,
@@ -41,14 +51,18 @@ def run_wait_job(job_id: str, worker_token: str) -> int:
     except Exception:
         if claimed:
             try:
-                jobs.finish_job(
-                    job_id,
-                    worker_token,
-                    status="failed",
-                    exit_code=1,
-                    error_code="managed_worker_failed",
-                    output="Managed wait job failed.",
-                )
+                if jobs.cancellation_requested(job_id, worker_token):
+                    jobs.finish_cancelled(job_id, worker_token)
+                    return 0
+                else:
+                    jobs.finish_job(
+                        job_id,
+                        worker_token,
+                        status="failed",
+                        exit_code=1,
+                        error_code="managed_worker_failed",
+                        output="Managed wait job failed.",
+                    )
             except Exception:
                 pass
         return 1

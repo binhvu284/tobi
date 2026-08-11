@@ -1606,33 +1606,139 @@ fresh/stale heartbeat truth, database guards, bounded redaction, no live imports
 detached completion. T03, T05, T06, T07 project/file/terminal, legacy Terminal 67/67, owner flags,
 mode, Chat, Conductor, Storage 36/36, compile, diff, and enforced green-gate checks pass. No
 cancellation, parent-side terminate/kill, legacy terminal-table write, live caller, flag, API/UI, or
-external service changed. T07 remains open for Run 3B2B and owner acceptance gates its planning.
+external service changed. The owner accepted Run 3B2A on 2026-08-11 and released Run 3B2B
+planning. T07 remains open until Run 3B2B delivery and explicit owner acceptance.
 
-### 25.9 T07 Run 3B2B - Approved Cancellation And T07 Closeout Outline (2026-08-11)
+### 25.9 T07 Run 3B2B - Approved Cooperative Cancellation Plan (2026-08-11)
 
 **Outcome:** Add a high-risk, approval-required, idempotent `cancel_job@1` action. It durably records
 one cancellation request; the matching worker notices it and exits itself. The app process never
 terminates or kills an OS PID and never claims the job stopped until the authenticated worker records
-the final `cancelled` state.
+the final cancelled result.
 
-**Required safety shape:** bind the cancel action to the exact canonical job and owner/run identity;
-reserve it before writing `cancel_requested_at`; exact replay writes nothing; changed job/approval
-identity conflicts; a fresh matching worker acknowledges and finalizes cancellation; stale or missing
-worker proof remains unknown even though the request is durably recorded. The worker checks the
-request at least every 250 ms during the fixed wait operation. No parent-side signal, PID lookup,
-replacement worker, or legacy `kill_job` call is allowed.
+**Source-grounded change map:** Graphify is stale at commit `2d46ab9` and maps only the legacy
+`terminal_engine.kill_job -> _job_finish` PID path. Current commit `6de9f27` instead provides a
+separate `mc_terminal_jobs` record, authenticated detached wait worker, and dormant three-tool
+catalog. Run 3B2B extends only that current path:
 
-**Expected implementation surface:** extend the 3B2A repository/worker and terminal contracts; expand
-`tests/test_mc_runtime_terminal_jobs.py`; update package/queue documents. No additional table is
-expected unless the red test proves a separate append-only cancellation record is required.
+| Current node | Run 3B2B edge | Required rule |
+|---|---|---|
+| Runtime schema 009 `mc_terminal_jobs` | Add schema 010 cancellation request/acknowledgement fields and guards | Upgrade in place with additive columns; do not rebuild the table or touch legacy `terminal_jobs` |
+| `TerminalJobRepository` | Add owner check, one-write request, worker poll evidence, cancelled finalization, and crash reconciliation | The originating run owner must match; only the stored worker-token hash may acknowledge/finalize |
+| Detached fixed-wait worker | Poll the canonical request no slower than every 250 ms and exit itself | No signal, terminate, PID, process-tree, replacement-worker, or legacy kill call |
+| Dormant terminal-job catalog | Add `cancel_job@1` beside accepted start/list/output | High risk, irreversible, `terminal.execute`, in-process request write, approval and idempotency required |
+| Canonical action executor | Reserve before the cancellation write and issue one immutable receipt | A receipt proves the request, not that the worker has stopped; exact replay performs no write |
 
-**Closeout checks:** real cancellation after app-side restart, exact cancel replay, changed-call
-conflict, already-final job behavior, stale-heartbeat truth, no PID control, no duplicate worker,
-bounded/redacted persistence, accepted Run 3A/3B1/3B2A and legacy regressions, no live imports, and
-green gate. T07 closes and T08 planning releases only after delivery plus explicit owner acceptance.
+**Contract and policy:** input is only `{job_id}` using the existing canonical job-id pattern; no PID,
+command, path, signal, or extra property is accepted. Output separately reports request state
+(`requested`, `already_requested`, or `already_inactive`), observed job state, and whether an
+authenticated worker acknowledged cancellation. Target identity is
+`terminal:job:<job_id>:cancel`. The action reuses `terminal.execute`, requires Agent mode, central
+high-risk approval, Runtime action control, and an idempotency key. It does not inherit the legacy
+Terminal launch mode or enabled-state denial because cancellation must remain available to stop an
+already accepted managed job; it still cannot bypass central permission, ownership, approval, or
+Runtime kill-switch decisions.
+
+**Persistence and compatibility:** schema 010 adds nullable `cancel_idempotency_key`,
+`cancel_requested_at`, `cancel_requested_by`, and `cancel_acknowledged_at` fields plus an index and
+database guards. The request fields may move together from empty to one immutable action identity
+only while the stored job is launching or running. The acknowledgement may be written only during
+the matching authenticated worker's final transition. Existing version-009 databases cannot add a
+new status value without rebuilding the table, so cancellation uses the legal final storage tuple
+`status='failed'`, `error_code='managed_job_cancelled'`, and non-null acknowledgement; repository
+reads expose that exact tuple as public state `cancelled`. This preserves additive migration while
+keeping cancellation distinguishable from execution failure.
+
+**Failure and race rules:**
+
+1. Check that the job exists and its originating `mc_runs.owner_id` matches `PolicyInput.owner_id`
+   before action reservation; unknown or foreign jobs are denied with no request or receipt.
+2. Reserve the exact cancel run/step/call, target, approval, and sanitized `{job_id}` before changing
+   the job. The repository stores the cancel idempotency key so a post-commit crash can reconcile.
+3. A first request writes once. Exact replay returns the stored result; a changed job, target,
+   approval, run, step, or call under the same key conflicts. A second key may return
+   `already_requested` but cannot rewrite the canonical request.
+4. A fresh worker observes the request, atomically records acknowledgement plus the cancelled final
+   tuple, and exits itself. Natural completion may win only when no cancellation is pending; the
+   final transaction must close that race.
+5. A request against an already final or definitely not-started job writes no job fields and returns
+   `already_inactive`. A stale launching/running job keeps public state `unknown` even when the
+   request is durable; it becomes cancelled only after matching worker acknowledgement.
+6. If the cancel write may have committed but execution returns no result, automatic retry stays
+   blocked until reconciliation finds the matching cancel idempotency key (`applied`), proves no
+   matching request (`not_applied`), or keeps the outcome `unknown`.
+
+**Implementation order:**
+
+1. Extend `tests/test_mc_runtime_terminal_jobs.py` with a missing `CANCEL_JOB_REF`/schema-010 check,
+   run it against unchanged code, record the failure, and set the Gate to red.
+2. Add schema 010 readiness/upgrade handling, cancellation columns/indexes, one-write request guards,
+   authenticated acknowledgement guards, and fresh-vs-upgraded schema parity tests.
+3. Extend `TerminalJobRepository` with owner-bound request, cancellation poll, finalization, public
+   state mapping, natural-completion race protection, and action-evidence reconciliation.
+4. Extend the worker poll loop and dormant catalog/binding. Adapt legacy `kill_job` metadata only;
+   never invoke its implementation. Preserve all accepted start/list/output contracts unchanged.
+5. Prove real cancellation after app-side repository replacement, run the full regression matrix,
+   set the Gate green, and publish delivery evidence without closing T07.
+
+**Acceptance checks:** the focused suite must prove schema 010 upgrades a populated version-009 table
+without rebuild/data loss; exactly one approved owner request is stored before acknowledgement;
+missing approval/permission/isolation, malformed input, missing job, and wrong owner write nothing;
+exact replay creates no second request or receipt; changed identity conflicts; a second key cannot
+replace the first request; an authenticated worker cancels after app-side restart within the bounded
+poll interval; stale worker proof remains unknown; natural completion versus cancellation has one
+truthful final result; already-final behavior is a no-op; a simulated post-commit interruption
+reconciles from the stored cancel key; list/output expose requested/acknowledged truth with bounded
+redacted data; no raw command/path/secret/token/PID is persisted; no worker is duplicated; no live
+module imports the dormant builder; accepted Run 3A/3B1/3B2A and legacy Terminal behavior remain
+unchanged.
+
+**Expected files:** `core/schema/runtime.py`, `core/runtime/terminal_jobs.py`,
+`core/runtime/terminal_job_worker.py`, `core/runtime/terminal_tools.py`,
+`tests/test_mc_runtime_terminal_jobs.py`, and the four package/queue documents. A new table or module
+is out of scope unless the red test proves the additive-column design cannot preserve the required
+truth.
+
+**Verification:** run the focused terminal-job test; accepted foreground terminal, project/file,
+T03 repository/control/receipts, T05 policy/facts/approvals, T06 registry/catalog, legacy Terminal,
+owner flags, mode, Chat unit/route, Conductor final guard, Storage, and schema tests; focused
+`py_compile`/`compileall`; `git diff --check`; then the enforced `scripts/gate.py`. Inspect canonical
+rows to confirm there is no PID/raw command/path/token, and scan live `core/` plus `api/` imports.
+
+**Non-goals:** no force kill, OS process control, arbitrary command, new operation type, live stream,
+legacy-table write, caller migration, flag, API/UI, Conductor, Telegram, CLI, Office, scheduler,
+external queue/service, Supabase, or Vercel interaction. Queue item #30 is source-disjoint, but it
+must not implement in parallel because both packages own `CURRENT_WORK.md`, the gate, and queue docs.
 
 **Estimate after acceptance:** T07 **100%**; #21 **84-90%** complete. Expected unattended implementation
-and verification time is **4-6 hours**. Owner acceptance should take **10-15 minutes**.
+and verification time is **6-9 hours**. Owner acceptance should take **10-15 minutes**: confirm one
+approved request, one worker-authenticated cancelled result, stale truth remains unknown, and no PID,
+legacy kill, live import, or unrelated runtime change exists. T07 closes and T08 planning releases
+only after delivery plus explicit owner acceptance.
+
+**Delivery evidence (2026-08-11):** the focused test first failed on the missing `CANCEL_JOB_REF`
+import while the Gate was red. Runtime schema 010 then added four nullable cancellation evidence
+fields, one request index, and database guards that accept a request only when its exact owner-bound
+canonical action is already reserved. A populated version-009 job row upgrades in place without a
+table rebuild or data loss. The dormant catalog now exposes four tools; `cancel_job@1` is high-risk,
+irreversible, Agent-only, `terminal.execute`, approval-required, and idempotent. It accepts only a
+canonical job id, checks the originating run owner before reservation, and records a request even
+when the legacy launch mode is disabled; central permission, approval, ownership, and Runtime
+control remain authoritative.
+
+The worker polls at most every 200 ms, authenticates with the existing token hash, records
+acknowledgement plus the compatible `failed/managed_job_cancelled` terminal tuple, exposes public
+state `cancelled`, and exits itself. Ordinary completion cannot win after a pending cancellation.
+Stale worker evidence remains `unknown`; exact replay writes nothing; changed job/approval identity
+conflicts; another key cannot replace the first request; already-inactive jobs are no-ops; and a
+simulated lost response after commit remains blocked until the stored cancel key reconciles it.
+The 26/26 focused suite proves those cases plus one real completion and one real cancellation after
+app-side runtime replacement. Accepted terminal 24/24, legacy Terminal 67/67, project 10/10, file
+18/18, Runtime T01-T06/T03, owner flags 38/38, mode 18/18, Chat, Conductor, Storage 36/36, storage
+budget, compile, diff, and enforced green-gate checks pass. No PID, signal, process-tree action,
+replacement worker, raw command/path/token, live import, caller switch, API/UI, flag, legacy-table
+write, external service, Supabase, or Vercel interaction was added. T07 remains open and T08 remains
+blocked until explicit owner acceptance.
 
 ## 26. Implementation Log
 
@@ -1666,4 +1772,5 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-09 | T07 Run 2B | `3a250d3`; owner acceptance | Red missing-write-ref import; 18/18 file-tool checks; Run 1 project tools, T03/T05/T06, accepted #22 coding tools/workers, owner flags, Chat unit/route, Conductor, mode, terminal, Storage, repository, compile, diff, and enforced gate green | Accepted; dormant Developer-only `write_file` adds expected-state protection, exact replay, redacted action identity, immutable before/after receipt hashes, and applied/not-applied/unknown crash reconciliation through the unchanged coding broker. No live import, broker/policy/worker, flag, schema, API/UI, terminal, or external-service change; Run 3A planning released while T07 remains open |
 | 2026-08-10 | T07 Run 3A | `422fc8e`; owner acceptance | Red missing-terminal-runtime import; 14/14 terminal-tool checks; terminal engine, mode, T03/T05/T06, T07 project/file, owner flags, Chat unit/route, Conductor, Storage, compile, diff, and enforced gate green | Accepted; dormant terminal status plus a fixed read-only foreground command subset execute through central policy and two checks by the unchanged terminal safety gate. Commands have no caller working directory, shell syntax, network/mutation form, background mode, action reservation, or receipt; output is redacted and capped at 6,000 characters. No live import, terminal-engine/Conductor edit, flag, schema, API/UI, or external-service change; Run 3B is split into 3B1 foreground mutation and 3B2 managed background lifecycle while T07 remains open |
 | 2026-08-10 | T07 Run 3B1 | `f07b8cb`; owner acceptance 2026-08-11 | Red missing-action-ref test; 24/24 terminal-tool checks; terminal engine, T03/T05/T06, T07 project/file, owner flags, mode, Chat unit/route, Conductor, Storage, compile, diff, and enforced gate green | Accepted; a dormant high-risk `run_command@2` action permits only `mkdir <safe-name>` in the fixed directory after matching approval and idempotency, records one redacted immutable receipt, replays exact duplicates, conflicts changed identity, and blocks unknown interruption retries. Accepted `@1` reads and all live behavior remain unchanged; Run 3B2A planning released while T07 remains open |
-| 2026-08-11 | T07 Run 3B2A | T07 Run 3B2A delivery commit | Red missing-module test; 15/15 terminal-job checks; T03/T05/T06, T07 project/file/terminal, legacy Terminal, owner flags, mode, Chat, Conductor, Storage, compile, diff, and enforced gate green | T07 in progress; a dormant typed-duration start action, durable managed-job table, authenticated detached worker, restart-safe reads, exact replay, and fail-closed unknown launch reconciliation are delivered without cancellation, PID control, raw caller command persistence, legacy-table change, or live import; awaiting owner acceptance before Run 3B2B planning |
+| 2026-08-11 | T07 Run 3B2A | `6de9f27`; owner acceptance 2026-08-11 | Red missing-module test; 15/15 terminal-job checks; T03/T05/T06, T07 project/file/terminal, legacy Terminal, owner flags, mode, Chat, Conductor, Storage, compile, diff, and enforced gate green | Accepted; a dormant typed-duration start action, durable managed-job table, authenticated detached worker, restart-safe reads, exact replay, and fail-closed unknown launch reconciliation are delivered without cancellation, PID control, raw caller command persistence, legacy-table change, or live import; Run 3B2B planning released while T07 remains open |
+| 2026-08-11 | T07 Run 3B2B | T07 Run 3B2B delivery commit | Red missing-cancel-ref test; 26/26 terminal-job checks; accepted terminal/project/file, Runtime T01-T06/T03, owner flags, mode, Chat, Conductor, Storage, compile, diff, and enforced gate green | T07 delivery complete, awaiting owner acceptance; approved owner-bound cancellation is durable, replay-safe, restart-safe, and completed only by the authenticated worker. Stale proof remains unknown, populated schema 009 upgrades in place, and no PID, signal, legacy kill invocation, replacement launch, live import, caller switch, API/UI, flag, or external-service change was added; owner acceptance closes T07 and releases T08 planning |

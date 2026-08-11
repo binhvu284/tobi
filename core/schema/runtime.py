@@ -15,6 +15,7 @@ RUNTIME_SCHEMA_VERSIONS = (
     "mc-runtime-v2-007",
     "mc-runtime-v2-008",
     "mc-runtime-v2-009",
+    "mc-runtime-v2-010",
 )
 RUNTIME_SCHEMA_VERSION = RUNTIME_SCHEMA_VERSIONS[-1]
 _SCHEMA_LOCK = threading.Lock()
@@ -54,6 +55,19 @@ _STEP_CONTROL_COLUMNS = {
 _RUN_CONTROL_COLUMNS = {
     "cancel_requested_at": "TEXT",
     "cancel_requested_by": "TEXT",
+}
+
+_TERMINAL_JOB_CANCEL_COLUMNS = {
+    "cancel_idempotency_key": "TEXT",
+    "cancel_requested_at": "TEXT",
+    "cancel_requested_by": "TEXT",
+    "cancel_acknowledged_at": "TEXT",
+}
+
+_TERMINAL_JOB_CANCEL_OBJECTS = {
+    "idx_mc_terminal_jobs_cancel_request",
+    "mc_terminal_jobs_cancel_request_guard",
+    "mc_terminal_jobs_cancel_ack_guard",
 }
 
 _LOOP_CONTROL_COLUMNS = {
@@ -428,6 +442,10 @@ _STATEMENTS = (
         worker_started_at TEXT,
         heartbeat_at TEXT,
         completed_at TEXT,
+        cancel_idempotency_key TEXT,
+        cancel_requested_at TEXT,
+        cancel_requested_by TEXT,
+        cancel_acknowledged_at TEXT,
         version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
         FOREIGN KEY (start_idempotency_key) REFERENCES mc_idempotency(idempotency_key),
         FOREIGN KEY (run_id, step_id) REFERENCES mc_run_steps(run_id, step_id)
@@ -649,6 +667,55 @@ _STATEMENTS = (
         END""",
 )
 
+_TERMINAL_JOB_CANCEL_STATEMENTS = (
+    "CREATE INDEX IF NOT EXISTS idx_mc_terminal_jobs_cancel_request "
+    "ON mc_terminal_jobs(cancel_requested_at, cancel_acknowledged_at, status)",
+    """CREATE TRIGGER IF NOT EXISTS mc_terminal_jobs_cancel_request_guard
+        BEFORE UPDATE OF cancel_idempotency_key, cancel_requested_at, cancel_requested_by
+        ON mc_terminal_jobs
+        WHEN NOT (
+            OLD.cancel_idempotency_key IS NULL AND
+            OLD.cancel_requested_at IS NULL AND
+            OLD.cancel_requested_by IS NULL AND
+            NEW.cancel_idempotency_key IS NOT NULL AND
+            length(trim(NEW.cancel_idempotency_key)) > 0 AND
+            NEW.cancel_requested_at IS NOT NULL AND
+            length(trim(NEW.cancel_requested_at)) > 0 AND
+            NEW.cancel_requested_by IS NOT NULL AND
+            length(trim(NEW.cancel_requested_by)) > 0 AND
+            OLD.status IN ('launching', 'running') AND
+            EXISTS (
+                SELECT 1
+                FROM mc_idempotency AS i
+                JOIN mc_runs AS r ON r.run_id=i.run_id
+                WHERE i.idempotency_key=NEW.cancel_idempotency_key
+                  AND i.tool_ref='tobi.terminal.cancel_job@1'
+                  AND i.target='terminal:job:' || OLD.job_id || ':cancel'
+                  AND i.status='in_progress'
+                  AND r.owner_id=NEW.cancel_requested_by
+            )
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'mc_terminal_jobs cancellation request is immutable');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_terminal_jobs_cancel_ack_guard
+        BEFORE UPDATE OF cancel_acknowledged_at ON mc_terminal_jobs
+        WHEN NOT (
+            OLD.cancel_acknowledged_at IS NULL AND
+            NEW.cancel_acknowledged_at IS NOT NULL AND
+            length(trim(NEW.cancel_acknowledged_at)) > 0 AND
+            OLD.cancel_idempotency_key IS NOT NULL AND
+            OLD.cancel_requested_at IS NOT NULL AND
+            OLD.cancel_requested_by IS NOT NULL AND
+            OLD.status='running' AND
+            NEW.status='failed' AND
+            NEW.error_code='managed_job_cancelled'
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'mc_terminal_jobs cancellation acknowledgement is invalid');
+        END""",
+)
+
 
 def _schema_is_ready(conn: sqlite3.Connection) -> bool:
     ledger = conn.execute(
@@ -681,11 +748,24 @@ def _schema_is_ready(conn: sqlite3.Connection) -> bool:
     loop_columns = {
         row[1] for row in conn.execute("PRAGMA table_info(mc_loop_runs)").fetchall()
     }
+    terminal_job_columns = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(mc_terminal_jobs)").fetchall()
+    }
+    terminal_job_objects = {
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE name IN (?,?,?)",
+            tuple(sorted(_TERMINAL_JOB_CANCEL_OBJECTS)),
+        ).fetchall()
+    }
     return (
         set(_STEP_LEASE_COLUMNS).issubset(step_columns)
         and set(_STEP_CONTROL_COLUMNS).issubset(step_columns)
         and set(_RUN_CONTROL_COLUMNS).issubset(run_columns)
         and set(_LOOP_CONTROL_COLUMNS).issubset(loop_columns)
+        and set(_TERMINAL_JOB_CANCEL_COLUMNS).issubset(terminal_job_columns)
+        and _TERMINAL_JOB_CANCEL_OBJECTS.issubset(terminal_job_objects)
     )
 
 
@@ -719,6 +799,17 @@ def _apply_runtime_schema(conn: sqlite3.Connection) -> None:
                 conn.execute(
                     f"ALTER TABLE mc_loop_runs ADD COLUMN {name} {declaration}"
                 )
+        terminal_job_columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(mc_terminal_jobs)").fetchall()
+        }
+        for name, declaration in _TERMINAL_JOB_CANCEL_COLUMNS.items():
+            if name not in terminal_job_columns:
+                conn.execute(
+                    f"ALTER TABLE mc_terminal_jobs ADD COLUMN {name} {declaration}"
+                )
+        for statement in _TERMINAL_JOB_CANCEL_STATEMENTS:
+            conn.execute(statement)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_mc_run_steps_lease "
             "ON mc_run_steps(status, lease_expires_at, run_id, position)"
