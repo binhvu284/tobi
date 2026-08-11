@@ -13,14 +13,13 @@ Its status column carries the same short progress note this board tracks.
 
 ## Status
 
-**In progress.** T00 through T06 and T07 Runs 1-3B2A are accepted. Run 3B2B is delivered, and T07 remains open for owner acceptance.
+**In progress.** T00 through T07 are complete and owner-accepted. T08 is released for planning.
 
-**Delivered:** 7 complete packages plus all T07 implementation runs, about **84-90%** of total effort.
+**Delivered:** 8 complete packages, about **84-90%** of total effort.
 
-**Next:** review and accept T07 Run 3B2B. It adds one approved cancellation request that the matching
-managed worker sees and completes itself. TOBI never kills a process by PID and keeps reporting
-unknown when stale worker evidence cannot prove the job stopped. T07 closes and T08 planning
-releases only after explicit owner acceptance.
+**Next:** start T08 planning. It will split the Conductor into small extraction runs, preserving
+public answers while moving routing, planning, context, tool execution, and response composition
+behind focused services one responsibility at a time. No implementation begins before Run 1 approval.
 
 ---
 
@@ -61,8 +60,8 @@ Ordered. Each one ships and is reviewable on its own. Risk is the plan's own rat
 | T04 | **Point Chat and Agent at the new engine**, quietly at first (both run side by side and get compared before anything switches over). | T03 | High | Done |
 | T05 | **One place decides what is allowed.** Permissions, approvals, credentials, budgets — currently spread across many files. | T01 | High | Done |
 | T06 | **One list of tools.** Every tool described once, in one format, with its arguments checked before it runs. | T01, T05 | High | Done |
-| T07 | **Move the first real tools over:** files, terminal, projects. Each mutation gets a receipt, and a retry cannot double-apply it. | T03, T06 | High | Runs 1-3B2A accepted; Run 3B2B delivered; review |
-| T08 | **Shrink the Conductor.** It currently does routing, planning, permissions, execution, and replies all in one file. Pull those out one at a time until it is a thin wrapper. | T04, T07 | High | ☐ |
+| T07 | **Move the first real tools over:** files, terminal, projects. Each mutation gets a receipt, and a retry cannot double-apply it. | T03, T06 | High | Done |
+| T08 | **Shrink the Conductor.** It currently does routing, planning, permissions, execution, and replies all in one file. Pull those out one at a time until it is a thin wrapper. | T04, T07 | High | Ready for planning |
 | T09 | **Let Brain memory actually change answers.** Relevant memory influences what TOBI does; stale or private memory does not leak into it. | T00, T08 | High | ☐ |
 | T10 | **Make Hermes and the coding agent workers, not bosses.** They execute bounded requests; they cannot change the authoritative record. | T00, T03, T06 | High | ☐ |
 | T11 | **See everything.** One trace per request joining context, model, tools, approvals, cost, and outcome — plus the quality gates that block a release on regression. | T09, T10 | Med | ☐ |

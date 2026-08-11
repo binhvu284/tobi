@@ -9,48 +9,28 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T07 Run 3B2B - approved cooperative managed-job cancellation (delivered; awaiting owner acceptance)
+**Package:** T08 - Conductor strangler extraction (released for planning; not started)
 
 **Purpose (one sentence, plain words):**
-Add one approved, idempotent cancellation request that the matching authenticated managed wait
-worker observes and completes itself, while restart reads remain truthful and no app process targets an OS PID.
+Prepare a source-grounded run split that extracts one Conductor responsibility at a time while
+preserving its public answer behavior and every accepted Runtime V2 safety boundary.
 
 **Not doing:**
-- No live tool routing, policy cutover, caller integration, owner-flag change, API, or UI.
-- No change to accepted start/list/output or foreground terminal behavior.
-- No arbitrary command, caller directory, environment input, or broader background operation.
-- No parent-side terminate, signal, PID lookup/storage, process-tree control, replacement worker, or
-  call to legacy `kill_job`; only the authenticated worker may finalize cancellation.
-- No claim that a job stopped when only a request exists: stale or missing worker proof stays unknown.
-- No rebuild of `mc_terminal_jobs`, new cancellation table, or write to legacy `terminal_jobs`.
-- No cancellation of another owner's job; the canonical job's originating owner must match the
-  approved cancel action owner.
-- No automatic retry after an uncertain cancellation write; reconcile durable evidence first.
-- No `install_package`, `configure_tool`, `connect_tool`, `set_terminal_mode`, or capability-registry migration.
-- No weakening or redesign of the existing terminal engine, legacy jobs, or callers.
-- No T07 closure or T08 release in the implementation commit; both require explicit owner acceptance
-  after delivery.
-- No Conductor decomposition; T08 owns it.
-- No Runs page or broad frontend redesign; T13 owns it.
-- No Telegram, CLI, Office, scheduler, or remaining-surface adapters.
+- No T08 implementation until its first run plan is owner-approved.
+- No broad rewrite of `core/conductor.py`; extract one responsibility per reviewable run.
+- No live-route, response-shape, policy, approval, tool, memory, model, or owner-flag change during planning.
+- No T09 Brain-context integration, T11 observability expansion, T13 Runs page, or T14 activation work.
+- No Telegram, CLI, Office, scheduler, or remaining-surface migration; T15 owns those adapters.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
 **Files expected:**
-- `core/schema/runtime.py`
-- `core/runtime/terminal_jobs.py`
-- `core/runtime/terminal_job_worker.py`
-- `core/runtime/terminal_tools.py`
-- `tests/test_mc_runtime_terminal_jobs.py`
 - `.claude/CURRENT_WORK.md`
 - `docs/feature-idea-queue/MC_V2_BOARD.md`
 - `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
 - `docs/feature-idea-queue/QUEUE.md`
+- Implementation files and focused tests will be named by the approved T08 Run 1 plan.
 
-**Gate: green**
-
-```gate
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_terminal_jobs.py
-```
+**Gate: no**
 
 ---
 
