@@ -5,6 +5,14 @@ readable. Nothing was shortened or removed here — each section is the note tha
 verbatim. `QUEUE.md` links to these sections; this file is the evidence behind them.
 
 
+<a id="item-32"></a>
+
+## 32. Health checks run together
+
+`UPG-CORE-3H-010`
+
+Spec written 2026-08-13, awaiting owner approval. No implementation yet.
+
 <a id="item-31"></a>
 
 ## 31. Pages tell you when they fail to load
