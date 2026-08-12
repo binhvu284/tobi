@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { softFail } from '../lib/report'
 import { BrainCircuit, RefreshCw, Activity, Cpu, Orbit, RadioTower, Share2 } from 'lucide-react'
 import { getGraph, getGraphSources, getGraphTimeline, getGraphCommunities, syncGraph, createGraphNode, createGraphEdge, saveGraphLayout, type GraphData, type GraphNode, type GraphSource, type TimelineEvent, type GraphCommunity } from '../api.graph'
 import { useToast } from '../context/ToastProvider'
@@ -107,7 +108,7 @@ export default function Graph() {
   }
 
   const pin = useCallback((n: any) => {
-    saveGraphLayout([{ id: n.id, x: n.x, y: n.y, pinned: true }]).catch(() => {})
+    saveGraphLayout([{ id: n.id, x: n.x, y: n.y, pinned: true }]).catch(softFail('the graph'))
   }, [])
 
   const empty = !loading && data.nodes.length === 0

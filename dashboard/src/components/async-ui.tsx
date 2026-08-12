@@ -10,8 +10,9 @@
 //   ActionButton  the control itself is the only thing affected
 //   BusyOverlay   one section's data is being replaced
 //   ActivityBar   a page-wide refetch is in flight; content stays readable underneath
+//   LoadFailure   the data never arrived, and the reader has to be told
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Loader2 } from 'lucide-react'
+import { AlertTriangle, Loader2, RotateCw } from 'lucide-react'
 
 /** Runs an async action while owning its own pending state.
  *
@@ -117,6 +118,50 @@ export function SectionSkeleton({ rows = 3, className = '' }: { rows?: number; c
         <div key={index} className="tobi-skeleton h-12 rounded-md border border-border/60 bg-surface/40"
           style={{ animationDelay: `${index * 90}ms` }} />
       ))}
+    </div>
+  )
+}
+
+/** Turns a caught fetch error into something the reader can act on.
+ *
+ *  Pages used to write `.catch(() => {})`, which renders identically to having no data — so a
+ *  broken request and an empty result looked the same on screen and neither could be trusted.
+ *  This says which thing failed, quotes the real reason underneath, and offers one retry.
+ *
+ *  `reason` is deliberately the raw message. A generic "something went wrong" is what sent the
+ *  owner to the wrong place twice on 2026-08-01; "Connection refused" tells him the server is
+ *  down, which is the whole difference. */
+export function LoadFailure({ error, onRetry, what, className = '', compact = false }: {
+  /** Whatever the catch received. Anything not an Error is still shown, stringified. */
+  error: unknown
+  /** Re-runs only the failed request. Omit when a retry is not meaningful. */
+  onRetry?: () => unknown | Promise<unknown>
+  /** What did not load, in the owner's words: "your storage data", "the project list". */
+  what: string
+  className?: string
+  /** One line, for inline slots where a full block would push content around. */
+  compact?: boolean
+}) {
+  if (!error) return null
+  const raw = error instanceof Error ? error.message : String(error)
+  const reason = raw.trim() || 'No reason was reported.'
+  return (
+    <div role="alert" aria-live="polite"
+      className={`flex items-start gap-2 rounded border border-warning/40 bg-warning/5 ${compact ? 'px-2 py-1.5' : 'p-3'} ${className}`}>
+      <AlertTriangle size={compact ? 12 : 14} className="mt-0.5 shrink-0 text-warning" aria-hidden />
+      <div className="min-w-0 flex-1">
+        <div className={`font-medium text-text ${compact ? 'text-[11px]' : 'text-xs'}`}>
+          Couldn&rsquo;t load {what}.
+        </div>
+        <div className={`mt-0.5 break-words text-muted ${compact ? 'text-[10px]' : 'text-[11px]'}`}>{reason}</div>
+      </div>
+      {onRetry && (
+        <ActionButton onAction={onRetry} icon={<RotateCw size={12} aria-hidden />}
+          title={`Try loading ${what} again`}
+          className="shrink-0 inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-text hover:bg-surface">
+          Try again
+        </ActionButton>
+      )}
     </div>
   )
 }

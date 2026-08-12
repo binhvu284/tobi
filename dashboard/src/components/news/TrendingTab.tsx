@@ -8,6 +8,7 @@
 // Visual tiles are deterministic decorative gradients until the media pipeline fills
 // news_media_cache — never a fake screenshot presented as content.
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { softFail } from '../../lib/report'
 import {
   AlertTriangle, ChevronRight, ExternalLink, Github, Loader2, RefreshCw, Search,
   Sparkles, Star, StickyNote, ThumbsDown, ThumbsUp, TrendingUp, Undo2, Wrench,
@@ -279,7 +280,7 @@ function ToolDiscovery({ reloadKey }: { reloadKey: number }) {
     if (!tool) return
     void postNewsV2Event(tool.item_id, { type: 'open' })
       .then(state => setOverrides(current => ({ ...current, [tool.item_id]: state })))
-      .catch(() => {})
+      .catch(softFail('trending news'))
   }
 
   return (
@@ -413,7 +414,7 @@ function SourceExplore({ reloadKey }: { reloadKey: number }) {
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    void getNewsV2TrendingSources().then(res => setSources(res.sources)).catch(() => {})
+    void getNewsV2TrendingSources().then(res => setSources(res.sources)).catch(softFail('trending news'))
   }, [reloadKey])
 
   // owner: "only 3 quality items at a time" — the freshest picks; refresh rotates them.
@@ -428,7 +429,7 @@ function SourceExplore({ reloadKey }: { reloadKey: number }) {
 
   const { refreshing, refresh } = useTableRefresh('feed', EXPLORE_SOURCES,
     useCallback(async () => {
-      await getNewsV2TrendingSources().then(res => setSources(res.sources)).catch(() => {})
+      await getNewsV2TrendingSources().then(res => setSources(res.sources)).catch(softFail('trending news'))
       await loadItems(selected)
     }, [loadItems, selected]))
 

@@ -11,6 +11,7 @@ import { useToast } from '../context/ToastProvider'
 import { useWorkspaceTabs, projectTabKey } from '../context/WorkspaceTabsContext'
 import { pushRecentProject } from '../components/AppShell'
 import PageLoader from '../components/PageLoader'
+import { LoadFailure } from '../components/async-ui'
 import { AmbientField } from '../components/motion'
 import ProjectIcon from '../components/project/ProjectIcon'
 import IconPicker from '../components/project/IconPicker'
@@ -50,6 +51,7 @@ export default function ProjectWorkspace() {
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState('')
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [loadError, setLoadError] = useState<unknown>(null)
   const registered = useRef(false)
 
   const reload = useCallback(async () => {
@@ -58,12 +60,15 @@ export default function ProjectWorkspace() {
       setOv(o); setGoals(g.items); setTasks(t.items)
       return o
     } catch (e) {
+      // 404 has its own "doesn't exist" screen. Every other failure used to land here and
+      // return null, leaving <PageLoader/> spinning for ever with nothing said.
       if ((e as { status?: number }).status === 404) setMissing(true)
+      else setLoadError(e)
       return null
     }
   }, [pid])
 
-  useEffect(() => { setOv(null); setMissing(false); reload() }, [reload])
+  useEffect(() => { setOv(null); setMissing(false); setLoadError(null); void reload() }, [reload])
 
   // Register with the global tab system + sidebar recents once the project loads (D9/D10).
   useEffect(() => {
@@ -127,7 +132,10 @@ export default function ProjectWorkspace() {
       </div>
     )
   }
-  if (!project) return <PageLoader preset="projects" />
+  if (!project) return loadError
+    ? <LoadFailure error={loadError} what="this project"
+        onRetry={() => { setLoadError(null); return reload() }} className="m-4" />
+    : <PageLoader preset="projects" />
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">

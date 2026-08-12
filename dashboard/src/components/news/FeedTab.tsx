@@ -7,6 +7,7 @@
 // banner. Interaction state lives up here so virtualized unmount/remount of cards
 // (and the 10-second dislike undo window) survives scrolling.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { softFail } from '../../lib/report'
 import { createPortal } from 'react-dom'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
@@ -55,8 +56,8 @@ export default function FeedTab({ reloadKey }: { reloadKey: number }) {
   // Rail data: sources are canonical-store facts; the profile is the transparent
   // "what TOBI learned" view — both best-effort, the feed renders without them.
   useEffect(() => {
-    void getNewsV2TrendingSources().then(res => setSources(res.sources)).catch(() => {})
-    void getNewsV2Profile().then(setProfile).catch(() => {})
+    void getNewsV2TrendingSources().then(res => setSources(res.sources)).catch(softFail('your feed'))
+    void getNewsV2Profile().then(setProfile).catch(softFail('your feed'))
   }, [reloadKey])
 
   // ── refresh completed → probe the new snapshot WITHOUT touching the list ───────

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { softFail } from '../lib/report'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { RefreshCw, Activity, AlertTriangle, CheckCircle2, Database, Server, Loader2, KeyRound, ExternalLink, Cpu, Stethoscope } from 'lucide-react'
@@ -73,15 +74,13 @@ export default function Health() {
   const reduced = useReducedMotionPref() !== 'full'
 
   const load = async () => {
-    getIntegrations().then(setGen).catch(() => {})  // Genesis/integrations cross-link (read-only)
-    getLlmUsage(7).then(setUsage).catch(() => {})   // LLM usage summary (Premium Chat #8 P3)
+    getIntegrations().then(setGen).catch(softFail('health data'))  // Genesis/integrations cross-link (read-only)
+    getLlmUsage(7).then(setUsage).catch(softFail('health data'))   // LLM usage summary (Premium Chat #8 P3)
     try {
       const h = await getHealth()
       setHealth(h)
       setUpdated(new Date().toLocaleTimeString('en-GB'))
-    } catch {
-      /* leave previous state; banner stays */
-    }
+    } catch (error) { softFail('health data')(error) }
   }
 
   useEffect(() => {

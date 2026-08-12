@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CheckCircle2, AlertTriangle, Info, X } from 'lucide-react'
 import { sfx } from '../hooks/useSound'
@@ -9,6 +9,13 @@ export type Note = { id: number; kind: Kind; title: string; detail?: string; ts:
 type Ctx = { toast: (t: { kind?: Kind; title: string; detail?: string }) => void; notes: Note[]; clear: () => void }
 const C = createContext<Ctx>(null as unknown as Ctx)
 export function useToast() { return useContext(C) }
+
+// Lets code outside the React tree report a failure -- the background refreshes and polls that
+// used to write `.catch(() => {})` because there was no hook available where they ran. The
+// provider owns the sink; `lib/report.ts` is the only intended caller.
+type ToastFn = Ctx['toast']
+let _sink: ToastFn | null = null
+export function emitToast(t: Parameters<ToastFn>[0]) { _sink?.(t) }
 
 const ICON = { success: CheckCircle2, error: AlertTriangle, info: Info }
 const TONE: Record<Kind, string> = {
@@ -30,6 +37,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     if (n.kind === 'success') sfx.success(); else if (n.kind === 'error') sfx.error(); else sfx.tick()
     setTimeout(() => setToasts(s => s.filter(x => x.id !== n.id)), TOAST_MS)
   }, [])
+  // Publish the sink so lib/report.ts can surface a background failure. Registered in an
+  // effect rather than during render so it is never set by a component that then unmounts.
+  useEffect(() => { _sink = toast; return () => { if (_sink === toast) _sink = null } }, [toast])
+
   const clear = () => { setNotes([]); try { localStorage.removeItem('tobi.notes') } catch { /* ignore */ } }
 
   return (

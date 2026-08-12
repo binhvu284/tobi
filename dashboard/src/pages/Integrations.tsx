@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { softFail } from '../lib/report'
 import {
   KeyRound, Lock, ShieldCheck, Eye, EyeOff, Check, X, RefreshCw, Plus, Trash2,
   ExternalLink, AlertTriangle, ScrollText, Download, Upload, Loader2, Sparkles, Copy,
@@ -35,7 +36,7 @@ export default function Integrations() {
     try { setData(await getIntegrations()) }
     catch (e) { toast({ kind: 'error', title: 'Could not load integrations', detail: (e as Error).message }) }
     finally { setLoading(false) }
-    try { setProviders((await getLlmConfig()).providers) } catch { /* models optional */ }
+    try { setProviders((await getLlmConfig()).providers) } catch (error) { softFail('your integrations')(error) }
   }, [toast])
 
   useEffect(() => { load() }, [load, session])
@@ -48,7 +49,7 @@ export default function Integrations() {
   }
 
   const refreshAudit = useCallback(async () => {
-    try { setAudit((await getVaultAudit(80)).entries) } catch { /* locked */ }
+    try { setAudit((await getVaultAudit(80)).entries) } catch (error) { softFail('your integrations')(error) }
   }, [])
 
   if (loading) return <PageLoader preset="integrations" />

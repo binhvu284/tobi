@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { softFail } from '../lib/report'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Plus, Check, GitBranch, Sparkles, Inbox, ThumbsUp, ThumbsDown, FileCode2, ShieldAlert, Lock, ArrowRight } from 'lucide-react'
@@ -230,13 +231,13 @@ export default function Ability() {
 
   // Live poll (45s) — non-blocking; page renders curated values regardless.
   useEffect(() => {
-    const load = () => getAbilities().then(setReport).catch(() => {})
+    const load = () => getAbilities().then(setReport).catch(softFail('your abilities'))
     load()
     const t = setInterval(load, 45000)
     return () => clearInterval(t)
   }, [])
 
-  const loadProposals = () => getProposals('pending').then(r => setProposals(r.items)).catch(() => {})
+  const loadProposals = () => getProposals('pending').then(r => setProposals(r.items)).catch(softFail('your abilities'))
   useEffect(() => { loadProposals() }, [])
 
   // Hermes repo skills are static files — one quiet fetch, no polling needed (#14).
@@ -251,7 +252,7 @@ export default function Ability() {
   useEffect(() => {
     if (!selected) { setDetail(null); return }
     setDetail(null)
-    getAbilityDetail(selected).then(setDetail).catch(() => {})
+    getAbilityDetail(selected).then(setDetail).catch(softFail('your abilities'))
   }, [selected])
 
   const enriched = useMemo(() =>
@@ -294,23 +295,23 @@ export default function Ability() {
       await coachAbility(selected, coachNote.trim())
       setCoachNote('')
       loadProposals()
-    } catch { /* ignore */ } finally { setCoachBusy(false) }
+    } catch (error) { softFail('your abilities')(error) } finally { setCoachBusy(false) }
   }
 
   const resolve = async (id: number, action: 'approve' | 'reject') => {
     try {
       await (action === 'approve' ? approveProposal(id) : rejectProposal(id))
       loadProposals()
-      if (selected) getAbilityDetail(selected).then(setDetail).catch(() => {})
-    } catch { /* ignore */ }
+      if (selected) getAbilityDetail(selected).then(setDetail).catch(softFail('your abilities'))
+    } catch (error) { softFail('your abilities')(error) }
   }
 
   const rollback = async (version: number) => {
     if (!selected) return
     try {
       await rollbackAbility(selected, version)
-      getAbilityDetail(selected).then(setDetail).catch(() => {})
-    } catch { /* ignore */ }
+      getAbilityDetail(selected).then(setDetail).catch(softFail('your abilities'))
+    } catch (error) { softFail('your abilities')(error) }
   }
 
   return (

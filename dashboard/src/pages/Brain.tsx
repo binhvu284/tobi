@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { softFail } from '../lib/report'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Brain as BrainIcon, Search, Plus, Upload, Sparkles, Inbox, Filter,
@@ -75,7 +76,7 @@ export default function Brain() {
   }, [memories, sortBy])
 
   const reloadMeta = useCallback(() => {
-    getBrainStats().then(setStats).catch(() => {})
+    getBrainStats().then(setStats).catch(softFail('your memories'))
   }, [])
 
   const reloadMemories = useCallback(async () => {
@@ -90,15 +91,15 @@ export default function Brain() {
         })
         setMemories(items)
       }
-    } catch { /* keep */ }
+    } catch (error) { softFail('your memories')(error) }
   }, [semantic, query, activeCat, source, staleOnly])
 
   useEffect(() => {
     Promise.all([getBrainCategories(), getBrainStats()])
       .then(([c, s]) => { setCategories(c.categories); setStats(s) })
-      .catch(() => {})
+      .catch(softFail('your memories'))
       .finally(() => setLoading(false))
-    getNarrative().then(n => setNarrative(n.content)).catch(() => {})
+    getNarrative().then(n => setNarrative(n.content)).catch(softFail('your memories'))
   }, [])
 
   useEffect(() => { reloadMemories() }, [reloadMemories])

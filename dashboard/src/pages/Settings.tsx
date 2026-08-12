@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { softFail } from '../lib/report'
 import {
   Check, Volume2, VolumeX, RotateCcw, Type, Rows, Palette, Sparkles, Globe, Save,
   SlidersHorizontal, FileUp,
@@ -204,7 +205,7 @@ function TimezoneSection() {
   const { toast } = useToast()
 
   useEffect(() => {
-    getOwnerSettings().then(s => { if (s.timezone) setTz(s.timezone) }).catch(() => {})
+    getOwnerSettings().then(s => { if (s.timezone) setTz(s.timezone) }).catch(softFail('your settings'))
   }, [])
 
   async function save() {

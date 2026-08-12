@@ -13,7 +13,7 @@ function blip(freq: number, dur = 0.05, gain = 0.04) {
     o.connect(g); g.connect(ctx.destination)
     const t = ctx.currentTime
     o.start(t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur); o.stop(t + dur)
-  } catch { /* ignore */ }
+  } catch { /* silent: audio is decoration; a browser that blocks it must not raise anything */ }
 }
 
 export const sfx = {

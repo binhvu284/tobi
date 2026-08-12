@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { softFail } from '../lib/report'
 import {
   AlertTriangle, Copy, Download, Maximize2, Minimize2, Network, RotateCcw,
   ZoomIn, ZoomOut, Loader2, List, FileText, Search, X, GripVertical, Crosshair, ArrowLeftRight,
@@ -300,7 +301,7 @@ function ArchitectureV2() {
         // no HTML label to anchor to → fall back to the shape's own box, drawn on the node
         parent = node
         const shape = node.querySelector('rect, polygon, circle, ellipse, path') as SVGGraphicsElement | null
-        try { const b = shape?.getBBox(); if (b && b.width > 0) { cx = b.x + b.width / 2; cy = b.y + b.height / 2; boxW = b.width } } catch { /* not laid out */ }
+        try { const b = shape?.getBBox(); if (b && b.width > 0) { cx = b.x + b.width / 2; cy = b.y + b.height / 2; boxW = b.width } } catch (error) { softFail('the architecture map')(error) }
         if (!boxW) {
           const r = node.querySelector('rect')
           const w = +(r?.getAttribute('width') || 120), h = +(r?.getAttribute('height') || 34)

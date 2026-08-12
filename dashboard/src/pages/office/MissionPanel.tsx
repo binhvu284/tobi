@@ -1,6 +1,7 @@
 // Extracted from Office.tsx (pre-#21 refactor) — verbatim move.
 
 import { useEffect, useState, useRef } from 'react'
+import { softFail } from '../../lib/report'
 import { motion, AnimatePresence, useDragControls } from 'framer-motion'
 import {
   X, Activity, Zap, Shield, Users, LayoutGrid, Plus, Play, Cpu, Coins, Trash2, Pencil, ListChecks,
@@ -88,7 +89,7 @@ export function NewMissionModal({ onClose, onCreated }: { onClose: () => void; o
   const create = async () => {
     if (!title.trim()) return
     setBusy(true)
-    try { const m = await createMission({ title: title.trim(), goal: goal.trim(), priority }); onCreated(m); onClose() } catch { /* ignore */ } finally { setBusy(false) }
+    try { const m = await createMission({ title: title.trim(), goal: goal.trim(), priority }); onCreated(m); onClose() } catch (error) { softFail('this mission')(error) } finally { setBusy(false) }
   }
   const input = 'w-full rounded border border-border bg-bg px-2 py-1.5 text-xs text-text outline-none focus:border-accent/60'
   return (

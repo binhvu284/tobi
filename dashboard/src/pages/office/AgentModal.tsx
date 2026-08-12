@@ -1,6 +1,7 @@
 // Extracted from Office.tsx (pre-#21 refactor) — verbatim move.
 
 import { useEffect, useState, useRef } from 'react'
+import { softFail } from '../../lib/report'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence, useDragControls } from 'framer-motion'
 import {
@@ -32,11 +33,11 @@ export function AgentModal({ agent, onClose, onSaved }: { agent: Agent | 'new'; 
     try {
       if (editing) await updateAgent((a as Agent).id, form); else await createAgent(form)
       onSaved(); onClose()
-    } catch { /* ignore */ } finally { setBusy(false) }
+    } catch (error) { softFail('this agent')(error) } finally { setBusy(false) }
   }
   const archive = async () => {
     if (!editing) return
-    try { await deleteAgent((a as Agent).id); onSaved(); onClose() } catch { /* ignore */ }
+    try { await deleteAgent((a as Agent).id); onSaved(); onClose() } catch (error) { softFail('this agent')(error) }
   }
   const F = ({ label, children }: { label: string; children: React.ReactNode }) => (
     <label className="block"><span className="mb-1 block text-[11px] uppercase tracking-wider text-muted">{label}</span>{children}</label>

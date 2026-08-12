@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { softFail } from '../lib/report'
 import { Link } from 'react-router-dom'
 import { RefreshCw, History, CheckCircle2, XCircle, Clock, AlertTriangle, ShieldAlert, MessagesSquare, Bot, Smartphone } from 'lucide-react'
 import { getConductorActions, getConductorStatus, type ConductorAction, type ConductorStatus } from '../api.conductor'
@@ -29,7 +30,7 @@ export default function Actions() {
 
   const load = () => {
     getConductorActions(100).then(setData).catch(() => setData({ count: 0, actions: [] })).finally(() => setLoading(false))
-    getConductorStatus().then(setStatus).catch(() => {})
+    getConductorStatus().then(setStatus).catch(softFail('your actions'))
   }
   useEffect(() => { load(); const t = setInterval(load, 20000); return () => clearInterval(t) }, [])
 

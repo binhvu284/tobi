@@ -27,10 +27,10 @@ export function useTableRefresh(tab: Tab, sources: string[], onDone: () => void 
         try {
           const job = await getNewsV2RefreshJob(job_id)
           if (TERMINAL.has(job.state)) break
-        } catch { /* transient — keep polling */ }
+        } catch { /* silent: the next poll is the retry; a transient blip is not news */ }
       }
       await onDone()
-    } catch { /* refresh failure is surfaced by the reload/empty state, never a crash */ } finally {
+    } catch { /* silent: the next poll is the retry; a transient blip is not news */ } finally {
       active.current = false
       setRefreshing(false)
     }

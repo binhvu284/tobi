@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { softFail } from '../lib/report'
 import { createPortal } from 'react-dom'
 import { NavLink, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion'
@@ -719,7 +720,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     load(); const id = setInterval(load, 15000); return () => clearInterval(id)
   }, [])
   useEffect(() => {
-    const load = () => getEvolution().then(setEvo).catch(() => {})
+    const load = () => getEvolution().then(setEvo).catch(softFail('the sidebar'))
     load(); const id = setInterval(load, 60000); return () => clearInterval(id)
   }, [])
 

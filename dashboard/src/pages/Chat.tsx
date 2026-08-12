@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { softFail } from '../lib/report'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Send, Sparkles, Bot, User, ShieldAlert, Check, X, Plus, Trash2, Pencil,
@@ -167,7 +168,7 @@ export default function Chat() {
         const ev = await getEvolution()
         const t = ev.tiers.find(x => x.id === ev.current_tier) ?? ev.tiers[ev.current_tier]
         if (t) setTier({ tier: t.id, colorKey: t.color_key, roman: t.roman, name: t.name })
-      } catch { /* ignore */ }
+      } catch (error) { softFail('chat data')(error) }
       try {
         const r = await pmListProjects()
         const active = r.items.filter(p => p.status === 'active')
@@ -176,16 +177,16 @@ export default function Chat() {
         if (r.items.length) s.push('What changed across my projects recently?')
         s.push('Give me a status report of the office.')
         if (s.length) setStarters(s.slice(0, 4))
-      } catch { /* ignore */ }
+      } catch (error) { softFail('chat data')(error) }
       try {
         const r = await getIntegrations()
         setConnectorOpts(r.integrations.filter(i => i.connected && i.category === 'tools' && !['codex', 'explore'].includes(i.id)).map(i => ({ id: i.id, label: i.label })))
-      } catch { /* ignore */ }
+      } catch (error) { softFail('chat data')(error) }
       try {
         const r = await getChatSessions()
         if (r.sessions.length === 0) { const s = await createChatSession(); setSessions([s]); navigate(`/chat/${s.id}`, { replace: true }) }
         else { setSessions(r.sessions); if (activeId == null) navigate(`/chat/${r.sessions[0].id}`, { replace: true }) }
-      } catch { /* ignore */ }
+      } catch (error) { softFail('chat data')(error) }
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -270,7 +271,7 @@ export default function Chat() {
 
   const openSession = (id: number) => { navigate(`/chat/${id}`) }
 
-  const refreshSessions = async () => { try { setSessions((await getChatSessions()).sessions) } catch { /* ignore */ } }
+  const refreshSessions = async () => { try { setSessions((await getChatSessions()).sessions) } catch (error) { softFail('chat data')(error) } }
   const reloadMessages = async (sid: number) => {
     try {
       const [r, artifactResult] = await Promise.all([
@@ -302,11 +303,11 @@ export default function Chat() {
   const commitRename = async (id: number) => {
     const title = renameVal.trim(); setRenaming(null); if (!title) return
     setSessions(p => p.map(s => s.id === id ? { ...s, title } : s))
-    try { await patchChatSession(id, { title }) } catch { /* ignore */ }
+    try { await patchChatSession(id, { title }) } catch (error) { softFail('chat data')(error) }
   }
   const changeModel = async (val: string) => {
     const m = val || null; setModel(m); setModelIssue(false)
-    if (activeId != null) { try { await patchChatSession(activeId, { model: m ?? '' }) } catch { /* ignore */ } }
+    if (activeId != null) { try { await patchChatSession(activeId, { model: m ?? '' }) } catch (error) { softFail('chat data')(error) } }
   }
   const syncQueuedTurns = (next: QueuedTurn[]) => {
     queuedTurnsRef.current = next
@@ -329,7 +330,7 @@ export default function Chat() {
     const t = titleVal.trim(); setTitleEditing(false)
     if (!t || activeId == null || t === activeTitle) return
     setSessions(p => p.map(s => s.id === activeId ? { ...s, title: t } : s))
-    try { await patchChatSession(activeId, { title: t }) } catch { /* ignore */ }
+    try { await patchChatSession(activeId, { title: t }) } catch (error) { softFail('chat data')(error) }
   }
 
   // ── attachments ──
@@ -612,7 +613,7 @@ export default function Chat() {
     finally { if (msgId) setRemembering(null) }
   }
 
-  const loadActivity = async (sid: number) => { try { setActivity((await getSessionActivity(sid)).actions) } catch { /* ignore */ } }
+  const loadActivity = async (sid: number) => { try { setActivity((await getSessionActivity(sid)).actions) } catch (error) { softFail('chat data')(error) } }
   const toggleActivity = () => { const next = !activityOpen; setActivityOpen(next); if (next && activeId != null) loadActivity(activeId) }
 
   const resolveAction = async (decision: 'approve' | 'reject', action?: PendingAction) => {
@@ -637,7 +638,7 @@ export default function Chat() {
       const done = okCount === items.length
         ? `✓ Done, sir — ${items.length > 1 ? `all ${items.length} actions completed` : p.summary}.`
         : `⚠️ Completed ${okCount} of ${items.length}${lastErr ? ` — ${lastErr}` : ''}.`
-      setMessages(m => [...m.slice(0, -1), { role: 'assistant', content: done }]); if (activeId) appendChatMessage(activeId, done).catch(() => {})
+      setMessages(m => [...m.slice(0, -1), { role: 'assistant', content: done }]); if (activeId) appendChatMessage(activeId, done).catch(softFail('chat data'))
       if (activeId && activityOpen) loadActivity(activeId)
     } catch (e) { setMessages(m => [...m.slice(0, -1), { role: 'assistant', content: `⚠️ ${(e as Error).message}` }]) }
   }

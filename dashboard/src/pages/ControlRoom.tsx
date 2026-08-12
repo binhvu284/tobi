@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { softFail } from '../lib/report'
 import { motion } from 'framer-motion'
 import { Play, Loader2, CheckCircle2, AlertTriangle, Terminal, FlaskConical, Building2, FileText, Crown } from 'lucide-react'
 import { getRunReadiness, runEngine, type Readiness, type RunResult, type EngineName } from '../api.officev3'
@@ -13,7 +14,7 @@ export default function ControlRoom() {
   const [results, setResults] = useState<Record<string, RunResult>>({})
   const { toast } = useToast()
 
-  const load = () => getRunReadiness().then(r => setEngines(r.engines)).catch(() => {})
+  const load = () => getRunReadiness().then(r => setEngines(r.engines)).catch(softFail('the control room'))
   useEffect(() => { load() }, [])
 
   const run = async (name: string) => {

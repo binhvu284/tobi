@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { softFail } from '../lib/report'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Stethoscope, Play, Zap, Sparkles, GitCommitHorizontal, Plus, Check,
@@ -192,7 +193,7 @@ export default function PerformanceDoctor() {
 
   useEffect(() => {
     getPerformance().then(r => { if (r && r.available !== false) setReport(r) })
-      .catch(() => {}).finally(() => setFirstLoad(false))
+      .catch(softFail('the performance report')).finally(() => setFirstLoad(false))
   }, [])
 
   const run = async () => {
@@ -200,7 +201,7 @@ export default function PerformanceDoctor() {
     try {
       const r = await runPerformance(deep ? 'deep' : 'quick')
       setReport(r); setJustRan(true)
-    } catch { /* keep previous */ } finally { setLoading(false) }
+    } catch (error) { softFail('the performance report')(error) } finally { setLoading(false) }
   }
 
   const trendScores = useMemo(() => (report?.trend ?? []).map(t => t.score), [report])

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { softFail } from '../lib/report'
 import { getMission, type Mission } from '../api.office'
 
 export type StepState = {
@@ -60,7 +61,7 @@ export function useMissionStream(missionId: number | null): WarState {
           const m = await getMission(missionId)
           setState(s => ({ ...s, ...fromMission(m) }))
           if (['done', 'blocked', 'cancelled'].includes(m.status)) stopPoll()
-        } catch { /* keep trying */ }
+        } catch (error) { softFail('the mission stream')(error) }
       }
       tick(); pollRef.current = setInterval(tick, 1200)
     }

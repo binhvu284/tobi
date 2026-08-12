@@ -5,6 +5,7 @@
 // the inline 10-second Undo state; open/dwell events are fire-and-forget and
 // bounded (dwell sent once per item, only when ≥5 s visible, capped at 30 min).
 import { useEffect, useRef, useState } from 'react'
+import { softFail } from '../../lib/report'
 import {
   ExternalLink, EyeOff, Loader2, Sparkles, Star, StickyNote, ThumbsDown, ThumbsUp, Undo2,
 } from 'lucide-react'
@@ -137,7 +138,7 @@ export default function NewsCard({ entry, override, showReasons, onChange, onRem
   const recordOpen = () => {
     void postNewsV2Event(entry.item_id, { type: 'open' })
       .then(state => onChange(entry.item_id, { interaction: state, undoUntil, committed }))
-      .catch(() => {})
+      .catch(softFail('this article'))
   }
 
   // ── committed dislike: collapsed row (item leaves the feed on next snapshot) ───

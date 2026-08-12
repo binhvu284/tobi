@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { softFail } from '../lib/report'
 import { Clock, Calendar } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { getOwnerSettings } from '../api.brain'
@@ -6,7 +7,7 @@ import { getOwnerSettings } from '../api.brain'
 function useTimezone() {
   const [tz, setTz] = useState('Asia/Ho_Chi_Minh')
   useEffect(() => {
-    getOwnerSettings().then(s => { if (s.timezone) setTz(s.timezone) }).catch(() => {})
+    getOwnerSettings().then(s => { if (s.timezone) setTz(s.timezone) }).catch(softFail('the clock'))
   }, [])
   return tz
 }

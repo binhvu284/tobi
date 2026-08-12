@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { softFail } from '../lib/report'
 import {
   HardDrive, Coins, RefreshCw, Search, Database, TrendingUp, Wallet,
   ChevronRight, Layers, AlertTriangle, Save, Plus, Trash2, FolderTree,
@@ -13,6 +14,7 @@ import { useToast } from '../context/ToastProvider'
 import { useReducedMotionPref } from '../context/MotionProvider'
 import { getStorageOverview, getStorageCategory, runStorageScan, getUsageOverview, getUsageCalls, getUsagePlans, setUsagePlans, getUsageBudget, setUsageBudget, type StorageOverview, type StorageCategoryDetail, type UsageOverview, type UsageCall, type UsagePlan, type UsageBudget, type UsageBucket, type UsageMetric } from '../api.storage'
 import PageLoader from '../components/PageLoader'
+import { LoadFailure } from '../components/async-ui'
 import { fmtBytes, fmtUsd, fmtTok } from '../lib/format'
 
 const fmtDelta = (n: number) => `${n >= 0 ? '+' : '−'}${fmtBytes(Math.abs(n))}`
@@ -143,12 +145,24 @@ export default function Storage() {
   const [uo, setUo] = useState<UsageOverview | null>(null)
   const [budget, setBudget] = useState<UsageBudget | null>(null)
   const [plans, setPlans] = useState<UsagePlan[]>([])
+  const [ovError, setOvError] = useState<unknown>(null)
+  const [uoError, setUoError] = useState<unknown>(null)
+  const [plansError, setPlansError] = useState<unknown>(null)
   const warned = useRef(false)
 
-  useEffect(() => { getStorageOverview().then(setOv).catch(() => {}) }, [])
-  useEffect(() => { getUsageOverview(range, usageMetric).then(setUo).catch(() => {}) }, [range, usageMetric])
+  // `ov` gates the whole page below, so a swallowed failure here left a spinner running for
+  // ever — indistinguishable from a slow load, and no way to tell which.
+  const loadOverview = useCallback(() => {
+    setOvError(null)
+    return getStorageOverview().then(setOv).catch(setOvError)
+  }, [])
+  useEffect(() => { void loadOverview() }, [loadOverview])
   useEffect(() => {
-    getUsagePlans().then(r => setPlans(r.plans)).catch(() => {})
+    setUoError(null)
+    getUsageOverview(range, usageMetric).then(setUo).catch(setUoError)
+  }, [range, usageMetric])
+  useEffect(() => {
+    getUsagePlans().then(r => setPlans(r.plans)).catch(setPlansError)
     getUsageBudget().then(b => {
       setBudget(b)
       if (!warned.current && (b.level === 'warn' || b.level === 'over')) {
@@ -159,7 +173,7 @@ export default function Storage() {
           detail: `${fmtUsd(b.spent_usd)} of ${fmtUsd(b.monthly_cap_usd)} this month (${b.pct}%)`,
         })
       }
-    }).catch(() => {})
+    }).catch(() => { /* silent: the budget banner is advisory; the page is complete without it */ })
   }, [toast])
 
   const scanNow = useCallback(async () => {
@@ -168,7 +182,7 @@ export default function Storage() {
       const r = await runStorageScan('all')
       setOv(r.overview)
       toast({ kind: 'success', title: 'Storage scan complete' })
-      if (drillFor) getStorageCategory(drillFor).then(setDrill).catch(() => {})
+      if (drillFor) getStorageCategory(drillFor).then(setDrill).catch(softFail('your usage data'))
     } catch {
       toast({ kind: 'error', title: 'Scan failed' })
     } finally {
@@ -179,10 +193,13 @@ export default function Storage() {
   const openDrill = useCallback((feature: string) => {
     setDrillFor(feature)
     setDrill(null)
-    getStorageCategory(feature).then(setDrill).catch(() => setDrillFor(''))
+    getStorageCategory(feature).then(setDrill).catch(() => setDrillFor(''))  // closes the panel rather than hanging
   }, [])
 
-  if (!ov) return <PageLoader />
+  // A failed load used to sit on <PageLoader/> for ever, which reads as "still loading".
+  if (!ov) return ovError
+    ? <LoadFailure error={ovError} onRetry={loadOverview} what="your storage data" className="m-4" />
+    : <PageLoader />
 
   const dataFeatures = ov.features.filter(f => f.feature !== 'System' && f.feature !== '__meta__')
   const donutData = (() => {
@@ -494,11 +511,12 @@ function UsageTab({ uo, colors, animate, range, setRange, metric, setMetric, pla
   const [q, setQ] = useState('')
   const [sFilter, setSFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [callsError, setCallsError] = useState<unknown>(null)
   const loadCalls = useCallback((offset = 0, append = false) => {
     getUsageCalls({ limit: 25, offset, q, surface: sFilter, status: statusFilter }).then(r => {
       setCallTotal(r.total)
       setCalls(prev => append ? [...prev, ...r.calls] : r.calls)
-    }).catch(() => {})
+    }).catch(setCallsError)
   }, [q, sFilter, statusFilter])
   useEffect(() => { const t = setTimeout(() => loadCalls(0), 250); return () => clearTimeout(t) }, [loadCalls])
 

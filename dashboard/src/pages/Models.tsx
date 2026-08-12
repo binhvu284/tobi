@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { softFail } from '../lib/report'
 import {
   Cpu, Lock, Unlock, RefreshCw, Save, Plus, ArrowUp, ArrowDown, Trash2,
   CheckCircle2, Circle, Zap, Server, BarChart3, Send, AlertTriangle,
@@ -45,10 +46,10 @@ export default function Models() {
       const r = await getLlmConfig(); setCfg(r.config); setProviders(r.providers); setModels(r.models); setRouting(r.routing || null)
       setBaseUrls(Object.fromEntries(r.providers.map(p => [p.id, p.base_url])))
     } catch (e) { toast({ kind: 'error', title: 'Could not load config', detail: (e as Error).message }) }
-    try { setVault(await getVaultStatus()) } catch { /* ignore */ }
+    try { setVault(await getVaultStatus()) } catch (error) { softFail('your models')(error) }
   }
   useEffect(() => { load() /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [])
-  useEffect(() => { getLlmUsage(usageDays).then(setUsage).catch(() => {}) }, [usageDays])
+  useEffect(() => { getLlmUsage(usageDays).then(setUsage).catch(softFail('your models')) }, [usageDays])
 
   const unlock = async () => {
     try { await vaultUnlock(master); setMaster(''); toast({ kind: 'success', title: 'Vault unlocked' }); load() }

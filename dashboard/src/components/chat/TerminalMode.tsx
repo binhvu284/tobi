@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { softFail } from '../../lib/report'
 import { Terminal, ShieldCheck, Power, RefreshCw, Square, Boxes, Cpu } from 'lucide-react'
 import type { TerminalMode as TMode } from '../../api'
 import { getTerminalStatus, setTerminalMode, setTerminalKillSwitch, getTerminalJobs, killTerminalJob, getInstalledTools, type TerminalStatus, type TerminalJob, type InstalledTool } from '../../api.terminal'
@@ -25,15 +26,15 @@ export default function TerminalMode({ lines, active }: { lines: string[]; activ
   const consoleRef = useRef<HTMLDivElement>(null)
 
   const refresh = async () => {
-    try { setStatus(await getTerminalStatus()) } catch { /* ignore */ }
-    try { setJobs((await getTerminalJobs()).jobs) } catch { /* ignore */ }
-    try { setTools((await getInstalledTools()).tools) } catch { /* ignore */ }
+    try { setStatus(await getTerminalStatus()) } catch (error) { softFail('terminal status')(error) }
+    try { setJobs((await getTerminalJobs()).jobs) } catch (error) { softFail('terminal status')(error) }
+    try { setTools((await getInstalledTools()).tools) } catch (error) { softFail('terminal status')(error) }
   }
   useEffect(() => { refresh() }, [])
   // poll for live job state while a turn runs (a background job may spin up mid-turn)
   useEffect(() => {
     if (!active) { refresh(); return }
-    const t = setInterval(() => { getTerminalJobs().then(r => setJobs(r.jobs)).catch(() => {}) }, 2500)
+    const t = setInterval(() => { getTerminalJobs().then(r => setJobs(r.jobs)).catch(softFail('terminal status')) }, 2500)
     return () => clearInterval(t)
   }, [active])
   useEffect(() => { if (consoleRef.current) consoleRef.current.scrollTop = consoleRef.current.scrollHeight }, [lines])

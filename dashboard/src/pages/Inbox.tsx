@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { softFail } from '../lib/report'
 import { motion } from 'framer-motion'
 import { Inbox as InboxIcon, CheckCircle2, Bell, ListTodo, Trash2 } from 'lucide-react'
 import { getStatus } from '../api.core'
@@ -23,7 +24,7 @@ export default function Inbox() {
     setLoading(true)
     getStatus()
       .then((s: { human_todos?: Todo[] }) => setTodos(s.human_todos || []))
-      .catch(() => {})
+      .catch(softFail('your inbox'))
       .finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])

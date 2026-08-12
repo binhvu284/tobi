@@ -5,6 +5,7 @@
 // motion is gated with motion-safe so Reduced/Off keeps badge/border/type hierarchy.
 // Trending (N09) and Feed/Favorites (N10) render their own tab components.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { softFail } from '../../lib/report'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -64,7 +65,7 @@ export default function NewsV2() {
   const [job, setJob] = useState<NewsV2RefreshJob | null>(null)   // live progress panel
   const [settings, setSettings] = useState<NewsV2Settings | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  useEffect(() => { void getNewsV2Settings().then(setSettings).catch(() => {}) }, [])
+  useEffect(() => { void getNewsV2Settings().then(setSettings).catch(softFail('the news page')) }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -107,7 +108,7 @@ export default function NewsV2() {
     setJob(null)
     try {
       const started = await postNewsV2Refresh(tab === 'home' ? 'home' : tab === 'trending' ? 'trending' : 'feed')
-      try { setJob(await getNewsV2RefreshJob(started.job_id)) } catch { /* first poll fills it */ }
+      try { setJob(await getNewsV2RefreshJob(started.job_id)) } catch (error) { softFail('the news page')(error) }
       beginPolling(started.job_id)
     } catch (err) {
       setRefreshing(false)
@@ -129,7 +130,7 @@ export default function NewsV2() {
 
   const cancelRefresh = async () => {
     if (!job) return
-    try { await postNewsV2RefreshCommand(job.id, 'cancel') } catch { /* runner may have just finished */ }
+    try { await postNewsV2RefreshCommand(job.id, 'cancel') } catch (error) { softFail('the news page')(error) }
   }
 
   const freshest = useMemo(() => {

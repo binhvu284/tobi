@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { softFail } from '../lib/report'
 import { Link } from 'react-router-dom'
 import { motion, AnimatePresence, Reorder } from 'framer-motion'
 import {
@@ -100,13 +101,13 @@ export default function Dashboard() {
       const [s, p, l] = await Promise.all([getStatus(), getProjects(), getLessons()])
       setStatus(s); setProjects(p); setLessons(l); setTodos(s.human_todos || [])
       setLastUpdated(new Date().toLocaleTimeString('en-GB'))
-    } catch { /* keep prior */ } finally { setLoading(false) }
-    getHealth().then(setHealth).catch(() => {})
-    pmGetStats().then(setPmStats).catch(() => {})
-    pmListProjects().then(r => setPmProjects(r.items)).catch(() => {})
-    getStorageOverview().then(setStorage).catch(() => {})
-    getUsageOverview('month').then(setUsage).catch(() => {})
-    getUsageBudget().then(setBudget).catch(() => {})
+    } catch (error) { softFail('your dashboard')(error) } finally { setLoading(false) }
+    getHealth().then(setHealth).catch(softFail('your dashboard'))
+    pmGetStats().then(setPmStats).catch(softFail('your dashboard'))
+    pmListProjects().then(r => setPmProjects(r.items)).catch(softFail('your dashboard'))
+    getStorageOverview().then(setStorage).catch(softFail('your dashboard'))
+    getUsageOverview('month').then(setUsage).catch(softFail('your dashboard'))
+    getUsageBudget().then(setBudget).catch(softFail('your dashboard'))
   }, [])
   useEffect(() => { load(); const id = setInterval(load, 30_000); return () => clearInterval(id) }, [load])
 

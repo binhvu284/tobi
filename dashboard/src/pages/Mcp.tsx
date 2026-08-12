@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { softFail } from '../lib/report'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Workflow, Server, Plug, RefreshCw, Trash2, Plus, Play, Copy, Check, X,
@@ -34,16 +35,16 @@ export default function Mcp() {
   const [showAdd, setShowAdd] = useState(false)
   const toast = useToast().toast
 
-  const loadServer = () => { getMcpServerConfig().then(setServer).catch(() => {}); getMcpClients().then(r => setClients(r.clients)).catch(() => {}) }
+  const loadServer = () => { getMcpServerConfig().then(setServer).catch(softFail('your MCP connections')); getMcpClients().then(r => setClients(r.clients)).catch(softFail('your MCP connections')) }
   const loadClients = () => {
-    getMcpConnections().then(r => setConnections(r.connections)).catch(() => {})
-    getMcpTools().then(r => setExtTools(r.tools)).catch(() => {})
+    getMcpConnections().then(r => setConnections(r.connections)).catch(softFail('your MCP connections'))
+    getMcpTools().then(r => setExtTools(r.tools)).catch(softFail('your MCP connections'))
   }
-  const loadApprovals = () => getMcpApprovals('pending').then(r => setApprovals(r.approvals)).catch(() => {})
-  const loadActivity = () => getMcpLogs(120, logDir === 'all' ? undefined : logDir).then(r => setLogs(r.logs)).catch(() => {})
+  const loadApprovals = () => getMcpApprovals('pending').then(r => setApprovals(r.approvals)).catch(softFail('your MCP connections'))
+  const loadActivity = () => getMcpLogs(120, logDir === 'all' ? undefined : logDir).then(r => setLogs(r.logs)).catch(softFail('your MCP connections'))
   const loadA2a = () => {
-    getA2aCard().then(r => setA2aCardState(r.card)).catch(() => {})
-    getA2aPeers().then(r => setA2aPeers(r.peers)).catch(() => {})
+    getA2aCard().then(r => setA2aCardState(r.card)).catch(softFail('your MCP connections'))
+    getA2aPeers().then(r => setA2aPeers(r.peers)).catch(softFail('your MCP connections'))
   }
 
   const probe = () => {

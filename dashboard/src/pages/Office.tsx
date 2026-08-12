@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import { softFail } from '../lib/report'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence, useDragControls } from 'framer-motion'
 import {
@@ -55,9 +56,9 @@ export default function Office() {
   // Guard the shape: a stale backend (pre-Phase-2) returns the old /api/agents
   // dict with HTTP 200, so .catch won't fire — degrade to an empty office
   // instead of crashing until the live instance restarts.
-  const loadAgents = () => getAgents().then(r => setAgents(Array.isArray(r?.agents) ? r.agents : [])).catch(() => {})
-  const loadStats = () => getOfficeStats().then(setStats).catch(() => {})
-  const loadMissions = () => getMissions().then(r => setMissions(Array.isArray(r?.items) ? r.items : [])).catch(() => {})
+  const loadAgents = () => getAgents().then(r => setAgents(Array.isArray(r?.agents) ? r.agents : [])).catch(softFail('the office'))
+  const loadStats = () => getOfficeStats().then(setStats).catch(softFail('the office'))
+  const loadMissions = () => getMissions().then(r => setMissions(Array.isArray(r?.items) ? r.items : [])).catch(softFail('the office'))
 
   useEffect(() => {
     loadAgents(); loadStats(); loadMissions()
@@ -101,7 +102,7 @@ export default function Office() {
 
   const launch = async (id: number, mock: boolean) => {
     setOpenMission(null); setSelectedAgentId(null); setView('hq'); setWarMissionId(id)
-    try { await runMission(id, mock) } catch { /* already running / shown via stream */ }
+    try { await runMission(id, mock) } catch (error) { softFail('the office')(error) }
   }
 
   const selected = agents.find(a => a.id === selectedAgentId) || null
