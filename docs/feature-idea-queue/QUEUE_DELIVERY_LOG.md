@@ -5,6 +5,14 @@ readable. Nothing was shortened or removed here — each section is the note tha
 verbatim. `QUEUE.md` links to these sections; this file is the evidence behind them.
 
 
+<a id="item-31"></a>
+
+## 31. Pages tell you when they fail to load
+
+`FIX-CORE-8H-002`
+
+Spec written 2026-08-12, awaiting owner approval. No implementation yet.
+
 <a id="item-30"></a>
 
 ## 30. Chat self-check
@@ -92,7 +100,7 @@ Bounded Codex development with an independent reviewer is qualified. Same-run re
 
 `FOUND_BASE-CORE-5D20H-002`
 
-Run 2A commit `9125ec5` is owner-accepted. Run 2B is delivered and awaits owner acceptance: a typed staged assembler now owns Conductor's existing manifest/legacy source resolution, exact attachment and prompt composition, recall suffix, and model-message assembly while preserving their order around classification and model selection. The focused suite is 36/36 and its enforced gate is 16/16 green; the separate Awakening run reproduces only its accepted deferred-memory conflict. No context, Brain, prompt, history, route, flag, policy, tool, API, or UI owner changed. T08 is 35-45% complete and #21 about 87-93%; owner acceptance releases Run 3 planning.
+Run 2B commit `20960de` is owner-accepted: a typed staged assembler owns Conductor's existing manifest/legacy source resolution, exact attachment and prompt composition, recall suffix, and model-message assembly while preserving their order around classification and model selection. The focused suite was 36/36 and its enforced gate 16/16 green; the separate Awakening run reproduced only its accepted deferred-memory conflict. T08 remains 35-45% complete and #21 about 87-93%. Run 3 source review split recovery from ordinary execution: Run 3A will extract persisted retry/skip/revise/resume handling first, then 3B1 will move one-call validation/dispatch and 3B2 will move loop/batching orchestration. Run 3A awaits implementation approval; no runtime behavior has changed in planning.
 
 
 <a id="item-20"></a>
