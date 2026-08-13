@@ -13,13 +13,13 @@ Its status column carries the same short progress note this board tracks.
 
 ## Status
 
-**In progress.** T00 through T09 are complete. T10 Runs 1-2 are delivered and Run 3 is active.
+**In progress.** T00 through T10 are complete. T11 trace and evaluation gates are active.
 
-**Delivered:** 10 complete packages. Relevant owner memory can shape only a fallback local read and
-visible response/planning preferences; the current request and safety rules remain stronger.
+**Delivered:** 11 complete packages. Every accepted coding session now has one canonical,
+redacted Mission Control history while its full Developer history remains readable.
 
-**Next:** T10 Run 3 links each accepted coding session to one canonical Mission Control run while
-keeping its existing Developer history readable.
+**Next:** T11 joins context, model, tool, approval, cost, recovery, and outcome evidence into one
+trace, then evaluates it with local release and autonomy gates.
 
 ---
 
@@ -63,8 +63,8 @@ Ordered. Each one ships and is reviewable on its own. Risk is the plan's own rat
 | T07 | **Move the first real tools over:** files, terminal, projects. Each mutation gets a receipt, and a retry cannot double-apply it. | T03, T06 | High | Done |
 | T08 | **Shrink the Conductor.** It currently does routing, planning, permissions, execution, and replies all in one file. Pull those out one at a time until it is a thin wrapper. | T04, T07 | High | Done |
 | T09 | **Let Brain memory actually change answers.** Relevant memory influences what TOBI does; stale or private memory does not leak into it. | T00, T08 | High | Done |
-| T10 | **Make Hermes and the coding agent workers, not bosses.** They execute bounded requests; they cannot change the authoritative record. | T00, T03, T06 | High | Runs 1-2 delivered; Run 3 active |
-| T11 | **See everything.** One trace per request joining context, model, tools, approvals, cost, and outcome — plus the quality gates that block a release on regression. | T09, T10 | Med | ☐ |
+| T10 | **Make Hermes and the coding agent workers, not bosses.** They execute bounded requests; they cannot change the authoritative record. | T00, T03, T06 | High | Done |
+| T11 | **See everything.** One trace per request joining context, model, tools, approvals, cost, and outcome — plus the quality gates that block a release on regression. | T09, T10 | Med | Active |
 | T11A | **Map the system to itself.** Typed records for subsystems, capabilities, risks, and limitations. Foundation only — not the Atlas page. | T02, T11 | Med | ☐ |
 | T12 | **Attack it on purpose.** Threat model, then deliberately inject failures: injection, secrets, over-reach, budgets, paths. | T05, T11 | High | ☐ |
 | T13 | **The Runs page.** One live view of every run, shared across pages, reconnecting where it left off. Foundation only — no redesign. | T04, T11, T11A | Med | ☐ |

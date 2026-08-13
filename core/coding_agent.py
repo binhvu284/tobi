@@ -32,6 +32,7 @@ from core.coding_workers import CodingWorkerBlocked, CodingWorkerRouter, CodingW
 from core.coding_tools import resolve_runtime_command
 from core.release_manager import ReleaseManager
 from core.repo_index import RepositoryIndex
+from core.runtime.coding_adapter import CodingRuntimeAdapter
 
 
 STALE_SNAPSHOT_ERRORS = {"policy_changed", "plan_changed"}
@@ -81,6 +82,7 @@ class CodingAgent:
         *,
         policy: CodingPolicy | None = None,
         store: DevelopmentStore | None = None,
+        runtime_adapter: CodingRuntimeAdapter | None = None,
     ) -> None:
         self.policy = policy or CodingPolicy.load()
         self.store = store or DevelopmentStore()
@@ -95,6 +97,7 @@ class CodingAgent:
         self.github = GitHubCodingService(self.policy)
         self.releases = ReleaseManager(self.store)
         self.deployments = DeploymentManager(self.policy, self.store)
+        self.runtime_coding = runtime_adapter or CodingRuntimeAdapter()
         self._validation_probe_lock = threading.Lock()
         self._validation_probe_cache: dict[str, dict[str, Any]] = {}
         self.completion = CodingCompletionService(
@@ -308,7 +311,7 @@ class CodingAgent:
         )
         self.store.add_stages(int(session["id"]), STAGES)
         self.releases.reserve(target_version, queue_id, risk=task.get("risk") or "medium")
-        self.store.append_event(int(session["id"]), "workflow_approved", {
+        self._event(int(session["id"]), "workflow_approved", {
             "queue_id": queue_id, "plan_path": task["plan_path"], "plan_hash": task["plan_hash"],
             "policy_hash": self.policy.hash, "target_version": target_version,
             "readiness_id": readiness_id,
@@ -859,7 +862,7 @@ class CodingAgent:
         return None
 
     def _event(self, session_id: int, event_type: str, payload: dict[str, Any], actor: str = "tobi") -> None:
-        self.store.append_event(session_id, event_type, _safe(payload), actor=actor)
+        stored_event = self.store.append_event(session_id, event_type, _safe(payload), actor=actor)
         current = self.store.get_session(session_id)
         if current and current.get("stage"):
             self.store.heartbeat_stage_attempt(
@@ -867,6 +870,23 @@ class CodingAgent:
                 str(current["stage"]),
                 output=event_type.startswith("worker_") and event_type != "worker_heartbeat",
             )
+        if current:
+            try:
+                mirror = self.runtime_coding.mirror(current, stored_event)
+                if not mirror.ok:
+                    self.store.append_event(
+                        session_id,
+                        "runtime_mirror_recovery_required",
+                        {
+                            "reason": mirror.reason,
+                            "action": mirror.recovery_action,
+                            "source_sequence": stored_event["sequence"],
+                        },
+                        actor="mission-control",
+                    )
+            except Exception:
+                # Canonical history is additive; #22's accepted record always wins.
+                pass
 
     def _artifact(self, session_id: int, evidence_type: str, value: Any) -> dict[str, Any]:
         root = self.policy.repo_path("artifact_root") / str(session_id)

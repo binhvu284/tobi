@@ -108,7 +108,7 @@ Bounded Codex development with an independent reviewer is qualified. Same-run re
 
 `FOUND_BASE-CORE-5D20H-002`
 
-T08 is complete at `5b0a19a`; T09 at `34c4b1d` and `0f2a3e2`; T10 Run 1 at `3ff2edd`. T10 Run 2 is delivered: `development_store.py` now owns all SQL for the three deferred #22 tables, with purpose-named methods preserving exact reset sets and transactions. The current six-column Queue parser again distinguishes done/in-progress/planned items and returns plain names while retaining legacy five-column support. The enforced 9/9 gate and 207 ownership, Queue, recovery, worker, production, storage, state, and evidence checks passed. Two pytest-only suites were not rerun because the Codex approval service blocked the registered pytest runtime. T10 Run 3 shared history is active.
+T08 is complete at `5b0a19a`; T09 at `34c4b1d` and `0f2a3e2`; T10 Runs 1-2 at `3ff2edd` and `6db02df`. T10 Run 3 is complete locally: each accepted #22 coding session creates or reuses one deterministic canonical run and mirrors ordered lifecycle, checkpoint, evidence, failure, completion, and owner-command references. Duplicate delivery does not duplicate history, changed content fails closed, and raw prompts, credentials, diffs, evidence bodies, and worker output never enter canonical history. Adapter failure keeps the complete Developer record authoritative. The focused gate passed 10/10; 72 current Developer and 121 Runtime/state checks also passed. One historical all-in-one check still expects Queue #18 to depend on #17, but the current Queue truthfully says #18 is superseded by #22 and declares no such dependency. T11 trace and evaluation gates are active.
 
 
 <a id="item-20"></a>

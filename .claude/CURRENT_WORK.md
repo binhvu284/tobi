@@ -9,20 +9,18 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T10 Run 3 - Canonical coding-run history bridge
+**Package:** T11 - Unified trace and TOBIval release/autonomy gates
 
 **Purpose (one sentence, plain words):**
-Link each accepted #22 coding session to one Mission Control run and mirror its redacted lifecycle,
-checkpoint, and evidence history without replacing the readable Developer record.
+Join each canonical run's bounded evidence into one redacted trace and make local evaluation
+regressions block release activation or autonomy increases.
 
 **Not doing:**
-- No replacement, deletion, or mutation of accepted #22 Goal/Queue/session/checkpoint/evidence history.
-- No worker, model, terminal, GitHub, release, deployment, approval, or policy behavior change.
-- No reverse write from a worker into canonical Runtime state; only the MC adapter may append events.
-- No new database schema; derive idempotent canonical identity from the coding session.
-- No Developer UI, CLI, Telegram, Office, scheduler, Chat, or Conductor caller migration.
-- No activation change to Chat/Agent Runtime flags or accepted T09/T10 Runs 1-2 contracts.
-- No T11 telemetry/evals, T11A System Model, T12 security, T13 UI, or T14 rollout work.
+- No raw prompts, context bodies, tool output, credentials, diffs, or provider errors in telemetry.
+- No model, tool, worker, approval, policy, Brain, connector, or coding execution behavior change.
+- No activation flag change and no live release or autonomy increase.
+- No remote telemetry vendor; storage and evaluation remain local-first.
+- No T11A System Model, T12 security, T13 UI, T14 rollout, or T15 adapter work.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
 **Files expected:**
@@ -31,11 +29,11 @@ checkpoint, and evidence history without replacing the readable Developer record
 - `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
 - `docs/feature-idea-queue/QUEUE.md`
 - `docs/feature-idea-queue/QUEUE_DELIVERY_LOG.md`
-- `core/coding_agent.py`
-- `core/runtime/coding_adapter.py`
+- `core/runtime/trace.py`
+- `core/runtime/evals.py`
 - `core/runtime/repository.py`
-- `tests/test_mc_runtime_coding_adapter.py`
-- accepted #22 regression tests
+- `tests/test_mc_runtime_evals.py`
+- accepted Runtime and Developer regression tests
 
 **Gate: no**
 

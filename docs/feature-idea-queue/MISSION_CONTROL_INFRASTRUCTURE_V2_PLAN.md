@@ -2581,6 +2581,28 @@ evidence references mirror once with redaction; duplicate delivery replays; chan
 closed; worker metadata cannot mutate canonical state directly; accepted T03 repository/event,
 T10 Runs 1-2, #22 recovery/delivery, compile, diff, and enforced gate checks pass. T10 then closes.
 
+**Delivered (2026-08-14):** `coding_adapter.py` derives one deterministic canonical run from each
+accepted coding session and mirrors bounded ordered references through the MC-owned event funnel.
+Replay is idempotent, changed source identity fails closed, and adapter failure leaves the complete
+Developer history authoritative. The focused gate passed 10/10; current Developer, Runtime,
+checkpoint-recovery, and state checks added 193 passes. T10 is complete and T11 is released.
+
+### 25.22 T11 - Unified Trace and TOBIval Gate Plan (2026-08-14)
+
+**Outcome:** one queryable local trace joins a run's context, model, tool, approval, usage, recovery,
+and outcome references. Versioned local evaluation cases produce immutable runs and findings, and a
+deterministic release/autonomy decision fails closed when required coverage regresses.
+
+**Rules:** reuse canonical run events and existing T01 evaluation contracts/tables; store bounded
+metadata, hashes, and references only. No prompts, context bodies, tool output, credentials, or raw
+provider errors enter telemetry. Evaluation input is versioned and replay-safe; unknown required
+cases, incomplete evidence, regressions, and unsafe findings block activation or autonomy increase.
+
+**Acceptance:** trace reconstruction is deterministic and redacted; final-answer, tool-trajectory,
+policy, recovery, Brain-context, hallucination, connector-freshness, and coding-workflow cases are
+queryable; exact replay does not duplicate; changed identities conflict; release/autonomy gates
+block missing or failed requirements; accepted Runtime/Developer regressions and enforced gate pass.
+
 ## 26. Implementation Log
 
 Planning state only. Add one dated row after each accepted worker package.
@@ -2626,3 +2648,4 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-14 | T09 Run 2 | T09 Run 2 delivery commit; owner continuation authorization | Red missing-hint contract; enforced gate 6/6; 123 owner-intelligence, Brain, Context Manager, Chat unit, and live route checks green; compile and diff green | Complete; only owner-direct known memory can influence an ordinary fallback through fixed local reads or allowlisted response/planning preferences. Current instructions and all safety owners remain stronger; real turn-linked metadata-only evidence is recorded; T10 Run 1 released |
 | 2026-08-14 | T10 Run 1 | T10 Run 1 delivery commit; owner continuation authorization | Red missing-adapter import; enforced gate 8/8; 213 worker-capability, Hermes skill, accepted #22, Runtime contract/repository/tool/policy checks green; compile and diff green | Delivered; deterministic immutable MC-authoritative worker snapshots expose bounded capability and metadata evidence only. Unknown versions/duplicates fail closed and unavailable workers return typed same-run recovery; Run 2 released |
 | 2026-08-14 | T10 Run 2 | T10 Run 2 delivery commit; owner continuation authorization | Red ownership and current-Queue fixtures; enforced gate 9/9; 207 ownership, Queue, recovery, worker, production, storage, state, and evidence checks green; compile and diff green; two pytest-only suites blocked by approval-service runtime access | Delivered; `development_store.py` is the sole SQL owner for the three deferred #22 tables, exact behavior is retained, and current/legacy Queue schemas parse truthfully; Run 3 released |
+| 2026-08-14 | T10 Run 3 | T10 Run 3 local delivery; owner continuation authorization | Red missing-adapter import; enforced gate 10/10; 72 current Developer plus 121 Runtime/checkpoint/state checks green; one stale #18 dependency assertion documented | Complete; one deterministic canonical run mirrors only ordered redacted coding references, replay is exact, conflicts fail closed, and any mirror failure leaves #22 history and execution unchanged; T11 released |
