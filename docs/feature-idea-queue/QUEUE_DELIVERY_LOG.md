@@ -108,7 +108,7 @@ Bounded Codex development with an independent reviewer is qualified. Same-run re
 
 `FOUND_BASE-CORE-5D20H-002`
 
-Run 3B2 is delivered and awaits owner acceptance. A frozen typed outcome and one compatibility service now own Conductor's model/tool iteration, ordered parsed-call batches, combined proposal timing, and step-budget forced-final path while parsing, one-call validation/dispatch, policy, Terminal, receipts, audit, approvals, final cleanup, model selection, and public result fields remain with their accepted owners. The focused suite first failed on the missing module, then passed 44/44; inherited Run 3B1 and checkpoint suites passed 62/62 and 49 checks; the enforced gate is 3/3 green. Broader Chat, mode, resource, terminal, runtime policy/facts/approvals, registry/catalog/adapters, project/file/terminal, compile, route, and diff checks passed. T08 is 70-82% complete and #21 about 94-98% after acceptance. Run 4 is not released until owner acceptance.
+T08 is complete. Run 3B2 was accepted by the owner on 2026-08-13 at commit `52227e0`. Run 4 then moved direct-answer coordination, final cleanup, mixed tool/prose recovery, bounded model escalation, and public model metadata behind typed Runtime services; `conductor.answer()` is now a compatibility-only wrapper with its exact 22-parameter signature. The new facade test failed first on the missing module, then the enforced 9/9 gate passed. Accepted T08 suites plus final/mixed output, Chat self-check/runtime/route, context, modes, resources, Terminal, Runtime policy/approvals/tools/jobs, compile, and diff checks passed. The owner authorized T08 completion and the remaining #21 sequence; T09 Run 1 is active.
 
 
 <a id="item-20"></a>

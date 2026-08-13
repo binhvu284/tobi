@@ -341,15 +341,23 @@ def _check_conductor_delegation() -> int:
            "Conductor does not re-export the shared recovery function")
     checks += 2
 
-    source = (ROOT / "core" / "conductor.py").read_text(encoding="utf-8")
-    _check("if recovery_checkpoint:" not in source, "legacy recovery branch remains in Conductor")
-    _check(source.count("_apply_recovery_checkpoint(") == 1, "Conductor recovery delegation count changed")
+    answer_source = inspect.getsource(conductor.answer)
+    from core.runtime import conductor_facade
+    facade_source = inspect.getsource(conductor_facade)
+    _check("recovery_checkpoint" in answer_source, "Conductor facade dropped recovery input")
+    _check(facade_source.count("bindings.apply_recovery_checkpoint(") == 1,
+           "Runtime facade recovery delegation count changed")
     for ordinary_loop_marker in (
         "_run_tool_loop(",
         "execute_tool_call=_execute_loop_call",
         "_execute_tool_call(",
     ):
-        _check(ordinary_loop_marker in source, f"ordinary loop ownership changed: {ordinary_loop_marker}")
+        expected = {
+            "_run_tool_loop(": "bindings.run_tool_loop(",
+            "execute_tool_call=_execute_loop_call": "execute_tool_call=execute_loop_call",
+            "_execute_tool_call(": "bindings.execute_tool_call(",
+        }[ordinary_loop_marker]
+        _check(expected in facade_source, f"ordinary loop ownership changed: {ordinary_loop_marker}")
         checks += 1
     checks += 2
 

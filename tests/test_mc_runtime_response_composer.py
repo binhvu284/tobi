@@ -48,6 +48,8 @@ class StreamFake(CompleteFake):
 
 ok("response service does not reverse-import Conductor", "core.conductor" not in sys.modules)
 ok("typed model-step result is immutable", rc.ModelStepResult.__dataclass_params__.frozen)
+ok("final response decision is immutable", rc.FinalResponseDecision.__dataclass_params__.frozen)
+ok("final response context is immutable", rc.FinalResponseContext.__dataclass_params__.frozen)
 
 ok("empty prefix is not a tool", not rc.looks_like_tool_start(""))
 ok("leading object is a tool prefix", rc.looks_like_tool_start('{"tool"'))
@@ -64,6 +66,34 @@ harmony = (
 )
 clean, reasoning = rc.split_reasoning(harmony)
 ok("harmony final channel is selected", clean == "Visible answer" and "private" in reasoning)
+
+plain_final = rc.classify_final_response("Visible answer", mixed_prose_min=20)
+ok("plain final response needs no escalation", not plain_final.requires_escalation)
+mixed_final = rc.classify_final_response(
+    '{"tool":"list_projects","args":{}} I need the current project status first.',
+    mixed_prose_min=20,
+)
+ok("mixed tool prose keeps its useful text", mixed_final.mixed_reply == "I need the current project status first.")
+malformed_final = rc.classify_final_response('{"tool"', mixed_prose_min=20)
+ok("malformed internal output requests escalation", malformed_final.requires_escalation)
+
+metadata_client = CompleteFake([])
+metadata_client.requested_model = "openai:wanted"
+metadata_client.provider = "openai"
+metadata_client.model = "actual"
+metadata_client.attempt_count = 2
+metadata = rc.attach_model_metadata(
+    {"reply": "done"},
+    client=metadata_client,
+    requested_model="openai:asked",
+    usage_context=None,
+)
+ok(
+    "model metadata preserves requested and actual identities",
+    metadata["requested_model"] == "openai:wanted"
+    and metadata["actual_model"] == "openai:actual"
+    and metadata["model_attempts"] == 2,
+)
 
 sample = "One short sentence followed by a second sentence."
 chunks = list(rc.stream_chunks(sample))

@@ -9,29 +9,20 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T08 Run 3B2 - Compatibility tool-loop orchestration extraction (delivered; awaiting owner acceptance)
+**Package:** T09 Run 1 - Typed owner-intelligence context adapter
 
 **Purpose (one sentence, plain words):**
-Move Conductor's model/tool iteration, ordered call batching, combined proposals, and step-budget
-fallback behind one typed Runtime service without changing what executes or what the owner sees.
+Adapt delivered #20 memories into the canonical Runtime context contract with provenance and strict
+relevance, freshness, sensitivity, certainty, scope, and instruction-authority guards.
 
 **Not doing:**
-- No release of Run 4 planning or T08 closeout before owner acceptance of this Run 3B2 delivery.
-- No work outside the approved Run 3B2 implementation scope.
-- No change to the accepted Run 3A checkpoint-recovery service or persisted recovery behavior.
-- No change to accepted one-call validation or dispatch. Run 3B2 invokes the Run 3B1 service once
-  per parsed call and does not absorb policy, registry, Terminal, audit, approval, or receipt logic.
-- No change to tool-call parsing or deduplication; the existing parser remains authoritative.
-- No final-answer cleanup, reasoning removal, mixed tool/prose handling, model escalation/selection,
-  or no-tools direct-answer extraction; Run 4 owns those remaining Conductor responsibilities.
-- No activation of the dormant canonical executor, durable loop controller, or T07 tool runtimes.
-- No new validation, execution, policy, approval, receipt, proposal, or action authority.
-- No change to retry limits, model/tool call order, per-call step identity, corrective prompts,
-  combined proposal timing, tool-step budgets, forced-final prompts, or token-limit continuation.
-- No change to the `conductor.answer()` signature, result fields, reply text, event order, model
-  selection/fallback, context, routing, policy, approvals, tool catalog/execution, persistence, or
-  owner flags.
-- No T09 Brain-context integration, T11 observability expansion, T13 Runs page, or T14 activation work.
+- No route, planner, or tool-candidate influence; T09 Run 2 owns those bounded hints.
+- No new Brain schema, memory lifecycle, retrieval ranking, feedback verdict, or Graph authority.
+- No sensitive, stale, contradicted, pending, rejected, archived, or superseded memory in Runtime context.
+- No memory-granted permission, credential, tool execution, policy weakening, or instruction authority.
+- No change to accepted T08 Conductor behavior, signatures, replies, prompts, tools, or model selection.
+- No activation of dormant canonical executors, Runtime tools, or rollout flags.
+- No T10 Hermes/coding adapter, T11 observability/evals, T13 Runs page, or T14 activation work.
 - No Telegram, CLI, Office, scheduler, or remaining-surface migration; T15 owns those adapters.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
@@ -41,18 +32,17 @@ fallback behind one typed Runtime service without changing what executes or what
 - `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
 - `docs/feature-idea-queue/QUEUE.md`
 - `docs/feature-idea-queue/QUEUE_DELIVERY_LOG.md`
-- `core/runtime/tool_loop_orchestrator.py`
-- `core/conductor.py`
-- `tests/test_mc_runtime_tool_loop_orchestrator.py`
-- `tests/test_mc_runtime_tool_call_executor.py` (superseded Run 3B1 source-location assertion only)
-- `tests/test_mc_runtime_checkpoint_recovery.py` (superseded source-location assertion only)
+- `core/runtime/contracts.py`
+- `core/runtime/owner_intelligence.py`
+- `core/brain_retrieval.py`
+- `core/context_manager.py`
+- `tests/test_mc_runtime_owner_intelligence.py`
+- `tests/test_brain_retrieval.py` (adapter source fields only if required)
+- `tests/test_context_manager.py` (manifest integration only if required)
 
-**Gate: green**
+**Gate: no**
 
 ```gate
-"C:/Users/LE BINH/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe" tests/test_mc_runtime_tool_loop_orchestrator.py
-"C:/Users/LE BINH/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe" tests/test_mc_runtime_tool_call_executor.py
-"C:/Users/LE BINH/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe" tests/test_mc_runtime_checkpoint_recovery.py
 ```
 
 ---

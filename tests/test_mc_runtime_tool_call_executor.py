@@ -512,11 +512,14 @@ def _check_conductor_boundary() -> int:
     checks += 1
 
     answer_source = inspect.getsource(conductor.answer)
-    _check("_run_tool_loop(" in answer_source, "Conductor does not delegate loop orchestration")
-    _check("execute_tool_call=_execute_loop_call" in answer_source,
-           "Conductor does not bridge loop orchestration to one-call execution")
+    _check("_run_conductor_turn(" in answer_source, "Conductor does not delegate turn orchestration")
+    from core.runtime import conductor_facade
+    facade_source = inspect.getsource(conductor_facade)
+    _check("execute_tool_call=execute_loop_call" in facade_source,
+           "Runtime facade does not bridge loop orchestration to one-call execution")
     checks += 2
-    _check("_execute_tool_call(" in answer_source, "Conductor does not delegate one-call execution")
+    _check("bindings.execute_tool_call(" in facade_source,
+           "Runtime facade does not delegate one-call execution")
     checks += 1
 
     service_source = inspect.getsource(tool_call_executor)

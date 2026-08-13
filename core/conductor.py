@@ -121,6 +121,11 @@ from core.runtime.response_composer import (
 )
 from core.runtime.tool_call_executor import execute_tool_call as _execute_tool_call
 from core.runtime.tool_loop_orchestrator import run_tool_loop as _run_tool_loop
+from core.runtime.conductor_facade import (
+    ConductorFacadeBindings as _ConductorFacadeBindings,
+    ConductorTurnRequest as _ConductorTurnRequest,
+    run_conductor_turn as _run_conductor_turn,
+)
 
 MAX_TOOL_STEPS = 8  # enough for a chain: read → create project → tasks → assign → answer
 _LLM_DOWN = "I can't reach my language model right now, sir — do check the LLM API key in Integrations."
@@ -268,6 +273,104 @@ def _continue_answer(client, msgs: list, partial: str, system: str,
     )
 
 
+def _brain_profile_summary(*args, **kwargs):
+    from core import brain
+
+    return brain.profile_summary(*args, **kwargs)
+
+
+def _model_router_get_llm(*args, **kwargs):
+    from core import model_router
+
+    return model_router.get_llm(*args, **kwargs)
+
+
+def _model_router_get_escalation_llm(*args, **kwargs):
+    from core import model_router
+
+    return model_router.get_escalation_llm(*args, **kwargs)
+
+
+def _model_router_get_usage_context(*args, **kwargs):
+    from core import model_router
+
+    return model_router.get_usage_context(*args, **kwargs)
+
+
+def _model_router_set_usage_context(*args, **kwargs):
+    from core import model_router
+
+    return model_router.set_usage_context(*args, **kwargs)
+
+
+def _model_router_restore_usage_context(*args, **kwargs):
+    from core import model_router
+
+    return model_router.restore_usage_context(*args, **kwargs)
+
+
+def _facade_bindings() -> _ConductorFacadeBindings:
+    """Bind current compatibility owners at call time so legacy monkeypatches still work."""
+
+    return _ConductorFacadeBindings(
+        default_chat_id=_default_chat_id,
+        pending_all=_pending_all,
+        is_affirm=_is_affirm,
+        is_negate=_is_negate,
+        confirm_action=confirm_action,
+        confirm_reply_batch=_confirm_reply_batch,
+        profile_loader=_brain_profile_summary,
+        tier_loader=_build_tier_context,
+        resolve_context_sources=_resolve_context_sources,
+        resolve_intent=_resolve_intent,
+        prepare_prompt_context=_prepare_prompt_context,
+        prompt_builder=_system_prompt,
+        recall_detector=_detect_past_reference,
+        get_llm=_model_router_get_llm,
+        prepare_model_messages=_prepare_model_messages,
+        history_loader=_history,
+        apply_recovery_checkpoint=_apply_recovery_checkpoint,
+        risk_by_tool=RISK,
+        tool_specs=TOOL_SPECS,
+        read_tools=READ_TOOLS,
+        optional_tools=OPTIONAL_TOOLS,
+        terminal_tools=TERMINAL_TOOLS,
+        workflow_read_tools=_WORKFLOW_READ_TOOLS,
+        validate_call=_tool_registry.validate_call,
+        phase_for=_phase_for,
+        terminal_engine_loader=_load_terminal_engine,
+        terminal_command_for=_terminal_command_for,
+        propose_actions=_propose_actions,
+        execute_terminal=_execute_terminal_and_log,
+        execute_action=_execute_and_log,
+        execute_tool=_exec_tool,
+        log_action=_log_action,
+        action_summary=_action_summary,
+        picker_intro=_picker_intro,
+        failure_report=_failure_report,
+        make_tool_call=_tool_registry.ToolCall,
+        receipt_key=_tool_registry.receipt_key,
+        load_receipt=_tool_registry.load_receipt,
+        store_receipt=_tool_registry.store_receipt,
+        execute_tool_call=_execute_tool_call,
+        run_tool_loop=_run_tool_loop,
+        parse_tool_calls=_parse_tool_calls,
+        generate_step=_gen_step,
+        continue_answer=_continue_answer,
+        get_escalation_llm=_model_router_get_escalation_llm,
+        get_usage_context=_model_router_get_usage_context,
+        set_usage_context=_model_router_set_usage_context,
+        restore_usage_context=_model_router_restore_usage_context,
+        default_max_tool_steps=MAX_TOOL_STEPS,
+        step_token_budget=STEP_TOKENS,
+        final_token_budget=FINAL_TOKENS,
+        max_step_retries=MAX_STEP_RETRIES,
+        mixed_prose_min=_MIXED_PROSE_MIN,
+        model_down_text=_LLM_DOWN,
+        model_struggling_text=_MODEL_STRUGGLING,
+    )
+
+
 def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
            model: Optional[str] = None, history: Optional[list[dict]] = None,
            attachments_text: Optional[str] = None, directives: Optional[str] = None,
@@ -281,313 +384,34 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
            step_tokens: Optional[int] = None, final_tokens: Optional[int] = None,
            usage_context: Optional[dict] = None,
            recovery_checkpoint: Optional[dict] = None) -> dict:
-    """Core turn: confirm-pending? → classify → (optional) tool-loop with tiered act gating →
-    grounded butler reply (+ pending_action when a high-risk act needs confirmation). No
-    persistence (the chat/stream wrappers persist + learn). `surface` = 'mc' | 'telegram'.
-
-    `model` ('provider:model') overrides the routed model — the Premium Chat (#8) picker
-    threads the session's chosen model here. `history`, when given, is used verbatim as the
-    conversation context (the session store owns it) instead of the Conductor's rolling
-    `conversations` table.
-
-    `denied_tools` is the mode capability boundary (#16 [D11][D23]): any tool in this set is
-    NOT advertised AND is rejected server-side if the model calls it anyway — so the selected
-    mode changes the real backend capability, not just prompting (Chat denies the terminal
-    surface). Review policy is server-authoritative: ``ask`` proposes every mutation,
-    ``session`` trusts low/medium mutations but proposes high-risk work, and ``always`` executes
-    all otherwise-allowed mutations autonomously. Recovery checkpoints come from persisted run
-    state rather than browser-supplied tool arguments."""
-    message = (message or "").strip()
-    if not message:
-        return {"reply": "", "tools_used": [], "error": "empty"}
-    if chat_id is None:
-        chat_id = _default_chat_id()
-    denied_tools = set(denied_tools or ())
-    allowed_tools = set(allowed_tools) if allowed_tools is not None else None
-    mode = mode if mode in ("chat", "agent") else "chat"
-    review_mode = (review_mode or "").strip().lower()
-    if usage_context:
-        try:
-            from core import model_router as _mr
-            _mr.set_usage_context(
-                usage_context.get("surface", mode),
-                usage_context.get("feature", ""),
-                **{
-                    key: value for key, value in usage_context.items()
-                    if key not in {"surface", "feature"}
-                },
-            )
-        except Exception:
-            pass
-
-    # Pending high-risk proposals + a typed yes/no resolves them (the whole batch) first.
-    pending_list = _pending_all(chat_id)
-    if pending_list:
-        if _is_affirm(message):
-            results = [confirm_action(p["id"], "approve", surface, chat_id) for p in pending_list]
-            return {"reply": _confirm_reply_batch(pending_list, results, "approve"),
-                    "tools_used": [p["tool"] for p in pending_list], "intent": "CONFIRM", "confirmed": results}
-        if _is_negate(message):
-            for p in pending_list:
-                confirm_action(p["id"], "reject", surface, chat_id)
-            return {"reply": _confirm_reply_batch(pending_list, None, "reject"), "tools_used": [], "intent": "CANCEL"}
-        # otherwise the owner moved on — leave the proposals pending and answer normally.
-
-    from core import brain
-    from core.model_router import get_llm
-
-    context_sources = _resolve_context_sources(
-        context_manifest,
-        profile_loader=brain.profile_summary,
-        tier_loader=_build_tier_context,
-    )
-    intent_decision = _resolve_intent(message, mode, route)
-    intent = intent_decision.intent
-    # Attachments (P2): the owner's files arrive as extracted text — fold them into the
-    # turn as context so the tool-loop and the grounded reply can use them.
-    tools_enabled = intent_decision.tools_enabled
-    prompt_context = _prepare_prompt_context(
-        message,
-        attachments_text,
-        context_sources,
-        tools_enabled=tools_enabled,
-        surface=surface,
-        directives=directives,
-        extra_tools=extra_tools,
-        denied_tools=denied_tools,
-        allowed_tools=allowed_tools,
-        prompt_builder=_system_prompt,
-        recall_detector=_detect_past_reference,
-    )
-    message = prompt_context.message
-    system = prompt_context.system
-
-    try:
-        # Keep the legacy call shape when no model override is given, so callers/tests that
-        # wrap get_llm with the old (task_type-only) signature keep working.
-        client = get_llm("simple", model=model) if model else get_llm("simple")
-    except Exception as e:
-        return {"reply": _LLM_DOWN, "tools_used": [], "intent": intent, "error": str(e)}
-
-    def _with_model_meta(payload: dict, *, actual_override: Optional[str] = None,
-                         reason_override: Optional[str] = None) -> dict:
-        requested = (
-            getattr(client, "requested_model", None)
-            or (model or "")
-            or (usage_context or {}).get("requested_model")
-            or None
-        )
-        actual = actual_override or getattr(client, "actual_model_id", None)
-        if not actual and getattr(client, "provider", None) and getattr(client, "model", None):
-            actual = f"{client.provider}:{client.model}"
-        payload.update({
-            "requested_model": requested,
-            "actual_model": actual,
-            "fallback_reason": reason_override or getattr(client, "fallback_reason", None),
-            "model_attempts": int(getattr(client, "attempt_count", 1) or 1),
-        })
-        return payload
-
-    msgs = _prepare_model_messages(message, history, chat_id, history_loader=_history)
-    used: list[str] = []
-    done_acts: list[str] = []  # successfully executed acts in this chain (for stop-on-failure)
-    # When a chatty model leaks a prose preamble before a tool call, retract it from the UI.
-    on_reset = (lambda: on_event({"type": "reset"})) if on_event else None
-
-    # Recover persisted work before model planning while existing helpers retain authority for
-    # validation, safety, execution, approvals, receipts, and owner-visible responses.
-    recovery = _apply_recovery_checkpoint(
-        recovery_checkpoint,
-        chat_id=chat_id,
-        surface=surface,
-        intent=intent,
-        mode=mode,
-        review_mode=review_mode,
-        denied_tools=denied_tools,
-        allowed_tools=allowed_tools,
-        turn_id=turn_id,
-        risk_by_tool=RISK,
-        tool_specs=TOOL_SPECS,
-        terminal_tools=TERMINAL_TOOLS,
-        validate_call=_tool_registry.validate_call,
-        phase_for=_phase_for,
-        terminal_engine_loader=_load_terminal_engine,
-        terminal_command_for=_terminal_command_for,
-        propose_actions=_propose_actions,
-        execute_terminal=_execute_terminal_and_log,
-        execute_action=_execute_and_log,
-        action_summary=_action_summary,
-        failure_report=_failure_report,
-        on_event=on_event,
-    )
-    if recovery.turn_response is not None:
-        return recovery.turn_response
-    msgs.extend(recovery.messages)
-    used.extend(recovery.tools_used)
-    done_acts.extend(recovery.completed_actions)
-
-    def _final(text: str) -> dict:
-        """Finish a turn: strip reasoning, continue if it was truncated, flag a model issue.
-
-        Guard: NEVER surface a raw tool-call JSON to the owner. A weaker model sometimes emits
-        `{"tool": …}` where a prose answer was required (it keeps "calling" a tool — e.g. loops
-        on recall_conversations — and still emits JSON on the forced-final step). Dumping that
-        verbatim is the `{"tool":"…"}` leak owners see; instead we treat it as a model issue so
-        the UI shows a graceful notice, not machine JSON."""
-        clean, reasoning = _strip_reasoning(text)
-        # Trip only on a genuine tool call: a parseable {"tool":…} object, or a leading `{"tool"`
-        # signature (a truncated/garbled one). This is precise — a legitimate fenced-JSON answer
-        # the owner asked for does NOT lead with `{"tool"` and won't parse as a call.
-        if not clean or _TOOL_SIG_RE.match(clean.lstrip()) or _parse_tool_call(clean):
-            # A reply can be BOTH a tool call and something worth saying. Asked to "list all
-            # project, update their progress", the model emitted the call and, glued to it,
-            # "I need each project's current status ... to update progress accurately" — the
-            # one question the request left open. The tools have already run by this point, so
-            # the prose IS the answer; discarding it cost the owner a fair question and told
-            # him his model was struggling, which was never true.
-            leftover = strip_tool_calls(clean)
-            if len(leftover) >= _MIXED_PROSE_MIN:
-                return _with_model_meta({
-                    "reply": leftover, "reasoning": reasoning, "tools_used": used,
-                    "intent": intent, "streamed": False,
-                })
-            # Nothing but a tool call — the model genuinely never answered. Escalate once,
-            # visibly, only after the invalid response has been buffered/retracted.
-            try:
-                from core.model_router import get_escalation_llm
-                stronger, stronger_id = get_escalation_llm(model)
-                if stronger is not None:
-                    if on_reset:
-                        on_reset()
-                    if on_event:
-                        on_event({"type": "model_escalated", "from_model": model,
-                                  "to_model": stronger_id, "reason": "malformed_output"})
-                    retry_msgs = list(msgs) + [{"role": "user", "content":
-                        "The previous model produced malformed internal output. Give the owner a complete "
-                        "plain-language answer now. Do not emit a tool call or JSON."}]
-                    from core import model_router as _model_router
-                    previous_usage = _model_router.get_usage_context()
-                    _model_router.set_usage_context(
-                        previous_usage.get("surface", mode),
-                        previous_usage.get("feature", ""),
-                        **{
-                            **{
-                                key: value for key, value in previous_usage.items()
-                                if key not in {"surface", "feature"}
-                            },
-                            "requested_model": (
-                                getattr(client, "requested_model", None)
-                                or model or previous_usage.get("requested_model", "")
-                            ),
-                            "attempt": int(getattr(client, "attempt_count", 1) or 1) + 1,
-                            "fallback_reason": "malformed_output",
-                        },
-                    )
-                    try:
-                        retry, retry_is_answer, _ = _gen_step(
-                            stronger, retry_msgs, system, final_tokens or FINAL_TOKENS,
-                            on_delta, on_reset)
-                    finally:
-                        _model_router.restore_usage_context(previous_usage)
-                    retry_clean, retry_reasoning = _strip_reasoning(retry)
-                    if retry_is_answer and retry_clean and not _parse_tool_call(retry_clean):
-                        return _with_model_meta({
-                            "reply": retry_clean, "reasoning": retry_reasoning,
-                            "tools_used": used, "intent": intent, "streamed": bool(on_delta),
-                            "model_escalated": stronger_id,
-                        }, actual_override=stronger_id, reason_override="malformed_output")
-            except Exception as exc:
-                logger.warning("conductor model escalation failed: %s", exc)
-            return _with_model_meta({
-                "reply": _MODEL_STRUGGLING, "tools_used": used, "intent": intent,
-                "model_issue": True, "streamed": False,
-            })
-        return _with_model_meta({
-            "reply": clean, "reasoning": reasoning, "tools_used": used,
-            "intent": intent, "streamed": bool(on_delta),
-        })
-
-    if not tools_enabled:
-        _final_tokens = final_tokens or FINAL_TOKENS
-        text, _isa, fr = _gen_step(client, msgs, system, _final_tokens, on_delta)
-        if fr == "length":
-            text += _continue_answer(client, msgs, text, system, on_delta)
-        return _final(text)
-
-    def _execute_loop_call(call: dict, *, step_index: int,
-                           prior_tools_used: list[str],
-                           completed_actions: list[str]):
-        return _execute_tool_call(
-            call,
+    """Compatibility-only public facade over the typed Runtime turn coordinator."""
+    return _run_conductor_turn(
+        _ConductorTurnRequest(
+            message=message,
             chat_id=chat_id,
             surface=surface,
-            intent=intent,
-            mode=mode,
-            review_mode=review_mode,
-            denied_tools=denied_tools,
-            allowed_tools=allowed_tools,
-            turn_id=turn_id,
-            step_index=step_index,
-            prior_tools_used=prior_tools_used,
-            completed_actions=completed_actions,
-            risk_by_tool=RISK,
-            tool_specs=TOOL_SPECS,
-            read_tools=READ_TOOLS,
-            optional_tools=OPTIONAL_TOOLS,
-            terminal_tools=TERMINAL_TOOLS,
-            workflow_read_tools=_WORKFLOW_READ_TOOLS,
-            validate_call=_tool_registry.validate_call,
-            phase_for=_phase_for,
-            execute_tool=_exec_tool,
-            terminal_engine_loader=_load_terminal_engine,
-            terminal_command_for=_terminal_command_for,
-            make_tool_call=_tool_registry.ToolCall,
-            receipt_key=_tool_registry.receipt_key,
-            load_receipt=_tool_registry.load_receipt,
-            store_receipt=_tool_registry.store_receipt,
-            execute_terminal=_execute_terminal_and_log,
-            execute_action=_execute_and_log,
-            log_action=_log_action,
-            action_summary=_action_summary,
-            picker_intro=_picker_intro,
-            failure_report=_failure_report,
+            model=model,
+            history=history,
+            attachments_text=attachments_text,
+            directives=directives,
+            extra_tools=extra_tools,
             on_event=on_event,
-        )
-
-    loop = _run_tool_loop(
-        client=client,
-        messages=msgs,
-        system=system,
-        chat_id=chat_id,
-        surface=surface,
-        intent=intent,
-        mode=mode,
-        used_tools=used,
-        completed_actions=done_acts,
-        max_tool_steps=max_tool_steps,
-        default_max_tool_steps=MAX_TOOL_STEPS,
-        step_tokens=step_tokens,
-        step_token_budget=STEP_TOKENS,
-        final_tokens=final_tokens,
-        final_token_budget=FINAL_TOKENS,
-        max_step_retries=MAX_STEP_RETRIES,
-        generate_step=_gen_step,
-        continue_answer=_continue_answer,
-        parse_tool_calls=_parse_tool_calls,
-        execute_tool_call=_execute_loop_call,
-        propose_actions=_propose_actions,
-        on_delta=on_delta,
-        on_reset=on_reset,
+            on_delta=on_delta,
+            denied_tools=denied_tools,
+            review_mode=review_mode,
+            mode=mode,
+            route=route,
+            allowed_tools=allowed_tools,
+            context_manifest=context_manifest,
+            turn_id=turn_id,
+            max_tool_steps=max_tool_steps,
+            step_tokens=step_tokens,
+            final_tokens=final_tokens,
+            usage_context=usage_context,
+            recovery_checkpoint=recovery_checkpoint,
+        ),
+        _facade_bindings(),
     )
-    msgs[:] = list(loop.messages)
-    used[:] = list(loop.tools_used)
-    done_acts[:] = list(loop.completed_actions)
-    if loop.turn_response is not None:
-        return loop.turn_response
-    if loop.model_issue:
-        return {"reply": _MODEL_STRUGGLING, "tools_used": used, "intent": intent,
-                "model_issue": True, "streamed": False}
-    return _final(loop.final_text or "")
 
 
 def _persist_and_learn(chat_id: int, message: str, reply: str) -> None:

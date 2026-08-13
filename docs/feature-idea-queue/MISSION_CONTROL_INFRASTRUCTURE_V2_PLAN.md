@@ -5,7 +5,7 @@
 | Field | Decision |
 |---|---|
 | Queue item | `#21` |
-| Status | In progress; T00-T07 and T08 Runs 1, 2A, 2B, 3A, and 3B1 owner-accepted; T08 Run 3B2 delivered, owner acceptance pending |
+| Status | In progress; T00-T08 complete; T09 Run 1 active |
 | Delivered dependency | `#20` Brain V2 is delivered; T00 must reconcile this plan with its actual contracts, migrations, context behavior, and rollback path |
 | Start gate | Satisfied 2026-08-01 by `#22` Codex-only V2 qualification (`e9bc5fe`); other workers remain locked until separately qualified |
 | Deployment confidence | The `#22` 24-hour/72-hour VPS soak remains a deployment confidence gate, not a source-development blocker for `#21` unless the owner explicitly promotes it to one |
@@ -2387,7 +2387,87 @@ unattended implementation and verification time is **6-8 hours**. Owner acceptan
 **10-15 minutes**: confirm orchestration moved while one-call execution, policy, final cleanup,
 model selection, public result fields, and owner-visible behavior stayed unchanged.
 
-**Owner action:** accept **T08 Run 3B2 delivery**. Run 4 planning is not released until that acceptance.
+**Owner acceptance (2026-08-13):** Run 3B2 commit `52227e0` is accepted. T08 is **70-82%**
+complete and Run 4 is released.
+
+### 25.16 T08 Run 4 - Final Response And Compatibility-Facade Closeout Plan (2026-08-13)
+
+**Outcome:** move the remaining direct-answer path, final cleanup, mixed tool/prose recovery, model
+escalation, model metadata, and extracted-service coordination behind typed Runtime boundaries.
+`core/conductor.py::answer()` keeps its exact public signature but becomes a compatibility-only
+facade. Replies, tools, events, permissions, persistence, routes, and model behavior stay unchanged.
+
+**Boundary:** `core/runtime/response_composer.py` gains typed final-response classification and
+payload composition. A new `core/runtime/conductor_facade.py` coordinates the accepted intent,
+context, recovery, one-call, and tool-loop services through explicitly injected dependencies. It
+must not own tool implementations, policy, approval, receipts, persistence, route selection, or a
+new public API. Conductor continues re-exporting every legacy helper and tool symbol used by callers.
+
+**Implementation order:**
+
+1. Add `tests/test_mc_runtime_conductor_facade.py`; prove its missing-module boundary fails against
+   accepted Run 3B2, then set the Gate red.
+2. Add immutable final-response decisions and exact payload construction to `response_composer.py`.
+   Cover clean prose, private reasoning removal, mixed tool/prose recovery, malformed tool-only
+   output, escalation success/failure, model metadata, direct no-tools continuation, and events.
+3. Add the compatibility turn coordinator and replace the body of `conductor.answer()` with one
+   dependency-injected call. Preserve its signature and all legacy exports.
+4. Run every accepted T08 focused suite plus Conductor final/mixed, Chat runtime/route/self-check,
+   modes, resources, Terminal, Runtime policy/tools, compile, diff, and the enforced gate.
+5. Publish golden evidence, close T08 only after green verification, and release T09 planning.
+
+**Expected files:** `core/runtime/response_composer.py`, `core/runtime/conductor_facade.py`,
+`core/conductor.py`, `tests/test_mc_runtime_conductor_facade.py`, final-composition coverage in
+`tests/test_mc_runtime_response_composer.py`, superseded source-ownership assertions only in
+accepted T08 tests, `.claude/CURRENT_WORK.md`, `MC_V2_BOARD.md`, this plan, `QUEUE.md`, and
+`QUEUE_DELIVERY_LOG.md`.
+
+**Non-goals:** no reply/prompt/token/model/tool/policy/approval/receipt/action change; no canonical
+executor or dormant Runtime activation; no schema, migration, flag, API, UI, route, Telegram, CLI,
+Office, scheduler, external-service, Supabase, or Vercel change; no T09 implementation in this run.
+
+**Acceptance:** `inspect.signature(conductor.answer)` is unchanged; its implementation is a thin
+facade; final payloads and event order match accepted behavior; malformed internal JSON never leaks;
+mixed prose remains usable; one bounded model escalation remains exact; no-tools and tool-loop turns
+use the same final composer; all accepted T08 and broader regressions pass; the gate is green.
+
+**Owner acceptance (2026-08-13):** Run 4 is accepted under the owner's instruction to complete the
+rest of #21. T08 is complete and T09 planning is released.
+
+### 25.17 T09 Run 1 - Typed Owner-Intelligence Context Adapter Plan (2026-08-13)
+
+**Outcome:** adapt delivered #20 retrieval results into one immutable Runtime context contract. Each
+selected item carries source type, trust, certainty, relevance, token cost, version, retrieval time,
+owner-visible label, provenance, and false instruction authority. The adapter filters stale,
+sensitive, contradicted, non-active, irrelevant, and wrong-scope memories without duplicating Brain
+storage or ranking authority.
+
+**Source-grounded map:** Graphify's July index identifies Chat Runtime, Brain, and Conductor as the
+relevant communities but predates accepted T08. Live source shows `brain_retrieval.retrieve()` already
+owns active/scope/relevance ranking, `context_manager.build_manifest()` already emits recalled memory
+chips, and T08's facade consumes the manifest. The missing boundary is a canonical Runtime context
+shape with explicit provenance/certainty/sensitivity guards; influence rows also lack a turn link.
+
+**Run split:**
+
+| Run | Reviewable outcome | T09 complete after acceptance |
+|---|---|---|
+| Run 1 | Typed #20-to-Runtime adapter, strict filters, manifest integration, provenance golden tests | 45-55% |
+| Run 2 | Bounded route/tool hints, current-instruction precedence, turn-linked influence evidence, full golden closeout | 100% |
+
+**Implementation order:** add a failing focused adapter test; add dependency-free context contracts;
+expose only the #20 source metadata the adapter needs; implement immutable adaptation and prompt/chip
+output; have Context Manager use it without changing the Chat route yet; run Brain retrieval/context,
+T08, Chat runtime, security/redaction, compile, diff, and gate checks.
+
+**Expected files:** `core/runtime/contracts.py`, `core/runtime/owner_intelligence.py`,
+`core/brain_retrieval.py`, `core/context_manager.py`, `tests/test_mc_runtime_owner_intelligence.py`,
+focused additions to `tests/test_brain_retrieval.py` or `tests/test_context_manager.py`, and package
+control documents. Any route, API, UI, schema, or Conductor edit requires Run 2 instead.
+
+**Non-goals:** no new Brain schema or duplicate retrieval; no route/tool hint yet; no memory-granted
+permission, credential, execution, policy, or instruction authority; no model prompt beyond replacing
+the existing recall block with equivalent typed adapter output; no external service or production use.
 
 ## 26. Implementation Log
 
@@ -2428,4 +2508,5 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-12 | T08 Run 2B | `20960de`; owner acceptance 2026-08-12 | Red missing-assembler import; 36/36 context-assembler checks; enforced gate 16/16 green; unchanged Awakening baseline reproduced | Accepted; typed staged context assembly owns Conductor's existing source, attachment, prompt/recall, and model-message preparation while every context/prompt/history owner and all live behavior remain unchanged. T08 is 35-45% complete; Run 3A checkpoint-recovery planning is released |
 | 2026-08-13 | T08 Run 3A | `d88bdd3`; owner acceptance 2026-08-13 | Red missing-service import; 50/50 checkpoint-recovery checks; enforced gate 24/24 green; Terminal timing rerun green; unchanged Awakening baseline reproduced | Accepted; typed compatibility recovery owns retry/skip/revise/resume orchestration while existing validation, safety, execution, approvals, receipts, persistence, and ordinary tool-loop behavior remain unchanged. T08 is 45-55% complete and Run 3B1 planning is released |
 | 2026-08-13 | T08 Run 3B1 | `1a1854b`; owner acceptance 2026-08-13 | Red missing-service import; 67/67 one-call checks; 50/50 checkpoint checks; enforced gate 25/25 green; unchanged Awakening baseline reproduced | Accepted; typed compatibility execution owns one parsed call while Conductor retains model iteration, call ordering, step identity, batching, combined proposals, step budgets, and forced-final behavior. T08 is 58-68% complete and Run 3B2 planning is released |
-| 2026-08-13 | T08 Run 3B2 | Pending owner acceptance | Red missing-service import; 44/44 tool-loop checks; inherited 62/62 one-call and 49 checkpoint checks; enforced gate 3/3 green; Chat/mode/resource/terminal/runtime/tool/project/file regressions, compile, route, and diff checks green | Delivered; typed compatibility orchestration owns model/tool iteration, ordered batches, combined proposal timing, and step-budget forced-final handling. One-call execution, parser authority, policy, Terminal, receipts, approvals, final cleanup, model selection, and public result fields remain with accepted owners. T08 is 70-82% complete and Run 4 is not released until owner acceptance |
+| 2026-08-13 | T08 Run 3B2 | `52227e0`; owner acceptance 2026-08-13 | Red missing-service import; 44/44 tool-loop checks; inherited 62/62 one-call and 49 checkpoint checks; enforced gate 3/3 green; Chat/mode/resource/terminal/runtime/tool/project/file regressions, compile, route, and diff checks green | Accepted; typed compatibility orchestration owns model/tool iteration, ordered batches, combined proposal timing, and step-budget forced-final handling. One-call execution, parser authority, policy, Terminal, receipts, approvals, final cleanup, model selection, and public result fields remain with accepted owners. T08 is 70-82% complete and Run 4 is released |
+| 2026-08-13 | T08 Run 4 | T08 Run 4 delivery commit; owner authorization 2026-08-13 | Red missing-facade import; enforced 9/9 T08 gate; final/mixed output, Chat self-check/runtime/route, context, mode, resource, Terminal, Runtime policy/approvals/tools/jobs, compile, and diff checks green | Complete; final response handling and compatibility coordination moved behind typed Runtime services. `conductor.answer()` keeps its exact signature as a thin wrapper; T09 Run 1 is released |

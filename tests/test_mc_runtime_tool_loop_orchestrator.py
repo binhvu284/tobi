@@ -264,7 +264,11 @@ def _check_conductor_boundary():
     checks += 1
 
     source = inspect.getsource(conductor.answer)
-    _check("_run_tool_loop(" in source, "Conductor does not delegate tool-loop orchestration")
+    _check("_run_conductor_turn(" in source, "Conductor does not delegate turn orchestration")
+    from core.runtime import conductor_facade
+    facade_source = inspect.getsource(conductor_facade)
+    _check("bindings.run_tool_loop(" in facade_source,
+           "Runtime facade does not delegate tool-loop orchestration")
     for moved_marker in (
         "for _ in range(max_tool_steps or MAX_TOOL_STEPS)",
         "for call in calls:",
@@ -273,9 +277,10 @@ def _check_conductor_boundary():
         "if highs:",
         "Now give your final answer to the owner using only the tool",
     ):
-        _check(moved_marker not in source, f"Conductor still owns Run 3B2 loop marker: {moved_marker}")
+        _check(moved_marker not in facade_source,
+               f"Runtime facade absorbed Run 3B2 loop marker: {moved_marker}")
         checks += 1
-    checks += 1
+    checks += 2
 
     service_source = inspect.getsource(tool_loop_orchestrator)
     for forbidden in (
