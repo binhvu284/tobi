@@ -9,18 +9,19 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T10 Run 2 - Accepted #22 store ownership adapter
+**Package:** T10 Run 3 - Canonical coding-run history bridge
 
 **Purpose (one sentence, plain words):**
-Make `development_store.py` the only writer for the three deferred accepted-#22 coding tables while
-preserving every Goal, Queue, checkpoint, evidence, and Developer behavior.
+Link each accepted #22 coding session to one Mission Control run and mirror its redacted lifecycle,
+checkpoint, and evidence history without replacing the readable Developer record.
 
 **Not doing:**
-- No schema, state name, SQL predicate, transaction boundary, or public result change.
-- No change to Goal, Queue, worker, checkpoint, evidence, review, GitHub, release, or deployment logic.
-- No worker execution, model, terminal, external-service, CLI, or UI change.
-- No canonical Runtime run/event bridge; T10 Run 3 owns that additive adapter.
-- No activation of dormant Runtime flags or change to accepted T09/T10 Run 1 contracts.
+- No replacement, deletion, or mutation of accepted #22 Goal/Queue/session/checkpoint/evidence history.
+- No worker, model, terminal, GitHub, release, deployment, approval, or policy behavior change.
+- No reverse write from a worker into canonical Runtime state; only the MC adapter may append events.
+- No new database schema; derive idempotent canonical identity from the coding session.
+- No Developer UI, CLI, Telegram, Office, scheduler, Chat, or Conductor caller migration.
+- No activation change to Chat/Agent Runtime flags or accepted T09/T10 Runs 1-2 contracts.
 - No T11 telemetry/evals, T11A System Model, T12 security, T13 UI, or T14 rollout work.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
@@ -30,9 +31,10 @@ preserving every Goal, Queue, checkpoint, evidence, and Developer behavior.
 - `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
 - `docs/feature-idea-queue/QUEUE.md`
 - `docs/feature-idea-queue/QUEUE_DELIVERY_LOG.md`
-- `core/development_store.py`
 - `core/coding_agent.py`
-- `tests/test_mc_runtime_coding_store_ownership.py`
+- `core/runtime/coding_adapter.py`
+- `core/runtime/repository.py`
+- `tests/test_mc_runtime_coding_adapter.py`
 - accepted #22 regression tests
 
 **Gate: no**

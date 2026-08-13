@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from core.coding_states import TERMINAL_STATES, state_in_clause
+from core.coding_states import ACTIVE_STATES, CLEANUP_ELIGIBLE_STATES, TERMINAL_STATES, state_in_clause
 
 
 def utc_now() -> str:
@@ -760,6 +760,70 @@ class DevelopmentStore:
         finally:
             conn.close()
 
+    def approve_task_for_workflow(self, task_id: int, target_version: str) -> dict[str, Any]:
+        conn = self.connect()
+        try:
+            cur = conn.execute(
+                """UPDATE development_tasks
+                   SET status='approved',owner_state='Running',status_override=0,
+                       target_version=?,updated_at=? WHERE id=?""",
+                (target_version, utc_now(), task_id),
+            )
+            if cur.rowcount != 1:
+                raise KeyError(task_id)
+            conn.commit()
+            return dict(conn.execute(
+                "SELECT * FROM development_tasks WHERE id=?", (task_id,)
+            ).fetchone())
+        finally:
+            conn.close()
+
+    def set_task_owner_state(self, task_id: int, owner_state: str) -> dict[str, Any]:
+        conn = self.connect()
+        try:
+            cur = conn.execute(
+                "UPDATE development_tasks SET owner_state=?,updated_at=? WHERE id=?",
+                (owner_state, utc_now(), task_id),
+            )
+            if cur.rowcount != 1:
+                raise KeyError(task_id)
+            conn.commit()
+            return dict(conn.execute(
+                "SELECT * FROM development_tasks WHERE id=?", (task_id,)
+            ).fetchone())
+        finally:
+            conn.close()
+
+    def complete_task(self, task_id: int, *, queue_status: str = "Done") -> dict[str, Any]:
+        conn = self.connect()
+        try:
+            cur = conn.execute(
+                """UPDATE development_tasks
+                   SET status='completed',owner_state='Done',queue_status=?,
+                       status_override=1,updated_at=? WHERE id=?""",
+                (queue_status, utc_now(), task_id),
+            )
+            if cur.rowcount != 1:
+                raise KeyError(task_id)
+            conn.commit()
+            return dict(conn.execute(
+                "SELECT * FROM development_tasks WHERE id=?", (task_id,)
+            ).fetchone())
+        finally:
+            conn.close()
+
+    def active_session_for_task(self, task_id: int) -> int | None:
+        clause, params = state_in_clause("state", ACTIVE_STATES)
+        conn = self.connect()
+        try:
+            row = conn.execute(
+                f"SELECT id FROM coding_sessions WHERE task_id=? AND {clause} LIMIT 1",
+                (task_id, *params),
+            ).fetchone()
+            return int(row["id"]) if row else None
+        finally:
+            conn.close()
+
     def get_task(self, *, task_id: int | None = None, queue_id: int | None = None) -> dict[str, Any] | None:
         if task_id is None and queue_id is None:
             raise ValueError("task_id or queue_id is required")
@@ -1016,6 +1080,94 @@ class DevelopmentStore:
         finally:
             conn.close()
 
+    def _reset_stages(
+        self,
+        session_id: int,
+        node_ids: tuple[str, ...],
+        *,
+        clear_results: bool = False,
+        clear_checks: bool = False,
+    ) -> None:
+        if not node_ids:
+            return
+        assignments = ["status='pending'", "started_at=NULL", "completed_at=NULL"]
+        if clear_results:
+            assignments.append("result_json=NULL")
+        if clear_checks:
+            assignments.append("checks_json='[]'")
+        placeholders = ",".join("?" for _ in node_ids)
+        conn = self.connect()
+        try:
+            conn.execute(
+                f"UPDATE coding_stages SET {','.join(assignments)} "
+                f"WHERE session_id=? AND node_id IN ({placeholders})",
+                (session_id, *node_ids),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def reset_stages_for_replan(self, session_id: int, *, has_worktree: bool) -> None:
+        nodes = (
+            ("code", "validate", "review", "commit", "scan", "push", "pull_request",
+             "merge_deploy", "health")
+            if has_worktree else
+            ("prepare", "index", "code", "validate", "review", "commit", "scan", "push",
+             "pull_request", "merge_deploy", "health")
+        )
+        self._reset_stages(session_id, nodes, clear_results=True)
+
+    def reset_stages_for_worker_switch(self, session_id: int) -> None:
+        self._reset_stages(session_id, (
+            "code", "validate", "review", "commit", "scan", "push", "pull_request",
+        ))
+
+    def reset_stages_for_next_sprint(self, session_id: int) -> None:
+        self._reset_stages(
+            session_id, ("code", "validate", "review", "commit"),
+            clear_results=True, clear_checks=True,
+        )
+
+    def reset_stages_for_base_reconciliation(self, session_id: int) -> None:
+        self._reset_stages(
+            session_id, ("scan", "push", "pull_request", "merge_deploy", "health"),
+            clear_results=True,
+        )
+
+    def reset_stages_for_recode(self, session_id: int) -> None:
+        self._reset_stages(session_id, (
+            "code", "validate", "review", "commit", "scan", "push", "pull_request",
+        ))
+
+    def prepare_session_retry(self, session_id: int, *, reset_recode: bool) -> None:
+        clause, params = state_in_clause("state", ACTIVE_STATES)
+        conn = self.connect()
+        try:
+            active = conn.execute(
+                f"SELECT id FROM coding_sessions WHERE id<>? AND {clause} LIMIT 1",
+                (session_id, *params),
+            ).fetchone()
+            if active:
+                raise RuntimeError(f"Coding workflow {active['id']} is already active.")
+            if reset_recode:
+                conn.execute(
+                    """UPDATE coding_stages SET status='pending',started_at=NULL,completed_at=NULL
+                       WHERE session_id=? AND node_id IN
+                       ('code','validate','review','commit','scan','push','pull_request')""",
+                    (session_id,),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def reset_stages_after_approval_rejection(self, session_id: int) -> None:
+        self._reset_stages(
+            session_id,
+            ("code", "validate", "review", "commit", "scan", "push", "pull_request",
+             "merge_deploy", "health"),
+            clear_results=True,
+        )
+
     def append_event(self, session_id: int, event_type: str, payload: dict[str, Any], actor: str = "tobi") -> dict[str, Any]:
         conn = self.connect()
         try:
@@ -1152,6 +1304,56 @@ class DevelopmentStore:
             return [dict(row) for row in conn.execute(
                 "SELECT * FROM coding_artifacts WHERE session_id=? ORDER BY id", (session_id,)
             )]
+        finally:
+            conn.close()
+
+    def storage_cleanup_counts(self, *, now: str, cutoff: str) -> dict[str, int]:
+        artifact_clause, states = state_in_clause("s.state", CLEANUP_ELIGIBLE_STATES)
+        session_clause, _ = state_in_clause("state", CLEANUP_ELIGIBLE_STATES)
+        conn = self.connect()
+        try:
+            artifacts = int(conn.execute(
+                f"""SELECT COUNT(*) FROM coding_artifacts a
+                    JOIN coding_sessions s ON s.id=a.session_id
+                    WHERE a.retain_until<=? AND a.cleanup_eligible=0 AND {artifact_clause}""",
+                (now, *states),
+            ).fetchone()[0])
+            worktrees = int(conn.execute(
+                f"""SELECT COUNT(*) FROM coding_sessions WHERE {session_clause}
+                    AND completed_at<=? AND worktree IS NOT NULL""",
+                (*states, cutoff),
+            ).fetchone()[0])
+            return {"artifacts": artifacts, "worktrees": worktrees}
+        finally:
+            conn.close()
+
+    def cleanup_candidates(self, *, now: str, cutoff: str) -> dict[str, list[dict[str, Any]]]:
+        artifact_clause, states = state_in_clause("s.state", CLEANUP_ELIGIBLE_STATES)
+        session_clause, _ = state_in_clause("state", CLEANUP_ELIGIBLE_STATES)
+        conn = self.connect()
+        try:
+            artifacts = [dict(row) for row in conn.execute(
+                f"""SELECT a.* FROM coding_artifacts a
+                    JOIN coding_sessions s ON s.id=a.session_id
+                    WHERE a.retain_until<=? AND a.cleanup_eligible=0 AND {artifact_clause}""",
+                (now, *states),
+            ).fetchall()]
+            sessions = [dict(row) for row in conn.execute(
+                f"""SELECT * FROM coding_sessions WHERE {session_clause}
+                    AND completed_at<=? AND worktree IS NOT NULL""",
+                (*states, cutoff),
+            ).fetchall()]
+            return {"artifacts": artifacts, "sessions": sessions}
+        finally:
+            conn.close()
+
+    def mark_artifact_cleaned(self, artifact_id: int) -> None:
+        conn = self.connect()
+        try:
+            conn.execute(
+                "UPDATE coding_artifacts SET cleanup_eligible=1 WHERE id=?", (artifact_id,)
+            )
+            conn.commit()
         finally:
             conn.close()
 

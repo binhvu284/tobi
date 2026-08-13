@@ -18,7 +18,8 @@ _BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.+?)\s*$")
 
 
 def _plain(text: str) -> str:
-    return re.sub(r"[*_`]", "", text).strip()
+    without_links = re.sub(r"\[([^]]+)\]\([^)]+\)", r"\1", text)
+    return re.sub(r"[*_`]", "", without_links).strip()
 
 
 def queue_execution_state(queue_status: str | None) -> str:
@@ -97,8 +98,19 @@ def parse_queue(path: Path | str = QUEUE_PATH) -> list[dict[str, Any]]:
         if len(parts) < 5:
             continue
         queue_id = int(parts[0])
-        title, queue_status, effort, spec_cell = parts[1:5]
-        notes = " | ".join(parts[5:]).strip() if len(parts) > 5 else ""
+        if len(parts) >= 6:
+            # Current Queue schema: # | ID | Name/link | Description | Status | Notes.
+            # The previous parser still treated these as the legacy five-column fields,
+            # which made the Name cell the status and classified every item as planned.
+            title = parts[2]
+            spec_cell = parts[2]
+            effort = parts[3]
+            queue_status = parts[4]
+            notes = " | ".join(parts[5:]).strip()
+        else:
+            # Legacy schema retained for old fixtures and archived queue snapshots.
+            title, queue_status, effort, spec_cell = parts[1:5]
+            notes = ""
         match = _LINK_RE.search(spec_cell)
         plan_name = match.group(1) if match else ""
         plan_path = (base / plan_name).resolve() if plan_name else queue_path.resolve()

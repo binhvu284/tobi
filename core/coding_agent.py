@@ -17,8 +17,7 @@ from core.coding_assessment import CodingTaskAssessor
 from core.coding_contracts import SprintBudget, WorkerProfile, build_handoff
 from core.coding_completion import CodingCompletionService
 from core.coding_states import (  # noqa: F401  (STAGES is re-exported for tests and callers)
-    ACTIVE_STATES, CLEANUP_ELIGIBLE_STATES, CORRECTABLE_BY_RECODE, STAGES, TERMINAL_STATES,
-    state_in_clause, workflow_progress,
+    ACTIVE_STATES, CORRECTABLE_BY_RECODE, STAGES, TERMINAL_STATES, workflow_progress,
 )
 from core.coding_learning import CodingLearningService, failure_detail_signature
 from core.coding_policy import CodingPolicy, PolicyDenied
@@ -296,13 +295,7 @@ class CodingAgent:
                 detail = "; ".join(item["message"] for item in payload["blockers"][:4])
                 raise RuntimeError(f"Queue item is not ready: {detail}")
         target_version = task.get("target_version") or self._next_version(queue_id)
-        conn = self.store.connect()
-        try:
-            conn.execute("UPDATE development_tasks SET status='approved',owner_state='Running',status_override=0,target_version=?,updated_at=? WHERE id=?",
-                         (target_version, utc_now(), task["id"]))
-            conn.commit()
-        finally:
-            conn.close()
+        self.store.approve_task_for_workflow(int(task["id"]), target_version)
         session = self.store.create_session(
             int(task["id"]), self.policy.hash, idempotency_key or str(uuid.uuid4()),
             plan_hash_snapshot=task["plan_hash"],
@@ -385,21 +378,9 @@ class CodingAgent:
             raise RuntimeError(f"Updated workflow is not ready: {detail}")
 
         criteria = json.loads(task.get("acceptance_criteria_json") or "[]")
-        conn = self.store.connect()
-        try:
-            reset_nodes = (
-                "('code','validate','review','commit','scan','push','pull_request','merge_deploy','health')"
-                if session.get("worktree") else
-                "('prepare','index','code','validate','review','commit','scan','push','pull_request','merge_deploy','health')"
-            )
-            conn.execute(
-                f"""UPDATE coding_stages SET status='pending',started_at=NULL,completed_at=NULL,result_json=NULL
-                    WHERE session_id=? AND node_id IN {reset_nodes}""",
-                (session_id,),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+        self.store.reset_stages_for_replan(
+            session_id, has_worktree=bool(session.get("worktree"))
+        )
         self.store.update_session(
             session_id,
             state="paused" if session.get("worktree") else "approved",
@@ -561,16 +542,7 @@ class CodingAgent:
         )
         if session.get("goal_id"):
             self.store.update_goal(int(session["goal_id"]), worker_profile_slug=profile_slug)
-        conn = self.store.connect()
-        try:
-            conn.execute(
-                """UPDATE coding_stages SET status='pending',started_at=NULL,completed_at=NULL
-                   WHERE session_id=? AND node_id IN ('code','validate','review','commit','scan','push','pull_request')""",
-                (session_id,),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+        self.store.reset_stages_for_worker_switch(session_id)
         self._event(session_id, "worker_switched", {
             "from": session.get("worker_profile_slug"), "to": profile_slug,
         }, actor="owner")
@@ -762,18 +734,10 @@ class CodingAgent:
             return self.queue_state()
         if task["status"] == "deleted":
             raise ValueError(f"Queue item #{queue_id} was deleted. Restore it from QUEUE.md.")
-        conn = self.store.connect()
-        try:
-            clause, params = state_in_clause("state", ACTIVE_STATES)
-            live = conn.execute(
-                f"SELECT id FROM coding_sessions WHERE task_id=? AND {clause} LIMIT 1",
-                (int(task["id"]), *params),
-            ).fetchone()
-        finally:
-            conn.close()
+        live = self.store.active_session_for_task(int(task["id"]))
         if live:
             raise ValueError(
-                f"Queue item #{queue_id} has workflow {live['id']} running. Stop it before requeueing."
+                f"Queue item #{queue_id} has workflow {live} running. Stop it before requeueing."
             )
         self.store.set_task_status(int(queue_id), "planned", override_source=True)
         # Clear the owner state too. A canceled item kept owner_state='Canceled', so even once
@@ -796,18 +760,10 @@ class CodingAgent:
             return self.queue_state()
         if task["status"] == "planned":
             raise ValueError(f"Queue item #{queue_id} is still in the queue. Requeue is for items that left it.")
-        conn = self.store.connect()
-        try:
-            clause, params = state_in_clause("state", ACTIVE_STATES)
-            live = conn.execute(
-                f"SELECT id FROM coding_sessions WHERE task_id=? AND {clause} LIMIT 1",
-                (int(task["id"]), *params),
-            ).fetchone()
-        finally:
-            conn.close()
+        live = self.store.active_session_for_task(int(task["id"]))
         if live:
             raise ValueError(
-                f"Queue item #{queue_id} has workflow {live['id']} running. Stop it before removing."
+                f"Queue item #{queue_id} has workflow {live} running. Stop it before removing."
             )
         self.store.set_task_status(int(queue_id), "deleted", override_source=True)
         return self.queue_state()
@@ -1215,15 +1171,7 @@ class CodingAgent:
     def _set_task_owner_state(self, task_id: int, owner_state: str) -> None:
         if task_id <= 0:
             return
-        conn = self.store.connect()
-        try:
-            conn.execute(
-                "UPDATE development_tasks SET owner_state=?,updated_at=? WHERE id=?",
-                (owner_state, utc_now(), task_id),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+        self.store.set_task_owner_state(task_id, owner_state)
 
     def _run_worker_with_heartbeat(
         self, session_id: int, brief: dict[str, Any], worker_event
@@ -1696,17 +1644,7 @@ class CodingAgent:
         criteria = json.loads(next_sprint["acceptance_criteria_json"] or "[]")
         budget = json.loads(next_sprint["budget_json"] or "{}")
         self.store.update_sprint(int(next_sprint["id"]), status="active", session_id=session_id)
-        conn = self.store.connect()
-        try:
-            conn.execute(
-                """UPDATE coding_stages
-                   SET status='pending',checks_json='[]',result_json=NULL,started_at=NULL,completed_at=NULL
-                   WHERE session_id=? AND node_id IN ('code','validate','review','commit')""",
-                (session_id,),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+        self.store.reset_stages_for_next_sprint(session_id)
         self.store.update_session(
             session_id,
             current_sprint_id=int(next_sprint["id"]),
@@ -1897,17 +1835,7 @@ class CodingAgent:
             if not session.get("worktree"):
                 raise RuntimeError("Workflow has no retained worktree to reconcile.")
             result = self.git.reconcile_base(session["worktree"])
-            conn = self.store.connect()
-            try:
-                conn.execute(
-                    """UPDATE coding_stages
-                       SET status='pending',started_at=NULL,completed_at=NULL,result_json=NULL
-                       WHERE session_id=? AND node_id IN ('scan','push','pull_request','merge_deploy','health')""",
-                    (session_id,),
-                )
-                conn.commit()
-            finally:
-                conn.close()
+            self.store.reset_stages_for_base_reconciliation(session_id)
             self.store.update_session(
                 session_id,
                 base_sha=result["base_sha"],
@@ -1961,24 +1889,10 @@ class CodingAgent:
                 )
             if session["state"] not in {"paused", "blocked", "failed", "approved"}:
                 raise RuntimeError(f"Workflow cannot {command} from state {session['state']}.")
-            conn = self.store.connect()
-            try:
-                clause, params = state_in_clause("state", ACTIVE_STATES)
-                active = conn.execute(
-                    f"SELECT id FROM coding_sessions WHERE id<>? AND {clause} LIMIT 1",
-                    (session_id, *params),
-                ).fetchone()
-                if active:
-                    raise RuntimeError(f"Coding workflow {active['id']} is already active.")
-                if session.get("error_code") in CORRECTABLE_BY_RECODE:
-                    conn.execute(
-                        """UPDATE coding_stages SET status='pending',started_at=NULL,completed_at=NULL
-                           WHERE session_id=? AND node_id IN ('code','validate','review','commit','scan','push','pull_request')""",
-                        (session_id,),
-                    )
-                    conn.commit()
-            finally:
-                conn.close()
+            self.store.prepare_session_retry(
+                session_id,
+                reset_recode=session.get("error_code") in CORRECTABLE_BY_RECODE,
+            )
             self.store.update_session(session_id, state="approved" if not session.get("worktree") else "paused",
                                       blocker=None, error_code=None, cancel_requested=0)
             self._set_task_owner_state(int(session["task_id"]), "Running")
@@ -2003,16 +1917,7 @@ class CodingAgent:
             instruction = "Merge and deployment were rejected. Revise the implementation and provide new evidence."
         else:
             raise ValueError("Unsupported approval purpose.")
-        conn = self.store.connect()
-        try:
-            conn.execute(
-                """UPDATE coding_stages SET status='pending',started_at=NULL,completed_at=NULL,result_json=NULL
-                   WHERE session_id=? AND node_id IN ('code','validate','review','commit','scan','push','pull_request','merge_deploy','health')""",
-                (session_id,),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+        self.store.reset_stages_after_approval_rejection(session_id)
         self.store.update_session(
             session_id, state="paused", stage="code", blocker=None,
             error_code=None, completed_at=None, cancel_requested=0,
@@ -2353,18 +2258,7 @@ class CodingAgent:
         return self.get_workflow(session_id)
 
     def _mark_task_completed(self, task_id: int) -> None:
-        conn = self.store.connect()
-        try:
-            conn.execute(
-                """UPDATE development_tasks
-                   SET status='completed',owner_state='Done',queue_status='Done',
-                       status_override=1,updated_at=?
-                   WHERE id=?""",
-                (utc_now(), task_id),
-            )
-            conn.commit()
-        finally:
-            conn.close()
+        self.store.complete_task(task_id, queue_status="Done")
 
     def _save_pr(self, task_id: int, pr: dict[str, Any]) -> None:
         merge_state = str(pr.get("merge_state") or "")
@@ -2458,21 +2352,11 @@ class CodingAgent:
         usage["blocked_new_workflows"] = usage["total_developer_bytes"] >= usage["warning_bytes"]
         usage["retention_days"] = self.policy.limit("retention_days", 7)
         cutoff = (datetime.now(timezone.utc) - timedelta(days=usage["retention_days"])).isoformat()
-        conn = self.store.connect()
-        try:
-            artifact_clause, states = state_in_clause("s.state", CLEANUP_ELIGIBLE_STATES)
-            session_clause, _ = state_in_clause("state", CLEANUP_ELIGIBLE_STATES)
-            usage["cleanup_eligible_artifacts"] = int(conn.execute(
-                f"""SELECT COUNT(*) FROM coding_artifacts a JOIN coding_sessions s ON s.id=a.session_id
-                    WHERE a.retain_until<=? AND a.cleanup_eligible=0 AND {artifact_clause}""",
-                (datetime.now(timezone.utc).isoformat(), *states),
-            ).fetchone()[0])
-            usage["cleanup_eligible_worktrees"] = int(conn.execute(
-                f"""SELECT COUNT(*) FROM coding_sessions WHERE {session_clause} AND completed_at<=?
-                    AND worktree IS NOT NULL""", (*states, cutoff),
-            ).fetchone()[0])
-        finally:
-            conn.close()
+        counts = self.store.storage_cleanup_counts(
+            now=datetime.now(timezone.utc).isoformat(), cutoff=cutoff
+        )
+        usage["cleanup_eligible_artifacts"] = counts["artifacts"]
+        usage["cleanup_eligible_worktrees"] = counts["worktrees"]
         return usage
 
     def cleanup(self, challenge: str) -> dict[str, Any]:
@@ -2480,21 +2364,9 @@ class CodingAgent:
         state = self.storage()
         cutoff = (datetime.now(timezone.utc) - timedelta(days=state["retention_days"])).isoformat()
         now = datetime.now(timezone.utc).isoformat()
-        conn = self.store.connect()
-        try:
-            artifact_clause, states = state_in_clause("s.state", CLEANUP_ELIGIBLE_STATES)
-            session_clause, _ = state_in_clause("state", CLEANUP_ELIGIBLE_STATES)
-            artifacts = conn.execute(
-                f"""SELECT a.* FROM coding_artifacts a JOIN coding_sessions s ON s.id=a.session_id
-                    WHERE a.retain_until<=? AND a.cleanup_eligible=0 AND {artifact_clause}""",
-                (now, *states),
-            ).fetchall()
-            sessions = conn.execute(
-                f"""SELECT * FROM coding_sessions WHERE {session_clause} AND completed_at<=?
-                    AND worktree IS NOT NULL""", (*states, cutoff),
-            ).fetchall()
-        finally:
-            conn.close()
+        candidates = self.store.cleanup_candidates(now=now, cutoff=cutoff)
+        artifacts = candidates["artifacts"]
+        sessions = candidates["sessions"]
         artifact_root = self.policy.repo_path("artifact_root").resolve()
         removed_artifacts = 0
         for row in artifacts:
@@ -2502,12 +2374,7 @@ class CodingAgent:
             if path.is_relative_to(artifact_root) and path.is_file():
                 path.unlink()
                 removed_artifacts += 1
-            conn = self.store.connect()
-            try:
-                conn.execute("UPDATE coding_artifacts SET cleanup_eligible=1 WHERE id=?", (row["id"],))
-                conn.commit()
-            finally:
-                conn.close()
+            self.store.mark_artifact_cleaned(int(row["id"]))
         removed_worktrees = 0
         for row in sessions:
             try:

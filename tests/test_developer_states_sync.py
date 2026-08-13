@@ -132,7 +132,13 @@ ok("the retry path reads the shared set instead of an inline literal",
    "in CORRECTABLE_BY_RECODE" in agent_source
    and '{"validation_failed", "review_failed", "review_unavailable"}' not in agent_source)
 reset_clause = agent_source[agent_source.index("in CORRECTABLE_BY_RECODE"):][:400]
-ok("the reset returns the run to the code stage", "'code'" in reset_clause, reset_clause[:160])
+store_source = (ROOT / "core" / "development_store.py").read_text(encoding="utf-8")
+store_reset = store_source[store_source.index("def prepare_session_retry"):][:1200]
+ok("the reset returns the run to the code stage",
+   "self.store.prepare_session_retry(" in agent_source
+   and "reset_recode=session.get(\"error_code\") in CORRECTABLE_BY_RECODE" in agent_source
+   and "'code'" in store_reset,
+   f"agent={reset_clause[:120]} store={store_reset[:160]}")
 
 # --- the SQL helper binds rather than interpolates ------------------------------------
 clause, params = state_in_clause("state", ACTIVE_STATES)

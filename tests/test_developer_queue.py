@@ -43,6 +43,9 @@ state = agent.queue_state()
 ok("queue_state has items", len(state["items"]) >= 20, str(len(state["items"])))
 ok("queue_state defaults: empty order + no next", state["order"] == [] and state["next_queue_id"] is None)
 ok("queue_state reports auto_queue flag", isinstance(state["auto_queue"], bool))
+item_32 = next(item for item in state["items"] if int(item["queue_id"]) == 32)
+ok("current six-column Queue names are plain text",
+   item_32["title"] == "Health checks run together", item_32["title"])
 
 planned = [int(t["queue_id"]) for t in state["items"] if t["status"] == "planned"]
 completed = [int(t["queue_id"]) for t in state["items"] if t["status"] == "completed"]

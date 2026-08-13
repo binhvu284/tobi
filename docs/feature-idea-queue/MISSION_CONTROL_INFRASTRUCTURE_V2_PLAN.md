@@ -5,7 +5,7 @@
 | Field | Decision |
 |---|---|
 | Queue item | `#21` |
-| Status | In progress; T00-T09 complete; T10 Run 1 delivered; Run 2 active |
+| Status | In progress; T00-T09 complete; T10 Runs 1-2 delivered; Run 3 active |
 | Delivered dependency | `#20` Brain V2 is delivered; T00 must reconcile this plan with its actual contracts, migrations, context behavior, and rollback path |
 | Start gate | Satisfied 2026-08-01 by `#22` Codex-only V2 qualification (`e9bc5fe`); other workers remain locked until separately qualified |
 | Deployment confidence | The `#22` 24-hour/72-hour VPS soak remains a deployment confidence gate, not a source-development blocker for `#21` unless the owner explicitly promotes it to one |
@@ -2553,6 +2553,34 @@ accepted #22 regressions, and package-control documents.
 requeue/remove/complete/storage/cleanup outcomes remain exact; accepted #22 delivery, recovery,
 queue, states, worker, evidence, compile, diff, and enforced gate checks pass.
 
+**Run 2 delivery (2026-08-14):** all direct SQL for the three deferred #22 tables moved behind
+purpose-named `development_store.py` methods with exact reset sets and transaction behavior. The
+current six-column Queue parser was also restored, with legacy five-column support and plain owner
+names. The enforced gate passed 9/9 and 207 ownership, Queue, recovery, worker, production, storage,
+state, and evidence checks passed. Two pytest-only suites were not rerun because the Codex approval
+service blocked the registered pytest runtime.
+
+### 25.21 T10 Run 3 - Canonical Coding-Run History Bridge Plan (2026-08-14)
+
+**Outcome:** each accepted coding session maps idempotently to one canonical Runtime run. Goal,
+Queue, worker, checkpoint, evidence, completion, failure, and owner-command events mirror into an
+ordered redacted Runtime history while the complete existing Developer record remains readable.
+
+**Rules:** derive stable request and run linkage from the coding session; only Mission Control may
+append canonical events. Mirror bounded metadata and references, never worktree content, prompts,
+credentials, raw worker output, diffs, or evidence bodies. Replay must not duplicate a run/event;
+same-session changed event content must conflict. Adapter failure cannot corrupt accepted #22 state
+and produces an owner-safe same-run recovery projection.
+
+**Expected files:** a focused Runtime coding adapter, narrow repository support only if required,
+the accepted coding event boundary, tests, and package-control documents. No schema, worker,
+execution, policy, approval, Queue, UI, external-service, Supabase, or Vercel change.
+
+**Acceptance:** one coding session creates/reuses one canonical run; ordered lifecycle/checkpoint/
+evidence references mirror once with redaction; duplicate delivery replays; changed identity fails
+closed; worker metadata cannot mutate canonical state directly; accepted T03 repository/event,
+T10 Runs 1-2, #22 recovery/delivery, compile, diff, and enforced gate checks pass. T10 then closes.
+
 ## 26. Implementation Log
 
 Planning state only. Add one dated row after each accepted worker package.
@@ -2597,3 +2625,4 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-13 | T09 Run 1 | `34c4b1d`; owner continuation authorization | Red missing-adapter import; focused gate 5/5; 36 retrieval, 26 Context Manager, full Brain V2 contract/repository/feedback/schema/compatibility/ingest/import/golden/acceptance checks green | Delivered; #20 retrieval adapts to frozen Runtime context with provenance, trust, certainty, relevance, version, freshness, and false instruction authority. Sensitive, stale, contradicted, inactive, redacted, irrelevant, and wrong-scope memory stays out; Run 2 released |
 | 2026-08-14 | T09 Run 2 | T09 Run 2 delivery commit; owner continuation authorization | Red missing-hint contract; enforced gate 6/6; 123 owner-intelligence, Brain, Context Manager, Chat unit, and live route checks green; compile and diff green | Complete; only owner-direct known memory can influence an ordinary fallback through fixed local reads or allowlisted response/planning preferences. Current instructions and all safety owners remain stronger; real turn-linked metadata-only evidence is recorded; T10 Run 1 released |
 | 2026-08-14 | T10 Run 1 | T10 Run 1 delivery commit; owner continuation authorization | Red missing-adapter import; enforced gate 8/8; 213 worker-capability, Hermes skill, accepted #22, Runtime contract/repository/tool/policy checks green; compile and diff green | Delivered; deterministic immutable MC-authoritative worker snapshots expose bounded capability and metadata evidence only. Unknown versions/duplicates fail closed and unavailable workers return typed same-run recovery; Run 2 released |
+| 2026-08-14 | T10 Run 2 | T10 Run 2 delivery commit; owner continuation authorization | Red ownership and current-Queue fixtures; enforced gate 9/9; 207 ownership, Queue, recovery, worker, production, storage, state, and evidence checks green; compile and diff green; two pytest-only suites blocked by approval-service runtime access | Delivered; `development_store.py` is the sole SQL owner for the three deferred #22 tables, exact behavior is retained, and current/legacy Queue schemas parse truthfully; Run 3 released |

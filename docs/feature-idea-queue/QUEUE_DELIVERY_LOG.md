@@ -108,7 +108,7 @@ Bounded Codex development with an independent reviewer is qualified. Same-run re
 
 `FOUND_BASE-CORE-5D20H-002`
 
-T08 is complete at commit `5b0a19a`. T09 is complete at `34c4b1d` and `0f2a3e2`. T10 Run 1 is delivered: Mission Control now owns an immutable deterministic capability snapshot for accepted coding profiles and read-only Hermes metadata. Workers expose no canonical writes; disabled/unavailable workers keep the same run id and return typed retry/setup/fallback recovery without raw errors. Unknown source versions and duplicate worker authorities fail closed. The enforced 8/8 gate and 213 focused, Hermes, #22, Runtime repository/tool/policy checks passed. T10 Run 2 store ownership is active.
+T08 is complete at `5b0a19a`; T09 at `34c4b1d` and `0f2a3e2`; T10 Run 1 at `3ff2edd`. T10 Run 2 is delivered: `development_store.py` now owns all SQL for the three deferred #22 tables, with purpose-named methods preserving exact reset sets and transactions. The current six-column Queue parser again distinguishes done/in-progress/planned items and returns plain names while retaining legacy five-column support. The enforced 9/9 gate and 207 ownership, Queue, recovery, worker, production, storage, state, and evidence checks passed. Two pytest-only suites were not rerun because the Codex approval service blocked the registered pytest runtime. T10 Run 3 shared history is active.
 
 
 <a id="item-20"></a>
