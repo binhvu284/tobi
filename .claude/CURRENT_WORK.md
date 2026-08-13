@@ -9,26 +9,25 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T08 Run 3B1 - Compatibility one-call execution extraction (implemented; awaiting owner acceptance)
+**Package:** T08 Run 3B2 - Compatibility tool-loop orchestration extraction (delivered; awaiting owner acceptance)
 
 **Purpose (one sentence, plain words):**
-Move validation and dispatch of one already-parsed ordinary tool call behind one typed Runtime
-service without changing what executes, which checks apply, or what the owner sees.
+Move Conductor's model/tool iteration, ordered call batching, combined proposals, and step-budget
+fallback behind one typed Runtime service without changing what executes or what the owner sees.
 
 **Not doing:**
-- No work outside the owner-approved Run 3B1 implementation scope.
-- No model generation, tool-call parsing, loop iteration, batching, proposal aggregation, or
-  step-budget orchestration; Run 3B2 owns those Conductor responsibilities.
+- No release of Run 4 planning or T08 closeout before owner acceptance of this Run 3B2 delivery.
+- No work outside the approved Run 3B2 implementation scope.
 - No change to the accepted Run 3A checkpoint-recovery service or persisted recovery behavior.
-- No activation of the dormant canonical executor or T07 tool runtimes. Their run, lease, policy,
-  approval, and receipt requirements remain unchanged and default-off.
-- No new validation, execution, approval, receipt, or action authority. The service must delegate to
-  the current registry, Terminal gate, audit, proposal, receipt, and formatting helpers.
-- No change to denied/allowed tool checks, argument validation, plan/thinking events, Terminal
-  decisions, Telegram mutation limits, review-mode proposals, read audits, picker stops, mutation
-  failures, result truncation, receipt replay/storage, or completed-action summaries.
-- No change to pending-action confirmation, checkpoint commands, model continuation, proposal card
-  creation, combined approvals, step counting, or final-answer forcing.
+- No change to accepted one-call validation or dispatch. Run 3B2 invokes the Run 3B1 service once
+  per parsed call and does not absorb policy, registry, Terminal, audit, approval, or receipt logic.
+- No change to tool-call parsing or deduplication; the existing parser remains authoritative.
+- No final-answer cleanup, reasoning removal, mixed tool/prose handling, model escalation/selection,
+  or no-tools direct-answer extraction; Run 4 owns those remaining Conductor responsibilities.
+- No activation of the dormant canonical executor, durable loop controller, or T07 tool runtimes.
+- No new validation, execution, policy, approval, receipt, proposal, or action authority.
+- No change to retry limits, model/tool call order, per-call step identity, corrective prompts,
+  combined proposal timing, tool-step budgets, forced-final prompts, or token-limit continuation.
 - No change to the `conductor.answer()` signature, result fields, reply text, event order, model
   selection/fallback, context, routing, policy, approvals, tool catalog/execution, persistence, or
   owner flags.
@@ -42,39 +41,18 @@ service without changing what executes, which checks apply, or what the owner se
 - `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
 - `docs/feature-idea-queue/QUEUE.md`
 - `docs/feature-idea-queue/QUEUE_DELIVERY_LOG.md`
-- `core/runtime/tool_call_executor.py`
+- `core/runtime/tool_loop_orchestrator.py`
 - `core/conductor.py`
-- `tests/test_mc_runtime_tool_call_executor.py`
-- `tests/test_mc_runtime_checkpoint_recovery.py` (superseded Run 3A source-location assertion only)
+- `tests/test_mc_runtime_tool_loop_orchestrator.py`
+- `tests/test_mc_runtime_tool_call_executor.py` (superseded Run 3B1 source-location assertion only)
+- `tests/test_mc_runtime_checkpoint_recovery.py` (superseded source-location assertion only)
 
 **Gate: green**
 
 ```gate
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_tool_call_executor.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_checkpoint_recovery.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mode_enforcement.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_chat_modes.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_resource_access.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_terminal_engine.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_chat_runtime.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_chat_runtime_route.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_conductor_final_guard.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_conductor_mixed_reply.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_response_composer.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_intent_router.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_context_assembler.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_policy.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_policy_facts.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_approvals.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_tool_registry.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_tool_catalog.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_tool_adapters.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_project_tools.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_file_tools.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_terminal_tools.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_terminal_jobs.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_action_receipts.py
-"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" -m compileall -q core api
+"C:/Users/LE BINH/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe" tests/test_mc_runtime_tool_loop_orchestrator.py
+"C:/Users/LE BINH/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe" tests/test_mc_runtime_tool_call_executor.py
+"C:/Users/LE BINH/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe" tests/test_mc_runtime_checkpoint_recovery.py
 ```
 
 ---

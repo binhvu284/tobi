@@ -512,22 +512,15 @@ def _check_conductor_boundary() -> int:
     checks += 1
 
     answer_source = inspect.getsource(conductor.answer)
-    for marker in (
-        "for _ in range(max_tool_steps or MAX_TOOL_STEPS)",
-        "for call in calls",
-        "tool_step_index += 1",
-        "highs.extend(execution.proposed_actions)",
-        "if highs:",
-        "_propose_actions(highs, chat_id, surface, used, intent)",
-        "Now give your final answer to the owner using only the tool",
-    ):
-        _check(marker in answer_source, f"Run 3B2 ownership moved early: {marker}")
-        checks += 1
+    _check("_run_tool_loop(" in answer_source, "Conductor does not delegate loop orchestration")
+    _check("execute_tool_call=_execute_loop_call" in answer_source,
+           "Conductor does not bridge loop orchestration to one-call execution")
+    checks += 2
     _check("_execute_tool_call(" in answer_source, "Conductor does not delegate one-call execution")
     checks += 1
 
     service_source = inspect.getsource(tool_call_executor)
-    for forbidden in ("core.conductor", "for call in calls", "_propose_actions", "MAX_TOOL_STEPS"):
+    for forbidden in ("core.conductor", "run_tool_loop", "_propose_actions", "MAX_TOOL_STEPS"):
         _check(forbidden not in service_source, f"executor took unapproved ownership: {forbidden}")
         checks += 1
 

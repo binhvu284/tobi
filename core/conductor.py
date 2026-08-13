@@ -120,6 +120,7 @@ from core.runtime.response_composer import (
     stream_chunks as _stream_chunks,
 )
 from core.runtime.tool_call_executor import execute_tool_call as _execute_tool_call
+from core.runtime.tool_loop_orchestrator import run_tool_loop as _run_tool_loop
 
 MAX_TOOL_STEPS = 8  # enough for a chain: read → create project → tasks → assign → answer
 _LLM_DOWN = "I can't reach my language model right now, sir — do check the LLM API key in Integrations."
@@ -390,7 +391,6 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
     msgs = _prepare_model_messages(message, history, chat_id, history_loader=_history)
     used: list[str] = []
     done_acts: list[str] = []  # successfully executed acts in this chain (for stop-on-failure)
-    step_fails = 0             # truncated/garbled steps → model self-diagnosis
     # When a chatty model leaks a prose preamble before a tool call, retract it from the UI.
     on_reset = (lambda: on_event({"type": "reset"})) if on_event else None
 
@@ -514,98 +514,80 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
             text += _continue_answer(client, msgs, text, system, on_delta)
         return _final(text)
 
-    tool_step_index = 0
-    for _ in range(max_tool_steps or MAX_TOOL_STEPS):
-        text, is_answer, fr = _gen_step(client, msgs, system, step_tokens or STEP_TOKENS, on_delta, on_reset)
-        if not text:
-            step_fails += 1
-            if step_fails > MAX_STEP_RETRIES:
-                return {"reply": _MODEL_STRUGGLING, "tools_used": used, "intent": intent, "model_issue": True, "streamed": False}
-            continue
-        if is_answer:
-            if fr == "length":
-                text += _continue_answer(client, msgs, text, system, on_delta)
-            return _final(text)
+    def _execute_loop_call(call: dict, *, step_index: int,
+                           prior_tools_used: list[str],
+                           completed_actions: list[str]):
+        return _execute_tool_call(
+            call,
+            chat_id=chat_id,
+            surface=surface,
+            intent=intent,
+            mode=mode,
+            review_mode=review_mode,
+            denied_tools=denied_tools,
+            allowed_tools=allowed_tools,
+            turn_id=turn_id,
+            step_index=step_index,
+            prior_tools_used=prior_tools_used,
+            completed_actions=completed_actions,
+            risk_by_tool=RISK,
+            tool_specs=TOOL_SPECS,
+            read_tools=READ_TOOLS,
+            optional_tools=OPTIONAL_TOOLS,
+            terminal_tools=TERMINAL_TOOLS,
+            workflow_read_tools=_WORKFLOW_READ_TOOLS,
+            validate_call=_tool_registry.validate_call,
+            phase_for=_phase_for,
+            execute_tool=_exec_tool,
+            terminal_engine_loader=_load_terminal_engine,
+            terminal_command_for=_terminal_command_for,
+            make_tool_call=_tool_registry.ToolCall,
+            receipt_key=_tool_registry.receipt_key,
+            load_receipt=_tool_registry.load_receipt,
+            store_receipt=_tool_registry.store_receipt,
+            execute_terminal=_execute_terminal_and_log,
+            execute_action=_execute_and_log,
+            log_action=_log_action,
+            action_summary=_action_summary,
+            picker_intro=_picker_intro,
+            failure_report=_failure_report,
+            on_event=on_event,
+        )
 
-        calls = _parse_tool_calls(text)
-        if not calls:
-            # It looked like a tool call but the JSON was truncated/garbled → retry, stricter.
-            step_fails += 1
-            if step_fails > MAX_STEP_RETRIES:
-                return {"reply": _MODEL_STRUGGLING, "tools_used": used, "intent": intent, "model_issue": True, "streamed": False}
-            msgs.append({"role": "assistant", "content": text[:600]})
-            msgs.append({"role": "user", "content": "That tool call was incomplete or invalid. Reply with ONLY "
-                         "a single-line JSON object exactly like {\"tool\": \"<name>\", \"args\": {}} — no prose, "
-                         "no markdown, no commentary."})
-            continue
-
-        # Execute EVERY call in this message (a model may batch 'create 2 projects' into one reply).
-        # High-risk calls are COLLECTED and proposed together at the end (one confirmation card).
-        msgs.append({"role": "assistant", "content": text})
-        highs: list[tuple] = []
-        for call in calls:
-            tool_step_index += 1
-            execution = _execute_tool_call(
-                call,
-                chat_id=chat_id,
-                surface=surface,
-                intent=intent,
-                mode=mode,
-                review_mode=review_mode,
-                denied_tools=denied_tools,
-                allowed_tools=allowed_tools,
-                turn_id=turn_id,
-                step_index=tool_step_index,
-                prior_tools_used=used,
-                completed_actions=done_acts,
-                risk_by_tool=RISK,
-                tool_specs=TOOL_SPECS,
-                read_tools=READ_TOOLS,
-                optional_tools=OPTIONAL_TOOLS,
-                terminal_tools=TERMINAL_TOOLS,
-                workflow_read_tools=_WORKFLOW_READ_TOOLS,
-                validate_call=_tool_registry.validate_call,
-                phase_for=_phase_for,
-                execute_tool=_exec_tool,
-                terminal_engine_loader=_load_terminal_engine,
-                terminal_command_for=_terminal_command_for,
-                make_tool_call=_tool_registry.ToolCall,
-                receipt_key=_tool_registry.receipt_key,
-                load_receipt=_tool_registry.load_receipt,
-                store_receipt=_tool_registry.store_receipt,
-                execute_terminal=_execute_terminal_and_log,
-                execute_action=_execute_and_log,
-                log_action=_log_action,
-                action_summary=_action_summary,
-                picker_intro=_picker_intro,
-                failure_report=_failure_report,
-                on_event=on_event,
-            )
-            if execution.turn_response is not None:
-                return execution.turn_response
-            msgs.extend(execution.messages)
-            used.extend(execution.tools_used)
-            done_acts.extend(execution.completed_actions)
-            highs.extend(execution.proposed_actions)
-
-        if highs:  # one or more high-risk actions → propose them (batched) and wait for the owner
-            return _propose_actions(highs, chat_id, surface, used, intent)
-
-    # Step budget exhausted → force a complete, grounded final answer from the gathered results.
-    msgs.append({"role": "user", "content": "Now give your final answer to the owner using only the tool "
-                 "results above. Do not call any more tools. Answer fully and do not stop mid-sentence."})
-    _final_tokens = final_tokens or FINAL_TOKENS
-    text, is_ans, fr = _gen_step(client, msgs, system, _final_tokens, on_delta, on_reset)
-    # A weak model may STILL emit a tool-call JSON here instead of answering. One blunt prose-only
-    # retry (on_reset retracts any live leak) so the owner gets a real answer — never raw JSON.
-    if not is_ans:
-        msgs.append({"role": "assistant", "content": text[:600]})
-        msgs.append({"role": "user", "content": "Answer in plain prose for the owner now. Do NOT output "
-                     "JSON and do NOT call any tool — just summarise what the tool results above show."})
-        text, is_ans, fr = _gen_step(client, msgs, system, _final_tokens, on_delta, on_reset)
-    if fr == "length":
-        text += _continue_answer(client, msgs, text, system, on_delta)
-    return _final(text)
+    loop = _run_tool_loop(
+        client=client,
+        messages=msgs,
+        system=system,
+        chat_id=chat_id,
+        surface=surface,
+        intent=intent,
+        mode=mode,
+        used_tools=used,
+        completed_actions=done_acts,
+        max_tool_steps=max_tool_steps,
+        default_max_tool_steps=MAX_TOOL_STEPS,
+        step_tokens=step_tokens,
+        step_token_budget=STEP_TOKENS,
+        final_tokens=final_tokens,
+        final_token_budget=FINAL_TOKENS,
+        max_step_retries=MAX_STEP_RETRIES,
+        generate_step=_gen_step,
+        continue_answer=_continue_answer,
+        parse_tool_calls=_parse_tool_calls,
+        execute_tool_call=_execute_loop_call,
+        propose_actions=_propose_actions,
+        on_delta=on_delta,
+        on_reset=on_reset,
+    )
+    msgs[:] = list(loop.messages)
+    used[:] = list(loop.tools_used)
+    done_acts[:] = list(loop.completed_actions)
+    if loop.turn_response is not None:
+        return loop.turn_response
+    if loop.model_issue:
+        return {"reply": _MODEL_STRUGGLING, "tools_used": used, "intent": intent,
+                "model_issue": True, "streamed": False}
+    return _final(loop.final_text or "")
 
 
 def _persist_and_learn(chat_id: int, message: str, reply: str) -> None:

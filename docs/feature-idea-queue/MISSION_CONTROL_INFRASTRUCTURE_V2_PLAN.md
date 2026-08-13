@@ -5,7 +5,7 @@
 | Field | Decision |
 |---|---|
 | Queue item | `#21` |
-| Status | In progress; T00-T07 and T08 Runs 1, 2A, 2B, and 3A owner-accepted; T08 Run 3B1 delivered, acceptance pending |
+| Status | In progress; T00-T07 and T08 Runs 1, 2A, 2B, 3A, and 3B1 owner-accepted; T08 Run 3B2 delivered, owner acceptance pending |
 | Delivered dependency | `#20` Brain V2 is delivered; T00 must reconcile this plan with its actual contracts, migrations, context behavior, and rollback path |
 | Start gate | Satisfied 2026-08-01 by `#22` Codex-only V2 qualification (`e9bc5fe`); other workers remain locked until separately qualified |
 | Deployment confidence | The `#22` 24-hour/72-hour VPS soak remains a deployment confidence gate, not a source-development blocker for `#21` unless the owner explicitly promotes it to one |
@@ -2284,8 +2284,110 @@ step identity, combined proposal creation, step-budget exhaustion, and forced-fi
 canonical executor/T07 activation, tool behavior, policy, approval, receipt, persistence, route,
 result field, owner-visible response, flag, API, UI, or external service changed.
 
-**Owner action:** accept **T08 Run 3B1** and release Run 3B2 planning. Run 3B2 does not start before
-that acceptance.
+**Owner acceptance (2026-08-13):** Run 3B1 commit `1a1854b` is accepted. T08 is **58-68%** complete,
+#21 is about **91-96%** complete, and Run 3B2 planning is released.
+
+### 25.15 T08 Run 3B2 - Compatibility Tool-Loop Orchestration Extraction Plan (2026-08-13)
+
+**Outcome:** move Conductor's remaining model/tool loop into
+`core/runtime/tool_loop_orchestrator.py`. One frozen outcome reports a final model text, a terminal
+turn response, accumulated messages/tool names/completed actions, or a model-output issue. Conductor
+keeps public response composition and passes every current dependency into the service. Live
+behavior must remain identical.
+
+**Why this is the next bounded run:** accepted Run 3B1 now owns one parsed call. The remaining loop
+in Conductor generates a model step, retries blank or invalid output, parses calls, executes them in
+order, combines proposal tuples after a batch, and forces a grounded answer when its step budget is
+spent. Those decisions form one orchestration boundary. Final cleanup, mixed tool/prose handling,
+model selection/escalation, and the no-tools answer branch remain together for Run 4.
+
+**Source-grounded map:** Graphify remains a stale navigation index at `2d46ab9`. Live source at
+accepted commit `1a1854b` establishes the package boundary:
+
+| Current node | Run 3B2 ownership | Must remain outside Run 3B2 |
+|---|---|---|
+| Conductor model-step loop | Iterate with the same effective limit and cumulative blank/invalid retry count | Route, context, model selection, and no-tools direct answer |
+| Existing tool-call parser | Invoke it and preserve returned order | Parsing, deduplication, and schema authority stay in `conductor_parsing.py` |
+| Run 3B1 one-call service | Invoke once per parsed call with monotonically increasing per-call step identity | Validation, policy, Terminal, receipts, audit, execution, and failure formatting |
+| Proposal tuples from each call | Accumulate a whole model batch, then invoke the existing combined-card helper once | Proposal creation, storage, approval, and action authority |
+| Exhausted model-step budget | Use the exact grounded-final prompt, one prose-only retry, and current length continuation | Final cleanup, reasoning removal, model escalation, and public result fields |
+
+**Contract:** add a frozen `ToolLoopOutcome` containing final text or a terminal turn response plus
+immutable messages, used tool names, completed action summaries, and a model-output-issue marker.
+Add `run_tool_loop(...)`, accepting copies of the current collections, explicit limits/token budgets,
+and injected generation, continuation, parsing, one-call execution, and proposal dependencies. It
+must:
+
+1. Preserve `max_tool_steps or MAX_TOOL_STEPS`, `STEP_TOKENS`, `FINAL_TOKENS`, and the cumulative
+   `MAX_STEP_RETRIES` behavior for both blank and invalid model output.
+2. Preserve exact invalid-output history truncation and corrective prompts, direct-answer handling,
+   finish-reason length continuation, and the model-struggling outcome boundary.
+3. Execute every parsed call in parser order, increment step identity per call across model
+   iterations, merge each immutable Run 3B1 outcome, and stop before later calls on a terminal turn.
+4. Collect all proposed actions from one generated batch, invoke the existing combined proposal
+   helper exactly once after every non-terminal call in that batch, and return its response.
+5. Preserve the exact forced-grounded-answer prompt after budget exhaustion, one prose-only retry
+   when a tool call is returned again, and token-limit continuation before returning final text.
+
+The service must not import `core.conductor`, mutate caller-owned collections, parse tool JSON
+itself, validate or execute a tool directly, create approval/proposal/receipt authority, call
+Conductor's final response helper, select or escalate a model, activate `loop_controller.py` or the
+dormant canonical executor, or build public answer fields.
+
+**Implementation order:**
+
+1. Add `tests/test_mc_runtime_tool_loop_orchestrator.py`; run it against unchanged code, capture the
+   missing-module failure, and set the Gate red before production edits.
+2. Add the frozen outcome and orchestration service. Test direct answers, blank/invalid retries,
+   ordered multi-call execution, cross-iteration step identity, terminal stops, one combined
+   proposal, exhausted-budget forcing, prose retry, and length continuation directly.
+3. Replace only Conductor's current model/tool loop with one service call and outcome application.
+   Use a local binding to inject the accepted Run 3B1 service and current proposal helper.
+4. Revise only superseded source-location assertions in the Run 3A and Run 3B1 tests. Keep their
+   behavioral assertions intact and prove that only Conductor imports the new live service.
+5. Set the Gate green; run focused and inherited checks, source-boundary scans, compilation, diff
+   checks, and `scripts/gate.py`; publish evidence and stop for owner acceptance.
+
+**Acceptance checks:** the focused suite fails before implementation and passes after; inputs and
+outcomes are immutable; answer and length paths are exact; blank and invalid output share the same
+cumulative retry counter; corrective text and prompts are unchanged; parser order and deduplication
+remain authoritative; per-call step identity increases across calls and model iterations; terminal
+responses skip all later calls; all non-terminal calls in a batch run before one combined proposal
+card is returned; exhausted budgets make one exact grounded-final attempt plus at most one prose-only
+retry; `inspect.signature(conductor.answer)` is unchanged; only Conductor imports the service in live
+code; and source checks prove final cleanup, no-tools handling, model escalation, policy, and one-call
+execution remain with their accepted owners.
+
+**Expected files:** `core/runtime/tool_loop_orchestrator.py`, `core/conductor.py`,
+`tests/test_mc_runtime_tool_loop_orchestrator.py`, superseded source-location assertions only in
+`tests/test_mc_runtime_tool_call_executor.py` and `tests/test_mc_runtime_checkpoint_recovery.py`,
+`.claude/CURRENT_WORK.md`, `MC_V2_BOARD.md`, this plan, `QUEUE.md`, and `QUEUE_DELIVERY_LOG.md`. Any
+other source or test file requires stopping and revising the package before editing.
+
+**Verification:** run the new focused suite; every accepted T08 service suite, including Run 3B1
+one-call execution and checkpoint recovery; `test_chat_self_check.py`, `test_mode_enforcement.py`,
+`test_chat_modes.py`, `test_resource_access.py`, `test_terminal_engine.py`, `test_chat_runtime.py`,
+`test_chat_runtime_route.py`, `test_conductor_final_guard.py`, and `test_conductor_mixed_reply.py`;
+Runtime policy/facts/approvals, registry/catalog/adapters, project/file/Terminal tools and jobs,
+action receipts; `compileall`; live-import and ownership scans; `git diff --check`;
+`scripts/gate.py`; and intended-file-only `git status`. Accepted commit `1a1854b` supplies the green
+25/25 baseline. The accepted Awakening deferred-memory conflict remains comparison-only and must
+gain no new failure.
+
+**Non-goals:** no final response cleanup/facade extraction, no-tools branch move, parser or one-call
+service redesign, checkpoint change, canonical executor/durable-loop/T07 activation, new policy/
+approval/proposal/receipt/action authority, tool behavior, persistence/schema/migration/flag,
+prompt/context/model selection, route/API/UI, Telegram/CLI/Office/scheduler, external-service,
+Supabase, or Vercel change. Do not run another package that edits Conductor, `CURRENT_WORK.md`, the
+gate, or queue documents in parallel; pending Queue item #32 is source-disjoint but still shares
+package-control documents.
+
+**Estimate after acceptance:** T08 **70-82%** complete and #21 about **94-98%** complete. Expected
+unattended implementation and verification time is **6-8 hours**. Owner acceptance should take
+**10-15 minutes**: confirm orchestration moved while one-call execution, policy, final cleanup,
+model selection, public result fields, and owner-visible behavior stayed unchanged.
+
+**Owner action:** accept **T08 Run 3B2 delivery**. Run 4 planning is not released until that acceptance.
 
 ## 26. Implementation Log
 
@@ -2325,4 +2427,5 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-12 | T08 Run 2A | `9125ec5`; owner acceptance 2026-08-12 | Red missing-router import; 33/33 intent-router checks; enforced gate 12/12 plus 109 broader compatibility checks green | Accepted; a frozen pure compatibility decision and recall detector now own Conductor's existing branch while the authoritative Chat route, classifier outcomes, context, prompts, public answers, tools, policy, persistence, flags, API, and UI remain unchanged. T08 is 25-30% complete and Run 2B planning is released |
 | 2026-08-12 | T08 Run 2B | `20960de`; owner acceptance 2026-08-12 | Red missing-assembler import; 36/36 context-assembler checks; enforced gate 16/16 green; unchanged Awakening baseline reproduced | Accepted; typed staged context assembly owns Conductor's existing source, attachment, prompt/recall, and model-message preparation while every context/prompt/history owner and all live behavior remain unchanged. T08 is 35-45% complete; Run 3A checkpoint-recovery planning is released |
 | 2026-08-13 | T08 Run 3A | `d88bdd3`; owner acceptance 2026-08-13 | Red missing-service import; 50/50 checkpoint-recovery checks; enforced gate 24/24 green; Terminal timing rerun green; unchanged Awakening baseline reproduced | Accepted; typed compatibility recovery owns retry/skip/revise/resume orchestration while existing validation, safety, execution, approvals, receipts, persistence, and ordinary tool-loop behavior remain unchanged. T08 is 45-55% complete and Run 3B1 planning is released |
-| 2026-08-13 | T08 Run 3B1 | T08 Run 3B1 delivery commit | Red missing-service import; 67/67 one-call checks; 50/50 checkpoint checks; enforced gate 25/25 green; unchanged Awakening baseline reproduced | Delivered, acceptance pending; typed compatibility execution owns one parsed call while Conductor retains model iteration, call ordering, step identity, batching, combined proposals, step budgets, and forced-final behavior. T08 is 58-68% complete; Run 3B2 planning remains locked pending owner acceptance |
+| 2026-08-13 | T08 Run 3B1 | `1a1854b`; owner acceptance 2026-08-13 | Red missing-service import; 67/67 one-call checks; 50/50 checkpoint checks; enforced gate 25/25 green; unchanged Awakening baseline reproduced | Accepted; typed compatibility execution owns one parsed call while Conductor retains model iteration, call ordering, step identity, batching, combined proposals, step budgets, and forced-final behavior. T08 is 58-68% complete and Run 3B2 planning is released |
+| 2026-08-13 | T08 Run 3B2 | Pending owner acceptance | Red missing-service import; 44/44 tool-loop checks; inherited 62/62 one-call and 49 checkpoint checks; enforced gate 3/3 green; Chat/mode/resource/terminal/runtime/tool/project/file regressions, compile, route, and diff checks green | Delivered; typed compatibility orchestration owns model/tool iteration, ordered batches, combined proposal timing, and step-budget forced-final handling. One-call execution, parser authority, policy, Terminal, receipts, approvals, final cleanup, model selection, and public result fields remain with accepted owners. T08 is 70-82% complete and Run 4 is not released until owner acceptance |

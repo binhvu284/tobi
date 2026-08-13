@@ -345,10 +345,9 @@ def _check_conductor_delegation() -> int:
     _check("if recovery_checkpoint:" not in source, "legacy recovery branch remains in Conductor")
     _check(source.count("_apply_recovery_checkpoint(") == 1, "Conductor recovery delegation count changed")
     for ordinary_loop_marker in (
-        "calls = _parse_tool_calls(text)",
-        "for call in calls:",
-        "execution = _execute_tool_call(",
-        "if highs:",
+        "_run_tool_loop(",
+        "execute_tool_call=_execute_loop_call",
+        "_execute_tool_call(",
     ):
         _check(ordinary_loop_marker in source, f"ordinary loop ownership changed: {ordinary_loop_marker}")
         checks += 1
