@@ -346,11 +346,11 @@ def _check_conductor_delegation() -> int:
     _check(source.count("_apply_recovery_checkpoint(") == 1, "Conductor recovery delegation count changed")
     for ordinary_loop_marker in (
         "calls = _parse_tool_calls(text)",
-        "if tool in denied_tools:",
-        "if tool in TERMINAL_TOOLS:",
+        "for call in calls:",
+        "execution = _execute_tool_call(",
         "if highs:",
     ):
-        _check(ordinary_loop_marker in source, f"ordinary loop marker moved: {ordinary_loop_marker}")
+        _check(ordinary_loop_marker in source, f"ordinary loop ownership changed: {ordinary_loop_marker}")
         checks += 1
     checks += 2
 

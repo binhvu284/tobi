@@ -5,7 +5,7 @@
 | Field | Decision |
 |---|---|
 | Queue item | `#21` |
-| Status | In progress; T00-T07 and T08 Runs 1, 2A, and 2B owner-accepted; T08 Run 3A delivered, acceptance pending |
+| Status | In progress; T00-T07 and T08 Runs 1, 2A, 2B, and 3A owner-accepted; T08 Run 3B1 delivered, acceptance pending |
 | Delivered dependency | `#20` Brain V2 is delivered; T00 must reconcile this plan with its actual contracts, migrations, context behavior, and rollback path |
 | Start gate | Satisfied 2026-08-01 by `#22` Codex-only V2 qualification (`e9bc5fe`); other workers remain locked until separately qualified |
 | Deployment confidence | The `#22` 24-hour/72-hour VPS soak remains a deployment confidence gate, not a source-development blocker for `#21` unless the owner explicitly promotes it to one |
@@ -2171,7 +2171,120 @@ separately reproduces only its accepted deferred-memory conflict after all prior
 tool-loop line, tool behavior, Terminal safety decision, policy, approval, receipt, persistence, route,
 result field, owner-visible response, flag, API, UI, or external service changed.
 
-**Owner action:** accept **T08 Run 3A** and release Run 3B1 planning. Run 3B1 does not start before
+**Owner acceptance (2026-08-13):** Run 3A commit `d88bdd3` is accepted. T08 is **45-55%** complete,
+#21 is about **89-94%** complete, and Run 3B1 planning is released.
+
+### 25.14 T08 Run 3B1 - Compatibility One-Call Execution Extraction Plan (2026-08-13)
+
+**Outcome:** move validation and dispatch of exactly one already-parsed ordinary tool call from
+`conductor.answer()` into `core/runtime/tool_call_executor.py`. The new service returns one frozen
+typed outcome; Conductor applies it to the current message, tool, completed-action, and pending-
+proposal collections. Existing registry, Terminal, receipt, audit, approval, event, summary, and
+failure helpers remain authoritative and injected. Live behavior must remain identical.
+
+**Why this run stays bounded:** one model response can contain several tool calls. Conductor must
+continue to own the `for call in calls` iteration, increasing step identity, collecting several
+approval requests into one card, deciding when to return, exhausting the tool-step budget, and
+forcing the final grounded answer. Run 3B1 handles one call only. Run 3B2 will extract that outer
+orchestration after this smaller compatibility boundary is accepted.
+
+**Source-grounded map:** Graphify identifies the Conductor-to-registry execution edges but remains
+stale at `2d46ab9`; live source at accepted commit `d88bdd3` establishes the package boundary:
+
+| Current node | Run 3B1 ownership | Must remain outside Run 3B1 |
+|---|---|---|
+| Per-call denied/route/schema checks | Service performs the current checks through injected current owners | Route selection and tool-call parsing |
+| Plan/read/Terminal/mutation branches | Service dispatches one call and returns messages, used tool, completed summary, proposal, or terminal response | Model iteration and multiple-call ordering |
+| Terminal gate and Chat receipt helpers | Service invokes current helpers with the same turn/step identity | New receipt, policy, or execution authority |
+| Picker and mutation failure returns | Service builds the exact current terminal response using injected formatters and accumulated context | General response composition |
+| `highs`, `used`, `done_acts`, and `msgs` collections | Conductor applies immutable outcome values | Combined proposal card and step-budget handling |
+
+**Contract:** add a frozen `ToolCallExecutionOutcome` containing only appended model messages,
+executed tool names, completed action summaries, proposed action tuples, and an optional terminal
+turn response. Add `execute_tool_call(...)`, which accepts one parsed call plus the current turn,
+mode, route, step identity, accumulated response context, and injected compatibility dependencies.
+It must:
+
+1. Normalize non-dictionary arguments exactly as today, then preserve server-side mode denial,
+   read-tool route widening, mutating route denial, and current schema validation.
+2. Emit the same thinking and plan events, with callback exceptions still unable to break the turn.
+3. Preserve every Terminal decision, real-risk confirmation tuple, exact receipt key/replay/store
+   behavior, success summary, and Telegram mutation restriction.
+4. Preserve high-risk/session and all-action/ask proposal tuples without creating a proposal card.
+5. Preserve workflow-read auditing, picker terminal responses, mutation execution including the
+   historical monkeypatch fallback, stop-on-failure fields/text, tool-result truncation, and action
+   summaries without mutating caller-owned collections.
+
+The service must not import `core.conductor`, select or call a model, parse model output, increment a
+step, loop over calls, aggregate or persist proposals, force a final answer, activate
+`core.runtime.tool_execution`, or invoke dormant T07 runtimes.
+
+**Implementation order:**
+
+1. Add `tests/test_mc_runtime_tool_call_executor.py`; run it against unchanged code, capture the
+   missing-module failure, and set the Gate red before production edits.
+2. Add the frozen outcome and pure compatibility service. Cover all denial, validation, event,
+   plan, Terminal, review, read, picker, mutation, receipt, summary, and failure branches directly.
+3. Replace only Conductor's current per-call branch with one service call and outcome application.
+   Keep `for call in calls`, `tool_step_index`, `highs`, `_propose_actions`, `MAX_TOOL_STEPS`, and the
+   forced final-answer branch in Conductor for Run 3B2.
+4. Set the Gate green; run the focused suite, inherited compatibility suites, source-boundary scans,
+   compilation, diff checks, and `scripts/gate.py`; publish evidence and stop for owner acceptance.
+
+**Acceptance checks:** the new suite fails before implementation and passes after; inputs and outcome
+are immutable; no denied, invalid, or route-blocked mutation executes; read route widening remains;
+thinking/plan event order and exception handling remain; every Terminal gate/receipt path is exact;
+Telegram and review-mode proposals are unchanged; workflow reads still audit; picker and failed
+mutation terminal responses retain every field and exact text; successful results append one tool
+result and action summary; `inspect.signature(conductor.answer)` is unchanged; only Conductor imports
+the new service in live code; and source checks prove loop iteration, proposal batching, step identity,
+step exhaustion, and forced-final handling remain in Conductor.
+
+**Expected files:** `core/runtime/tool_call_executor.py`, `core/conductor.py`,
+`tests/test_mc_runtime_tool_call_executor.py`, the superseded Run 3A source-location assertion in
+`tests/test_mc_runtime_checkpoint_recovery.py`, `.claude/CURRENT_WORK.md`, `MC_V2_BOARD.md`, this
+plan, `QUEUE.md`, and `QUEUE_DELIVERY_LOG.md`. Any other source or test file requires stopping and
+revising the package before editing.
+
+**Verification:** run the new focused suite; accepted checkpoint recovery and the other three T08
+Runtime service suites; `test_mode_enforcement.py`, `test_chat_modes.py`, `test_resource_access.py`,
+`test_terminal_engine.py`, `test_chat_runtime.py`, `test_chat_runtime_route.py`,
+`test_conductor_final_guard.py`, `test_conductor_mixed_reply.py`; Runtime policy/facts/approvals,
+registry/catalog/adapters, project/file/Terminal tools and jobs, action receipts; `compileall`; live
+import and Conductor-ownership scans; `git diff --check`; `scripts/gate.py`; and intended-file-only
+`git status`. Accepted commit `d88bdd3` supplies the green 24/24 planning baseline. The accepted
+Awakening deferred-memory conflict remains comparison-only and must gain no new failure.
+
+**Non-goals:** no loop iteration, batching, proposal-card creation, step increment/budget, final-
+answer forcing, checkpoint-recovery change, canonical executor/T07 activation, new policy/approval/
+receipt/action authority, tool behavior, persistence/schema/migration/flag, prompt/context/model,
+route/API/UI, Telegram/CLI/Office/scheduler, external-service, Supabase, or Vercel change. Do not run
+another package that edits Conductor, `CURRENT_WORK.md`, the gate, or queue documents in parallel;
+pending Queue item #32 is source-disjoint but still shares package-control documents.
+
+**Estimate after acceptance:** T08 **58-68%** complete and #21 about **91-96%** complete. Expected
+unattended implementation and verification time is **6-8 hours**. Owner acceptance should take
+**10-15 minutes**: confirm only one-call execution moved and the loop, batching, combined approvals,
+step budget, and final-answer fallback remain in Conductor.
+
+**Delivery evidence (2026-08-13):** the focused suite first failed because
+`core.runtime.tool_call_executor` did not exist, and the enforced red gate confirmed its only check
+failed as intended. The delivered frozen outcome and compatibility service pass 67 checks covering
+immutability, mode and route denials, schema errors, thinking/plan events, read widening and audits,
+picker returns, every Terminal decision, exact receipt replay/store identity, Telegram restrictions,
+review-mode proposals, legacy helper fallback, successful mutations, stop-on-failure fields, and
+Conductor ownership boundaries. Only Conductor imports the new service in live code.
+
+The enforced gate passes 25/25 commands: one-call execution, checkpoint recovery, mode, Chat modes/
+runtime/routes, resources, Terminal engine, Conductor guards, all accepted T08 services, Runtime
+policy/facts/approvals, registry/catalog/adapters, project/file/Terminal tools and jobs, action
+receipts, and compilation. The separate Awakening comparison passed every prior check and reproduced
+only its accepted deferred-memory conflict. Conductor retains model iteration, multiple-call order,
+step identity, combined proposal creation, step-budget exhaustion, and forced-final behavior. No
+canonical executor/T07 activation, tool behavior, policy, approval, receipt, persistence, route,
+result field, owner-visible response, flag, API, UI, or external service changed.
+
+**Owner action:** accept **T08 Run 3B1** and release Run 3B2 planning. Run 3B2 does not start before
 that acceptance.
 
 ## 26. Implementation Log
@@ -2211,4 +2324,5 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-12 | T08 Run 1 | `d263837`; owner acceptance 2026-08-12 | Red missing-service import; 28/28 response checks; enforced gate 9/9; broader gateway, Chat mode, resources, Office, and Terminal checks green; unchanged `064ed83` reproduces the unrelated Awakening failure | Accepted; typed response handling is extracted and Conductor delegates through compatibility boundaries with no public answer, route, flag, policy, tool, context, storage, API, or UI change. T08 is 15-20% complete; source review split Run 2 into routing-only 2A and context-only 2B, and Run 2A planning is released |
 | 2026-08-12 | T08 Run 2A | `9125ec5`; owner acceptance 2026-08-12 | Red missing-router import; 33/33 intent-router checks; enforced gate 12/12 plus 109 broader compatibility checks green | Accepted; a frozen pure compatibility decision and recall detector now own Conductor's existing branch while the authoritative Chat route, classifier outcomes, context, prompts, public answers, tools, policy, persistence, flags, API, and UI remain unchanged. T08 is 25-30% complete and Run 2B planning is released |
 | 2026-08-12 | T08 Run 2B | `20960de`; owner acceptance 2026-08-12 | Red missing-assembler import; 36/36 context-assembler checks; enforced gate 16/16 green; unchanged Awakening baseline reproduced | Accepted; typed staged context assembly owns Conductor's existing source, attachment, prompt/recall, and model-message preparation while every context/prompt/history owner and all live behavior remain unchanged. T08 is 35-45% complete; Run 3A checkpoint-recovery planning is released |
-| 2026-08-13 | T08 Run 3A | T08 Run 3A delivery commit | Red missing-service import; 50/50 checkpoint-recovery checks; enforced gate 24/24 green; Terminal timing rerun green; unchanged Awakening baseline reproduced | Delivered, acceptance pending; typed compatibility recovery owns retry/skip/revise/resume orchestration while existing validation, safety, execution, approvals, receipts, persistence, and ordinary tool-loop behavior remain unchanged. T08 is 45-55% complete; Run 3B1 planning remains locked pending owner acceptance |
+| 2026-08-13 | T08 Run 3A | `d88bdd3`; owner acceptance 2026-08-13 | Red missing-service import; 50/50 checkpoint-recovery checks; enforced gate 24/24 green; Terminal timing rerun green; unchanged Awakening baseline reproduced | Accepted; typed compatibility recovery owns retry/skip/revise/resume orchestration while existing validation, safety, execution, approvals, receipts, persistence, and ordinary tool-loop behavior remain unchanged. T08 is 45-55% complete and Run 3B1 planning is released |
+| 2026-08-13 | T08 Run 3B1 | T08 Run 3B1 delivery commit | Red missing-service import; 67/67 one-call checks; 50/50 checkpoint checks; enforced gate 25/25 green; unchanged Awakening baseline reproduced | Delivered, acceptance pending; typed compatibility execution owns one parsed call while Conductor retains model iteration, call ordering, step identity, batching, combined proposals, step budgets, and forced-final behavior. T08 is 58-68% complete; Run 3B2 planning remains locked pending owner acceptance |

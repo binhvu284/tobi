@@ -119,6 +119,7 @@ from core.runtime.response_composer import (
     split_reasoning as _strip_reasoning,
     stream_chunks as _stream_chunks,
 )
+from core.runtime.tool_call_executor import execute_tool_call as _execute_tool_call
 
 MAX_TOOL_STEPS = 8  # enough for a chain: read → create project → tasks → assign → answer
 _LLM_DOWN = "I can't reach my language model right now, sir — do check the LLM API key in Integrations."
@@ -544,154 +545,48 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
         highs: list[tuple] = []
         for call in calls:
             tool_step_index += 1
-            tool = call["tool"]
-            args = call.get("args") or {}
-            if not isinstance(args, dict):
-                args = {}
-            risk = RISK.get(tool, "read")
-
-            # ── Mode capability boundary (#16 [D11][D23]): a tool the mode forbids is rejected
-            # server-side even if the model calls it anyway (Chat can't run terminal tools). Feed
-            # a denial back so the model adjusts and tells the owner to switch to Agent mode. ──
-            if tool in denied_tools:
-                msgs.append({"role": "user", "content": f"TOOL_RESULT {tool}: " + json.dumps(
-                    {"denied": True, "reason": f"{tool} is not available in this mode — shell/terminal "
-                     "actions require Agent mode. Tell the owner to switch modes; do not retry."})})
-                continue
-            # Read tools bypass the route-scope gate entirely — they're safe, non-mutating,
-            # and blocking them was the root cause of "list_projects is blocked" / tool.route_denied.
-            # Only ACT tools (mutations) are gated by the route's allowed_tools set.
-            is_read = tool in READ_TOOLS or tool in OPTIONAL_TOOLS
-            if not is_read and allowed_tools is not None and tool not in allowed_tools:
-                available = sorted(t for t in (allowed_tools or set())
-                                   if t in READ_TOOLS or t in OPTIONAL_TOOLS)
-                msgs.append({"role": "user", "content": f"TOOL_RESULT {tool}: " + json.dumps(
-                    {"denied": True, "error_code": "tool.route_denied",
-                     "reason": f"'{tool}' isn't an available tool this turn. Use one of these "
-                               f"instead: {', '.join(available) or '(none)'}. Do NOT tell the owner "
-                               f"to change permissions or re-authorize — pick a real tool and continue."})})
-                continue
-            validation_error = _tool_registry.validate_call(
-                call, TOOL_SPECS.get(tool), mode, allowed_tools
+            execution = _execute_tool_call(
+                call,
+                chat_id=chat_id,
+                surface=surface,
+                intent=intent,
+                mode=mode,
+                review_mode=review_mode,
+                denied_tools=denied_tools,
+                allowed_tools=allowed_tools,
+                turn_id=turn_id,
+                step_index=tool_step_index,
+                prior_tools_used=used,
+                completed_actions=done_acts,
+                risk_by_tool=RISK,
+                tool_specs=TOOL_SPECS,
+                read_tools=READ_TOOLS,
+                optional_tools=OPTIONAL_TOOLS,
+                terminal_tools=TERMINAL_TOOLS,
+                workflow_read_tools=_WORKFLOW_READ_TOOLS,
+                validate_call=_tool_registry.validate_call,
+                phase_for=_phase_for,
+                execute_tool=_exec_tool,
+                terminal_engine_loader=_load_terminal_engine,
+                terminal_command_for=_terminal_command_for,
+                make_tool_call=_tool_registry.ToolCall,
+                receipt_key=_tool_registry.receipt_key,
+                load_receipt=_tool_registry.load_receipt,
+                store_receipt=_tool_registry.store_receipt,
+                execute_terminal=_execute_terminal_and_log,
+                execute_action=_execute_and_log,
+                log_action=_log_action,
+                action_summary=_action_summary,
+                picker_intro=_picker_intro,
+                failure_report=_failure_report,
+                on_event=on_event,
             )
-            if validation_error:
-                msgs.append({"role": "user", "content": f"TOOL_RESULT {tool}: " + json.dumps({
-                    "error": validation_error.message, "error_code": validation_error.code,
-                    "stage": validation_error.stage, "retryable": validation_error.retryable,
-                })})
-                continue
-
-            if on_event:
-                try:
-                    on_event({"type": "thinking", "phase": _phase_for(tool), "tool": tool})
-                except Exception:
-                    pass
-
-            # ── outline_plan (#16 D9): surface the declared plan as a structured event ──
-            if tool == "outline_plan":
-                result = _exec_tool(call, mode=mode, allowed_tools=allowed_tools,
-                                    turn_id=turn_id, step_index=tool_step_index)
-                if on_event and isinstance(result, dict) and result.get("ok"):
-                    try:
-                        on_event({"type": "plan", "steps": result["steps"], "title": result.get("title", "")})
-                    except Exception:
-                        pass
-                used.append(tool)
-                msgs.append({"role": "user", "content": f"TOOL_RESULT {tool}: {json.dumps(result, default=str)[:3000]}"})
-                continue
-
-            # ── Terminal tools (#11): the two-axis engine (mode × command risk) decides ──
-            if tool in TERMINAL_TOOLS:
-                from core import terminal_engine as te
-                cmd = _terminal_command_for(tool, args)
-                if not cmd:
-                    result = _exec_tool(call, mode=mode, allowed_tools=allowed_tools,
-                                        turn_id=turn_id, step_index=tool_step_index)
-                else:
-                    g = te.gate(cmd, surface=surface)
-                    decision, trisk = g["decision"], g["risk"]
-                    if decision == "refuse":
-                        result = {"refused": True, "risk": trisk, "reason": g["reason"], "command": cmd}
-                    elif decision == "plan":
-                        result = te.plan(cmd, surface)
-                    elif decision == "confirm":
-                        highs.append((tool, args, trisk))  # propose with the command's real risk
-                        continue
-                    else:  # run
-                        terminal_receipt = None
-                        if turn_id:
-                            terminal_call = _tool_registry.ToolCall(tool, args)
-                            terminal_receipt = _tool_registry.receipt_key(
-                                turn_id, tool_step_index, terminal_call)
-                        replay = _tool_registry.load_receipt(terminal_receipt) if terminal_receipt else None
-                        if replay is not None:
-                            result = dict(replay)
-                            result["receipt_key"] = terminal_receipt
-                            result["replayed"] = True
-                        else:
-                            result = _execute_terminal_and_log(chat_id, surface, tool, args, trisk, on_event)
-                            if terminal_receipt and not result.get("error"):
-                                _tool_registry.store_receipt(
-                                    terminal_receipt, turn_id, tool, args, result)
-                                result = dict(result)
-                                result["receipt_key"] = terminal_receipt
-                                result["replayed"] = False
-                        if not (isinstance(result, dict) and result.get("error")):
-                            done_acts.append(_action_summary(tool, args))
-                used.append(tool)
-                msgs.append({"role": "user", "content": f"TOOL_RESULT {tool}: {json.dumps(result, default=str)[:3000]}"})
-                continue
-
-            if surface == "telegram" and risk in ("medium", "high"):
-                result = {"blocked": f"That's a {risk}-risk change, sir — please do it from Mission Control "
-                                     "(Telegram stays read-only and safe)."}
-            elif risk == "high" and review_mode != "always":
-                # Ask/session retain the destructive-action checkpoint. Autonomous mode is an
-                # explicit owner choice enforced here rather than silently approved by the UI.
-                highs.append((tool, args))
-                continue
-            elif risk == "read":
-                result = _exec_tool(call, mode=mode, allowed_tools=allowed_tools,
-                                    turn_id=turn_id, step_index=tool_step_index)
-                # #17: audit workflow read-tools (summarize_repo) to Actions. A receipt only
-                # counts as 'executed' when the read genuinely succeeded (available, no error).
-                if tool in _WORKFLOW_READ_TOOLS and not (isinstance(result, dict) and result.get("__picker__")):
-                    _ok = isinstance(result, dict) and result.get("available") and not result.get("error")
-                    try:
-                        _log_action(chat_id, surface, tool, args, "read",
-                                    "executed" if _ok else "failed", _action_summary(tool, args), result)
-                    except Exception:
-                        pass
-                # Picker sentinel: halt the turn and surface an interactive wizard to the
-                # owner (the answers arrive as his next message — session-scoped context).
-                if isinstance(result, dict) and result.get("__picker__"):
-                    picker = result["__picker__"]
-                    return {"reply": _picker_intro(picker), "tools_used": used + [tool],
-                            "intent": intent, "pending_picker": picker, "streamed": False}
-            else:  # low / medium (and high under autonomous mode) → act + report
-                if review_mode == "ask":
-                    highs.append((tool, args, risk))
-                    continue
-                try:
-                    result = _execute_and_log(chat_id, surface, tool, args, risk, mode=mode,
-                                              allowed_tools=allowed_tools, turn_id=turn_id,
-                                              step_index=tool_step_index)
-                except TypeError as exc:
-                    # Compatibility for existing callers/tests that monkeypatch the historical
-                    # five-argument helper. Do not mask TypeErrors raised by the real helper.
-                    if "unexpected keyword argument" not in str(exc):
-                        raise
-                    result = _execute_and_log(chat_id, surface, tool, args, risk)
-                # Stop-on-failure: a failed state change halts the chain and reports cleanly.
-                if isinstance(result, dict) and result.get("error"):
-                    failed_step = {"tool": tool, "args": args, "risk": risk, "error": result["error"]}
-                    return {"reply": _failure_report(done_acts, _action_summary(tool, args), result["error"]),
-                            "tools_used": used + [tool], "intent": intent, "stopped_on_error": True,
-                            "failed_step": failed_step, "streamed": False}
-                done_acts.append(_action_summary(tool, args))
-
-            used.append(tool)
-            msgs.append({"role": "user", "content": f"TOOL_RESULT {tool}: {json.dumps(result, default=str)[:3000]}"})
+            if execution.turn_response is not None:
+                return execution.turn_response
+            msgs.extend(execution.messages)
+            used.extend(execution.tools_used)
+            done_acts.extend(execution.completed_actions)
+            highs.extend(execution.proposed_actions)
 
         if highs:  # one or more high-risk actions → propose them (batched) and wait for the owner
             return _propose_actions(highs, chat_id, surface, used, intent)

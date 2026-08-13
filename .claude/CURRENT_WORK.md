@@ -9,24 +9,26 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T08 Run 3A - Compatibility checkpoint recovery extraction (implemented; awaiting owner acceptance)
+**Package:** T08 Run 3B1 - Compatibility one-call execution extraction (implemented; awaiting owner acceptance)
 
 **Purpose (one sentence, plain words):**
-Move Conductor's persisted retry, skip, revise, and resume checkpoint handling behind one typed
-Runtime service without changing validation, safety, execution, receipts, or public answer behavior.
+Move validation and dispatch of one already-parsed ordinary tool call behind one typed Runtime
+service without changing what executes, which checks apply, or what the owner sees.
 
 **Not doing:**
-- No Run 3B1 planning or implementation until the owner accepts Run 3A.
-- No ordinary tool-loop extraction; Run 3B1 owns one-call validation/execution and Run 3B2 owns
-  loop iteration, batching, and step-budget orchestration.
+- No work outside the owner-approved Run 3B1 implementation scope.
+- No model generation, tool-call parsing, loop iteration, batching, proposal aggregation, or
+  step-budget orchestration; Run 3B2 owns those Conductor responsibilities.
+- No change to the accepted Run 3A checkpoint-recovery service or persisted recovery behavior.
 - No activation of the dormant canonical executor or T07 tool runtimes. Their run, lease, policy,
   approval, and receipt requirements remain unchanged and default-off.
-- No change to checkpoint command ownership or persistence in `core/agent_runs.py` or the Runtime
-  repository/control modules.
-- No change to retry identity, validation, denied/allowed tool checks, Terminal safety decisions,
-  review-mode approval behavior, action logging, receipts, failure text, or model continuation.
-- No change to pending-action confirmation, ordinary tool-call parsing/execution, plan events,
-  picker behavior, step budgets, or batched proposals.
+- No new validation, execution, approval, receipt, or action authority. The service must delegate to
+  the current registry, Terminal gate, audit, proposal, receipt, and formatting helpers.
+- No change to denied/allowed tool checks, argument validation, plan/thinking events, Terminal
+  decisions, Telegram mutation limits, review-mode proposals, read audits, picker stops, mutation
+  failures, result truncation, receipt replay/storage, or completed-action summaries.
+- No change to pending-action confirmation, checkpoint commands, model continuation, proposal card
+  creation, combined approvals, step counting, or final-answer forcing.
 - No change to the `conductor.answer()` signature, result fields, reply text, event order, model
   selection/fallback, context, routing, policy, approvals, tool catalog/execution, persistence, or
   owner flags.
@@ -40,13 +42,15 @@ Runtime service without changing validation, safety, execution, receipts, or pub
 - `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
 - `docs/feature-idea-queue/QUEUE.md`
 - `docs/feature-idea-queue/QUEUE_DELIVERY_LOG.md`
-- `core/runtime/checkpoint_recovery.py`
+- `core/runtime/tool_call_executor.py`
 - `core/conductor.py`
-- `tests/test_mc_runtime_checkpoint_recovery.py`
+- `tests/test_mc_runtime_tool_call_executor.py`
+- `tests/test_mc_runtime_checkpoint_recovery.py` (superseded Run 3A source-location assertion only)
 
 **Gate: green**
 
 ```gate
+"D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_tool_call_executor.py
 "D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mc_runtime_checkpoint_recovery.py
 "D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_mode_enforcement.py
 "D:/[PERSONAL PROJECT FILES]/TOBI/.python/venv/Scripts/python.exe" tests/test_chat_modes.py
