@@ -108,7 +108,7 @@ Bounded Codex development with an independent reviewer is qualified. Same-run re
 
 `FOUND_BASE-CORE-5D20H-002`
 
-Run 2B commit `20960de` is owner-accepted: a typed staged assembler owns Conductor's existing manifest/legacy source resolution, exact attachment and prompt composition, recall suffix, and model-message assembly while preserving their order around classification and model selection. The focused suite was 36/36 and its enforced gate 16/16 green; the separate Awakening run reproduced only its accepted deferred-memory conflict. T08 remains 35-45% complete and #21 about 87-93%. Run 3 source review split recovery from ordinary execution: Run 3A will extract persisted retry/skip/revise/resume handling first, then 3B1 will move one-call validation/dispatch and 3B2 will move loop/batching orchestration. Run 3A awaits implementation approval; no runtime behavior has changed in planning.
+Run 3A is delivered and awaits owner acceptance. A frozen typed outcome and one compatibility service now own persisted retry/skip/revise/resume handling while Conductor injects its unchanged validation, Terminal safety, proposal, execution, receipt, event, summary, and failure helpers. The new suite first failed on the missing module, then passed 50/50; the enforced gate is 24/24 green across Conductor, Chat, mode, Terminal, Runtime policy/registry/tools/receipts, and compilation. The separate Awakening run reproduces only its accepted deferred-memory conflict. No normal tool-loop, canonical-tool activation, policy, approval, receipt, persistence, route, API, UI, flag, or owner-visible behavior changed. T08 is 45-55% complete and #21 about 89-94%; owner acceptance releases Run 3B1 planning.
 
 
 <a id="item-20"></a>

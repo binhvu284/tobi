@@ -5,7 +5,7 @@
 | Field | Decision |
 |---|---|
 | Queue item | `#21` |
-| Status | In progress; T00-T05 and T06 Runs 1-2 delivered, T06 Run 3 planning next |
+| Status | In progress; T00-T07 and T08 Runs 1, 2A, and 2B owner-accepted; T08 Run 3A delivered, acceptance pending |
 | Delivered dependency | `#20` Brain V2 is delivered; T00 must reconcile this plan with its actual contracts, migrations, context behavior, and rollback path |
 | Start gate | Satisfied 2026-08-01 by `#22` Codex-only V2 qualification (`e9bc5fe`); other workers remain locked until separately qualified |
 | Deployment confidence | The `#22` 24-hour/72-hour VPS soak remains a deployment confidence gate, not a source-development blocker for `#21` unless the owner explicitly promotes it to one |
@@ -1770,12 +1770,14 @@ remain re-exported from `core.conductor` so hidden and legacy imports do not bre
 | Run 1 | Model-response boundary extracted; all public behavior unchanged | 15-20% |
 | Run 2A | Compatibility intent/tool-loop decision and episodic-recall detection extracted | 25-30% |
 | Run 2B | Context assembly extracted through existing manifest, Brain, history, attachment, and prompt owners | 35-45% |
-| Run 3 | Recovery and tool-loop execution delegated behind accepted policy, registry, and receipt boundaries | 70-82% |
+| Run 3A | Persisted retry, skip, revise, and resume checkpoint handling extracted | 45-55% |
+| Run 3B1 | One parsed tool call validated and dispatched through compatibility execution boundaries | 58-68% |
+| Run 3B2 | Tool-loop iteration, batching, proposals, and step-budget orchestration extracted | 70-82% |
 | Run 4 | Final response composition extracted; `answer()` becomes a compatibility-only facade; golden closeout | 100% |
 
-Run 3 may be split after Run 2 if its red-test/source review proves recovery replay and ordinary tool
-execution cannot be isolated safely in one diff. A split requires its own owner-approved plan and
-cannot widen T08.
+Run 3 source review after accepted Run 2B proved that checkpoint replay, one-call execution, and loop
+orchestration are separate review boundaries. Runs 3A, 3B1, and 3B2 therefore require separate owner
+approval and cannot widen T08 or activate dormant canonical tools.
 
 **Run 1 contract:** the new service owns one typed model-step result and pure/publicly testable
 functions for answer-versus-tool classification, reasoning separation, exact-text chunking, streamed
@@ -2065,8 +2067,112 @@ Queue document layout, so delivery adopted its new `QUEUE_DELIVERY_LOG.md` witho
 scope. No context source/content/order, Brain selection, prompt text, history behavior, route, result,
 event, model, tool, policy, persistence, flag, API, UI, or external service changed.
 
-**Owner action:** accept **T08 Run 2B** and release Run 3 planning. Run 3 does not start before that
-acceptance.
+**Owner acceptance (2026-08-12):** Run 2B commit `20960de` is accepted. T08 is **35-45%** complete,
+#21 is about **87-93%** complete, and Run 3 planning is released.
+
+### 25.13 T08 Run 3A - Compatibility Checkpoint Recovery Extraction Plan (2026-08-12)
+
+**Outcome:** move only Conductor's persisted `retry_step`, `skip_step`, `revise`, and `resume`
+checkpoint branch into `core/runtime/checkpoint_recovery.py`. Conductor passes its current validation,
+terminal-safety, proposal, execution, receipt, event, summary, and failure helpers into the service,
+then applies one typed outcome. Which tool runs, which checks it re-enters, and what the owner sees
+must remain identical.
+
+**Why Run 3 is split:** current source has a 55-line recovery branch before model planning and a
+roughly 180-line ordinary tool loop after model output. The ordinary loop separately owns route
+denials, argument validation, plan events, Terminal decisions, replay receipts, picker stops,
+review-mode proposals, mutation failures, batching, and step budgets. One diff would mix three
+failure domains, so Run 3 is now 3A checkpoint recovery, 3B1 one-call execution, and 3B2 loop
+orchestration.
+
+**Source-grounded map:** Graphify first identified the recovery/registry/receipt edges, but its index
+is stale at `2d46ab9`; live source at `af4dd69` and the current tests establish these boundaries:
+
+| Current node | Current authority | Run 3A rule |
+|---|---|---|
+| `conductor.answer()` recovery branch | Reads the persisted command and exact failed-step tool/args/risk before model planning | Move orchestration only; never rebuild arguments from the new owner message |
+| `core.tool_registry.validate_call()` and `conductor_registry` helpers | Validate legacy calls, apply idempotent Chat receipts, execute, audit, and propose | Keep authoritative and injectable; do not duplicate or bypass them |
+| `terminal_engine.gate()` plus `_terminal_command_for()` | Recompute Terminal risk and choose refuse/plan/confirm/run on every retry | Re-enter on retry exactly as today; no stored decision is trusted |
+| `core.runtime.tool_execution` and T07 runtimes | Require canonical run/step/lease/policy identities and cover only migrated dormant tools | Do not activate or adapt them in 3A; T14 still owns live activation |
+| Ordinary parsed-call loop | Handles normal calls, batches, proposals, picker stops, and step limits | Remains byte-for-byte in Conductor until 3B1/3B2 |
+
+**Contract:** add a frozen `CheckpointRecoveryOutcome` carrying only appended model messages,
+executed tool names, completed action summaries, and an optional terminal turn response. Add one
+`apply_recovery_checkpoint(...)` function that:
+
+1. Returns an empty outcome when no checkpoint exists.
+2. Replays only the exact persisted failed call after current denied/allowed/schema validation.
+3. Re-enters current Terminal gating and current review-mode proposal behavior before execution.
+4. Converts success/failure into the exact current message or turn payload without mutating caller
+   lists, and handles skip/revise/resume with the existing text and 1,000-character revision cap.
+
+Dependencies remain injectable from Conductor so existing monkeypatch callers and tests still replace
+`_execute_and_log`, `_execute_terminal_and_log`, validation, proposals, summaries, phases, and failure
+formatting. The module must not import `core.conductor`, select a model, parse ordinary model output,
+query pending approvals, or persist a checkpoint.
+
+**Implementation order:**
+
+1. Add `tests/test_mc_runtime_checkpoint_recovery.py`, run it against unchanged code, capture the
+   missing-module failure, and set the Gate red before production edits.
+2. Add the frozen outcome and recovery function; prove exact retry identity, validation denial,
+   Terminal refuse/plan/confirm/run, review proposals, success/failure, event order, and all four
+   checkpoint commands.
+3. Replace only Conductor lines currently handling `recovery_checkpoint` with one service call and
+   outcome application. Preserve compatibility aliases and the ordinary loop unchanged.
+4. Set the Gate green; run focused, Conductor, mode, Chat, resource, Terminal, Runtime T05-T07,
+   compile, diff, and enforced-gate checks; publish delivery evidence and stop for owner acceptance.
+
+**Acceptance checks:** the new test fails before implementation and passes after; retry uses the exact
+persisted arguments; denied or invalid calls never execute; Terminal retry always re-enters the live
+safety gate; review mode still proposes where it does today; receipts and action logs are still owned
+by current helpers; retry success continues model planning with the exact checkpoint result; failure
+stops with identical fields/text; skip/revise/resume append identical messages; callback order and
+`inspect.signature(conductor.answer)` remain unchanged; ordinary tool-loop lines are untouched; and
+only Conductor imports the new service in live code.
+
+**Expected files:** `core/runtime/checkpoint_recovery.py`, `core/conductor.py`,
+`tests/test_mc_runtime_checkpoint_recovery.py`, `.claude/CURRENT_WORK.md`, `MC_V2_BOARD.md`, this
+plan, `QUEUE.md`, and `QUEUE_DELIVERY_LOG.md`. Any other source or test file requires stopping and
+revising the package before editing.
+
+**Verification:** run the new focused suite; `test_mode_enforcement.py`, `test_chat_modes.py`,
+`test_resource_access.py`, `test_terminal_engine.py`, `test_chat_runtime.py`,
+`test_chat_runtime_route.py`, `test_conductor_final_guard.py`, `test_conductor_mixed_reply.py`, the
+three accepted T08 Runtime service suites, T05-T07 focused Runtime suites, `compileall`, live import
+and unchanged-loop scans, `git diff --check`, `scripts/gate.py`, and intended-file-only `git status`.
+Planning baseline is green for mode 18/18, Chat modes 76/76, and resources 14/14. The accepted
+Awakening deferred-memory conflict remains comparison-only and must gain no new failure.
+
+**Non-goals:** no ordinary tool-loop move; no canonical registry/executor/T07 activation; no new
+tool binding, policy, approval, receipt, action, lease, checkpoint, schema, migration, or flag; no
+pending-confirmation, route, prompt, context, model, response, API/UI, Telegram/CLI/Office/scheduler,
+external-service, Supabase, or Vercel change. Do not run another package that edits Conductor,
+`CURRENT_WORK.md`, the gate, or queue documents in parallel.
+
+**Estimate after acceptance:** T08 **45-55%** complete and #21 about **89-94%** complete. Expected
+unattended implementation and verification time is **4-6 hours**. Owner acceptance should take
+**10-15 minutes**: confirm the diff adds one recovery service/test, delegates only the existing
+checkpoint branch, and changes no live execution or owner-visible behavior.
+
+**Delivery evidence (2026-08-13):** the focused test first failed because
+`core.runtime.checkpoint_recovery` did not exist, and the enforced red gate confirmed its only check
+failed as intended. The delivered frozen outcome and compatibility function pass 50 checks covering
+empty/skip/revise/resume commands, exact persisted retry identity, denied and invalid calls, all
+Terminal decisions, review proposals, success/failure fields, callback order, immutable inputs,
+Conductor delegation, and unchanged ordinary-loop markers. Only Conductor imports the service.
+
+The enforced gate passes 24/24 commands: focused recovery, mode, Chat modes/runtime/routes, resources,
+Terminal engine, Conductor guards, all accepted T08 services, Runtime policy/facts/approvals,
+registry/catalog/adapters, project/file/Terminal tools and jobs, action receipts, and compilation. One
+initial Terminal background-job sample observed output while status was still `running`; its isolated
+rerun passed 67/67 and the complete gate rerun passed, confirming a timing race. `test_awakening.py`
+separately reproduces only its accepted deferred-memory conflict after all prior checks. No ordinary
+tool-loop line, tool behavior, Terminal safety decision, policy, approval, receipt, persistence, route,
+result field, owner-visible response, flag, API, UI, or external service changed.
+
+**Owner action:** accept **T08 Run 3A** and release Run 3B1 planning. Run 3B1 does not start before
+that acceptance.
 
 ## 26. Implementation Log
 
@@ -2104,4 +2210,5 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-11 | T07 Run 3B2B | `1a1f026`; owner closure acceptance 2026-08-11 | Red missing-cancel-ref test; 26/26 terminal-job checks; accepted terminal/project/file, Runtime T01-T06/T03, owner flags, mode, Chat, Conductor, Storage, compile, diff, and enforced gate green | Complete; approved owner-bound cancellation is durable, replay-safe, restart-safe, and completed only by the authenticated worker. Stale proof remains unknown, populated schema 009 upgrades in place, and no PID, signal, legacy kill invocation, replacement launch, live import, caller switch, API/UI, flag, or external-service change was added; owner accepted T07 closure and released T08 planning |
 | 2026-08-12 | T08 Run 1 | `d263837`; owner acceptance 2026-08-12 | Red missing-service import; 28/28 response checks; enforced gate 9/9; broader gateway, Chat mode, resources, Office, and Terminal checks green; unchanged `064ed83` reproduces the unrelated Awakening failure | Accepted; typed response handling is extracted and Conductor delegates through compatibility boundaries with no public answer, route, flag, policy, tool, context, storage, API, or UI change. T08 is 15-20% complete; source review split Run 2 into routing-only 2A and context-only 2B, and Run 2A planning is released |
 | 2026-08-12 | T08 Run 2A | `9125ec5`; owner acceptance 2026-08-12 | Red missing-router import; 33/33 intent-router checks; enforced gate 12/12 plus 109 broader compatibility checks green | Accepted; a frozen pure compatibility decision and recall detector now own Conductor's existing branch while the authoritative Chat route, classifier outcomes, context, prompts, public answers, tools, policy, persistence, flags, API, and UI remain unchanged. T08 is 25-30% complete and Run 2B planning is released |
-| 2026-08-12 | T08 Run 2B | T08 Run 2B delivery commit | Red missing-assembler import; 36/36 context-assembler checks; enforced gate 16/16 green; unchanged Awakening baseline reproduced | Delivered, acceptance pending; typed staged context assembly now owns Conductor's existing source, attachment, prompt/recall, and model-message preparation while every context/prompt/history owner and all live behavior remain unchanged. T08 is 35-45% complete; Run 3 planning remains locked pending owner acceptance |
+| 2026-08-12 | T08 Run 2B | `20960de`; owner acceptance 2026-08-12 | Red missing-assembler import; 36/36 context-assembler checks; enforced gate 16/16 green; unchanged Awakening baseline reproduced | Accepted; typed staged context assembly owns Conductor's existing source, attachment, prompt/recall, and model-message preparation while every context/prompt/history owner and all live behavior remain unchanged. T08 is 35-45% complete; Run 3A checkpoint-recovery planning is released |
+| 2026-08-13 | T08 Run 3A | T08 Run 3A delivery commit | Red missing-service import; 50/50 checkpoint-recovery checks; enforced gate 24/24 green; Terminal timing rerun green; unchanged Awakening baseline reproduced | Delivered, acceptance pending; typed compatibility recovery owns retry/skip/revise/resume orchestration while existing validation, safety, execution, approvals, receipts, persistence, and ordinary tool-loop behavior remain unchanged. T08 is 45-55% complete; Run 3B1 planning remains locked pending owner acceptance |

@@ -32,6 +32,9 @@ from core.runtime.context_assembler import (
     prepare_prompt_context as _prepare_prompt_context,
     resolve_context_sources as _resolve_context_sources,
 )
+from core.runtime.checkpoint_recovery import (
+    apply_recovery_checkpoint as _apply_recovery_checkpoint,
+)
 from core.runtime.intent_router import (
     needs_episodic_recall as _detect_past_reference,
     resolve_intent as _resolve_intent,
@@ -129,6 +132,12 @@ def _failure_report(done: list[str], failed_summary: str, error: str) -> str:
     parts.append(f"Failed at: {failed_summary} — {error}.")
     parts.append("Shall I retry that step, or adjust the plan?")
     return " ".join(parts)
+
+
+def _load_terminal_engine():
+    from core import terminal_engine
+
+    return terminal_engine
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -384,61 +393,37 @@ def answer(message: str, chat_id: Optional[int] = None, surface: str = "mc",
     # When a chatty model leaks a prose preamble before a tool call, retract it from the UI.
     on_reset = (lambda: on_event({"type": "reset"})) if on_event else None
 
-    # Recover the persisted failed checkpoint before model planning. Retry replays the exact
-    # validated call; Skip creates an explicit result that prevents the model calling it again.
-    if recovery_checkpoint:
-        command = recovery_checkpoint.get("command")
-        failed = recovery_checkpoint.get("failed_step") or {}
-        tool = recovery_checkpoint.get("tool") or failed.get("tool")
-        args = failed.get("args") or {}
-        risk = failed.get("risk") or RISK.get(tool, "read")
-        if command == "retry_step" and tool:
-            validation_error = _tool_registry.validate_call(
-                {"tool": tool, "args": args}, TOOL_SPECS.get(tool), mode, allowed_tools)
-            if tool in denied_tools or validation_error:
-                reason = "tool is denied in this mode" if tool in denied_tools else validation_error.message
-                return {"reply": f"I couldn't retry that checkpoint, sir — {reason}.",
-                        "tools_used": [], "intent": intent, "stopped_on_error": True,
-                        "failed_step": failed, "streamed": False}
-            if on_event:
-                on_event({"type": "thinking", "phase": _phase_for(tool), "tool": tool})
-            if tool in TERMINAL_TOOLS:
-                from core import terminal_engine as te
-                cmd = _terminal_command_for(tool, args)
-                gate = te.gate(cmd, surface=surface) if cmd else {"decision": "run", "risk": risk}
-                risk = gate.get("risk", risk)
-                if gate.get("decision") == "refuse":
-                    result = {"error": gate.get("reason") or "terminal safety gate refused the command"}
-                elif gate.get("decision") == "plan":
-                    result = te.plan(cmd, surface)
-                elif gate.get("decision") == "confirm":
-                    return _propose_actions([(tool, args, risk)], chat_id, surface, used, intent)
-                else:
-                    result = _execute_terminal_and_log(chat_id, surface, tool, args, risk, on_event)
-            else:
-                if risk == "high" and review_mode != "always":
-                    return _propose_actions([(tool, args, risk)], chat_id, surface, used, intent)
-                result = _execute_and_log(chat_id, surface, tool, args, risk, mode=mode,
-                                          allowed_tools=allowed_tools, turn_id=turn_id, step_index=0)
-            used.append(tool)
-            msgs.append({"role": "user", "content":
-                         f"CHECKPOINT_RETRY_RESULT {tool}: {json.dumps(result, default=str)[:3000]}"})
-            if isinstance(result, dict) and result.get("error"):
-                failed_now = {"tool": tool, "args": args, "risk": risk, "error": result["error"]}
-                return {"reply": _failure_report([], _action_summary(tool, args), result["error"]),
-                        "tools_used": used, "intent": intent, "stopped_on_error": True,
-                        "failed_step": failed_now, "streamed": False}
-            done_acts.append(_action_summary(tool, args))
-        elif command == "skip_step" and tool:
-            msgs.append({"role": "user", "content":
-                         f"CHECKPOINT_SKIPPED {tool}: the owner explicitly skipped this failed step. "
-                         "Continue only with remaining work; do not call it again."})
-        elif command == "revise" and recovery_checkpoint.get("revision"):
-            msgs.append({"role": "user", "content":
-                         "PLAN_REVISION: " + str(recovery_checkpoint["revision"])[:1000]})
-        elif command == "resume":
-            msgs.append({"role": "user", "content":
-                         "RESUME_CHECKPOINT: continue after the last persisted completed step."})
+    # Recover persisted work before model planning while existing helpers retain authority for
+    # validation, safety, execution, approvals, receipts, and owner-visible responses.
+    recovery = _apply_recovery_checkpoint(
+        recovery_checkpoint,
+        chat_id=chat_id,
+        surface=surface,
+        intent=intent,
+        mode=mode,
+        review_mode=review_mode,
+        denied_tools=denied_tools,
+        allowed_tools=allowed_tools,
+        turn_id=turn_id,
+        risk_by_tool=RISK,
+        tool_specs=TOOL_SPECS,
+        terminal_tools=TERMINAL_TOOLS,
+        validate_call=_tool_registry.validate_call,
+        phase_for=_phase_for,
+        terminal_engine_loader=_load_terminal_engine,
+        terminal_command_for=_terminal_command_for,
+        propose_actions=_propose_actions,
+        execute_terminal=_execute_terminal_and_log,
+        execute_action=_execute_and_log,
+        action_summary=_action_summary,
+        failure_report=_failure_report,
+        on_event=on_event,
+    )
+    if recovery.turn_response is not None:
+        return recovery.turn_response
+    msgs.extend(recovery.messages)
+    used.extend(recovery.tools_used)
+    done_acts.extend(recovery.completed_actions)
 
     def _final(text: str) -> dict:
         """Finish a turn: strip reasoning, continue if it was truncated, flag a model issue.
