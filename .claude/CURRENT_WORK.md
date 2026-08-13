@@ -9,18 +9,19 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T09 Run 1 - Typed owner-intelligence context adapter
+**Package:** T09 Run 2 - Bounded route/tool influence and turn-linked evidence
 
 **Purpose (one sentence, plain words):**
-Adapt delivered #20 memories into the canonical Runtime context contract with provenance and strict
-relevance, freshness, sensitivity, certainty, scope, and instruction-authority guards.
+Let eligible delivered #20 memory influence fallback routing, safe read-tool candidates, planning,
+and response style while the current request, policy, approval, availability, and safety stay stronger.
 
 **Not doing:**
-- No route, planner, or tool-candidate influence; T09 Run 2 owns those bounded hints.
-- No new Brain schema, memory lifecycle, retrieval ranking, feedback verdict, or Graph authority.
-- No sensitive, stale, contradicted, pending, rejected, archived, or superseded memory in Runtime context.
+- No new Brain schema, memory lifecycle, ranking, feedback verdict, or Graph authority.
+- No sensitive, stale, contradicted, pending, rejected, archived, or superseded memory influence.
 - No memory-granted permission, credential, tool execution, policy weakening, or instruction authority.
-- No change to accepted T08 Conductor behavior, signatures, replies, prompts, tools, or model selection.
+- No memory-triggered mutation, terminal, network, connector, browser, coding, or external read.
+- No override of an explicit request, deterministic action/read route, clarification, or selected mode.
+- No change to accepted T08 Conductor signatures, execution, model selection, or public result fields.
 - No activation of dormant canonical executors, Runtime tools, or rollout flags.
 - No T10 Hermes/coding adapter, T11 observability/evals, T13 Runs page, or T14 activation work.
 - No Telegram, CLI, Office, scheduler, or remaining-surface migration; T15 owns those adapters.
@@ -32,13 +33,13 @@ relevance, freshness, sensitivity, certainty, scope, and instruction-authority g
 - `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
 - `docs/feature-idea-queue/QUEUE.md`
 - `docs/feature-idea-queue/QUEUE_DELIVERY_LOG.md`
-- `core/runtime/contracts.py`
 - `core/runtime/owner_intelligence.py`
-- `core/brain_retrieval.py`
 - `core/context_manager.py`
-- `tests/test_mc_runtime_owner_intelligence.py`
-- `tests/test_brain_retrieval.py` (adapter source fields only if required)
-- `tests/test_context_manager.py` (manifest integration only if required)
+- `core/chat_runtime.py`
+- `api/routers/chat.py`
+- `tests/test_mc_runtime_owner_intelligence_routing.py`
+- `tests/test_chat_runtime.py` (route contract only)
+- `tests/test_chat_runtime_route.py` (turn-linked context evidence only)
 
 **Gate: no**
 

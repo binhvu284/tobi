@@ -80,6 +80,9 @@ ok("profile version changes when the store changes", ver2 != ver and "binhvu284"
 r = ret.retrieve("which editor should I set up for the owner?", "chat", conn=conn)
 ok("relevant memory retrieved", any("VS Code" in x["text"] for x in r), str([x["text"] for x in r]))
 ok("pending memory never retrieved", all("jazz" not in x["text"] for x in r))
+ok("retrieval exposes typed-adapter provenance fields",
+   all({"status", "sensitive", "redacted", "trust", "explicitness", "updated_at",
+        "provenance_refs", "tags", "suggested_usage"} <= set(x) for x in r))
 
 r = ret.retrieve("kubernetes cluster networking latency", "chat", conn=conn)
 ok("irrelevant memory stays out (relevance floor)", all("VS Code" not in x["text"] for x in r), str(len(r)))
@@ -128,6 +131,8 @@ sens = seed("Owner's home safe corner code word is RETRIEVE_SECRET_7788", Memory
 repo.set_status(sens, MemoryStatus.ACTIVE, conn=conn)   # owner-approved
 r = ret.retrieve("what is the owner's safe code word?", "chat", conn=conn)
 ok("sensitive active memory retrievable while unlocked", any(x["memory_id"] == sens for x in r))
+ok("sensitive memory never enters the stable Runtime profile while unlocked",
+   "RETRIEVE_SECRET_7788" not in ret.stable_profile(conn=conn)[0])
 vault.lock()
 r = ret.retrieve("what is the owner's safe code word?", "chat", conn=conn)
 ok("locked vault: sensitive memory excluded from retrieval", all(x["memory_id"] != sens for x in r))
@@ -151,6 +156,10 @@ ok("flag on: owner_memory served from the V2 profile",
    owner_mem is not None and "IDENTITY: Owner's name is Thomas" in owner_mem.content)
 ok("flag on: brain_recall item with chips metadata",
    recall is not None and recall.metadata.get("chips") and "VS Code" in recall.content)
+ok("flag on: recall carries metadata-only canonical Runtime items",
+   recall is not None and recall.metadata.get("runtime_items")
+   and all("content" not in item and item.get("provenance_ref")
+           for item in recall.metadata["runtime_items"]))
 pc = cm.prompt_context(m)
 ok("recall block reaches TURN CONTEXT; profile rides its own slot",
    "Owner memory recall" in pc and "IDENTITY: Owner's name is Thomas" not in pc)

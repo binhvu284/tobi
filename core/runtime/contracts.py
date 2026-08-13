@@ -106,6 +106,17 @@ class Certainty(str, Enum):
     STALE = "stale"
 
 
+class ContextSourceType(str, Enum):
+    CONVERSATION = "conversation"
+    OWNER_MEMORY = "owner_memory"
+    PROJECT = "project"
+    SYSTEM_STATE = "system_state"
+    CONNECTOR = "connector"
+    WEB = "web"
+    FILE = "file"
+    TOOL_RESULT = "tool_result"
+
+
 class IsolationLevel(str, Enum):
     IN_PROCESS = "in_process"
     SUBPROCESS = "subprocess"
@@ -658,6 +669,46 @@ class ToolDiscoveryResult:
         if not isinstance(self.truncated, bool):
             raise ValueError("truncated must be a bool")
         _require_text(self.contract_version, "contract_version")
+
+
+@dataclass(frozen=True)
+class RuntimeContextItem:
+    """Canonical context evidence consumed by Runtime stages."""
+
+    context_id: str
+    source_type: ContextSourceType
+    trust_class: TrustClass
+    certainty: Certainty
+    relevance_score: float
+    token_cost: int
+    version: str
+    retrieved_at: str
+    instruction_authority: bool
+    owner_visible_label: str
+    provenance_ref: str
+    content: str
+    expires_at: Optional[str] = None
+    contract_version: str = "1"
+
+    def __post_init__(self) -> None:
+        for name in (
+            "context_id",
+            "version",
+            "retrieved_at",
+            "owner_visible_label",
+            "provenance_ref",
+            "content",
+            "contract_version",
+        ):
+            _require_text(getattr(self, name), name)
+        _require_enum(self.source_type, ContextSourceType, "source_type")
+        _require_enum(self.trust_class, TrustClass, "trust_class")
+        _require_enum(self.certainty, Certainty, "certainty")
+        _require_probability(self.relevance_score, "relevance_score")
+        _require_positive_int(self.token_cost, "token_cost")
+        if not isinstance(self.instruction_authority, bool):
+            raise ValueError("instruction_authority must be a bool")
+        _require_optional_text(self.expires_at, "expires_at")
 
 
 @dataclass(frozen=True)

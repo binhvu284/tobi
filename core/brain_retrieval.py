@@ -68,7 +68,10 @@ def profile_rows(conn: Optional[sqlite3.Connection] = None) -> list[repo.StoredM
     """Profile members in priority order: identity → approved hard rules →
     durable preferences. Active only; sensitive rows drop out while locked."""
     c = repo._conn(conn)
-    active = repo.list_memories(MemoryStatus.ACTIVE, for_context=True, conn=c)
+    active = [
+        memory for memory in repo.list_memories(MemoryStatus.ACTIVE, for_context=True, conn=c)
+        if not memory.sensitive and not memory.redacted and _recency(memory.updated_at) > 0.0
+    ]
     identity = [m for m in active if m.memory_type is MemoryType.IDENTITY]
     hard = [m for m in active if m.authority is Authority.HARD]
     prefs = [m for m in active if m.memory_type is MemoryType.PREFERENCE
@@ -179,6 +182,19 @@ def retrieve(query: str, mode: str = "chat", *,
             "scope": m.scope_type.value + (f":{m.scope_key}" if m.scope_key else ""),
             "hedged": hedged, "precedence": prec, "score": round(score, 4),
             "signals": {k: round(v, 3) for k, v in signals.items()},
+            "status": m.status.value,
+            "sensitive": m.sensitive,
+            "redacted": m.redacted,
+            "trust": m.trust.value,
+            "explicitness": m.explicitness.value,
+            "updated_at": m.updated_at,
+            "provenance_refs": tuple(
+                value for evidence in m.evidence
+                for value in (evidence.source_ref or evidence.provenance,)
+                if value
+            ) or (f"brain-memory:{m.id}",),
+            "tags": m.tags,
+            "suggested_usage": m.suggested_usage,
             "chip": {                   # spec: every used memory → owner-visible chip
                 "memory_id": m.id, "text": m.distilled_text[:120],
                 "type": m.memory_type.value,

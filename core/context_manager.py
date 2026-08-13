@@ -140,7 +140,7 @@ def build_manifest(message: str, mode: str, history: list[dict], project_context
     # with owner-visible chips in metadata. Query-dependent → deliberately uncached.
     if v2_on:
         try:
-            from core import brain_retrieval
+            from core.runtime import owner_intelligence
             from core.brain_contracts import ScopeType
             # #20 review P1: pass the active project scope so project-scoped memories
             # are eligible alongside global ones (retrieval was defaulting to GLOBAL,
@@ -149,14 +149,24 @@ def build_manifest(message: str, mode: str, history: list[dict], project_context
             projs = (project_context or {}).get("projects") or []
             if projs and projs[0].get("id") is not None:
                 scope_type, scope_key = ScopeType.PROJECT, str(projs[0]["id"])
-            block, chips = brain_retrieval.context_block(
+            intelligence = owner_intelligence.retrieve_owner_intelligence(
                 message or "", manifest.mode, scope_type=scope_type, scope_key=scope_key)
-            if block:
-                manifest.add(_item("brain_recall", "Owner memory recall", block, "trusted", 0.88,
-                                   {"chips": chips}))
+            if intelligence.prompt_block:
+                chips = [dict(chip) for chip in intelligence.chips]
+                manifest.add(_item(
+                    "brain_recall",
+                    "Owner memory recall",
+                    intelligence.prompt_block,
+                    "trusted",
+                    0.88,
+                    {
+                        "chips": chips,
+                        "runtime_items": list(intelligence.manifest_items()),
+                    },
+                ))
                 from core import brain_feedback   # T08: owner-visible influence trace
-                brain_feedback.record_influence([c["memory_id"] for c in chips],
-                                                manifest.mode, query_hint=message or "")
+                brain_feedback.record_influence(
+                    list(intelligence.memory_ids), manifest.mode, query_hint=message or "")
         except Exception:
             pass  # recall is additive — a failure must never break the turn
 

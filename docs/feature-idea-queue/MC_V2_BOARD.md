@@ -13,13 +13,13 @@ Its status column carries the same short progress note this board tracks.
 
 ## Status
 
-**In progress.** T00 through T08 are complete. T09 Run 1 is active.
+**In progress.** T00 through T08 are complete. T09 Run 1 is delivered and Run 2 is active.
 
 **Delivered:** 9 complete packages. T08 now has a thin `answer()` wrapper with all accepted
 compatibility behavior green.
 
-**Next:** T09 Run 1 adapts delivered #20 memory into one typed Runtime context shape and excludes
-irrelevant, stale, sensitive, contradicted, or wrong-scope memory before it can affect a turn.
+**Next:** T09 Run 2 lets eligible memory influence only fallback routing, safe local read tools,
+planning, and response style, while the current request and every safety check remain stronger.
 
 ---
 
@@ -62,7 +62,7 @@ Ordered. Each one ships and is reviewable on its own. Risk is the plan's own rat
 | T06 | **One list of tools.** Every tool described once, in one format, with its arguments checked before it runs. | T01, T05 | High | Done |
 | T07 | **Move the first real tools over:** files, terminal, projects. Each mutation gets a receipt, and a retry cannot double-apply it. | T03, T06 | High | Done |
 | T08 | **Shrink the Conductor.** It currently does routing, planning, permissions, execution, and replies all in one file. Pull those out one at a time until it is a thin wrapper. | T04, T07 | High | Done |
-| T09 | **Let Brain memory actually change answers.** Relevant memory influences what TOBI does; stale or private memory does not leak into it. | T00, T08 | High | Run 1 active |
+| T09 | **Let Brain memory actually change answers.** Relevant memory influences what TOBI does; stale or private memory does not leak into it. | T00, T08 | High | Run 1 delivered; Run 2 active |
 | T10 | **Make Hermes and the coding agent workers, not bosses.** They execute bounded requests; they cannot change the authoritative record. | T00, T03, T06 | High | ☐ |
 | T11 | **See everything.** One trace per request joining context, model, tools, approvals, cost, and outcome — plus the quality gates that block a release on regression. | T09, T10 | Med | ☐ |
 | T11A | **Map the system to itself.** Typed records for subsystems, capabilities, risks, and limitations. Foundation only — not the Atlas page. | T02, T11 | Med | ☐ |
@@ -89,7 +89,7 @@ Stopping after any phase leaves a working system. That is the point of the order
 | 3B2 | Tool-loop iteration, batching, proposals, and step-budget orchestration | 70-82% accepted |
 | 4 | Final response composition and a thin compatibility-only `answer()` facade; golden-case closeout | 100% accepted |
 
-**Owner action now:** none during implementation. T08 is complete and T09 Run 1 is active.
+**Owner action now:** none during implementation. T08 and T09 Run 1 are complete; T09 Run 2 is active.
 
 ---
 

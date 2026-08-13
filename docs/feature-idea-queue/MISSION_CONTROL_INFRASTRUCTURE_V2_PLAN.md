@@ -5,7 +5,7 @@
 | Field | Decision |
 |---|---|
 | Queue item | `#21` |
-| Status | In progress; T00-T08 complete; T09 Run 1 active |
+| Status | In progress; T00-T08 complete; T09 Run 1 delivered; Run 2 active |
 | Delivered dependency | `#20` Brain V2 is delivered; T00 must reconcile this plan with its actual contracts, migrations, context behavior, and rollback path |
 | Start gate | Satisfied 2026-08-01 by `#22` Codex-only V2 qualification (`e9bc5fe`); other workers remain locked until separately qualified |
 | Deployment confidence | The `#22` 24-hour/72-hour VPS soak remains a deployment confidence gate, not a source-development blocker for `#21` unless the owner explicitly promotes it to one |
@@ -2469,6 +2469,35 @@ control documents. Any route, API, UI, schema, or Conductor edit requires Run 2 
 permission, credential, execution, policy, or instruction authority; no model prompt beyond replacing
 the existing recall block with equivalent typed adapter output; no external service or production use.
 
+**Run 1 delivery (2026-08-13):** the typed adapter and strict Runtime filters are green. The focused
+gate passed 5/5; Brain retrieval/context and the full Brain V2 contract, repository, feedback, schema,
+compatibility, ingestion, import, golden, and acceptance suites passed. Run 2 is released under the
+owner's instruction to complete the remaining #21 sequence.
+
+### 25.18 T09 Run 2 - Bounded Influence And Turn-Linked Evidence Plan (2026-08-13)
+
+**Outcome:** eligible typed owner intelligence may change only the ordinary low-confidence fallback
+from direct response to a safe local-read route, may narrow candidate read tools through explicit
+structured tags, and may add bounded planning/response preferences to the existing memory prompt.
+Explicit owner wording, deterministic routes, mode denial, policy, approvals, tool availability, and
+all execution safety remain authoritative. Every used memory links to the real turn id.
+
+**Rules:** accept only `route:read`, allow only a fixed local read-tool subset, ignore unknown/action/
+terminal/network/connector tags, and apply hints only after every explicit route branch declines.
+Add `turn_ref` to influence evidence and expose metadata-only context ids/provenance in the existing
+trace. Reuse Run 1 items; do not query or persist a second memory model.
+
+**Expected files:** `core/runtime/owner_intelligence.py`, `core/chat_runtime.py`,
+`core/context_manager.py`, `api/routers/chat.py`, `tests/test_mc_runtime_owner_intelligence_routing.py`,
+focused route/trace additions, and package-control documents. No schema, Conductor, tool execution,
+policy, approval, UI, external-service, Supabase, or Vercel change.
+
+**Acceptance:** relevant structured memory changes an otherwise ordinary fallback route and its safe
+read candidate; explicit action/read/smalltalk/current-information requests remain unchanged; unsafe
+tool tags do nothing; current request wins in the prompt; sensitive/stale memory cannot hint; one
+turn-linked influence row and metadata-only trace are written; T08, Brain, Chat, mode, policy, route,
+compile, diff, and gate checks pass.
+
 ## 26. Implementation Log
 
 Planning state only. Add one dated row after each accepted worker package.
@@ -2510,3 +2539,4 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-13 | T08 Run 3B1 | `1a1854b`; owner acceptance 2026-08-13 | Red missing-service import; 67/67 one-call checks; 50/50 checkpoint checks; enforced gate 25/25 green; unchanged Awakening baseline reproduced | Accepted; typed compatibility execution owns one parsed call while Conductor retains model iteration, call ordering, step identity, batching, combined proposals, step budgets, and forced-final behavior. T08 is 58-68% complete and Run 3B2 planning is released |
 | 2026-08-13 | T08 Run 3B2 | `52227e0`; owner acceptance 2026-08-13 | Red missing-service import; 44/44 tool-loop checks; inherited 62/62 one-call and 49 checkpoint checks; enforced gate 3/3 green; Chat/mode/resource/terminal/runtime/tool/project/file regressions, compile, route, and diff checks green | Accepted; typed compatibility orchestration owns model/tool iteration, ordered batches, combined proposal timing, and step-budget forced-final handling. One-call execution, parser authority, policy, Terminal, receipts, approvals, final cleanup, model selection, and public result fields remain with accepted owners. T08 is 70-82% complete and Run 4 is released |
 | 2026-08-13 | T08 Run 4 | T08 Run 4 delivery commit; owner authorization 2026-08-13 | Red missing-facade import; enforced 9/9 T08 gate; final/mixed output, Chat self-check/runtime/route, context, mode, resource, Terminal, Runtime policy/approvals/tools/jobs, compile, and diff checks green | Complete; final response handling and compatibility coordination moved behind typed Runtime services. `conductor.answer()` keeps its exact signature as a thin wrapper; T09 Run 1 is released |
+| 2026-08-13 | T09 Run 1 | T09 Run 1 delivery commit; owner continuation authorization | Red missing-adapter import; focused gate 5/5; 36 retrieval, 26 Context Manager, full Brain V2 contract/repository/feedback/schema/compatibility/ingest/import/golden/acceptance checks green | Delivered; #20 retrieval adapts to frozen Runtime context with provenance, trust, certainty, relevance, version, freshness, and false instruction authority. Sensitive, stale, contradicted, inactive, redacted, irrelevant, and wrong-scope memory stays out; Run 2 released |
