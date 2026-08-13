@@ -5,7 +5,7 @@
 | Field | Decision |
 |---|---|
 | Queue item | `#21` |
-| Status | In progress; T00-T08 complete; T09 Run 1 delivered; Run 2 active |
+| Status | In progress; T00-T09 complete; T10 Run 1 active |
 | Delivered dependency | `#20` Brain V2 is delivered; T00 must reconcile this plan with its actual contracts, migrations, context behavior, and rollback path |
 | Start gate | Satisfied 2026-08-01 by `#22` Codex-only V2 qualification (`e9bc5fe`); other workers remain locked until separately qualified |
 | Deployment confidence | The `#22` 24-hour/72-hour VPS soak remains a deployment confidence gate, not a source-development blocker for `#21` unless the owner explicitly promotes it to one |
@@ -2498,6 +2498,33 @@ tool tags do nothing; current request wins in the prompt; sensitive/stale memory
 turn-linked influence row and metadata-only trace are written; T08, Brain, Chat, mode, policy, route,
 compile, diff, and gate checks pass.
 
+**Run 2 delivery (2026-08-14):** only owner-direct, known memory can produce structured influence.
+The route hook runs after every deterministic branch and accepts only a fixed local-read subset;
+unsafe, inferred, imported, sensitive, stale, terminal, network, connector, and action hints do
+nothing. Chat reuses the typed context object, records the real turn id, and stores metadata-only
+context evidence. The enforced gate passed 6/6 and 123 focused/Chat regression checks passed. T09 is
+complete and T10 Run 1 is released.
+
+### 25.19 T10 Run 1 - Versioned Worker Capability Boundary Plan (2026-08-14)
+
+**Outcome:** Mission Control owns one immutable, versioned capability snapshot for Hermes and the
+accepted coding worker. Existing Hermes sync/skill data may inform availability, but cannot write or
+override canonical run, policy, approval, tool, event, receipt, or projection state. An unavailable
+or incompatible worker produces a typed recovery result that keeps the same canonical run readable.
+
+**Rules:** adapt current local metadata only; use stable worker and capability ids; include source
+version, observed time, availability, supported loop/task/checkpoint/evidence features, and an
+owner-safe reason. Reject unknown versions and contradictory duplicate authorities. Run 1 performs
+no worker execution, external call, queue mutation, schema change, or live caller switch.
+
+**Expected files:** `core/hermes_sync.py`, `core/hermes_skills.py`, a focused Runtime adapter under
+`core/runtime/`, tests, and package-control documents.
+
+**Acceptance:** identical inputs produce an identical versioned snapshot; MC remains the declared
+authority; unavailable/incompatible workers return typed retry/setup/fallback recovery without raw
+errors; no worker can claim canonical ownership; accepted Hermes/#22, Runtime contract, repository,
+tool, policy, compile, diff, and gate checks pass.
+
 ## 26. Implementation Log
 
 Planning state only. Add one dated row after each accepted worker package.
@@ -2538,5 +2565,6 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-13 | T08 Run 3A | `d88bdd3`; owner acceptance 2026-08-13 | Red missing-service import; 50/50 checkpoint-recovery checks; enforced gate 24/24 green; Terminal timing rerun green; unchanged Awakening baseline reproduced | Accepted; typed compatibility recovery owns retry/skip/revise/resume orchestration while existing validation, safety, execution, approvals, receipts, persistence, and ordinary tool-loop behavior remain unchanged. T08 is 45-55% complete and Run 3B1 planning is released |
 | 2026-08-13 | T08 Run 3B1 | `1a1854b`; owner acceptance 2026-08-13 | Red missing-service import; 67/67 one-call checks; 50/50 checkpoint checks; enforced gate 25/25 green; unchanged Awakening baseline reproduced | Accepted; typed compatibility execution owns one parsed call while Conductor retains model iteration, call ordering, step identity, batching, combined proposals, step budgets, and forced-final behavior. T08 is 58-68% complete and Run 3B2 planning is released |
 | 2026-08-13 | T08 Run 3B2 | `52227e0`; owner acceptance 2026-08-13 | Red missing-service import; 44/44 tool-loop checks; inherited 62/62 one-call and 49 checkpoint checks; enforced gate 3/3 green; Chat/mode/resource/terminal/runtime/tool/project/file regressions, compile, route, and diff checks green | Accepted; typed compatibility orchestration owns model/tool iteration, ordered batches, combined proposal timing, and step-budget forced-final handling. One-call execution, parser authority, policy, Terminal, receipts, approvals, final cleanup, model selection, and public result fields remain with accepted owners. T08 is 70-82% complete and Run 4 is released |
-| 2026-08-13 | T08 Run 4 | T08 Run 4 delivery commit; owner authorization 2026-08-13 | Red missing-facade import; enforced 9/9 T08 gate; final/mixed output, Chat self-check/runtime/route, context, mode, resource, Terminal, Runtime policy/approvals/tools/jobs, compile, and diff checks green | Complete; final response handling and compatibility coordination moved behind typed Runtime services. `conductor.answer()` keeps its exact signature as a thin wrapper; T09 Run 1 is released |
-| 2026-08-13 | T09 Run 1 | T09 Run 1 delivery commit; owner continuation authorization | Red missing-adapter import; focused gate 5/5; 36 retrieval, 26 Context Manager, full Brain V2 contract/repository/feedback/schema/compatibility/ingest/import/golden/acceptance checks green | Delivered; #20 retrieval adapts to frozen Runtime context with provenance, trust, certainty, relevance, version, freshness, and false instruction authority. Sensitive, stale, contradicted, inactive, redacted, irrelevant, and wrong-scope memory stays out; Run 2 released |
+| 2026-08-13 | T08 Run 4 | `5b0a19a`; owner authorization 2026-08-13 | Red missing-facade import; enforced 9/9 T08 gate; final/mixed output, Chat self-check/runtime/route, context, mode, resource, Terminal, Runtime policy/approvals/tools/jobs, compile, and diff checks green | Complete; final response handling and compatibility coordination moved behind typed Runtime services. `conductor.answer()` keeps its exact signature as a thin wrapper; T09 Run 1 is released |
+| 2026-08-13 | T09 Run 1 | `34c4b1d`; owner continuation authorization | Red missing-adapter import; focused gate 5/5; 36 retrieval, 26 Context Manager, full Brain V2 contract/repository/feedback/schema/compatibility/ingest/import/golden/acceptance checks green | Delivered; #20 retrieval adapts to frozen Runtime context with provenance, trust, certainty, relevance, version, freshness, and false instruction authority. Sensitive, stale, contradicted, inactive, redacted, irrelevant, and wrong-scope memory stays out; Run 2 released |
+| 2026-08-14 | T09 Run 2 | T09 Run 2 delivery commit; owner continuation authorization | Red missing-hint contract; enforced gate 6/6; 123 owner-intelligence, Brain, Context Manager, Chat unit, and live route checks green; compile and diff green | Complete; only owner-direct known memory can influence an ordinary fallback through fixed local reads or allowlisted response/planning preferences. Current instructions and all safety owners remain stronger; real turn-linked metadata-only evidence is recorded; T10 Run 1 released |

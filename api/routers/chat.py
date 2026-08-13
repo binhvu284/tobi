@@ -209,7 +209,20 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         runtime_intent = classify(message)
     except Exception:
         runtime_intent = "QUESTION"
-    route_decision = chat_runtime.route_turn(runtime_request, runtime_intent)
+    route_intelligence = None
+    if runtime_state in ("shadow", "on"):
+        try:
+            from core import owner_flags
+            if owner_flags.brain_v2_mode() == "on":
+                from core.runtime import owner_intelligence
+                route_intelligence = owner_intelligence.retrieve_owner_intelligence(
+                    message, runtime_request.mode
+                )
+        except Exception:
+            pass  # Memory influence is additive; routing must still work without it.
+    route_decision = chat_runtime.route_turn(
+        runtime_request, runtime_intent, route_intelligence
+    )
     runtime_active = runtime_state == "on"
     direct_chat_ready = bool(
         runtime_active
@@ -502,7 +515,9 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         if runtime_state in ("shadow", "on"):
             base_attachment_context = premium_readers.compose_context(att_text, reader)
             manifest = await loop.run_in_executor(None, lambda: context_manager.build_manifest(
-                message, ctx["mode"], history, pctx, base_attachment_context))
+                message, ctx["mode"], history, pctx, base_attachment_context,
+                owner_intelligence_context=route_intelligence,
+                turn_ref=(recorder.turn_id if recorder else None)))
             if recorder:
                 recorder.set_context(manifest.to_dict())
             if runtime_tracking:

@@ -108,7 +108,7 @@ Bounded Codex development with an independent reviewer is qualified. Same-run re
 
 `FOUND_BASE-CORE-5D20H-002`
 
-T08 is complete at commit `5b0a19a`. Run 3B2 was accepted by the owner on 2026-08-13 at commit `52227e0`; Run 4 moved direct-answer coordination, final cleanup, mixed tool/prose recovery, bounded model escalation, and public model metadata behind typed Runtime services, leaving `conductor.answer()` as a compatibility-only wrapper with its exact 22-parameter signature. T09 Run 1 is delivered: a frozen canonical Runtime context item now adapts #20 retrieval with provenance, trust, certainty, relevance, version, freshness, and false instruction authority; private, stale, contradicted, inactive, redacted, and wrong-scope memory is excluded from prompt use. The focused gate passed 5/5; 36 retrieval, 26 context-manager, and the full Brain contract/repository/feedback/schema/compatibility/ingest/import/golden/acceptance suites passed. T09 Run 2 bounded influence is active.
+T08 is complete at commit `5b0a19a`. T09 Run 1 shipped at `34c4b1d`; Run 2 is complete under the owner's continuation authorization. Owner-direct, known memory may change only an ordinary fallback into a fixed local-read route and may add allowlisted response/planning preferences. Explicit requests and every policy, approval, mode, availability, and execution check remain stronger; unsafe, sensitive, stale, inferred, imported, terminal, network, connector, and action hints are ignored. Influence evidence now carries the real turn id and trace context remains metadata-only. The enforced 6/6 gate and 123 focused/Chat regression checks passed. T10 Run 1 is active.
 
 
 <a id="item-20"></a>

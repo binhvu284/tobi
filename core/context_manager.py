@@ -106,7 +106,8 @@ def _stable_profile_v2() -> str:
 
 
 def build_manifest(message: str, mode: str, history: list[dict], project_context: Optional[dict] = None,
-                   attachments_text: str = "") -> ContextManifest:
+                   attachments_text: str = "", *, owner_intelligence_context=None,
+                   turn_ref: Optional[str] = None) -> ContextManifest:
     budget = 16000 if mode == "agent" else 6000
     manifest = ContextManifest(mode=mode if mode in ("chat", "agent") else "chat", token_budget=budget)
 
@@ -149,8 +150,12 @@ def build_manifest(message: str, mode: str, history: list[dict], project_context
             projs = (project_context or {}).get("projects") or []
             if projs and projs[0].get("id") is not None:
                 scope_type, scope_key = ScopeType.PROJECT, str(projs[0]["id"])
-            intelligence = owner_intelligence.retrieve_owner_intelligence(
-                message or "", manifest.mode, scope_type=scope_type, scope_key=scope_key)
+            intelligence = owner_intelligence_context
+            if intelligence is None or scope_type is ScopeType.PROJECT:
+                # Project retrieval includes both global and matching project memories. Re-read only
+                # when project context became available after the early fallback-routing lookup.
+                intelligence = owner_intelligence.retrieve_owner_intelligence(
+                    message or "", manifest.mode, scope_type=scope_type, scope_key=scope_key)
             if intelligence.prompt_block:
                 chips = [dict(chip) for chip in intelligence.chips]
                 manifest.add(_item(
@@ -166,7 +171,8 @@ def build_manifest(message: str, mode: str, history: list[dict], project_context
                 ))
                 from core import brain_feedback   # T08: owner-visible influence trace
                 brain_feedback.record_influence(
-                    list(intelligence.memory_ids), manifest.mode, query_hint=message or "")
+                    list(intelligence.memory_ids), manifest.mode, turn_ref=turn_ref,
+                    query_hint=message or "")
         except Exception:
             pass  # recall is additive — a failure must never break the turn
 

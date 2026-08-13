@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 from core.chat_runtime_contracts import RouteDecision, TurnError, TurnRequest
 from core.database import get_connection
+from core.runtime.owner_intelligence import SAFE_LOCAL_READ_TOOLS
 
 
 RUNTIME_FLAG = "chat_runtime_v2"  # off | shadow | on
@@ -172,7 +173,7 @@ _ACTION_ROUTES: list[tuple[re.Pattern[str], tuple[str, ...]]] = [
 ]
 
 
-def route_turn(req: TurnRequest, intent: str) -> RouteDecision:
+def route_turn(req: TurnRequest, intent: str, owner_context: Any = None) -> RouteDecision:
     text = (req.message or "").strip()
     caps = req.capabilities or {}
     if intent == "SMALLTALK":
@@ -213,6 +214,19 @@ def route_turn(req: TurnRequest, intent: str) -> RouteDecision:
                              max_tool_steps=2)
     if req.mode == "agent":
         return RouteDecision("agent", intent, 0.8, max_tool_steps=4, reason="Agent execution path")
+    memory_tools = tuple(
+        tool for tool in (getattr(owner_context, "tool_hints", ()) or ())
+        if tool in SAFE_LOCAL_READ_TOOLS
+    )
+    if getattr(owner_context, "route_hint", None) == "read" and memory_tools:
+        return RouteDecision(
+            "read",
+            intent,
+            0.70,
+            memory_tools,
+            max_tool_steps=2,
+            reason="owner-memory fallback read hint",
+        )
     return RouteDecision("direct", intent, 0.82, reason="ordinary conversation", final_tokens=1600)
 
 

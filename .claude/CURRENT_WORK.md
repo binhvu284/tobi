@@ -9,22 +9,20 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T09 Run 2 - Bounded route/tool influence and turn-linked evidence
+**Package:** T10 Run 1 - Versioned worker capability boundary
 
 **Purpose (one sentence, plain words):**
-Let eligible delivered #20 memory influence fallback routing, safe read-tool candidates, planning,
-and response style while the current request, policy, approval, availability, and safety stay stronger.
+Make Mission Control the authority for versioned Hermes/coding-worker capabilities and return a
+structured recovery result when a requested worker is unavailable.
 
 **Not doing:**
-- No new Brain schema, memory lifecycle, ranking, feedback verdict, or Graph authority.
-- No sensitive, stale, contradicted, pending, rejected, archived, or superseded memory influence.
-- No memory-granted permission, credential, tool execution, policy weakening, or instruction authority.
-- No memory-triggered mutation, terminal, network, connector, browser, coding, or external read.
-- No override of an explicit request, deterministic action/read route, clarification, or selected mode.
-- No change to accepted T08 Conductor signatures, execution, model selection, or public result fields.
-- No activation of dormant canonical executors, Runtime tools, or rollout flags.
-- No T10 Hermes/coding adapter, T11 observability/evals, T13 Runs page, or T14 activation work.
-- No Telegram, CLI, Office, scheduler, or remaining-surface migration; T15 owns those adapters.
+- No Hermes authority over canonical runs, policies, approvals, tools, events, receipts, or projections.
+- No direct worker execution, external call, model call, terminal call, or queue mutation in Run 1.
+- No change to accepted #22 Goal/Queue/checkpoint semantics; later T10 runs adapt them.
+- No new coding queue, checkpoint, evidence, or job persistence schema.
+- No live Developer, CLI, Chat, Conductor, scheduler, Telegram, or Office caller switch.
+- No activation of dormant Runtime flags or change to accepted T09 owner intelligence.
+- No T11 telemetry/evals, T11A System Model, T12 security, T13 UI, or T14 rollout work.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
 **Files expected:**
@@ -33,13 +31,10 @@ and response style while the current request, policy, approval, availability, an
 - `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
 - `docs/feature-idea-queue/QUEUE.md`
 - `docs/feature-idea-queue/QUEUE_DELIVERY_LOG.md`
-- `core/runtime/owner_intelligence.py`
-- `core/context_manager.py`
-- `core/chat_runtime.py`
-- `api/routers/chat.py`
-- `tests/test_mc_runtime_owner_intelligence_routing.py`
-- `tests/test_chat_runtime.py` (route contract only)
-- `tests/test_chat_runtime_route.py` (turn-linked context evidence only)
+- `core/hermes_sync.py`
+- `core/hermes_skills.py`
+- `core/runtime/worker_capabilities.py`
+- `tests/test_mc_runtime_worker_capabilities.py`
 
 **Gate: no**
 
