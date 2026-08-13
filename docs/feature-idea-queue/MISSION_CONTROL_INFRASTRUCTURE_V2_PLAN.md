@@ -5,7 +5,7 @@
 | Field | Decision |
 |---|---|
 | Queue item | `#21` |
-| Status | In progress; T00-T09 complete; T10 Run 1 active |
+| Status | In progress; T00-T09 complete; T10 Run 1 delivered; Run 2 active |
 | Delivered dependency | `#20` Brain V2 is delivered; T00 must reconcile this plan with its actual contracts, migrations, context behavior, and rollback path |
 | Start gate | Satisfied 2026-08-01 by `#22` Codex-only V2 qualification (`e9bc5fe`); other workers remain locked until separately qualified |
 | Deployment confidence | The `#22` 24-hour/72-hour VPS soak remains a deployment confidence gate, not a source-development blocker for `#21` unless the owner explicitly promotes it to one |
@@ -2525,6 +2525,34 @@ authority; unavailable/incompatible workers return typed retry/setup/fallback re
 errors; no worker can claim canonical ownership; accepted Hermes/#22, Runtime contract, repository,
 tool, policy, compile, diff, and gate checks pass.
 
+**Run split:** Run 1 delivers the pure capability boundary. Run 2 centralizes the three direct #22
+table writers identified by T00. Run 3 adds the shared-run/checkpoint/evidence compatibility bridge
+and closes T10 without replacing accepted coding persistence.
+
+**Run 1 delivery (2026-08-14):** immutable deterministic capability records adapt accepted coding
+profiles and read-only Hermes metadata under fixed Mission Control authority. Unknown source
+versions and duplicates fail closed; unavailable workers produce typed same-run recovery. The
+enforced gate passed 8/8 and 213 focused, Hermes, #22, Runtime repository/tool/policy checks passed.
+
+### 25.20 T10 Run 2 - Accepted #22 Store Ownership Adapter Plan (2026-08-14)
+
+**Outcome:** `core/development_store.py` is the only writer for `development_tasks`,
+`coding_stages`, and `coding_artifacts`. `core/coding_agent.py` calls narrow store methods for the
+same updates and reads; SQL, predicates, transactions, state names, return values, and #22 behavior
+remain unchanged.
+
+**Rules:** move ownership, not behavior. Every new store method is purpose-named and bounded; no
+generic SQL escape hatch. Preserve optimistic/live-run guards and exact reset node sets. Do not move
+GitHub/release/deployment tables in this package and do not add the canonical Runtime bridge yet.
+
+**Expected files:** `core/development_store.py`, `core/coding_agent.py`, focused ownership tests,
+accepted #22 regressions, and package-control documents.
+
+**Acceptance:** source inspection finds no direct `development_tasks`, `coding_stages`, or
+`coding_artifacts` SQL in `coding_agent.py`; focused behavior tests prove approve/reset/switch/
+requeue/remove/complete/storage/cleanup outcomes remain exact; accepted #22 delivery, recovery,
+queue, states, worker, evidence, compile, diff, and enforced gate checks pass.
+
 ## 26. Implementation Log
 
 Planning state only. Add one dated row after each accepted worker package.
@@ -2568,3 +2596,4 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-13 | T08 Run 4 | `5b0a19a`; owner authorization 2026-08-13 | Red missing-facade import; enforced 9/9 T08 gate; final/mixed output, Chat self-check/runtime/route, context, mode, resource, Terminal, Runtime policy/approvals/tools/jobs, compile, and diff checks green | Complete; final response handling and compatibility coordination moved behind typed Runtime services. `conductor.answer()` keeps its exact signature as a thin wrapper; T09 Run 1 is released |
 | 2026-08-13 | T09 Run 1 | `34c4b1d`; owner continuation authorization | Red missing-adapter import; focused gate 5/5; 36 retrieval, 26 Context Manager, full Brain V2 contract/repository/feedback/schema/compatibility/ingest/import/golden/acceptance checks green | Delivered; #20 retrieval adapts to frozen Runtime context with provenance, trust, certainty, relevance, version, freshness, and false instruction authority. Sensitive, stale, contradicted, inactive, redacted, irrelevant, and wrong-scope memory stays out; Run 2 released |
 | 2026-08-14 | T09 Run 2 | T09 Run 2 delivery commit; owner continuation authorization | Red missing-hint contract; enforced gate 6/6; 123 owner-intelligence, Brain, Context Manager, Chat unit, and live route checks green; compile and diff green | Complete; only owner-direct known memory can influence an ordinary fallback through fixed local reads or allowlisted response/planning preferences. Current instructions and all safety owners remain stronger; real turn-linked metadata-only evidence is recorded; T10 Run 1 released |
+| 2026-08-14 | T10 Run 1 | T10 Run 1 delivery commit; owner continuation authorization | Red missing-adapter import; enforced gate 8/8; 213 worker-capability, Hermes skill, accepted #22, Runtime contract/repository/tool/policy checks green; compile and diff green | Delivered; deterministic immutable MC-authoritative worker snapshots expose bounded capability and metadata evidence only. Unknown versions/duplicates fail closed and unavailable workers return typed same-run recovery; Run 2 released |

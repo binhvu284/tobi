@@ -108,7 +108,7 @@ Bounded Codex development with an independent reviewer is qualified. Same-run re
 
 `FOUND_BASE-CORE-5D20H-002`
 
-T08 is complete at commit `5b0a19a`. T09 Run 1 shipped at `34c4b1d`; Run 2 is complete under the owner's continuation authorization. Owner-direct, known memory may change only an ordinary fallback into a fixed local-read route and may add allowlisted response/planning preferences. Explicit requests and every policy, approval, mode, availability, and execution check remain stronger; unsafe, sensitive, stale, inferred, imported, terminal, network, connector, and action hints are ignored. Influence evidence now carries the real turn id and trace context remains metadata-only. The enforced 6/6 gate and 123 focused/Chat regression checks passed. T10 Run 1 is active.
+T08 is complete at commit `5b0a19a`. T09 is complete at `34c4b1d` and `0f2a3e2`. T10 Run 1 is delivered: Mission Control now owns an immutable deterministic capability snapshot for accepted coding profiles and read-only Hermes metadata. Workers expose no canonical writes; disabled/unavailable workers keep the same run id and return typed retry/setup/fallback recovery without raw errors. Unknown source versions and duplicate worker authorities fail closed. The enforced 8/8 gate and 213 focused, Hermes, #22, Runtime repository/tool/policy checks passed. T10 Run 2 store ownership is active.
 
 
 <a id="item-20"></a>

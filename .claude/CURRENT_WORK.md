@@ -9,19 +9,18 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T10 Run 1 - Versioned worker capability boundary
+**Package:** T10 Run 2 - Accepted #22 store ownership adapter
 
 **Purpose (one sentence, plain words):**
-Make Mission Control the authority for versioned Hermes/coding-worker capabilities and return a
-structured recovery result when a requested worker is unavailable.
+Make `development_store.py` the only writer for the three deferred accepted-#22 coding tables while
+preserving every Goal, Queue, checkpoint, evidence, and Developer behavior.
 
 **Not doing:**
-- No Hermes authority over canonical runs, policies, approvals, tools, events, receipts, or projections.
-- No direct worker execution, external call, model call, terminal call, or queue mutation in Run 1.
-- No change to accepted #22 Goal/Queue/checkpoint semantics; later T10 runs adapt them.
-- No new coding queue, checkpoint, evidence, or job persistence schema.
-- No live Developer, CLI, Chat, Conductor, scheduler, Telegram, or Office caller switch.
-- No activation of dormant Runtime flags or change to accepted T09 owner intelligence.
+- No schema, state name, SQL predicate, transaction boundary, or public result change.
+- No change to Goal, Queue, worker, checkpoint, evidence, review, GitHub, release, or deployment logic.
+- No worker execution, model, terminal, external-service, CLI, or UI change.
+- No canonical Runtime run/event bridge; T10 Run 3 owns that additive adapter.
+- No activation of dormant Runtime flags or change to accepted T09/T10 Run 1 contracts.
 - No T11 telemetry/evals, T11A System Model, T12 security, T13 UI, or T14 rollout work.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
@@ -31,10 +30,10 @@ structured recovery result when a requested worker is unavailable.
 - `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
 - `docs/feature-idea-queue/QUEUE.md`
 - `docs/feature-idea-queue/QUEUE_DELIVERY_LOG.md`
-- `core/hermes_sync.py`
-- `core/hermes_skills.py`
-- `core/runtime/worker_capabilities.py`
-- `tests/test_mc_runtime_worker_capabilities.py`
+- `core/development_store.py`
+- `core/coding_agent.py`
+- `tests/test_mc_runtime_coding_store_ownership.py`
+- accepted #22 regression tests
 
 **Gate: no**
 

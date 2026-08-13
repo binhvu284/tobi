@@ -31,6 +31,7 @@ logger = logging.getLogger("tobi.hermes_sync")
 _HERMES_DIR = os.path.join(os.path.expanduser("~"), ".hermes", "config")
 _JSON_PATH = os.path.join(_HERMES_DIR, "tobi_models.json")
 _YAML_PATH = os.path.join(_HERMES_DIR, "hermes.yaml")
+CAPABILITY_CONTRACT_VERSION = "1"
 
 # Map TOBI task types → the Hermes routing buckets used in hermes.yaml.
 _TASK_TO_HERMES = {
@@ -42,6 +43,18 @@ _TASK_TO_HERMES = {
     "ceo_review": "complex_reasoning",
     "coding": "normal_tasks",
 }
+
+
+def capability_source() -> dict:
+    """Metadata-only declaration for the MC worker-capability adapter."""
+    return {
+        "source_id": "hermes-model-routing-sync",
+        "contract_version": CAPABILITY_CONTRACT_VERSION,
+        "authority": "mission_control",
+        "direction": "mc_to_hermes",
+        "can_own_runtime": False,
+        "capabilities": ("model_routing_mirror",),
+    }
 
 
 def _routing(cfg: dict) -> dict:

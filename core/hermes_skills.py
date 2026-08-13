@@ -19,6 +19,7 @@ from pathlib import Path
 
 # Repo skill files live at <repo>/hermes_skills; this module is <repo>/core/hermes_skills.py.
 SKILLS_DIR = Path(__file__).resolve().parent.parent / "hermes_skills"
+CAPABILITY_CONTRACT_VERSION = "1"
 
 _HEADING = re.compile(r"^\s{0,3}#{1,6}\s+(.*\S)\s*$")
 _VERSION = re.compile(r"(?:^|\n)\s*(?:version|v)\s*[:=]\s*v?(\d+)", re.I)
@@ -102,3 +103,16 @@ def list_skills() -> list[dict]:
 def skills_report() -> dict:
     items = list_skills()
     return {"items": items, "count": len(items)}
+
+
+def capability_source(items: list[dict] | None = None) -> dict:
+    """Read-only source declaration; skill files never grant execution authority."""
+    rows = list_skills() if items is None else list(items)
+    return {
+        "source_id": "hermes-repo-skills",
+        "contract_version": CAPABILITY_CONTRACT_VERSION,
+        "authority": "mission_control",
+        "can_execute": False,
+        "can_own_runtime": False,
+        "skill_ids": tuple(sorted(str(row.get("id") or "") for row in rows if row.get("id"))),
+    }

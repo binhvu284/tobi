@@ -13,13 +13,13 @@ Its status column carries the same short progress note this board tracks.
 
 ## Status
 
-**In progress.** T00 through T09 are complete. T10 Run 1 is active.
+**In progress.** T00 through T09 are complete. T10 Run 1 is delivered and Run 2 is active.
 
 **Delivered:** 10 complete packages. Relevant owner memory can shape only a fallback local read and
 visible response/planning preferences; the current request and safety rules remain stronger.
 
-**Next:** T10 Run 1 gives Mission Control one versioned record of what Hermes and coding workers can
-do, without letting those workers own canonical run state.
+**Next:** T10 Run 2 moves the last direct writes for three accepted coding tables behind their
+declared store owner, without changing Developer behavior.
 
 ---
 
@@ -63,7 +63,7 @@ Ordered. Each one ships and is reviewable on its own. Risk is the plan's own rat
 | T07 | **Move the first real tools over:** files, terminal, projects. Each mutation gets a receipt, and a retry cannot double-apply it. | T03, T06 | High | Done |
 | T08 | **Shrink the Conductor.** It currently does routing, planning, permissions, execution, and replies all in one file. Pull those out one at a time until it is a thin wrapper. | T04, T07 | High | Done |
 | T09 | **Let Brain memory actually change answers.** Relevant memory influences what TOBI does; stale or private memory does not leak into it. | T00, T08 | High | Done |
-| T10 | **Make Hermes and the coding agent workers, not bosses.** They execute bounded requests; they cannot change the authoritative record. | T00, T03, T06 | High | Run 1 active |
+| T10 | **Make Hermes and the coding agent workers, not bosses.** They execute bounded requests; they cannot change the authoritative record. | T00, T03, T06 | High | Run 1 delivered; Run 2 active |
 | T11 | **See everything.** One trace per request joining context, model, tools, approvals, cost, and outcome — plus the quality gates that block a release on regression. | T09, T10 | Med | ☐ |
 | T11A | **Map the system to itself.** Typed records for subsystems, capabilities, risks, and limitations. Foundation only — not the Atlas page. | T02, T11 | Med | ☐ |
 | T12 | **Attack it on purpose.** Threat model, then deliberately inject failures: injection, secrets, over-reach, budgets, paths. | T05, T11 | High | ☐ |
@@ -89,7 +89,7 @@ Stopping after any phase leaves a working system. That is the point of the order
 | 3B2 | Tool-loop iteration, batching, proposals, and step-budget orchestration | 70-82% accepted |
 | 4 | Final response composition and a thin compatibility-only `answer()` facade; golden-case closeout | 100% accepted |
 
-**Owner action now:** none during implementation. T09 is complete and T10 Run 1 is active.
+**Owner action now:** none during implementation. T10 Run 1 is delivered and Run 2 is active.
 
 ---
 
