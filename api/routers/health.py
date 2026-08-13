@@ -1,4 +1,4 @@
-"""Health & performance routes — /api/health/* .
+"""Health & performance routes -- /api/health/* .
 
 Extracted from api/dashboard.py (refactor Slice 1). Byte-identical handlers;
 only @app.* decorators became @router.* and the shared helpers now import
@@ -7,13 +7,16 @@ from api.deps. See docs/REFACTORING_PLAN.md.
 from __future__ import annotations
 
 import asyncio
+import functools
+import json
 import os
 import re
 import sqlite3
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from api.deps import _get_conn, _last, fmt_ago, LOGS_DIR
@@ -23,7 +26,7 @@ router = APIRouter(tags=["health"])
 
 API_PORT = os.getenv("API_PORT", "8000")
 
-# Log-tail diagnostics — moved verbatim from api/dashboard.py; used only by the
+# Log-tail diagnostics -- moved verbatim from api/dashboard.py; used only by the
 # Health deep check. Matches main.py's "[ERROR]" format and the default
 # "ERROR:logger:" library format, plus tracebacks. Word-boundaried so it won't
 # fire on the word "error" mid-sentence.
@@ -34,6 +37,11 @@ _REDACT = [
     (re.compile(r"bot\d+:[A-Za-z0-9_\-]+"), "bot***REDACTED***"),
     (re.compile(r"(?i)(token|key|secret|password)=\S+"), r"\1=***"),
 ]
+
+
+def _sse(event: str, payload: dict) -> str:
+    """One server-sent event. The page renders each as it arrives."""
+    return "event: %s\ndata: %s\n\n" % (event, json.dumps(payload, default=str))
 
 
 def _redact(text: str) -> str:
@@ -87,10 +95,10 @@ def _recent_errors(limit: int = 12, scan_lines: int = 3000) -> list[dict]:
 async def api_health():
     """Diagnostics for Mission Control's Health page.
 
-    Three clearly separated signal classes — never collapsed into one red/green:
-      • up        — verifiable liveness (DB connects, API server responds). Red is meaningful.
-      • configured— env key / integration present. A CONFIG check, NOT liveness. Never 'down'.
-      • activity  — last time each subsystem wrote data. Absence ≠ failure; labelled 'last active'.
+    Three clearly separated signal classes -- never collapsed into one red/green:
+      • up        -- verifiable liveness (DB connects, API server responds). Red is meaningful.
+      • configured-- env key / integration present. A CONFIG check, NOT liveness. Never 'down'.
+      • activity  -- last time each subsystem wrote data. Absence ≠ failure; labelled 'last active'.
     """
     # ── up: liveness ──────────────────────────────────────────────
     up: dict = {}
@@ -180,7 +188,7 @@ async def api_health():
 
     recent_errors = _recent_errors()
 
-    # ── overall health SCORE (0–100) — single source of truth ─────
+    # ── overall health SCORE (0–100) -- single source of truth ─────
     # Only real liveness + core capability + error volume move the bar.
     # Optional, unconfigured integrations do NOT reduce health (config ≠ failure).
     score = 100
@@ -196,10 +204,10 @@ async def api_health():
     has_llm = configured.get("openrouter") or configured.get("anthropic") or configured.get("openai")
     if not has_llm:
         score -= 30
-        notes.append("No LLM provider configured — Tobi can't think")
+        notes.append("No LLM provider configured -- Tobi can't think")
     if not configured.get("telegram"):
         score -= 15
-        notes.append("Telegram not configured — Tobi can't talk")
+        notes.append("Telegram not configured -- Tobi can't talk")
 
     n_err = sum(1 for e in recent_errors if e["level"] == "ERROR")
     n_warn = sum(1 for e in recent_errors if e["level"] == "WARNING")
@@ -243,33 +251,39 @@ def _timed_check(fn) -> dict:
     return {"ok": bool(ok), "detail": str(detail)[:120], "latency_ms": int((_t.perf_counter() - t0) * 1000)}
 
 
-@router.get("/api/health/deep")
-async def api_health_deep():
-    """On-demand LIVE check of EVERY external API Tobi uses (button-triggered, not on
-    load): a real LLM round-trip + live network tests to Telegram, Tavily, and each
-    integration. Each result carries latency; a summary gives reachable/total."""
-    result: dict = {"timestamp": datetime.now().isoformat()}
+def _deep_check_plan() -> tuple[Any, list[tuple[str, Any]], dict]:
+    """Build the deep check without running any of it.
 
-    # 1) Chat round-trip — a real short conversation that uses a tool, not a one-shot ping.
+    Returns the chat check, the outbound checks still to run, and the ones already answered
+    from memory. Shared by the plain endpoint and the streaming one so the two can never
+    disagree about what "a full health check" means.
+
+    These checks know nothing about each other, and they used to run strictly one after
+    another: Telegram waited on the chat check, Tavily waited on Telegram. That cost almost
+    nothing while every check took a second. Since `be5e198` the chat check is a real two-turn
+    conversation taking ~18s, so the button went from four seconds to fifty. Each check now
+    runs on its own worker thread and the callers gather them, so the button costs its slowest
+    check rather than their sum -- and the loop stays free while they wait on the network.
+    """
+    # 1) Chat round-trip -- a real short conversation that uses a tool, not a one-shot ping.
     # The old probe asked the model "Reply with exactly: OK" and passed. On 2026-08-01 it
     # passed all day while every Chat request failed, because the defect only existed on the
     # second message of a conversation and a one-shot probe never sends one. See
     # core/chat_self_check.py for the full account.
-    from core.chat_self_check import run_self_check
-    check = run_self_check()
-    result["llm"] = {
-        "ok": check["ok"],
-        "detail": check["detail"][:400],
-        "latency_ms": check["latency_ms"],
-        "state": check["state"],              # working | broken | model_unavailable
-        "tools_used": check["tools_used"],
-        "model_turns": check["model_turns"],
-        "provider": os.getenv("PRIMARY_MODEL", "openrouter"),
-    }
+    def _llm() -> dict:
+        from core.chat_self_check import run_self_check
+        check = run_self_check()
+        return {
+            "ok": check["ok"],
+            "detail": check["detail"][:400],
+            "latency_ms": check["latency_ms"],
+            "state": check["state"],          # working | broken | model_unavailable
+            "tools_used": check["tools_used"],
+            "model_turns": check["model_turns"],
+            "provider": os.getenv("PRIMARY_MODEL", "openrouter"),
+        }
 
-    integrations: dict = {}
-
-    # 2) Telegram — getMe (free, fast)
+    # 2) Telegram -- getMe (free, fast)
     def _tg():
         tok = os.getenv("TELEGRAM_BOT_TOKEN")
         if not tok:
@@ -279,9 +293,8 @@ async def api_health_deep():
         j = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
         uname = (j.get("result") or {}).get("username")
         return bool(j.get("ok")), (f"@{uname}" if uname else f"HTTP {r.status_code}")
-    integrations["telegram"] = _timed_check(_tg)
 
-    # 3) Tavily — minimal live search (1 result) to confirm the key works
+    # 3) Tavily -- minimal live search (1 result) to confirm the key works
     def _tav():
         key = os.getenv("TAVILY_API_KEY")
         if not key:
@@ -290,9 +303,11 @@ async def api_health_deep():
         r = requests.post("https://api.tavily.com/search",
                           json={"api_key": key, "query": "ping", "max_results": 1}, timeout=12)
         return r.ok, ("reachable" if r.ok else f"HTTP {r.status_code}")
-    integrations["tavily"] = _timed_check(_tav)
 
-    # 4) Integration providers (notion/github/google/vercel/supabase) — live test()
+    # 4) Integration providers (notion/github/google/vercel/supabase) -- live test()
+    # An unconfigured provider is answered from memory, so it is not given a thread.
+    integrations: dict = {}
+    scheduled: list[tuple[str, Any]] = [("telegram", _tg), ("tavily", _tav)]
     try:
         from core.integrations import _integrations
         for name, cls in _integrations.items():
@@ -304,15 +319,87 @@ async def api_health_deep():
             def _it(inst=inst):
                 ok = bool(inst.test())
                 return ok, ("reachable" if ok else "configured but test failed")
-            integrations[name] = _timed_check(_it)
+            scheduled.append((name, _it))
     except Exception as e:  # noqa: BLE001
         integrations["error"] = {"ok": False, "detail": str(e)[:120], "latency_ms": 0}
 
-    result["integrations"] = integrations
+    return _llm, scheduled, integrations
 
+
+def _failed_llm(exc: BaseException) -> dict:
+    return {"ok": False, "detail": _redact(str(exc))[:400], "latency_ms": 0, "state": "broken",
+            "tools_used": [], "model_turns": 0, "provider": os.getenv("PRIMARY_MODEL", "openrouter")}
+
+
+@router.get("/api/health/deep")
+async def api_health_deep():
+    """Every external API Tobi uses, checked live. Button-triggered, never on page load."""
+    result: dict = {"timestamp": datetime.now().isoformat()}
+    _llm, scheduled, integrations = _deep_check_plan()
+
+    # `return_exceptions` keeps one broken provider from cancelling the rest: the owner pressed
+    # the button to find out which things are down, so losing the others is the worst outcome.
+    llm_result, *check_results = await asyncio.gather(
+        asyncio.to_thread(_llm),
+        *[asyncio.to_thread(_timed_check, fn) for _name, fn in scheduled],
+        return_exceptions=True)
+
+    result["llm"] = _failed_llm(llm_result) if isinstance(llm_result, BaseException) else llm_result
+    for (name, _fn), outcome in zip(scheduled, check_results):
+        integrations[name] = (
+            {"ok": False, "detail": _redact(str(outcome))[:160], "latency_ms": 0}
+            if isinstance(outcome, BaseException) else outcome)
+
+    result["integrations"] = integrations
     checks = [result["llm"], *integrations.values()]
     result["summary"] = {"ok": sum(1 for c in checks if c.get("ok")), "total": len(checks)}
     return result
+
+
+@router.get("/api/health/deep/stream")
+async def api_health_deep_stream():
+    """The same checks, but each result is sent the moment it lands.
+
+    Running them concurrently made the button cost its slowest check instead of their sum, but
+    the page still showed nothing until the last one returned -- and the slowest is the chat
+    round-trip at roughly eighteen seconds. Telegram and Tavily answer in about one, so there is
+    no reason to hide them for seventeen more.
+    """
+    async def events():
+        _llm, scheduled, prefilled = _deep_check_plan()
+        names = ["llm"] + [name for name, _fn in scheduled]
+        yield _sse("start", {"timestamp": datetime.now().isoformat(),
+                             "expected": names + list(prefilled)})
+        for name, check in prefilled.items():          # answered from memory, no thread needed
+            yield _sse("check", {"name": name, "result": check})
+
+        async def run(name: str, fn) -> tuple[str, dict]:
+            """Always resolve to (name, result) so a completed task identifies itself.
+
+            Matching a finished future back to its check by comparing results is wrong the
+            moment two checks return equal dicts -- which "not configured" does routinely.
+            """
+            try:
+                return name, await asyncio.to_thread(fn)
+            except Exception as exc:  # noqa: BLE001 - reported as a failed check, never raised
+                if name == "llm":
+                    return name, _failed_llm(exc)
+                return name, {"ok": False, "detail": _redact(str(exc))[:160], "latency_ms": 0}
+
+        tasks = [asyncio.ensure_future(run("llm", _llm))]
+        tasks += [asyncio.ensure_future(run(name, functools.partial(_timed_check, fn)))
+                  for name, fn in scheduled]
+        results: dict = dict(prefilled)
+        for future in asyncio.as_completed(tasks):
+            name, value = await future
+            results[name] = value
+            yield _sse("check", {"name": name, "result": value})
+
+        yield _sse("done", {"summary": {"ok": sum(1 for c in results.values() if c.get("ok")),
+                                        "total": len(results)}})
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 # ── Performance "system doctor" (#19) ────────────────────────────────────────────
@@ -331,7 +418,7 @@ class PerfTaskReq(BaseModel):
 @router.get("/api/health/performance")
 def api_performance_latest():
     """The most recent Performance analysis (scorecard + subsystems + findings + trend), or
-    {available:false} if none has been run yet. Read-only — never triggers a new run."""
+    {available:false} if none has been run yet. Read-only -- never triggers a new run."""
     from core import performance_doctor as pdoc
     r = pdoc.latest()
     return r if r else {"available": False}

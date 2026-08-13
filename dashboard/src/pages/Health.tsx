@@ -6,11 +6,12 @@ import { RefreshCw, Activity, AlertTriangle, CheckCircle2, Database, Server, Loa
 import Logo from '../components/Logo'
 import HealthBar from '../components/HealthBar'
 import PageLoader from '../components/PageLoader'
+import { LoadFailure } from '../components/async-ui'
 import PerformanceDoctor from '../components/PerformanceDoctor'
 import { Stagger, StaggerItem } from '../components/motion'
 import { useReducedMotionPref } from '../context/MotionProvider'
 import { getLlmUsage, type UsageSummary } from '../api.keys'
-import { getHealth, runDeepTest, type HealthReport, type DeepTestReport, type LivenessCheck } from '../api.abilities'
+import { getHealth, runDeepTestStream, type HealthReport, type DeepTestReport, type LivenessCheck } from '../api.abilities'
 import { getIntegrations, type IntegrationsResponse } from '../api.genesis'
 
 const OVERALL = {
@@ -68,6 +69,7 @@ export default function Health() {
   const [updated, setUpdated] = useState<string>('')
   const [deep, setDeep] = useState<DeepTestReport | null>(null)
   const [deepLoading, setDeepLoading] = useState(false)
+  const [deepError, setDeepError] = useState<unknown>(null)
   const [gen, setGen] = useState<IntegrationsResponse | null>(null)
   const [usage, setUsage] = useState<UsageSummary | null>(null)
   const [tab, setTab] = useState<'overview' | 'performance'>('overview')
@@ -89,12 +91,25 @@ export default function Health() {
     return () => clearInterval(t)
   }, [])
 
+  // Rows appear as each check finishes rather than all at the end. The chat round-trip takes
+  // about eighteen seconds; Telegram and Tavily take about one, and used to be hidden behind it.
   const onDeepTest = async () => {
     setDeepLoading(true)
+    setDeepError(null)
+    const partial: DeepTestReport = {
+      timestamp: new Date().toISOString(), llm: { ok: false, detail: 'Checking…' }, integrations: {},
+    }
+    setDeep(partial)
     try {
-      setDeep(await runDeepTest())
-    } catch {
-      setDeep(null)
+      const summary = await runDeepTestStream((name, result) => {
+        if (name === 'llm') partial.llm = result as DeepTestReport['llm']
+        else partial.integrations[name] = result
+        setDeep({ ...partial, integrations: { ...partial.integrations } })
+      })
+      setDeep({ ...partial, integrations: { ...partial.integrations }, summary: summary ?? undefined })
+    } catch (error) {
+      // Keep whatever already arrived — half a health report still tells him something.
+      setDeepError(error)
     } finally {
       setDeepLoading(false)
     }
@@ -151,6 +166,10 @@ export default function Health() {
           </button>
         ))}
       </div>
+
+      {deepError != null && (
+        <LoadFailure error={deepError} what="the full health check" onRetry={onDeepTest} />
+      )}
 
       {tab === 'performance' && <PerformanceDoctor />}
 

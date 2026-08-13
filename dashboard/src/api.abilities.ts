@@ -7,6 +7,43 @@ export async function runDeepTest(): Promise<DeepTestReport> {
   return get('/api/health/deep')
 }
 
+/** The same checks, delivered one at a time as each finishes.
+ *
+ *  The checks run concurrently now, so the whole run costs its slowest one — about eighteen
+ *  seconds for the chat round-trip. Telegram and Tavily answer in roughly one, and there is no
+ *  reason to hide them for the other seventeen. `onCheck` fires per result; the promise settles
+ *  when every check is in. */
+export async function runDeepTestStream(
+  onCheck: (name: string, result: LivenessCheck) => void,
+  signal?: AbortSignal,
+): Promise<{ ok: number; total: number } | null> {
+  const response = await fetch('/api/health/deep/stream', { signal })
+  if (!response.ok || !response.body) throw new Error(`Health check failed (HTTP ${response.status})`)
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let summary: { ok: number; total: number } | null = null
+
+  // Server-sent events are separated by a blank line, and a chunk can split one in half, so
+  // only whole events are parsed and the remainder is carried to the next read.
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const events = buffer.split('\n\n')
+    buffer = events.pop() ?? ''
+    for (const raw of events) {
+      const line = raw.split('\n').find(l => l.startsWith('data:'))
+      if (!line) continue
+      const payload = JSON.parse(line.slice(5))
+      if (payload.name) onCheck(payload.name, payload.result)
+      else if (payload.summary) summary = payload.summary
+    }
+  }
+  return summary
+}
+
 // ── Health diagnostics ──────────────────────────────────────────────
 export type LivenessCheck = { ok: boolean; detail: string; latency_ms?: number }
 export type LogEntry = { level: 'ERROR' | 'WARNING'; msg: string; source: string }

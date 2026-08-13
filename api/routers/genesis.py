@@ -9,6 +9,7 @@ Free-var set verified by isolated-pyflakes analysis (not grep).
 """
 from __future__ import annotations
 
+import asyncio
 import os  # noqa: F401 - used by some handlers
 import sqlite3  # noqa: F401 - used in type hints
 
@@ -461,16 +462,24 @@ async def google_oauth_status(request: Request):
     connected = g.is_connected()
     email = ""
     if connected:
-        try:
+        # Ran inline until 2026-08-13. `requests` is synchronous, so inside this async handler
+        # it held the event loop for up to its full 10s timeout — every other request in flight
+        # waited on Google answering, for a field that only decorates this response. On a
+        # worker thread, and the email is optional: a slow or failing lookup leaves it blank
+        # rather than delaying the connection status the page actually needs.
+        def _fetch_email() -> str:
             import requests
             token = g._get_valid_access_token()
-            if token:
-                r = requests.get(g.USERINFO_URL,
-                                 headers={"Authorization": f"Bearer {token}"}, timeout=10)
-                if r.status_code == 200:
-                    email = r.json().get("email", "")
-        except Exception:
-            pass
+            if not token:
+                return ""
+            r = requests.get(g.USERINFO_URL,
+                             headers={"Authorization": f"Bearer {token}"}, timeout=(3, 5))
+            return r.json().get("email", "") if r.status_code == 200 else ""
+
+        try:
+            email = await asyncio.wait_for(asyncio.to_thread(_fetch_email), timeout=6)
+        except Exception:  # noqa: BLE001 - the address is decoration; status is the answer
+            email = ""
     return {
         "configured": g.is_available(),
         "connected": connected,
