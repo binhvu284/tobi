@@ -12,6 +12,7 @@ import ModelMenu from '../components/chat/ModelMenu'
 import DeveloperAgents from '../components/developer/DeveloperAgents'
 import DeveloperProcess from '../components/developer/DeveloperProcess'
 import DeveloperQueue from '../components/developer/DeveloperQueue'
+import DeveloperRuntimeLoop from '../components/developer/DeveloperRuntimeLoop'
 import DevelopmentGoals, { type GoalCommand } from '../components/developer/DevelopmentGoals'
 import VaultUnlockPanel from '../components/VaultUnlockPanel'
 import { useToast } from '../context/ToastProvider'
@@ -361,9 +362,12 @@ export default function Developer() {
                 </section>
               </div>
             </div>}
-            {tab === "loop" && <DeveloperProcess workflow={active} events={events} workers={workers} queue={queue.items} capabilities={overview?.policy.capabilities} busy={busy}
-              autoQueue={autoQueuePending ?? overview?.process?.auto_queue ?? false} autoQueueBusy={autoQueuePending !== null} streamState={streamState} streamIssue={streamIssue}
-              onAutoQueue={setAutoQueue} onCommand={command} onApprove={approve} onReject={rejectApproval} />}
+            {tab === "loop" && <div className="space-y-4">
+              <DeveloperRuntimeLoop />
+              <DeveloperProcess workflow={active} events={events} workers={workers} queue={queue.items} capabilities={overview?.policy.capabilities} busy={busy}
+                autoQueue={autoQueuePending ?? overview?.process?.auto_queue ?? false} autoQueueBusy={autoQueuePending !== null} streamState={streamState} streamIssue={streamIssue}
+                onAutoQueue={setAutoQueue} onCommand={command} onApprove={approve} onReject={rejectApproval} />
+            </div>}
             {tab === 'work' && <div className="space-y-8"><DevelopmentGoals goals={goals} busy={busy} onCreate={createGoal} onCommand={goalCommand} onCreateItem={goalId => setQueueGoalDraft({ goalId, requestId: Date.now() })} /><DeveloperQueue state={queue} active={active} busy={busy} goals={goals} createForGoalId={queueGoalDraft?.goalId} createRequestId={queueGoalDraft?.requestId}
               autoQueue={autoQueuePending ?? overview?.process?.auto_queue ?? queue.auto_queue} autoQueueBusy={autoQueuePending !== null} acceptanceMode={Boolean(overview?.acceptance_mode)} onAutoQueue={setAutoQueue}
               onPrepare={(id, readinessId) => { void act(() => prepareDeveloperWorkflow(id, readinessId), `Queue #${id} prepared for acceptance testing`) }}

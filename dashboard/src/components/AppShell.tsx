@@ -42,6 +42,7 @@ const NAV = [
   { group: 'Operation', links: [
     { to: '/office', icon: Building2, label: 'Office' },
     { to: '/task', icon: Kanban, label: 'Tasks' },
+    { to: '/runs', icon: Activity, label: 'Runs' },
   ] },
   { group: 'Explore', links: [
     { to: '/news', icon: Newspaper, label: 'News' },

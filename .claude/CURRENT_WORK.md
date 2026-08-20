@@ -35,9 +35,11 @@ capability, loop, and recovery state while preserving the existing dashboard des
 - narrow Developer integration files
 - backend, frontend, and Playwright tests
 
-**Gate: no**
+**Gate: green**
 
 ```gate
+python tests/test_mc_runtime_runs_view.py
+python tests/test_mc_runtime_runs_ui.py
 ```
 
 ---

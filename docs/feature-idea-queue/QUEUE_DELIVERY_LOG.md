@@ -116,6 +116,8 @@ T11A is complete locally. `SystemModelRepository` validates all typed T01 System
 
 T12 is complete locally. The documented threat matrix covers prompt injection, secret leakage, authority over-reach, budget exhaustion, network SSRF, path traversal, supply-chain metadata, and fail-closed recovery. Synthetic probes exercise the accepted control owners and project unsafe outcomes into T11 as a high-severity finding that blocks release and autonomy. The red run found that embedded `token=...` text was not redacted; the shared event-store redactor now masks it before persistence. The enforced 13/13 gate and 150 policy, event, network, registry, budget, memory, file, terminal, and evaluation regressions passed. T13 is active.
 
+T13 is complete locally. The Runs page and Developer loop selector consume one shared reconnectable store backed by bounded, redacted runtime projections. Run detail joins ordered events, traces, evaluations, context references, capabilities, loop state, and recovery without prompt, request, tool-output, secret, or raw-error bodies. Loop selection persists as configuration and cannot activate execution. The focused backend and frontend checks passed 23/23, the production dashboard built, and desktop/mobile Playwright checks passed with no overflow or console errors. T14 is active.
+
 
 <a id="item-20"></a>
 

@@ -6,17 +6,66 @@ import json
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from core.runtime import config
 from core.runtime.contracts import RunEvent
 from core.runtime.gateway import REPLAY_PAGE_LIMIT, TurnGateway
 from core.runtime.repository import RunNotFoundError
+from core.runtime.runs_view import RuntimeRunsView, RunsViewValidationError
 
 
 router = APIRouter(tags=["runtime"])
 _POLL_SECONDS = 0.25
 _HEARTBEAT_SECONDS = 15.0
 _TERMINAL_EVENTS = {"shadow.turn_completed"}
+
+
+class DeveloperLoopSelection(BaseModel):
+    recipe_id: str
+    version: str
+
+
+@router.get("/api/runtime/runs")
+def runtime_runs(
+    limit: int = Query(50, ge=1, le=100),
+    cursor: str | None = None,
+    surface: str | None = None,
+    status: str | None = None,
+):
+    try:
+        return RuntimeRunsView().list_runs(
+            limit=limit, cursor=cursor, surface=surface, status=status,
+        )
+    except RunsViewValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/api/runtime/runs/{run_id}/snapshot")
+def runtime_run_snapshot(run_id: str, after: int = Query(0, ge=0)):
+    try:
+        return RuntimeRunsView().get_run(run_id, after_sequence=after)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="run not found") from exc
+    except RunsViewValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/api/runtime/loops")
+def runtime_loops():
+    view = RuntimeRunsView()
+    return {
+        "items": view.list_loop_recipes(),
+        "developer_selection": view.get_developer_loop_selection(),
+    }
+
+
+@router.put("/api/runtime/preferences/developer-loop")
+def runtime_developer_loop_selection(body: DeveloperLoopSelection):
+    try:
+        return RuntimeRunsView().set_developer_loop_selection(body.recipe_id, body.version)
+    except RunsViewValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _start_sequence(request: Request, after: int) -> int:

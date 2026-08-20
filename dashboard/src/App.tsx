@@ -34,6 +34,7 @@ const News = lazy(() => import('./pages/News'))
 // Project v2 full-page workspace (#12) — lazy so the main bundle stays lean.
 const ProjectWorkspace = lazy(() => import('./pages/ProjectWorkspace'))
 const Developer = lazy(() => import('./pages/Developer'))
+const Runs = lazy(() => import('./pages/Runs'))
 // Architecture V2 dynamically imports the Mermaid renderer (~500KB) — lazy-load so it stays out of the main bundle.
 const Architecture = lazy(() => import('./pages/Architecture'))
 
@@ -81,6 +82,9 @@ function RouteSet({ location }: { location?: string }) {
       } />
       <Route path="/developer" element={
         <Suspense fallback={<PageLoader />}><Developer /></Suspense>
+      } />
+      <Route path="/runs" element={
+        <Suspense fallback={<PageLoader />}><Runs /></Suspense>
       } />
     </Routes>
   )

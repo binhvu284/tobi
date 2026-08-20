@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Inbox, MessagesSquare, History, Brain, Share2, Network, Zap,
   TrendingUp, HeartPulse, Building2, FolderKanban, Kanban, Settings, Cpu,
-  HardDrive, KeyRound, Workflow, SlidersHorizontal, Newspaper, Code2, type LucideIcon,
+  HardDrive, KeyRound, Workflow, SlidersHorizontal, Newspaper, Code2, Activity, type LucideIcon,
 } from 'lucide-react'
 import { useToast } from './ToastProvider'
 
@@ -43,6 +43,7 @@ export const WORKSPACE_ROUTES: WorkspaceRouteMeta[] = [
   { route: '/integrations', label: 'Integrations', Icon: KeyRound },
   { route: '/mcp', label: 'MCP', Icon: Workflow },
   { route: '/developer', label: 'Developer', Icon: Code2 },
+  { route: '/runs', label: 'Runs', Icon: Activity },
   { route: '/control', label: 'Control', Icon: SlidersHorizontal },
 ]
 

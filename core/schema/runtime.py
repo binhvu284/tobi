@@ -17,6 +17,7 @@ RUNTIME_SCHEMA_VERSIONS = (
     "mc-runtime-v2-009",
     "mc-runtime-v2-010",
     "mc-runtime-v2-011",
+    "mc-runtime-v2-012",
 )
 RUNTIME_SCHEMA_VERSION = RUNTIME_SCHEMA_VERSIONS[-1]
 _SCHEMA_LOCK = threading.Lock()
@@ -41,6 +42,7 @@ _RUNTIME_TABLES = {
     "mc_eval_cases",
     "mc_eval_runs",
     "mc_eval_findings",
+    "mc_runtime_preferences",
 }
 
 _STEP_LEASE_COLUMNS = {
@@ -213,6 +215,13 @@ _STATEMENTS = (
         FOREIGN KEY (eval_run_id) REFERENCES mc_eval_runs(eval_run_id)
     )""",
     "CREATE INDEX IF NOT EXISTS idx_mc_eval_findings_run ON mc_eval_findings(eval_run_id, severity, created_at)",
+    """CREATE TABLE IF NOT EXISTS mc_runtime_preferences (
+        preference_key TEXT PRIMARY KEY,
+        value_json TEXT NOT NULL,
+        value_hash TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        updated_by TEXT NOT NULL
+    )""",
     """CREATE TRIGGER IF NOT EXISTS mc_eval_cases_update_guard
         BEFORE UPDATE ON mc_eval_cases BEGIN
             SELECT RAISE(ABORT, 'mc_eval_cases versions are immutable');

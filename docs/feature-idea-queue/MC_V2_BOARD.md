@@ -13,13 +13,13 @@ Its status column carries the same short progress note this board tracks.
 
 ## Status
 
-**In progress.** T00 through T12 are complete. T13 Runs Center foundation is active.
+**In progress.** T00 through T13 are complete. T14 staged activation is active.
 
-**Delivered:** 14 complete packages. Eight security boundaries now have deterministic failure
-proof, and unsafe or missing evidence blocks both release and higher-autonomy gates.
+**Delivered:** 15 complete packages. Runs now has one bounded reconnectable view of runtime,
+trace, evaluation, context, capability, loop, and recovery evidence.
 
-**Next:** T13 gives the owner one Runs Center that reconnects to shared run, trace, evaluation,
-context, capability, and recovery state without redesigning the dashboard.
+**Next:** T14 compares old and new behavior, activates one surface at a time only after seven
+consecutive local passes, and proves one rollback switch returns new work to legacy behavior.
 
 ---
 
@@ -67,8 +67,8 @@ Ordered. Each one ships and is reviewable on its own. Risk is the plan's own rat
 | T11 | **See everything.** One trace per request joining context, model, tools, approvals, cost, and outcome — plus the quality gates that block a release on regression. | T09, T10 | Med | Done |
 | T11A | **Map the system to itself.** Typed records for subsystems, capabilities, risks, and limitations. Foundation only — not the Atlas page. | T02, T11 | Med | Done |
 | T12 | **Attack it on purpose.** Threat model, then deliberately inject failures: injection, secrets, over-reach, budgets, paths. | T05, T11 | High | Done |
-| T13 | **The Runs page.** One live view of every run, shared across pages, reconnecting where it left off. Foundation only — no redesign. | T04, T11, T11A | Med | Active |
-| T14 | **Turn it on slowly.** Compare old and new side by side, activate one surface at a time, and prove the rollback switch works. | T12, T13 | High | ☐ |
+| T13 | **The Runs page.** One live view of every run, shared across pages, reconnecting where it left off. Foundation only — no redesign. | T04, T11, T11A | Med | Done |
+| T14 | **Turn it on slowly.** Compare old and new side by side, activate one surface at a time, and prove the rollback switch works. | T12, T13 | High | Active |
 | T15 | **Everything else:** Projects, Office, CLI, Telegram, schedulers, and docs. Legacy deletion is a separate decision you make later. | T14 | High | ☐ |
 
 Phases group these into checkpoints you can stop at: **T00** (ground truth) · **T01** (shapes) ·
@@ -89,7 +89,7 @@ Stopping after any phase leaves a working system. That is the point of the order
 | 3B2 | Tool-loop iteration, batching, proposals, and step-budget orchestration | 70-82% accepted |
 | 4 | Final response composition and a thin compatibility-only `answer()` facade; golden-case closeout | 100% accepted |
 
-**Owner action now:** none during implementation. T10 Runs 1-2 are delivered and Run 3 is active.
+**Owner action now:** none during implementation. T13 is delivered and T14 is active.
 
 ---
 

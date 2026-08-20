@@ -2664,6 +2664,11 @@ without duplicates; trace/eval/recovery/context/capability evidence is readable 
 loop selection persists as configuration only; empty/loading/error/reconnecting states work;
 backend/API/frontend tests, production build, and desktop/mobile Playwright checks pass.
 
+**Delivered (2026-08-20):** one bounded API projection and shared frontend store now feed the Runs
+page and Developer loop selector. Reconnect resumes after the latest sequence and deduplicates
+events; loop selection remains non-activating configuration. Focused checks passed 23/23, the
+production dashboard built, and desktop/mobile Playwright checks found no overflow or console error.
+
 ## 26. Implementation Log
 
 Planning state only. Add one dated row after each accepted worker package.
@@ -2713,3 +2718,4 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-14 | T11 | T11 local delivery; owner continuation authorization | Red missing-eval service; enforced gate 19/19; 76 Runtime contract/event/repository/loop/coding checks green | Complete; deterministic redacted traces plus immutable local TOBIval cases/runs/findings now block release or autonomy increases on missing, failed, incomplete, below-threshold, or unsafe evidence; T11A released |
 | 2026-08-20 | T11A | T11A local delivery; owner continuation authorization | Red missing-System repository; enforced gate 11/11; 45 T01/T02/T11 contract, event, projection, and evaluation checks green | Complete; all typed System entities and evidence-backed edges are filterable and deterministically rebuildable, invalid links fail closed, and the projection grants no execution authority; T12 released |
 | 2026-08-20 | T12 | T12 local delivery; owner continuation authorization | Red missing-security module then embedded-token leak; enforced gate 13/13; 150 event, policy, registry, network, loop, memory, file, terminal, and eval checks green | Complete; eight synthetic boundary attacks fail closed, unsafe evidence blocks release/autonomy, and embedded generic token assignments are redacted before persistence; T13 released |
+| 2026-08-20 | T13 | T13 local delivery; owner continuation authorization | Red missing-projection import; enforced backend/frontend gate 23/23; production dashboard build; desktop/mobile Playwright with no overflow or console errors | Complete; bounded redacted run, trace, eval, context, capability, loop, and recovery state now feeds Runs and Developer through one reconnectable store; selection cannot activate execution; T14 released |
