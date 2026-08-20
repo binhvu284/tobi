@@ -641,9 +641,7 @@ async def run_daemon():
         await shutdown_telegram_app()
 
 
-async def main_async():
-    command = sys.argv[1] if len(sys.argv) > 1 else "start"
-
+async def _main_async(command: str):
     if command == "start":
         await run_daemon()
 
@@ -723,15 +721,33 @@ async def main_async():
         print("Usage: python main.py [start|bot|api|research|execute|ceo|status|test|terminal|hermes|dev]")
 
 
+async def main_async():
+    from core.runtime.surface_adapter import track_async_surface
+    command = sys.argv[1] if len(sys.argv) > 1 else "start"
+    await track_async_surface(
+        surface="cli",
+        operation=f"command.{command}",
+        session_id="cli",
+        actor="cli-adapter",
+        callback=lambda: _main_async(command),
+    )
+
+
 if __name__ == "__main__":
     command = sys.argv[1] if len(sys.argv) > 1 else "start"
 
     if command == "bot":
         # run_polling manages its own event loop — must be outside asyncio.run()
-        init_database()
-        sync_soul_and_skills()
-        app = build_app()
-        print("🤖 Starting Tobi Telegram bot...")
-        app.run_polling(drop_pending_updates=True)
+        from core.runtime.surface_adapter import track_sync_surface
+        def run_bot():
+            init_database()
+            sync_soul_and_skills()
+            app = build_app()
+            print("🤖 Starting Tobi Telegram bot...")
+            app.run_polling(drop_pending_updates=True)
+        track_sync_surface(
+            surface="cli", operation="command.bot", session_id="cli",
+            actor="cli-adapter", callback=run_bot,
+        )
     else:
         asyncio.run(main_async())

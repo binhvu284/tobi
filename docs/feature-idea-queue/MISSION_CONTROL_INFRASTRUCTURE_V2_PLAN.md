@@ -5,7 +5,7 @@
 | Field | Decision |
 |---|---|
 | Queue item | `#21` |
-| Status | In progress; T00-T09 complete; T10 Runs 1-2 delivered; Run 3 active |
+| Status | Complete; T00-T15 delivered and verified on 2026-08-20 |
 | Delivered dependency | `#20` Brain V2 is delivered; T00 must reconcile this plan with its actual contracts, migrations, context behavior, and rollback path |
 | Start gate | Satisfied 2026-08-01 by `#22` Codex-only V2 qualification (`e9bc5fe`); other workers remain locked until separately qualified |
 | Deployment confidence | The `#22` 24-hour/72-hour VPS soak remains a deployment confidence gate, not a source-development blocker for `#21` unless the owner explicitly promotes it to one |
@@ -2681,9 +2681,26 @@ behavior for new work without changing prior run or comparison history, and resu
 activation and live Chat, T12 security, T13 Runs, schema, API authorization, compile, and rollback
 regressions passed. All controls remain off in the real owner database because T14 used temp data.
 
+### 25.27 T15 - Remaining Surface Adapters and Closeout (2026-08-20)
+
+**Delivered:** Projects and Office share a body-blind HTTP compatibility boundary. CLI, Telegram,
+and every registered scheduler callback use the same passive adapter. With event mirroring off,
+they create no canonical work. With it on, one disabled canonical run stores only bounded surface,
+operation, outcome, and evidence references while legacy code remains the execution owner. Adapter
+errors never break legacy work, duplicate requests reuse the run, and the first terminal outcome
+remains authoritative.
+
+**Closeout:** Runtime operations, architecture, Mission Control, current-state, Queue, testing,
+security, and legacy-exit records now describe the delivered system. No live owner flag changed,
+no external service was called, and no legacy path or table was deleted. Retirement requires a
+new owner-approved Queue item using `MC_V2_LEGACY_EXIT_REVIEW.md`.
+
+**Verification:** the focused adapter gate passed 17/17. The final enforced gate runs one accepted
+boundary suite for every T01-T15 package, including Runs UI source checks and rollout proof.
+
 ## 26. Implementation Log
 
-Planning state only. Add one dated row after each accepted worker package.
+Delivery record. Add one dated row after each accepted worker package.
 
 | Date | Task | Commit | Verification | Status/notes |
 |---|---|---|---|---|
@@ -2732,3 +2749,4 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-20 | T12 | T12 local delivery; owner continuation authorization | Red missing-security module then embedded-token leak; enforced gate 13/13; 150 event, policy, registry, network, loop, memory, file, terminal, and eval checks green | Complete; eight synthetic boundary attacks fail closed, unsafe evidence blocks release/autonomy, and embedded generic token assignments are redacted before persistence; T13 released |
 | 2026-08-20 | T13 | T13 local delivery; owner continuation authorization | Red missing-projection import; enforced backend/frontend gate 23/23; production dashboard build; desktop/mobile Playwright with no overflow or console errors | Complete; bounded redacted run, trace, eval, context, capability, loop, and recovery state now feeds Runs and Developer through one reconnectable store; selection cannot activate execution; T14 released |
 | 2026-08-20 | T14 | T14 local delivery; owner continuation authorization | Red missing-rollout import; final enforced gate 23/23 passed seven consecutive local runs; T01, T04, T12, T13, API authorization, compile, and rollback regressions green | Complete; immutable body-free comparisons plus quality gates enforce ordered activation, owner-authenticated commands cannot skip stages, and one switch returns new work to shadow while preserving evidence; T15 released |
+| 2026-08-20 | T15 and #21 closeout | Final delivery commit | Red missing-adapter import; 17/17 focused adapter checks; final T01-T15 cross-package gate, compile, and legacy surface regressions green | Complete; Projects, Office, CLI, Telegram, and schedulers now mirror bounded canonical history without taking execution ownership; docs are current, all rollout controls remain off, and legacy retirement is separately owner-gated |

@@ -1,0 +1,89 @@
+# Mission Control Runtime V2
+
+## Current Status
+
+Queue #21 is complete. Runtime V2 supplies one validated contract family, durable SQLite history,
+recovery controls, policy and tool boundaries, evaluation gates, a System Model, the Runs page,
+staged rollout, and compatibility adapters for every current request surface.
+
+All Runtime V2 rollout controls default off. The #21 implementation and activation tests used
+temporary local databases; they did not change the owner's live flags or call an external service.
+
+## Request Flow
+
+1. A surface validates or adapts a request into `RunRequest`.
+2. Runtime stores one canonical run and an ordered accepted event.
+3. Active work uses version checks, a lease (so two workers cannot own one step), checkpoints,
+   bounded retries, loop limits, central policy, approvals, and immutable action receipts.
+4. Every saved event is redacted before persistence.
+5. Trace, evaluation, System, and Runs projections rebuild from bounded references rather than raw
+   prompts, responses, file bodies, tool output, secrets, or provider errors.
+6. Recovery resumes or closes the same run; it does not invent a replacement history.
+
+## Surface Ownership
+
+| Surface | Runtime V2 behavior | Existing execution owner |
+|---|---|---|
+| Chat and Agent | Canonical gateway; direct plain-text Chat has a gated active path; other routes retain shadow compatibility | Chat route and Conductor |
+| Developer/Coding | Accepted #22 history is mirrored into one canonical run | DevelopmentStore and Coding Agent V2 |
+| Projects | Mutating `/api/pm` requests create passive shadow runs when event mirroring is enabled | Project v2 routes and services |
+| Office | Mutating `/api/office` requests create passive shadow runs when event mirroring is enabled | Office routes, missions, and artifacts |
+| CLI | Each `main.py` command is wrapped by the passive adapter | Existing CLI command handler |
+| Telegram | Each message handler is wrapped by the passive adapter | Existing Telegram handler and Conductor |
+| Scheduler | Every registered callback is wrapped by the passive adapter | Existing scheduled job function |
+
+Passive means the adapter records only surface, operation, status, and evidence references. If the
+adapter fails, legacy work continues. Routine Projects/Office polling reads are not recorded unless
+the caller supplies `X-Request-ID` or `Idempotency-Key`, preventing unbounded history growth.
+
+## Data
+
+Runtime schema versions are recorded as `mc-runtime-v2-001` through `mc-runtime-v2-013`.
+Authoritative history includes runs, events, steps, checkpoints, commands, loops, approvals,
+policy decisions, receipts, evaluations, System entities and edges, rollout comparisons, terminal
+jobs, and bounded preferences. Immutable history tables reject update and delete operations at the
+database layer. Current projections can be rebuilt from history.
+
+## API
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/runtime/runs` | Bounded run list with cursor and surface/status filters |
+| `GET /api/runtime/runs/{id}/snapshot?after=N` | Detail plus only events after sequence `N` |
+| `GET /api/runtime/runs/{id}/events` | Session-scoped event replay and live tail |
+| `GET /api/runtime/loops` | Loop recipes and current Developer preference |
+| `PUT /api/runtime/preferences/developer-loop` | Save a non-activating Developer loop preference |
+| `GET /api/runtime/rollout` | Stage, rollback state, comparison streaks, and blockers |
+| `POST /api/runtime/rollout/activate/{stage}` | Advance exactly one evidence-ready stage |
+| `POST /api/runtime/rollout/rollback` | Return new work to shadow behavior |
+| `POST /api/runtime/rollout/resume` | Recheck gates and resume the approved stage |
+
+Rollout mutations require `X-Vault-Session`. Stages are `direct_chat`, `read_chat`, `actions`, and
+`agent`. Each stage needs seven consecutive passing comparisons and the release gate; Agent also
+needs the autonomy gate. Stages cannot be skipped or moved backward.
+
+## Security Rules
+
+- No raw request, prompt, response, attachment body, file content, diff, tool output, secret, or raw
+  provider error belongs in Runtime history, traces, comparisons, or frontend state.
+- Unknown contracts, tools, policies, approvals, stages, and adapter inputs fail closed.
+- Mutation receipts and approvals are identity-bound and replay-safe.
+- Rollback changes only new work. Accepted run mode and immutable evidence never change.
+- Runtime does not make the mostly unauthenticated port-8080 dashboard safe for public exposure.
+
+## Verification
+
+Run the final package gate from `tobi/`:
+
+```powershell
+& "D:\[PERSONAL PROJECT FILES]\TOBI\.python\venv\Scripts\python.exe" scripts/gate.py
+```
+
+The gate covers all 17 #21 packages. Focused tests remain under `tests/test_mc_runtime_*.py`.
+The dashboard production build is `npm.cmd --prefix dashboard run build`.
+
+## Legacy Exit
+
+No legacy code or table was deleted. The required owner decision and evidence are recorded in
+[`feature-idea-queue/MC_V2_LEGACY_EXIT_REVIEW.md`](feature-idea-queue/MC_V2_LEGACY_EXIT_REVIEW.md).
+Retirement is a new queue item, not unfinished #21 work.

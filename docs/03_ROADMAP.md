@@ -85,13 +85,13 @@ flowchart TD
   F --> G["Result or structured recovery"]
 ```
 
-### Agent Foundation Gates
+### Delivered Agent Foundation Gates
 
-These queued items build the infrastructure needed for Agent tier:
+These delivered items provide the infrastructure needed for Agent tier:
 
 1. **#18 TOBI Coding Agent:** controlled self-development for the MC repository with isolated worktrees, managed Hermes worker, GitHub branch/PR flow, protected merge/deploy approval, rollback, Developer page, releases, audit, and storage controls.
 2. **#20 Brain Context & Architecture V2:** typed owner intelligence, behavior-aware Chat/Agent context, influence traces, reviewable memory migration, and secure repository-backed Architecture V2.
-3. **#21 Mission Control Infrastructure V2:** MC as the authoritative durable runtime, policy engine, tool registry, context authority, trace system, Hermes adapter, and shared live-state control plane.
+3. **#21 Mission Control Infrastructure V2:** delivered on 2026-08-20; MC now provides the authoritative durable runtime, policy engine, tool registry, context authority, trace system, worker adapters, and shared live-state control plane.
 
 These must stay sequential:
 
@@ -264,4 +264,3 @@ A roadmap item or tier is complete only when:
 - real workflows produce durable evidence: run history, receipts, artifacts, traces, or eval results;
 - focused automated tests and a Mission Control smoke path pass;
 - queue status and current docs are updated in the same delivery.
-

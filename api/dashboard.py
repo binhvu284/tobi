@@ -68,6 +68,7 @@ app.add_middleware(
 )
 
 from starlette.middleware.base import BaseHTTPMiddleware
+from api.runtime_surface import RuntimeSurfaceMiddleware
 
 class NoCacheAPIMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
@@ -78,6 +79,7 @@ class NoCacheAPIMiddleware(BaseHTTPMiddleware):
         return response
 
 app.add_middleware(NoCacheAPIMiddleware)
+app.add_middleware(RuntimeSurfaceMiddleware)
 
 # Queue #18: isolated coding workflows live in a dedicated router so this module
 # remains an HTTP composition root rather than owning self-development logic.

@@ -335,8 +335,8 @@ columns = {
     for row in query_all("PRAGMA table_info(mc_terminal_jobs)")
 }
 ok(
-    "migration 010 adds cancellation evidence without raw command path or PID columns",
-    RUNTIME_SCHEMA_VERSION == "mc-runtime-v2-010"
+    "schema includes migration 010 cancellation evidence without raw command path or PID columns",
+    RUNTIME_SCHEMA_VERSIONS[-1] == RUNTIME_SCHEMA_VERSION
     and RUNTIME_SCHEMA_VERSIONS.count("mc-runtime-v2-010") == 1
     and migrations >= len(RUNTIME_SCHEMA_VERSIONS)
     and {

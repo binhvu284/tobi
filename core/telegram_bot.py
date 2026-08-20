@@ -211,7 +211,7 @@ def _trim_history(chat_id: int) -> None:
 
 
 
-async def handle_chat(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+async def _handle_chat_legacy(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update): return
     chat_id = update.effective_chat.id
     user_msg = update.message.text
@@ -357,6 +357,20 @@ async def handle_chat(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ─────────────────────────────────────────
 # Callback Query (Inline Buttons)
 # ─────────────────────────────────────────
+
+async def handle_chat(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    from core.runtime.surface_adapter import track_async_surface
+    update_id = getattr(update, "update_id", None)
+    chat_id = getattr(getattr(update, "effective_chat", None), "id", "unknown")
+    return await track_async_surface(
+        surface="telegram",
+        operation="message.handle",
+        request_id=f"telegram:{update_id}" if update_id is not None else None,
+        session_id=f"telegram:{chat_id}",
+        actor="telegram-adapter",
+        callback=lambda: _handle_chat_legacy(update, ctx),
+    )
+
 
 async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

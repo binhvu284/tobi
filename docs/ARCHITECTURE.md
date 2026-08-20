@@ -203,6 +203,18 @@ Runtime route scopes are optimization hints, not security permissions. A known r
 
 ## Persistence Model
 
+### Mission Control Runtime V2
+
+Runtime V2 is the canonical history and control layer behind current and compatibility request
+surfaces. Validated contracts feed append-only run/change events; repositories own run state,
+leases, checkpoints, retries, loops, policies, approvals, receipts, evaluations, and System
+projections. The Runs page reads one bounded reconnectable projection. Staged activation requires
+seven consecutive comparisons plus evaluation gates, and one master rollback returns new work to
+shadow behavior. Projects, Office, CLI, Telegram, and scheduler adapters remain passive: existing
+owners execute the work while Runtime records only operation, outcome, and evidence references.
+
+See [`RUNTIME_V2.md`](RUNTIME_V2.md) for the operational contract and verification commands.
+
 Tables are created across the central schema and feature-local additive initializers. They fall into these ownership families:
 
 | Family | Representative tables |
@@ -218,7 +230,7 @@ Tables are created across the central schema and feature-local additive initiali
 | Explore/analytics | `explore_*`, `storage_snapshots`, `llm_usage`, `llm_prices`, `llm_plans`, `usage_budget` |
 | Evolution/performance | `evolution_snapshots`, `performance_snapshots` |
 | Developer/Coding Agent | `development_*`, `coding_sessions`, `coding_stages`, `coding_worker_*`, `coding_checkpoints`, `coding_assessments`, `development_sprints`, `coding_runner_*`, `coding_learning_records`, `coding_playbooks`, releases and deployments |
-| MC Runtime V2 | `mc_run_events`, `mc_change_events`, `mc_runtime_projections`, `mc_system_entities`, `mc_system_edges`, `mc_runs`, `mc_run_steps`, `mc_run_checkpoints`, `mc_run_commands`, `mc_loop_recipes`, `mc_loop_runs`, `mc_loop_iterations`, `mc_idempotency`, `mc_action_receipts`, `mc_policy_decisions` |
+| MC Runtime V2 | `mc_run_events`, `mc_change_events`, `mc_runtime_projections`, `mc_system_entities`, `mc_system_edges`, `mc_runs`, `mc_run_steps`, `mc_run_checkpoints`, `mc_run_commands`, `mc_loop_recipes`, `mc_loop_runs`, `mc_loop_iterations`, `mc_idempotency`, `mc_action_receipts`, `mc_policy_decisions`, `mc_run_approvals`, `mc_terminal_jobs`, `mc_eval_*`, `mc_runtime_preferences`, `mc_rollout_comparisons` |
 
 Schema initialization is additive. `core/database.py` creates the main families; several feature modules create their own tables lazily. Chat Runtime and MC Runtime V2 record scoped versions in `schema_migrations`, but there is no repository-wide migration authority covering every subsystem. Runtime V2 event tables reject updates and deletes at the database layer; current-state rows are derived and may be deleted then rebuilt from history.
 
@@ -270,7 +282,7 @@ Material limitations:
 
 1. `api/dashboard.py` combines static hosting, request models, domain logic, SSE, and hundreds of routes.
 2. Legacy business projects and Project v2 coexist and share parts of `tasks`.
-3. Chat Runtime v2 coexists with legacy Conductor behavior behind rollback flags; ownership is improved but not fully decomposed.
+3. Runtime V2 intentionally keeps legacy execution owners behind passive adapters and rollback controls; deletion requires the separate owner-approved exit review.
 4. Tier-1 Evolution is evidence-based, while later tiers still use legacy capability definitions.
 5. Ability metadata, repository skills, and Hermes skills do not have one proven source of truth.
 6. Hermes integration is distributed across startup, Brain, and model routing.

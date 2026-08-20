@@ -126,6 +126,18 @@ Legacy `terminal`, `research`, and `project` values are normalized to Agent or C
 
 Plain-text direct Chat can run canonically only when the Chat runtime and every default-off Runtime V2 Chat gate are enabled. The gateway acknowledges the request, gives one worker an expiring lease (so duplicate deliveries cannot both answer), persists success or recovery, and replays the saved response for a completed duplicate. Attachments, read/tool Chat, and Agent remain on shadow/legacy execution. Turning off `runtime.v2_chat_execution` rolls back new direct-Chat work without changing already accepted runs.
 
+### Runtime V2 Runs and rollout
+
+`/runs` lists canonical history and opens Timeline, Trace, Evals, and Context views from one shared
+reconnectable store. The same store supplies the non-activating loop recipe preference on Developer.
+The client resumes from the last event sequence and deduplicates replayed events.
+
+Rollout status reports the four ordered stages and their blockers. Each activation needs seven
+consecutive comparisons and passing evaluation evidence. Activation, rollback, and resume require
+an unlocked owner vault session. Projects, Office, CLI, Telegram, and scheduler entry points use
+passive shadow adapters when Runtime event mirroring is enabled; their existing execution remains
+the rollback owner.
+
 Runtime route scopes narrow the usual tool set for speed. They are not permission grants: a known read-only tool can be admitted if the classifier routed too narrowly, while unknown or acting tools remain route-denied and mode/risk/approval policy stays server-authoritative. A direct-route prediction no longer creates an explicit empty allowlist at the Chat gateway.
 
 ### Agent run history
@@ -193,6 +205,7 @@ Theme #13 remains in owner-review state. Do not call it complete until the queue
 | Vault session | Browser memory/header plus backend vault state |
 | Terminal mode/kill-switch/jobs | SQLite/terminal process state through Terminal APIs |
 | Developer goals/workflows/workers | SQLite development ledger, Git worktrees, Coding Agent runtime, and optional supervised runner service |
+| Runtime Runs/trace/eval/loop state | Shared reconnectable runtime store backed by bounded `/api/runtime` projections |
 
 ## Backend API Domains
 
@@ -219,6 +232,7 @@ The browser client should use functions exported by `dashboard/src/api.ts` or it
 | `/api/storage`, `/api/usage` | Disk and cost analytics |
 | `/api/explore` | News/models/tools/social/config/digest |
 | `/api/run` | Manual engine readiness and execution |
+| `/api/runtime` | Canonical runs, replay/snapshots, loops, staged rollout, rollback, and resume |
 
 Sensitive vault/MCP management calls use `X-Vault-Session`. The broader MC API does not currently have a general login/auth layer.
 
@@ -227,7 +241,7 @@ Sensitive vault/MCP management calls use `X-Vault-Session`. The broader MC API d
 1. `/architecture` still describes the older Codespaces/MMO-focused system and understates the current Chat Runtime, Awakening, Project v2, MCP, terminal, and security architecture.
 2. Tier 1 uses real Awakening evidence, but later Evolution tiers still rely on legacy definitions.
 3. `/ability` combines curated DB abilities, repository Hermes skills, and an Awakening mirror without one unified runtime ownership model.
-4. Runtime v2 and legacy Conductor paths coexist behind rollback flags; changes must preserve both contracts until rollout completes.
+4. Runtime V2 is delivered, but passive adapters intentionally retain legacy execution as the rollback path; deletion needs a separate owner-approved exit review.
 5. Awakening now requires fresh verified connector evidence, but several other integration and health labels remain configuration-dependent and must not be treated as successful without usable/authorized evidence.
 
 These are documented rather than fixed here because this refactor is docs-only.

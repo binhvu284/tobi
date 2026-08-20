@@ -20,6 +20,7 @@ from core.research_engine import run_research_cycle
 from core.project_executor import execute_all_projects
 from core.ceo_loop import run_ceo_review, format_ceo_telegram_summary
 from core.telegram_bot import build_app, send_daily_report, send_message, send_project_proposal
+from core.runtime.surface_adapter import track_sync_surface
 
 logger = logging.getLogger(__name__)
 _tg_app = None
@@ -349,27 +350,34 @@ def run_async(coro):
         asyncio.run(coro)
 
 
+def tracked_schedule(operation, callback):
+    return lambda: track_sync_surface(
+        surface="scheduler", operation=operation, session_id="scheduler",
+        actor="scheduler-adapter", callback=callback,
+    )
+
+
 def setup_schedules():
-    schedule.every().day.at("08:00").do(lambda: run_async(job_daily_report()))
-    schedule.every(6).hours.do(lambda: run_async(job_execution_cycle()))
-    schedule.every(2).minutes.do(lambda: run_async(job_task_reminders()))
-    schedule.every().sunday.at("20:00").do(lambda: run_async(job_research_cycle()))
-    schedule.every().sunday.at("20:00").do(lambda: run_async(job_weekly_reflection()))
-    schedule.every(30).minutes.do(job_brain_sweep)
-    schedule.every().day.at("04:00").do(job_brain_decay)
-    schedule.every().hour.do(job_brain_import_expire)
-    schedule.every(45).minutes.do(job_graph_sync)
-    schedule.every().hour.do(job_storage_scan_db)
-    schedule.every().day.at("04:30").do(job_storage_scan_fs)
+    schedule.every().day.at("08:00").do(tracked_schedule("daily.report", lambda: run_async(job_daily_report())))
+    schedule.every(6).hours.do(tracked_schedule("execution.cycle", lambda: run_async(job_execution_cycle())))
+    schedule.every(2).minutes.do(tracked_schedule("task.reminders", lambda: run_async(job_task_reminders())))
+    schedule.every().sunday.at("20:00").do(tracked_schedule("research.cycle", lambda: run_async(job_research_cycle())))
+    schedule.every().sunday.at("20:00").do(tracked_schedule("weekly.reflection", lambda: run_async(job_weekly_reflection())))
+    schedule.every(30).minutes.do(tracked_schedule("brain.sweep", job_brain_sweep))
+    schedule.every().day.at("04:00").do(tracked_schedule("brain.decay", job_brain_decay))
+    schedule.every().hour.do(tracked_schedule("brain.import_expire", job_brain_import_expire))
+    schedule.every(45).minutes.do(tracked_schedule("graph.sync", job_graph_sync))
+    schedule.every().hour.do(tracked_schedule("storage.scan_db", job_storage_scan_db))
+    schedule.every().day.at("04:30").do(tracked_schedule("storage.scan_fs", job_storage_scan_fs))
     # News V2 (#23): flag-gated no-ops until news.v2_enabled/v2_shadow turn on
-    schedule.every().hour.do(job_news_v2_refresh)
-    schedule.every().day.at("04:15").do(job_news_v2_retention)
+    schedule.every().hour.do(tracked_schedule("news_v2.refresh", job_news_v2_refresh))
+    schedule.every().day.at("04:15").do(tracked_schedule("news_v2.retention", job_news_v2_retention))
     # Explore → News (#9): per-pillar tuned cadence [E24]
-    schedule.every().hour.do(job_explore_news)
-    schedule.every(3).hours.do(job_explore_tools)
-    schedule.every(6).hours.do(job_explore_social)
-    schedule.every().day.at("03:30").do(job_explore_models)
+    schedule.every().hour.do(tracked_schedule("explore.news", job_explore_news))
+    schedule.every(3).hours.do(tracked_schedule("explore.tools", job_explore_tools))
+    schedule.every(6).hours.do(tracked_schedule("explore.social", job_explore_social))
+    schedule.every().day.at("03:30").do(tracked_schedule("explore.models", job_explore_models))
     schedule.every().day.at("09:00").do(
-        lambda: run_async(job_ceo_review()) if datetime.now().day == 1 else None
+        tracked_schedule("ceo.review", lambda: run_async(job_ceo_review()) if datetime.now().day == 1 else None)
     )
     logger.info("📅 Schedules: daily 08:00 report | every 6h execution | task reminders 2m | sunday 20:00 research+reflection | brain sweep 30m + decay 04:00 | storage scan db 1h + fs 04:30 | explore news 1h / tools 3h / social 6h / models 03:30 | monthly CEO review")

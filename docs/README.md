@@ -8,8 +8,9 @@ This directory separates current system truth from implementation plans and hist
 2. [`02_CURRENT_STATE.md`](02_CURRENT_STATE.md) - verified implementation status and known mismatches.
 3. [`ARCHITECTURE.md`](ARCHITECTURE.md) - runtime, components, data, integrations, and security boundaries.
 4. [`MISSION_CONTROL.md`](MISSION_CONTROL.md) - Mission Control pages, workspace tabs, chat, frontend state, and API domains.
-5. [`DEVELOPMENT.md`](DEVELOPMENT.md) - setup, commands, tests, and safe operating workflow.
-6. [`03_ROADMAP.md`](03_ROADMAP.md) - recommended sequencing for future work.
+5. [`RUNTIME_V2.md`](RUNTIME_V2.md) - canonical runs, rollout, adapters, security, and verification.
+6. [`DEVELOPMENT.md`](DEVELOPMENT.md) - setup, commands, tests, and safe operating workflow.
+7. [`03_ROADMAP.md`](03_ROADMAP.md) - recommended sequencing for future work.
 
 ## Authority Levels
 
@@ -31,6 +32,7 @@ When two sources disagree, trust the higher level and update the lower level. A 
 | [`02_CURRENT_STATE.md`](02_CURRENT_STATE.md) | Honest feature and risk inventory as of 2026-07-14 |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Backend/frontend/runtime map and primary data flows |
 | [`MISSION_CONTROL.md`](MISSION_CONTROL.md) | All current MC routes and ownership boundaries |
+| [`RUNTIME_V2.md`](RUNTIME_V2.md) | Mission Control Runtime V2 contracts, data, APIs, rollout, adapters, and gates |
 | [`DEVELOPMENT.md`](DEVELOPMENT.md) | Development, verification, and operations |
 | [`03_ROADMAP.md`](03_ROADMAP.md) | Near-term platform and queued work dependencies |
 | [`DOCUMENTATION_AUDIT.md`](DOCUMENTATION_AUDIT.md) | What this refactor updated, archived, removed, or intentionally preserved |
