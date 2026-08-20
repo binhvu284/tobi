@@ -403,31 +403,61 @@ def get_escalation_llm(current_model: Optional[str] = None) -> tuple[Optional[Ba
     cfg = load_llm_config()
     current = (current_model or "").strip()
     explicit_fallbacks = [str(item or "").strip() for item in cfg.get("fallback") or []]
-    candidates = list(explicit_fallbacks)
+    current_provider, _ = _provider_of(current) if current else ("", "")
+    head = explicit_fallbacks[:1]
+    explicit_tail = explicit_fallbacks[1:]
     default = (cfg.get("default_model") or "").strip()
-    if default:
-        candidates.append(default)
     # `fallback` ships empty and `default_model` IS the model that just failed, so on a stock
     # install both candidates above are exhausted before anything is tried and the owner gets
     # "the current model is struggling" — a handoff that never happened. He should not have to
     # discover a hidden setting to make recovery work, so fall back to the catalog: the current
     # provider's other models first (same account, same credentials, most likely to work), then
     # any other provider. Disabled or unbuildable ones are skipped by the loop below.
-    candidates.extend(_catalog_alternatives(current))
+    enabled_other: list[str] = []
+    enabled_current: list[str] = []
+    disabled_catalog: list[str] = []
+    for candidate in _catalog_alternatives(current):
+        provider, _ = _provider_of(candidate)
+        try:
+            enabled = bool(_provider_settings(cfg, provider).get("enabled", True))
+        except Exception:
+            enabled = False
+        if enabled and provider != current_provider:
+            enabled_other.append(candidate)
+        elif enabled:
+            enabled_current.append(candidate)
+        else:
+            disabled_catalog.append(candidate)
+    candidates = head + enabled_other + enabled_current + explicit_tail
+    if default:
+        candidates.append(default)
+    candidates.extend(disabled_catalog)
     seen: set[str] = set()
+    chain: list[BaseLLMClient] = []
+    first_model: Optional[str] = None
     for candidate in candidates:
         candidate = str(candidate or "").strip()
         if not candidate or candidate == current or candidate in seen:
             continue
         seen.add(candidate)
         try:
-            return build_client(
+            client = build_client(
                 candidate,
                 cfg,
                 allow_disabled=candidate in explicit_fallbacks,
-            ), candidate
+            )
         except Exception:
             continue
+        if first_model is None:
+            first_model = candidate
+        chain.append(client)
+        if len(chain) >= MAX_TRANSPORT_ATTEMPTS:
+            break
+    if not chain:
+        return None, None
+    if len(chain) == 1:
+        return chain[0], first_model
+    return FallbackClient(chain, requested_model=first_model or current), first_model
     return None, None
 
 

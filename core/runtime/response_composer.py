@@ -213,15 +213,16 @@ def compose_final_response(
                     restore_usage_context(previous_usage)
                 retry_clean, retry_reasoning = split_reasoning(retry)
                 if retry_is_answer and retry_clean and not _parse_tool_call(retry_clean):
+                    actual_retry_model = getattr(stronger, "actual_model_id", None) or stronger_id
                     return attach_model_metadata({
                         "reply": retry_clean,
                         "reasoning": retry_reasoning,
                         "tools_used": list(context.tools_used),
                         "intent": context.intent,
                         "streamed": bool(context.on_delta),
-                        "model_escalated": stronger_id,
+                        "model_escalated": actual_retry_model,
                     }, client=context.client, requested_model=context.requested_model,
-                        usage_context=context.usage_context, actual_override=stronger_id,
+                        usage_context=context.usage_context, actual_override=actual_retry_model,
                         reason_override="malformed_output")
         except Exception as exc:  # noqa: BLE001
             logger.warning("conductor model escalation failed: %s", exc)

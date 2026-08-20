@@ -58,10 +58,17 @@ def _fake_build(model_id, cfg=None, **kw):
     provider = model_id.split(":", 1)[0] if ":" in model_id else ""
     if (
         provider in ("openai", "anthropic", "openrouter", "gemini", "grok", "glm")
+        and not ((cfg or {}).get("providers", {}).get(provider, {}).get("enabled") is True)
         and not kw.get("allow_disabled")
     ):
         raise mr.ModelProviderDisabled(f"{provider} is disabled.")
-    return object()
+    class FakeClient:
+        pass
+
+    client = FakeClient()
+    client.provider = provider
+    client.model = model_id.split(":", 1)[1] if ":" in model_id else model_id
+    return client
 
 
 mr.build_client = _fake_build
@@ -93,6 +100,24 @@ ok(
     model3b == "openrouter:anthropic/claude-fable-5",
     str(model3b),
 )
+clients3b = getattr(client3b, "clients", None) or []
+ok(
+    "explicit disabled fallback still has a second enabled-provider attempt",
+    len(clients3b) >= 2 and getattr(clients3b[1], "provider", "") == "codex",
+    f"clients {[getattr(c, 'provider', '?') for c in clients3b]}",
+)
+
+mr.load_llm_config = lambda: _cfg(
+    fallback=["openrouter:openai/gpt-5.6-sol-pro", "openrouter:x-ai/grok-4.5"],
+    providers={"glm": {"enabled": True}},
+)
+client3c, model3c = mr.get_escalation_llm("codex:gpt-5.6-sol")
+clients3c = getattr(client3c, "clients", None) or []
+ok("first explicit fallback still wins the visible escalation target",
+   model3c == "openrouter:openai/gpt-5.6-sol-pro", str(model3c))
+ok("escalation chain reaches an enabled non-current provider after a paid-provider failure",
+   len(clients3c) >= 2 and getattr(clients3c[1], "provider", "") == "glm",
+   f"clients {[getattr(c, 'provider', '?') for c in clients3c]}")
 
 # --- 4. no false positive: never hand back the current model under another spelling ---------
 mr.load_llm_config = lambda: _cfg(fallback=["codex:gpt-5.6-sol"])
