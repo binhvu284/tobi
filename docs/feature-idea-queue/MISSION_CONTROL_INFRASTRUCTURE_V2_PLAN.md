@@ -2669,6 +2669,18 @@ page and Developer loop selector. Reconnect resumes after the latest sequence an
 events; loop selection remains non-activating configuration. Focused checks passed 23/23, the
 production dashboard built, and desktop/mobile Playwright checks found no overflow or console error.
 
+### 25.26 T14 - Shadow Comparison, Staged Activation, and Rollback (2026-08-20)
+
+**Delivered:** immutable bounded comparison evidence covers route, manifest hash, policy, outcome,
+and latency without request or response bodies. Direct Chat, read Chat, actions, and Agent advance
+in order only after seven consecutive matches and passing release evidence; Agent also requires the
+autonomy gate. Owner-authenticated commands cannot skip stages. One master rollback restores shadow
+behavior for new work without changing prior run or comparison history, and resume rechecks gates.
+
+**Verification:** the final 23-check gate passed seven consecutive local runs. T01 contracts, T04
+activation and live Chat, T12 security, T13 Runs, schema, API authorization, compile, and rollback
+regressions passed. All controls remain off in the real owner database because T14 used temp data.
+
 ## 26. Implementation Log
 
 Planning state only. Add one dated row after each accepted worker package.
@@ -2719,3 +2731,4 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-20 | T11A | T11A local delivery; owner continuation authorization | Red missing-System repository; enforced gate 11/11; 45 T01/T02/T11 contract, event, projection, and evaluation checks green | Complete; all typed System entities and evidence-backed edges are filterable and deterministically rebuildable, invalid links fail closed, and the projection grants no execution authority; T12 released |
 | 2026-08-20 | T12 | T12 local delivery; owner continuation authorization | Red missing-security module then embedded-token leak; enforced gate 13/13; 150 event, policy, registry, network, loop, memory, file, terminal, and eval checks green | Complete; eight synthetic boundary attacks fail closed, unsafe evidence blocks release/autonomy, and embedded generic token assignments are redacted before persistence; T13 released |
 | 2026-08-20 | T13 | T13 local delivery; owner continuation authorization | Red missing-projection import; enforced backend/frontend gate 23/23; production dashboard build; desktop/mobile Playwright with no overflow or console errors | Complete; bounded redacted run, trace, eval, context, capability, loop, and recovery state now feeds Runs and Developer through one reconnectable store; selection cannot activate execution; T14 released |
+| 2026-08-20 | T14 | T14 local delivery; owner continuation authorization | Red missing-rollout import; final enforced gate 23/23 passed seven consecutive local runs; T01, T04, T12, T13, API authorization, compile, and rollback regressions green | Complete; immutable body-free comparisons plus quality gates enforce ordered activation, owner-authenticated commands cannot skip stages, and one switch returns new work to shadow while preserving evidence; T15 released |

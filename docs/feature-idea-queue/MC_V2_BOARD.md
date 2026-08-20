@@ -13,13 +13,13 @@ Its status column carries the same short progress note this board tracks.
 
 ## Status
 
-**In progress.** T00 through T13 are complete. T14 staged activation is active.
+**In progress.** T00 through T14 are complete. T15 remaining adapters and documentation are active.
 
-**Delivered:** 15 complete packages. Runs now has one bounded reconnectable view of runtime,
-trace, evaluation, context, capability, loop, and recovery evidence.
+**Delivered:** 16 complete packages. Staged activation now requires seven consecutive comparisons
+and passing quality evidence; one rollback switch returns new work to shadow behavior.
 
-**Next:** T14 compares old and new behavior, activates one surface at a time only after seven
-consecutive local passes, and proves one rollback switch returns new work to legacy behavior.
+**Next:** T15 gives Projects, Office, CLI, Telegram, and schedulers documented Runtime adapters,
+then closes #21 without deleting legacy code.
 
 ---
 
@@ -68,8 +68,8 @@ Ordered. Each one ships and is reviewable on its own. Risk is the plan's own rat
 | T11A | **Map the system to itself.** Typed records for subsystems, capabilities, risks, and limitations. Foundation only — not the Atlas page. | T02, T11 | Med | Done |
 | T12 | **Attack it on purpose.** Threat model, then deliberately inject failures: injection, secrets, over-reach, budgets, paths. | T05, T11 | High | Done |
 | T13 | **The Runs page.** One live view of every run, shared across pages, reconnecting where it left off. Foundation only — no redesign. | T04, T11, T11A | Med | Done |
-| T14 | **Turn it on slowly.** Compare old and new side by side, activate one surface at a time, and prove the rollback switch works. | T12, T13 | High | Active |
-| T15 | **Everything else:** Projects, Office, CLI, Telegram, schedulers, and docs. Legacy deletion is a separate decision you make later. | T14 | High | ☐ |
+| T14 | **Turn it on slowly.** Compare old and new side by side, activate one surface at a time, and prove the rollback switch works. | T12, T13 | High | Done |
+| T15 | **Everything else:** Projects, Office, CLI, Telegram, schedulers, and docs. Legacy deletion is a separate decision you make later. | T14 | High | Active |
 
 Phases group these into checkpoints you can stop at: **T00** (ground truth) · **T01** (shapes) ·
 **T02–T04** (durable runs) · **T05–T07** (policy and tools) · **T08–T09** (Conductor and memory) ·
@@ -89,7 +89,7 @@ Stopping after any phase leaves a working system. That is the point of the order
 | 3B2 | Tool-loop iteration, batching, proposals, and step-budget orchestration | 70-82% accepted |
 | 4 | Final response composition and a thin compatibility-only `answer()` facade; golden-case closeout | 100% accepted |
 
-**Owner action now:** none during implementation. T13 is delivered and T14 is active.
+**Owner action now:** none during implementation. T14 is delivered and T15 is active.
 
 ---
 

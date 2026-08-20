@@ -118,6 +118,8 @@ T12 is complete locally. The documented threat matrix covers prompt injection, s
 
 T13 is complete locally. The Runs page and Developer loop selector consume one shared reconnectable store backed by bounded, redacted runtime projections. Run detail joins ordered events, traces, evaluations, context references, capabilities, loop state, and recovery without prompt, request, tool-output, secret, or raw-error bodies. Loop selection persists as configuration and cannot activate execution. The focused backend and frontend checks passed 23/23, the production dashboard built, and desktop/mobile Playwright checks passed with no overflow or console errors. T14 is active.
 
+T14 is complete locally. Immutable comparisons retain only route, manifest hash, policy, outcome, latency, and evidence references. Each ordered stage requires seven consecutive matches plus the T11 release gate; Agent also requires the autonomy gate. Stages cannot skip or move backward, controls default off, and owner-authenticated commands activate, roll back, or resume. One master rollback returns new work to shadow mode while preserving the approved stage and all comparison history. Seven consecutive final local runs, the 23-check gate, T04 live activation, T12 security, T13 Runs, and compile regressions passed. T15 is active.
+
 
 <a id="item-20"></a>
 

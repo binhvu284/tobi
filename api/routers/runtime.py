@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -13,6 +13,8 @@ from core.runtime.contracts import RunEvent
 from core.runtime.gateway import REPLAY_PAGE_LIMIT, TurnGateway
 from core.runtime.repository import RunNotFoundError
 from core.runtime.runs_view import RuntimeRunsView, RunsViewValidationError
+from core.runtime.rollout import RolloutController, RolloutNotReadyError
+from api.deps import _vault_guard
 
 
 router = APIRouter(tags=["runtime"])
@@ -66,6 +68,44 @@ def runtime_developer_loop_selection(body: DeveloperLoopSelection):
         return RuntimeRunsView().set_developer_loop_selection(body.recipe_id, body.version)
     except RunsViewValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/api/runtime/rollout")
+def runtime_rollout_status():
+    return RolloutController().status()
+
+
+@router.post("/api/runtime/rollout/activate/{stage}")
+def runtime_rollout_activate(
+    stage: str,
+    x_vault_session: str | None = Header(None, alias="X-Vault-Session"),
+):
+    _vault_guard(x_vault_session)
+    try:
+        return RolloutController().activate(stage)
+    except RolloutNotReadyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/api/runtime/rollout/rollback")
+def runtime_rollout_rollback(
+    x_vault_session: str | None = Header(None, alias="X-Vault-Session"),
+):
+    _vault_guard(x_vault_session)
+    return RolloutController().rollback()
+
+
+@router.post("/api/runtime/rollout/resume")
+def runtime_rollout_resume(
+    x_vault_session: str | None = Header(None, alias="X-Vault-Session"),
+):
+    _vault_guard(x_vault_session)
+    try:
+        return RolloutController().resume()
+    except RolloutNotReadyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 def _start_sequence(request: Request, after: int) -> int:

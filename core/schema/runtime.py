@@ -18,6 +18,7 @@ RUNTIME_SCHEMA_VERSIONS = (
     "mc-runtime-v2-010",
     "mc-runtime-v2-011",
     "mc-runtime-v2-012",
+    "mc-runtime-v2-013",
 )
 RUNTIME_SCHEMA_VERSION = RUNTIME_SCHEMA_VERSIONS[-1]
 _SCHEMA_LOCK = threading.Lock()
@@ -43,6 +44,7 @@ _RUNTIME_TABLES = {
     "mc_eval_runs",
     "mc_eval_findings",
     "mc_runtime_preferences",
+    "mc_rollout_comparisons",
 }
 
 _STEP_LEASE_COLUMNS = {
@@ -222,6 +224,37 @@ _STATEMENTS = (
         updated_at TEXT NOT NULL,
         updated_by TEXT NOT NULL
     )""",
+    """CREATE TABLE IF NOT EXISTS mc_rollout_comparisons (
+        comparison_id TEXT PRIMARY KEY,
+        stage TEXT NOT NULL CHECK (stage IN ('direct_chat','read_chat','actions','agent')),
+        sequence INTEGER NOT NULL CHECK (sequence > 0),
+        legacy_route TEXT NOT NULL,
+        runtime_route TEXT NOT NULL,
+        legacy_manifest_hash TEXT NOT NULL,
+        runtime_manifest_hash TEXT NOT NULL,
+        legacy_policy TEXT NOT NULL,
+        runtime_policy TEXT NOT NULL,
+        legacy_outcome TEXT NOT NULL,
+        runtime_outcome TEXT NOT NULL,
+        legacy_latency_ms INTEGER NOT NULL CHECK (legacy_latency_ms >= 0),
+        runtime_latency_ms INTEGER NOT NULL CHECK (runtime_latency_ms >= 0),
+        passed INTEGER NOT NULL CHECK (passed IN (0,1)),
+        reasons_json TEXT NOT NULL,
+        evidence_refs_json TEXT NOT NULL,
+        input_hash TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (stage, sequence)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_mc_rollout_stage_sequence ON mc_rollout_comparisons(stage,sequence DESC)",
+    """CREATE TRIGGER IF NOT EXISTS mc_rollout_comparisons_update_guard
+        BEFORE UPDATE ON mc_rollout_comparisons BEGIN
+            SELECT RAISE(ABORT, 'rollout comparison history is immutable');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_rollout_comparisons_delete_guard
+        BEFORE DELETE ON mc_rollout_comparisons BEGIN
+            SELECT RAISE(ABORT, 'rollout comparison history is immutable');
+        END""",
     """CREATE TRIGGER IF NOT EXISTS mc_eval_cases_update_guard
         BEFORE UPDATE ON mc_eval_cases BEGIN
             SELECT RAISE(ABORT, 'mc_eval_cases versions are immutable');

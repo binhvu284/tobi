@@ -43,6 +43,8 @@ def gateway_mode() -> str:
     """Derive the Chat/Agent gateway state without allowing untraced execution."""
     events_enabled = rollout_enabled(RUNTIME_V2_EVENTS)
     execution_enabled = rollout_enabled(RUNTIME_V2_EXECUTION)
+    if owner_flags.get_bool(owner_flags.RUNTIME_V2_ROLLBACK, False):
+        return "shadow" if events_enabled else "off"
     if execution_enabled and not events_enabled:
         return "off"
     if execution_enabled:

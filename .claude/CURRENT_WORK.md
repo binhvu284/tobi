@@ -9,37 +9,33 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T13 - Runs Center and shared frontend projection foundation
+**Package:** T14 - Shadow comparison, staged activation, and rollback proof
 
 **Purpose (one sentence, plain words):**
-Give the owner one compact Runs Center with shared reconnectable run, trace, evaluation, context,
-capability, loop, and recovery state while preserving the existing dashboard design.
+Compare legacy and Runtime V2 safely, require seven consecutive local passes before each staged
+activation, and prove one master rollback returns new work to legacy behavior without data loss.
 
 **Not doing:**
-- No broad dashboard redesign and no full Atlas page.
-- No activation, execution, policy, approval, tool, model, worker, or legacy behavior change.
-- No unbounded payload, prompt, context body, tool output, secret, or raw error in API/UI state.
-- No T14 rollout or T15 adapter work.
+- No Projects, Office, CLI, Telegram, scheduler, or other T15 adapter cutover.
+- No raw prompt, response, tool output, secret, or error body in comparison evidence.
+- No automatic stage advancement and no activation that bypasses the existing evaluation gate.
+- No legacy deletion or external service interaction.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
 **Files expected:**
 - `.claude/CURRENT_WORK.md`
-- `docs/feature-idea-queue/MC_V2_BOARD.md`
-- `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
-- `docs/feature-idea-queue/QUEUE.md`
-- `docs/feature-idea-queue/QUEUE_DELIVERY_LOG.md`
+- `core/owner_flags.py`
+- `core/runtime/config.py`
+- `core/runtime/rollout.py`
+- `core/schema/runtime.py`
 - `api/routers/runtime.py`
-- `dashboard/src/api/runtime.ts`
-- `dashboard/src/stores/runtime.ts`
-- `dashboard/src/pages/Runs.tsx`
-- narrow Developer integration files
-- backend, frontend, and Playwright tests
+- queue status and delivery evidence documents
+- focused rollout and regression tests
 
 **Gate: green**
 
 ```gate
-python tests/test_mc_runtime_runs_view.py
-python tests/test_mc_runtime_runs_ui.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_rollout.py
 ```
 
 ---
