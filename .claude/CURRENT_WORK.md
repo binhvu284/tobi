@@ -9,18 +9,17 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T11 - Unified trace and TOBIval release/autonomy gates
+**Package:** T11A - System Model and Atlas data foundation
 
 **Purpose (one sentence, plain words):**
-Join each canonical run's bounded evidence into one redacted trace and make local evaluation
-regressions block release activation or autonomy increases.
+Build one deterministic evidence-backed map of TOBI's subsystems, capabilities, risks, and
+limitations for read-only queries and a future Atlas page.
 
 **Not doing:**
-- No raw prompts, context bodies, tool output, credentials, diffs, or provider errors in telemetry.
-- No model, tool, worker, approval, policy, Brain, connector, or coding execution behavior change.
-- No activation flag change and no live release or autonomy increase.
-- No remote telemetry vendor; storage and evaluation remain local-first.
-- No T11A System Model, T12 security, T13 UI, T14 rollout, or T15 adapter work.
+- No Atlas or other frontend page.
+- No execution, routing, policy, approval, activation, or autonomy authority from the System Model.
+- No broad source scanner or inferred facts without evidence.
+- No T12 security, T13 UI, T14 rollout, or T15 adapter work.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
 **Files expected:**
@@ -29,11 +28,11 @@ regressions block release activation or autonomy increases.
 - `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
 - `docs/feature-idea-queue/QUEUE.md`
 - `docs/feature-idea-queue/QUEUE_DELIVERY_LOG.md`
-- `core/runtime/trace.py`
-- `core/runtime/evals.py`
-- `core/runtime/repository.py`
-- `tests/test_mc_runtime_evals.py`
-- accepted Runtime and Developer regression tests
+- `core/runtime/system_model.py`
+- `core/runtime/event_store.py`
+- `core/runtime/projections.py`
+- `tests/test_mc_runtime_system_model.py`
+- accepted T02 and T11 regression tests
 
 **Gate: no**
 

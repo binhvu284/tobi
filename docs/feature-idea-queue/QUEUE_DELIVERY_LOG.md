@@ -110,6 +110,8 @@ Bounded Codex development with an independent reviewer is qualified. Same-run re
 
 T08 is complete at `5b0a19a`; T09 at `34c4b1d` and `0f2a3e2`; T10 Runs 1-2 at `3ff2edd` and `6db02df`. T10 Run 3 is complete locally: each accepted #22 coding session creates or reuses one deterministic canonical run and mirrors ordered lifecycle, checkpoint, evidence, failure, completion, and owner-command references. Duplicate delivery does not duplicate history, changed content fails closed, and raw prompts, credentials, diffs, evidence bodies, and worker output never enter canonical history. Adapter failure keeps the complete Developer record authoritative. The focused gate passed 10/10; 72 current Developer and 121 Runtime/state checks also passed. One historical all-in-one check still expects Queue #18 to depend on #17, but the current Queue truthfully says #18 is superseded by #22 and declares no such dependency. T11 trace and evaluation gates are active.
 
+T11 is complete locally. A deterministic trace now joins only bounded context, model, tool, policy, approval, receipt, recovery, usage, and outcome references from canonical history. Three additive append-only local evaluation tables store versioned cases by fixture hash, immutable result references, and findings. Eight required TOBIval categories are seeded, and release or autonomy increases fail closed on missing, failed, incomplete, below-threshold, or unsafe evidence. The enforced 19/19 gate and 76 Runtime regression checks passed. T11A is active.
+
 
 <a id="item-20"></a>
 

@@ -2603,6 +2603,26 @@ policy, recovery, Brain-context, hallucination, connector-freshness, and coding-
 queryable; exact replay does not duplicate; changed identities conflict; release/autonomy gates
 block missing or failed requirements; accepted Runtime/Developer regressions and enforced gate pass.
 
+**Delivered (2026-08-14):** deterministic trace projection joins bounded canonical references and
+usage counters without copying prompts, context, output, or credentials. Migration 011 adds three
+immutable local evaluation tables; eight versioned default categories and fail-closed release and
+autonomy gates are queryable. Focused gate 19/19 and 76 Runtime regressions passed. T11 is complete.
+
+### 25.23 T11A - System Model and Atlas Foundation Plan (2026-08-14)
+
+**Outcome:** typed subsystem, component, capability, tool, loop, evaluation, policy, integration,
+risk, limitation, decision, and Queue-item records rebuild into one deterministic evidence-backed
+System projection with read-only query APIs. This is data foundation, not the Atlas page.
+
+**Rules:** reuse T01 contracts plus T02 append-only System change events/current rows. Every entity
+and edge needs a source reference, version, observation time, and bounded metadata/evidence. Unknown
+types, dangling edges, duplicate identities with changed content, and missing evidence fail closed.
+
+**Acceptance:** deterministic rebuild/query survives current-row deletion; required entity types
+are representable and filterable; capabilities link to evidence and limitations/risks; changed
+identity conflicts; no Runtime execution authority derives from System projections; focused gate
+and accepted T02/T11 regressions pass.
+
 ## 26. Implementation Log
 
 Planning state only. Add one dated row after each accepted worker package.
@@ -2649,3 +2669,4 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-14 | T10 Run 1 | T10 Run 1 delivery commit; owner continuation authorization | Red missing-adapter import; enforced gate 8/8; 213 worker-capability, Hermes skill, accepted #22, Runtime contract/repository/tool/policy checks green; compile and diff green | Delivered; deterministic immutable MC-authoritative worker snapshots expose bounded capability and metadata evidence only. Unknown versions/duplicates fail closed and unavailable workers return typed same-run recovery; Run 2 released |
 | 2026-08-14 | T10 Run 2 | T10 Run 2 delivery commit; owner continuation authorization | Red ownership and current-Queue fixtures; enforced gate 9/9; 207 ownership, Queue, recovery, worker, production, storage, state, and evidence checks green; compile and diff green; two pytest-only suites blocked by approval-service runtime access | Delivered; `development_store.py` is the sole SQL owner for the three deferred #22 tables, exact behavior is retained, and current/legacy Queue schemas parse truthfully; Run 3 released |
 | 2026-08-14 | T10 Run 3 | T10 Run 3 local delivery; owner continuation authorization | Red missing-adapter import; enforced gate 10/10; 72 current Developer plus 121 Runtime/checkpoint/state checks green; one stale #18 dependency assertion documented | Complete; one deterministic canonical run mirrors only ordered redacted coding references, replay is exact, conflicts fail closed, and any mirror failure leaves #22 history and execution unchanged; T11 released |
+| 2026-08-14 | T11 | T11 local delivery; owner continuation authorization | Red missing-eval service; enforced gate 19/19; 76 Runtime contract/event/repository/loop/coding checks green | Complete; deterministic redacted traces plus immutable local TOBIval cases/runs/findings now block release or autonomy increases on missing, failed, incomplete, below-threshold, or unsafe evidence; T11A released |
