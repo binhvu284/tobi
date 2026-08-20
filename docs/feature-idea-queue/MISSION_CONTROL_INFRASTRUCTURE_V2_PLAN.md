@@ -2623,6 +2623,27 @@ are representable and filterable; capabilities link to evidence and limitations/
 identity conflicts; no Runtime execution authority derives from System projections; focused gate
 and accepted T02/T11 regressions pass.
 
+**Delivered (2026-08-20):** a validated System repository now wraps T02 append-only changes and
+deterministic projections. It represents every T01 type, filters read-only views, requires source
+and edge evidence, rejects dangling links and changed version reuse, and rebuilds after current-row
+loss. It imports no execution authority. Focused gate 11/11 and 45 regressions passed. T12 released.
+
+### 25.24 T12 - Security and Failure Hardening Plan (2026-08-20)
+
+**Outcome:** one deterministic local threat model and failure-injection suite proves Runtime V2
+stops unsafe instructions, secret persistence, authority over-reach, exhausted budgets, unsafe
+network destinations, path escapes, and untrusted supply-chain metadata at their owning boundaries.
+
+**Rules:** test accepted T05-T11 boundaries rather than introduce a second policy engine. Threat
+cases are typed and versioned, inputs are synthetic, and outcomes are sanitized. A missing boundary,
+unexpected exception, leaked marker, or permissive result is a failed security gate. No live attack,
+remote call, credential, deployment, dependency installation, or external service is used.
+
+**Acceptance:** threat matrix names asset, entry point, trust boundary, failure, control owner, and
+test reference; deterministic injections cover prompt authority, redaction, tool/policy authority,
+budget exhaustion, network allowlists, path traversal, schema/supply-chain drift, and recovery;
+unsafe outcomes block release/autonomy gates and accepted security/runtime regressions pass.
+
 ## 26. Implementation Log
 
 Planning state only. Add one dated row after each accepted worker package.
@@ -2670,3 +2691,4 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-14 | T10 Run 2 | T10 Run 2 delivery commit; owner continuation authorization | Red ownership and current-Queue fixtures; enforced gate 9/9; 207 ownership, Queue, recovery, worker, production, storage, state, and evidence checks green; compile and diff green; two pytest-only suites blocked by approval-service runtime access | Delivered; `development_store.py` is the sole SQL owner for the three deferred #22 tables, exact behavior is retained, and current/legacy Queue schemas parse truthfully; Run 3 released |
 | 2026-08-14 | T10 Run 3 | T10 Run 3 local delivery; owner continuation authorization | Red missing-adapter import; enforced gate 10/10; 72 current Developer plus 121 Runtime/checkpoint/state checks green; one stale #18 dependency assertion documented | Complete; one deterministic canonical run mirrors only ordered redacted coding references, replay is exact, conflicts fail closed, and any mirror failure leaves #22 history and execution unchanged; T11 released |
 | 2026-08-14 | T11 | T11 local delivery; owner continuation authorization | Red missing-eval service; enforced gate 19/19; 76 Runtime contract/event/repository/loop/coding checks green | Complete; deterministic redacted traces plus immutable local TOBIval cases/runs/findings now block release or autonomy increases on missing, failed, incomplete, below-threshold, or unsafe evidence; T11A released |
+| 2026-08-20 | T11A | T11A local delivery; owner continuation authorization | Red missing-System repository; enforced gate 11/11; 45 T01/T02/T11 contract, event, projection, and evaluation checks green | Complete; all typed System entities and evidence-backed edges are filterable and deterministically rebuildable, invalid links fail closed, and the projection grants no execution authority; T12 released |

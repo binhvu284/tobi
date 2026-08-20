@@ -9,17 +9,17 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T11A - System Model and Atlas data foundation
+**Package:** T12 - Security and failure hardening
 
 **Purpose (one sentence, plain words):**
-Build one deterministic evidence-backed map of TOBI's subsystems, capabilities, risks, and
-limitations for read-only queries and a future Atlas page.
+Prove Runtime V2 stops injection, secret leakage, authority over-reach, exhausted budgets, unsafe
+network destinations, path escapes, and untrusted tool metadata at the correct boundary.
 
 **Not doing:**
-- No Atlas or other frontend page.
-- No execution, routing, policy, approval, activation, or autonomy authority from the System Model.
-- No broad source scanner or inferred facts without evidence.
-- No T12 security, T13 UI, T14 rollout, or T15 adapter work.
+- No live attack, remote request, credential use, dependency installation, or deployment.
+- No second policy, path, terminal, network, Vault, or tool authority implementation.
+- No weakening existing checks to make injections pass.
+- No T13 UI, T14 rollout, or T15 adapter work.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
 **Files expected:**
@@ -28,11 +28,10 @@ limitations for read-only queries and a future Atlas page.
 - `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
 - `docs/feature-idea-queue/QUEUE.md`
 - `docs/feature-idea-queue/QUEUE_DELIVERY_LOG.md`
-- `core/runtime/system_model.py`
-- `core/runtime/event_store.py`
-- `core/runtime/projections.py`
-- `tests/test_mc_runtime_system_model.py`
-- accepted T02 and T11 regression tests
+- `core/runtime/security.py`
+- `docs/security/MC_V2_THREAT_MODEL.md`
+- `tests/test_mc_runtime_security.py`
+- accepted policy, tool, terminal, file, context, and evaluation regressions
 
 **Gate: no**
 

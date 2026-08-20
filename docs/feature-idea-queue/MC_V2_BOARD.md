@@ -13,12 +13,13 @@ Its status column carries the same short progress note this board tracks.
 
 ## Status
 
-**In progress.** T00 through T11 are complete. T11A System Model foundation is active.
+**In progress.** T00 through T11A are complete. T12 security and failure hardening is active.
 
-**Delivered:** 12 complete packages. One redacted trace now joins each run's evidence, and local
-release/autonomy gates refuse progress when required evaluation evidence is missing or regresses.
+**Delivered:** 13 complete packages. TOBI now has a deterministic evidence-backed map of its
+subsystems, capabilities, tools, risks, and limitations, ready for read-only UI use later.
 
-**Next:** T11A builds the typed, evidence-backed System Model that a later Atlas page can read.
+**Next:** T12 attacks the boundaries on purpose and proves injection, secret, path, budget,
+network, and over-reach failures stop safely.
 
 ---
 
@@ -64,8 +65,8 @@ Ordered. Each one ships and is reviewable on its own. Risk is the plan's own rat
 | T09 | **Let Brain memory actually change answers.** Relevant memory influences what TOBI does; stale or private memory does not leak into it. | T00, T08 | High | Done |
 | T10 | **Make Hermes and the coding agent workers, not bosses.** They execute bounded requests; they cannot change the authoritative record. | T00, T03, T06 | High | Done |
 | T11 | **See everything.** One trace per request joining context, model, tools, approvals, cost, and outcome — plus the quality gates that block a release on regression. | T09, T10 | Med | Done |
-| T11A | **Map the system to itself.** Typed records for subsystems, capabilities, risks, and limitations. Foundation only — not the Atlas page. | T02, T11 | Med | Active |
-| T12 | **Attack it on purpose.** Threat model, then deliberately inject failures: injection, secrets, over-reach, budgets, paths. | T05, T11 | High | ☐ |
+| T11A | **Map the system to itself.** Typed records for subsystems, capabilities, risks, and limitations. Foundation only — not the Atlas page. | T02, T11 | Med | Done |
+| T12 | **Attack it on purpose.** Threat model, then deliberately inject failures: injection, secrets, over-reach, budgets, paths. | T05, T11 | High | Active |
 | T13 | **The Runs page.** One live view of every run, shared across pages, reconnecting where it left off. Foundation only — no redesign. | T04, T11, T11A | Med | ☐ |
 | T14 | **Turn it on slowly.** Compare old and new side by side, activate one surface at a time, and prove the rollback switch works. | T12, T13 | High | ☐ |
 | T15 | **Everything else:** Projects, Office, CLI, Telegram, schedulers, and docs. Legacy deletion is a separate decision you make later. | T14 | High | ☐ |

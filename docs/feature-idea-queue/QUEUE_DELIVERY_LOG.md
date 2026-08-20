@@ -112,6 +112,8 @@ T08 is complete at `5b0a19a`; T09 at `34c4b1d` and `0f2a3e2`; T10 Runs 1-2 at `3
 
 T11 is complete locally. A deterministic trace now joins only bounded context, model, tool, policy, approval, receipt, recovery, usage, and outcome references from canonical history. Three additive append-only local evaluation tables store versioned cases by fixture hash, immutable result references, and findings. Eight required TOBIval categories are seeded, and release or autonomy increases fail closed on missing, failed, incomplete, below-threshold, or unsafe evidence. The enforced 19/19 gate and 76 Runtime regression checks passed. T11A is active.
 
+T11A is complete locally. `SystemModelRepository` validates all typed T01 System entities, requires source evidence, rejects dangling or evidence-free relationships, gives read-only filtered entity/edge/snapshot queries, and prevents connected-entity deletion. Stable version identities replay exactly and changed content conflicts. The derived current rows rebuild deterministically from T02 append-only history, while the module has no execution authority. The enforced 11/11 gate and 45 contract/event/evaluation regressions passed. T12 is active.
+
 
 <a id="item-20"></a>
 
