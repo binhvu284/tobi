@@ -133,16 +133,25 @@ that the process is using `.runtime-v2-test\agent.db`.
 
 1. Open Chat.
 2. Create a new session named `Runtime V2 Test`.
-3. Send: `Reply with exactly: RUNTIME V2 ACTIVE`.
-4. Wait for the reply, then open Runs from the Operation navigation group.
-5. Set Surface to `chat` and open the newest Run.
+3. In the message box toolbar, set the mode selector to `Chat`. Do not leave it on `Agent`.
+4. Turn off optional Web/connector chips for this test unless Codex explicitly asks for them.
+5. Send: `Reply with exactly: RUNTIME V2 ACTIVE`.
+6. Wait for the reply, then open Runs from the Operation navigation group.
+7. Set Surface to `chat` and open the newest Run.
 
 Expected result: Chat replies normally. One new Chat Run appears, reaches a successful state, and
 contains ordered status/evidence events. It must not display the raw prompt.
 
+If Chat replies but `Runs` with Surface `chat` shows `0 runs`, check the message you sent. If the
+composer or reply metadata says `Agent`, the test was run in the wrong mode. Switch the mode selector
+to `Chat` and repeat T2 before starting T3.
+
 ### T3. Inspect One Durable Run - 8 Minutes
 
 Goal: prove the Chat Run from T2 is saved and can be inspected after refresh.
+
+Start T3 only after T2 produced one visible Run with `Surface` set to `chat`. If the Runs list says
+`0 runs`, stop and repeat T2 in `Chat` mode. Do not continue T3 with an Agent reply.
 
 | Step | Owner action | Correct result |
 |---|---|---|
