@@ -114,6 +114,8 @@ T11 is complete locally. A deterministic trace now joins only bounded context, m
 
 T11A is complete locally. `SystemModelRepository` validates all typed T01 System entities, requires source evidence, rejects dangling or evidence-free relationships, gives read-only filtered entity/edge/snapshot queries, and prevents connected-entity deletion. Stable version identities replay exactly and changed content conflicts. The derived current rows rebuild deterministically from T02 append-only history, while the module has no execution authority. The enforced 11/11 gate and 45 contract/event/evaluation regressions passed. T12 is active.
 
+T12 is complete locally. The documented threat matrix covers prompt injection, secret leakage, authority over-reach, budget exhaustion, network SSRF, path traversal, supply-chain metadata, and fail-closed recovery. Synthetic probes exercise the accepted control owners and project unsafe outcomes into T11 as a high-severity finding that blocks release and autonomy. The red run found that embedded `token=...` text was not redacted; the shared event-store redactor now masks it before persistence. The enforced 13/13 gate and 150 policy, event, network, registry, budget, memory, file, terminal, and evaluation regressions passed. T13 is active.
+
 
 <a id="item-20"></a>
 

@@ -22,7 +22,7 @@ _SENSITIVE_KEY = re.compile(
     re.IGNORECASE,
 )
 _EMBEDDED_SECRET = re.compile(
-    r"(?i)(\b(?:authorization|api[_-]?key|access[_-]?token|password|secret)\s*[:=]\s*"
+    r"(?i)(\b(?:authorization|api[_-]?key|access[_-]?token|token|password|secret)\s*[:=]\s*"
     r"(?:bearer\s+)?)([^\s,;]+)"
 )
 

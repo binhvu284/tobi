@@ -9,17 +9,17 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #21 Mission Control Infrastructure V2
-**Package:** T12 - Security and failure hardening
+**Package:** T13 - Runs Center and shared frontend projection foundation
 
 **Purpose (one sentence, plain words):**
-Prove Runtime V2 stops injection, secret leakage, authority over-reach, exhausted budgets, unsafe
-network destinations, path escapes, and untrusted tool metadata at the correct boundary.
+Give the owner one compact Runs Center with shared reconnectable run, trace, evaluation, context,
+capability, loop, and recovery state while preserving the existing dashboard design.
 
 **Not doing:**
-- No live attack, remote request, credential use, dependency installation, or deployment.
-- No second policy, path, terminal, network, Vault, or tool authority implementation.
-- No weakening existing checks to make injections pass.
-- No T13 UI, T14 rollout, or T15 adapter work.
+- No broad dashboard redesign and no full Atlas page.
+- No activation, execution, policy, approval, tool, model, worker, or legacy behavior change.
+- No unbounded payload, prompt, context body, tool output, secret, or raw error in API/UI state.
+- No T14 rollout or T15 adapter work.
 - No Supabase, Vercel, external integration, or production-runtime interaction.
 
 **Files expected:**
@@ -28,10 +28,12 @@ network destinations, path escapes, and untrusted tool metadata at the correct b
 - `docs/feature-idea-queue/MISSION_CONTROL_INFRASTRUCTURE_V2_PLAN.md`
 - `docs/feature-idea-queue/QUEUE.md`
 - `docs/feature-idea-queue/QUEUE_DELIVERY_LOG.md`
-- `core/runtime/security.py`
-- `docs/security/MC_V2_THREAT_MODEL.md`
-- `tests/test_mc_runtime_security.py`
-- accepted policy, tool, terminal, file, context, and evaluation regressions
+- `api/routers/runtime.py`
+- `dashboard/src/api/runtime.ts`
+- `dashboard/src/stores/runtime.ts`
+- `dashboard/src/pages/Runs.tsx`
+- narrow Developer integration files
+- backend, frontend, and Playwright tests
 
 **Gate: no**
 

@@ -2644,6 +2644,26 @@ test reference; deterministic injections cover prompt authority, redaction, tool
 budget exhaustion, network allowlists, path traversal, schema/supply-chain drift, and recovery;
 unsafe outcomes block release/autonomy gates and accepted security/runtime regressions pass.
 
+**Delivered (2026-08-20):** eight versioned synthetic threats exercise the existing boundary
+owners and one security gate projects failures into T11. Red testing found and fixed generic
+embedded `token=...` persistence. Missing, duplicate, unknown, failed, unsanitized, and unsafe
+evidence blocks release and autonomy. Focused gate 13/13 and 150 boundary regressions passed.
+
+### 25.25 T13 - Runs Center and Shared Projection Client Plan (2026-08-20)
+
+**Outcome:** one compact Runs Center lists canonical runs and opens a consistent detail view for
+ordered events, trace references, loop state, evaluation state, recovery, context, and System
+capability evidence. Shared frontend state resumes event delivery from the last sequence.
+
+**Rules:** add read-only bounded API projections and one domain client/store; reuse existing
+dashboard layout, controls, colors, icons, and route conventions. Do not redesign other pages.
+Developer may select a persisted loop recipe, but selection grants no activation or execution.
+
+**Acceptance:** two consumers read the same run projection; event reconnect resumes after sequence
+without duplicates; trace/eval/recovery/context/capability evidence is readable but bounded;
+loop selection persists as configuration only; empty/loading/error/reconnecting states work;
+backend/API/frontend tests, production build, and desktop/mobile Playwright checks pass.
+
 ## 26. Implementation Log
 
 Planning state only. Add one dated row after each accepted worker package.
@@ -2692,3 +2712,4 @@ Planning state only. Add one dated row after each accepted worker package.
 | 2026-08-14 | T10 Run 3 | T10 Run 3 local delivery; owner continuation authorization | Red missing-adapter import; enforced gate 10/10; 72 current Developer plus 121 Runtime/checkpoint/state checks green; one stale #18 dependency assertion documented | Complete; one deterministic canonical run mirrors only ordered redacted coding references, replay is exact, conflicts fail closed, and any mirror failure leaves #22 history and execution unchanged; T11 released |
 | 2026-08-14 | T11 | T11 local delivery; owner continuation authorization | Red missing-eval service; enforced gate 19/19; 76 Runtime contract/event/repository/loop/coding checks green | Complete; deterministic redacted traces plus immutable local TOBIval cases/runs/findings now block release or autonomy increases on missing, failed, incomplete, below-threshold, or unsafe evidence; T11A released |
 | 2026-08-20 | T11A | T11A local delivery; owner continuation authorization | Red missing-System repository; enforced gate 11/11; 45 T01/T02/T11 contract, event, projection, and evaluation checks green | Complete; all typed System entities and evidence-backed edges are filterable and deterministically rebuildable, invalid links fail closed, and the projection grants no execution authority; T12 released |
+| 2026-08-20 | T12 | T12 local delivery; owner continuation authorization | Red missing-security module then embedded-token leak; enforced gate 13/13; 150 event, policy, registry, network, loop, memory, file, terminal, and eval checks green | Complete; eight synthetic boundary attacks fail closed, unsafe evidence blocks release/autonomy, and embedded generic token assignments are redacted before persistence; T13 released |
