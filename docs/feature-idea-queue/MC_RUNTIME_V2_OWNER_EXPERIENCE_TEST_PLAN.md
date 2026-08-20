@@ -1,5 +1,14 @@
 # Mission Control Runtime V2 Owner Experience Test Plan
 
+## Important: Do Not Use This For Main Gate Smoke Testing
+
+If you are testing the normal Mission Control URL `http://127.0.0.1:8090`, use
+`MC_RUNTIME_V2_MAIN_GATE_OWNER_TEST_PLAN.md` instead.
+
+This file is only for an isolated Runtime activation test after Codex prepares a copied database and
+confirms Direct Chat Runtime is active. If Direct Chat Runtime is not active, this plan will ask you
+to look for Runs that the server is not allowed to create.
+
 ## Document Control
 
 | Field | Decision |
