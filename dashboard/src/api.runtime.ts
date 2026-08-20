@@ -16,6 +16,20 @@ export type RuntimeRunSummary = {
   label: string
 }
 
+export type RuntimeRolloutDecision = {
+  stage: string
+  allowed: boolean
+  consecutive_passes: number
+  required_passes: number
+  blockers: string[]
+}
+
+export type RuntimeRolloutStatus = {
+  stage: string
+  rollback: boolean
+  decisions: Record<string, RuntimeRolloutDecision>
+}
+
 export type RuntimeEvent = {
   event_id: string
   sequence: number
@@ -122,6 +136,10 @@ export async function getRuntimeRuns(params: {
   if (params.surface) query.set('surface', params.surface)
   if (params.status) query.set('status', params.status)
   return get(`/api/runtime/runs?${query}`)
+}
+
+export async function getRuntimeRollout(): Promise<RuntimeRolloutStatus> {
+  return get('/api/runtime/rollout')
 }
 
 export async function getRuntimeRun(runId: string, after = 0): Promise<RuntimeRunDetail> {

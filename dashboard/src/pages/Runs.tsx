@@ -30,6 +30,19 @@ function statusTone(status: string) {
   return 'text-accent'
 }
 
+function emptyRunsMessage(state: ReturnType<typeof useRuntimeStore>) {
+  if (state.connection === 'loading') return 'Loading runs'
+  if (state.rollout?.rollback) return 'Runtime rollout is rolled back; canonical runs are paused'
+  const directChat = state.rollout?.decisions?.direct_chat
+  if (state.rollout?.stage === 'shadow' && directChat && !directChat.allowed) {
+    const firstBlocker = directChat.blockers[0]
+    return firstBlocker
+      ? `No canonical runs yet; direct Chat rollout is blocked by ${firstBlocker}`
+      : 'No canonical runs yet; direct Chat rollout is not active'
+  }
+  return state.surface || state.status ? 'No matching runs' : 'No canonical runs yet'
+}
+
 function RunRow({ run, selected, onSelect }: { run: RuntimeRunSummary; selected: boolean; onSelect: () => void }) {
   return (
     <button
@@ -108,7 +121,7 @@ export default function Runs() {
             <span>{state.runs.length} runs</span><span>Newest first</span>
           </div>
           {state.runs.length ? state.runs.map(run => <RunRow key={run.run_id} run={run} selected={run.run_id === state.selectedRunId} onSelect={() => void runtimeStore.selectRun(run.run_id)} />)
-            : <div className="flex min-h-48 flex-col items-center justify-center gap-2 text-muted"><Activity size={22} /><span className="text-xs">No matching runs</span></div>}
+            : <div className="flex min-h-48 flex-col items-center justify-center gap-2 px-4 text-center text-muted"><Activity size={22} /><span className="max-w-xs text-xs">{emptyRunsMessage(state)}</span></div>}
           {state.nextCursor && <button type="button" onClick={() => void runtimeStore.loadMore()} className="flex h-10 w-full items-center justify-center gap-2 border-t border-border text-xs text-muted hover:text-accent"><ArrowDown size={13} />Load more</button>}
         </aside>
 

@@ -1,11 +1,13 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import {
   getRuntimeLoops,
+  getRuntimeRollout,
   getRuntimeRun,
   getRuntimeRuns,
   setDeveloperLoop,
   type RuntimeLoopRecipe,
   type RuntimeLoopSelection,
+  type RuntimeRolloutStatus,
   type RuntimeRunDetail,
   type RuntimeRunSummary,
 } from '../api.runtime'
@@ -19,6 +21,7 @@ export type RuntimeStoreState = {
   detail: RuntimeRunDetail | null
   loops: RuntimeLoopRecipe[]
   loopSelection: RuntimeLoopSelection | null
+  rollout: RuntimeRolloutStatus | null
   connection: RuntimeConnection
   error: string | null
   surface: string
@@ -27,7 +30,7 @@ export type RuntimeStoreState = {
 
 const initialState: RuntimeStoreState = {
   runs: [], nextCursor: null, selectedRunId: null, detail: null,
-  loops: [], loopSelection: null, connection: 'idle', error: null,
+  loops: [], loopSelection: null, rollout: null, connection: 'idle', error: null,
   surface: '', status: '',
 }
 
@@ -69,9 +72,10 @@ class RuntimeStore {
     const version = ++this.requestVersion
     if (!this.state.runs.length) this.update({ connection: 'loading', error: null })
     try {
-      const [page, loops] = await Promise.all([
+      const [page, loops, rollout] = await Promise.all([
         getRuntimeRuns({ surface: this.state.surface, status: this.state.status }),
         getRuntimeLoops(),
+        getRuntimeRollout(),
       ])
       if (version !== this.requestVersion) return
       const selectedRunId = page.items.some(run => run.run_id === this.state.selectedRunId)
@@ -89,6 +93,7 @@ class RuntimeStore {
         detail,
         loops: loops.items,
         loopSelection: loops.developer_selection,
+        rollout,
         connection: 'ready',
         error: null,
       })

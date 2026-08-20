@@ -13,6 +13,7 @@ checks = {
     "typed runtime API uses bounded snapshot endpoints": lambda: (
         "/api/runtime/runs?" in read("dashboard/src/api.runtime.ts")
         and "/snapshot?after=" in read("dashboard/src/api.runtime.ts")
+        and "/api/runtime/rollout" in read("dashboard/src/api.runtime.ts")
     ),
     "one shared store backs both frontend consumers": lambda: (
         "useRuntimeStore" in read("dashboard/src/pages/Runs.tsx")
@@ -33,6 +34,10 @@ checks = {
     "Runs has all four bounded evidence views": lambda: all(
         label in read("dashboard/src/pages/Runs.tsx")
         for label in ("Timeline", "Trace", "Evals", "Context")
+    ),
+    "Runs explains empty canonical history when rollout is blocked": lambda: (
+        "No canonical runs yet; direct Chat rollout is blocked by" in read("dashboard/src/pages/Runs.tsx")
+        and "getRuntimeRollout" in read("dashboard/src/stores/runtime.ts")
     ),
     "Developer loop selection uses the shared preference API": lambda: (
         "saveLoopSelection" in read("dashboard/src/components/developer/DeveloperRuntimeLoop.tsx")

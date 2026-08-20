@@ -142,16 +142,18 @@ that the process is using `.runtime-v2-test\agent.db`.
 Expected result: Chat replies normally. One new Chat Run appears, reaches a successful state, and
 contains ordered status/evidence events. It must not display the raw prompt.
 
-If Chat replies but `Runs` with Surface `chat` shows `0 runs`, check the message you sent. If the
-composer or reply metadata says `Agent`, the test was run in the wrong mode. Switch the mode selector
-to `Chat` and repeat T2 before starting T3.
+If Chat replies but `Runs` with Surface `chat` shows `0 runs`, stop. This means the current server is
+answering through normal Chat but is not allowed to write canonical Runtime Runs. Ask Codex to check
+`/api/runtime/rollout` and the `runtime.v2*` settings for that server. Do not repeat this as a model
+or mode test unless the composer was actually set to `Agent`.
 
 ### T3. Inspect One Durable Run - 8 Minutes
 
 Goal: prove the Chat Run from T2 is saved and can be inspected after refresh.
 
 Start T3 only after T2 produced one visible Run with `Surface` set to `chat`. If the Runs list says
-`0 runs`, stop and repeat T2 in `Chat` mode. Do not continue T3 with an Agent reply.
+`0 runs`, stop. The current server has not produced a canonical Run, so there is nothing durable to
+inspect yet.
 
 | Step | Owner action | Correct result |
 |---|---|---|
