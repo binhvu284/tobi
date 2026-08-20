@@ -69,6 +69,22 @@ class ModelRoutingUsageTests(unittest.TestCase):
         self.assertEqual(len(client.clients), 2)
         self.assertEqual(builder.call_count, 2)
 
+    def test_explicit_fallback_can_use_disabled_provider(self):
+        cfg = {
+            "default_model": "codex:primary",
+            "task_overrides": {},
+            "fallback": ["openrouter:anthropic/claude-fable-5"],
+            "providers": {"openrouter": {"enabled": False}},
+        }
+        built = [_Working(), _Working()]
+        with patch("core.model_router.load_llm_config", return_value=cfg), \
+             patch("core.model_router.build_client", side_effect=built) as builder:
+            client = model_router.get_llm("simple")
+
+        self.assertEqual(len(client.clients), 2)
+        self.assertFalse(builder.call_args_list[0].kwargs.get("allow_disabled", False))
+        self.assertTrue(builder.call_args_list[1].kwargs.get("allow_disabled"))
+
     def test_subscription_catalog_hides_platform_only_codex_models(self):
         provider = {
             "id": "codex", "label": "OpenAI Codex", "enabled": True,

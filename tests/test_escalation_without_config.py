@@ -56,7 +56,10 @@ def _fake_build(model_id, cfg=None, **kw):
     """Stand in for build_client: construct without touching a network or an SDK."""
     _built.append(model_id)
     provider = model_id.split(":", 1)[0] if ":" in model_id else ""
-    if provider in ("openai", "anthropic", "openrouter", "gemini", "grok", "glm"):
+    if (
+        provider in ("openai", "anthropic", "openrouter", "gemini", "grok", "glm")
+        and not kw.get("allow_disabled")
+    ):
         raise mr.ModelProviderDisabled(f"{provider} is disabled.")
     return object()
 
@@ -82,6 +85,14 @@ ok("still resolves when an unrelated provider is enabled", client2 is not None, 
 mr.load_llm_config = lambda: _cfg(fallback=["codex:gpt-5.6-terra"])
 client3, model3 = mr.get_escalation_llm("codex:gpt-5.6-sol")
 ok("an explicit fallback still wins", model3 == "codex:gpt-5.6-terra", str(model3))
+
+mr.load_llm_config = lambda: _cfg(fallback=["openrouter:anthropic/claude-fable-5"])
+client3b, model3b = mr.get_escalation_llm("codex:gpt-5.6-sol")
+ok(
+    "an explicit fallback can bypass the picker-disabled provider flag",
+    model3b == "openrouter:anthropic/claude-fable-5",
+    str(model3b),
+)
 
 # --- 4. no false positive: never hand back the current model under another spelling ---------
 mr.load_llm_config = lambda: _cfg(fallback=["codex:gpt-5.6-sol"])

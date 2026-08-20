@@ -354,14 +354,24 @@ def get_llm(task_type: str = "default", model: Optional[str] = None) -> BaseLLMC
     # only ever the primary and one provider hiccup failed the whole call. Top the chain up
     # from the catalog so a stock install still has a second attempt without the owner having
     # to know a fallback list exists. An explicit fallback still goes first.
-    for fb in list(cfg.get("fallback", [])) + _catalog_alternatives(chosen):
+    explicit_fallbacks = [str(item or "").strip() for item in cfg.get("fallback", [])]
+    for fb in explicit_fallbacks:
         if fb and fb != chosen:
             try:
-                chain.append(build_client(fb, cfg))
+                chain.append(build_client(fb, cfg, allow_disabled=True))
                 if len(chain) >= MAX_TRANSPORT_ATTEMPTS:
                     break
             except Exception:
                 pass
+    if len(chain) < MAX_TRANSPORT_ATTEMPTS:
+        for fb in _catalog_alternatives(chosen):
+            if fb and fb != chosen and fb not in explicit_fallbacks:
+                try:
+                    chain.append(build_client(fb, cfg))
+                    if len(chain) >= MAX_TRANSPORT_ATTEMPTS:
+                        break
+                except Exception:
+                    pass
     chain = [c for c in chain if c is not None]
     return FallbackClient(chain, requested_model=chosen)
 
@@ -392,7 +402,8 @@ def get_escalation_llm(current_model: Optional[str] = None) -> tuple[Optional[Ba
     """
     cfg = load_llm_config()
     current = (current_model or "").strip()
-    candidates = list(cfg.get("fallback") or [])
+    explicit_fallbacks = [str(item or "").strip() for item in cfg.get("fallback") or []]
+    candidates = list(explicit_fallbacks)
     default = (cfg.get("default_model") or "").strip()
     if default:
         candidates.append(default)
@@ -410,7 +421,11 @@ def get_escalation_llm(current_model: Optional[str] = None) -> tuple[Optional[Ba
             continue
         seen.add(candidate)
         try:
-            return build_client(candidate, cfg), candidate
+            return build_client(
+                candidate,
+                cfg,
+                allow_disabled=candidate in explicit_fallbacks,
+            ), candidate
         except Exception:
             continue
     return None, None
