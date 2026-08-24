@@ -39,6 +39,16 @@ needed. One weak-model response was structurally malformed and scored `0`; all o
 scored. The owner accepted both immutable artifact hashes on 2026-08-25, closing T00 and allowing
 T01 to begin.
 
+T01 is green locally on 2026-08-25. `core/runtime/eval_dataset.py` loads the hash-verified 58-case
+development set and keeps all 14 holdouts behind the final-acceptance purpose. The scorer registry
+executes `structured_evidence` and inherited `evidence_ratio`, uses structured expected leaves, and
+forces score `0` for missing, stale, unsafe, or unlinked evidence. `EvalRunner` requires a canonical
+Runtime run and trace, stores only score, hashes, and bounded references in the existing immutable
+Eval tables, makes exact replay idempotent, and rejects changed identities. Failed runs create one
+bounded finding. ECR is derived from persisted proof rather than a percentage supplied by a caller.
+The focused Gate passes `3/3`; contracts, event store, repository, Eval, Runs projection, and Runs UI
+regressions pass `93/93`. No model, holdout, rollout flag, connector, API, or dashboard was used.
+
 
 <a id="item-32"></a>
 

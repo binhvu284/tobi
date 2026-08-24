@@ -9,33 +9,37 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #34 TOBIval Operational Intelligence and Model Independence
-**Package:** T00 - Metric contract, frozen dataset, and unchanged-code baseline
+**Package:** T01 - Real runner, scorers, and immutable results
 
 **Purpose (one sentence, plain words):**
-Freeze the exam, formulas, supported scope, model lanes, and unchanged-code result before any
-production behavior changes, so later improvement claims cannot move the target.
+Execute frozen development cases, score observed behavior from bounded evidence, and persist
+immutable results against canonical Runtime runs instead of accepting manually inserted passes.
 
 **Not doing:**
-- No edits to `core/`, `api/`, or `dashboard/` production behavior.
+- No T02 deterministic workflow routing or production Chat behavior changes.
 - No holdout execution or tuning against the 14 holdout cases.
-- No model benchmark outside the approved exact model IDs, 168-call limit, and `$0` direct-cost cap.
+- No model calls; T01 uses deterministic test executors only.
+- No API or dashboard work; those belong to T05/T06.
 - No Runtime V2 activation, connector writes, deployment, Supabase, or Vercel interaction.
-- No T01 implementation until the owner reviews and accepts the recorded baseline.
 
 **Files expected:**
 - `.claude/CURRENT_WORK.md`
-- `tobival/` metric, dataset, and baseline tooling
-- `scripts/tobival.py`
-- `tests/evals/v1/` frozen manifest, fixtures, workflow scope, lock, and baseline evidence
-- `tests/test_tobival_metric_contracts.py`
-- `tests/test_tobival_baseline_harness.py`
+- `core/runtime/evals.py` existing persistence ownership
+- `core/runtime/eval_dataset.py`
+- `core/runtime/eval_scorers.py`
+- `core/runtime/eval_runner.py`
+- `core/runtime/eval_metrics.py`
+- `core/runtime/trace.py` bounded evidence-reference projection
+- `tests/test_tobival_scorers.py`
+- `tests/test_tobival_runner.py`
 - queue, delivery-log, and development docs
 
 **Gate: green**
 
 ```gate
-../.python/venv/Scripts/python.exe tests/test_tobival_metric_contracts.py
-../.python/venv/Scripts/python.exe tests/test_tobival_baseline_harness.py
+../.python/venv/Scripts/python.exe tests/test_tobival_scorers.py
+../.python/venv/Scripts/python.exe tests/test_tobival_runner.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_evals.py
 ```
 
 ---

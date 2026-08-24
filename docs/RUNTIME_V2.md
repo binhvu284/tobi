@@ -13,8 +13,9 @@ All Runtime V2 rollout controls default off. The #21 implementation and activati
 temporary local databases; they did not change the owner's live flags or call an external service.
 
 The Infrastructure self-check is committed in `a317604`; the inherited release gate passed 24/24.
-#34/T00 is now local evaluation tooling only. It freezes the TOBIval dataset and unchanged-code
-baseline without changing Runtime execution or any rollout flag.
+#34/T00 freezes the accepted TOBIval baseline. T01 locally adds executable scorers and a runner that
+attaches bounded observed evidence to canonical traces and the existing immutable Eval tables. It
+does not activate Runtime execution or change any rollout flag.
 
 ## Request Flow
 

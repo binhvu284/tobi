@@ -62,6 +62,12 @@ def _run_dict(row: Any) -> dict[str, Any]:
     return result
 
 
+def _finding_dict(row: Any) -> dict[str, Any]:
+    result = dict(row)
+    result["evidence_refs"] = json.loads(result.pop("evidence_refs_json"))
+    return result
+
+
 def default_eval_cases() -> tuple[EvalCase, ...]:
     definitions = (
         ("final-answer", "final_answer", "final_answer", False),
@@ -146,6 +152,47 @@ class EvalRepository:
         finally:
             conn.close()
 
+    def list_runs(
+        self,
+        *,
+        eval_case_id: str | None = None,
+        eval_case_version: str | None = None,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        parameters: list[str] = []
+        if eval_case_id is not None:
+            clauses.append("eval_case_id=?")
+            parameters.append(eval_case_id)
+        if eval_case_version is not None:
+            clauses.append("eval_case_version=?")
+            parameters.append(eval_case_version)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        conn = get_connection()
+        try:
+            _ensure_runtime_schema(conn)
+            rows = conn.execute(
+                "SELECT * FROM mc_eval_runs" + where
+                + " ORDER BY COALESCE(completed_at,started_at,created_at) DESC,rowid DESC",
+                tuple(parameters),
+            ).fetchall()
+            return [_run_dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def list_findings(self, *, eval_run_id: str | None = None) -> list[dict[str, Any]]:
+        where = " WHERE eval_run_id=?" if eval_run_id is not None else ""
+        parameters = (eval_run_id,) if eval_run_id is not None else ()
+        conn = get_connection()
+        try:
+            _ensure_runtime_schema(conn)
+            rows = conn.execute(
+                "SELECT * FROM mc_eval_findings" + where + " ORDER BY created_at,finding_id",
+                parameters,
+            ).fetchall()
+            return [_finding_dict(row) for row in rows]
+        finally:
+            conn.close()
+
     def record_run(self, run: EvalRun) -> dict[str, Any]:
         if not isinstance(run, EvalRun):
             raise ValueError("run must be a validated EvalRun")
@@ -208,7 +255,7 @@ class EvalRepository:
                 if existing["contract_hash"] != contract_hash:
                     raise EvalConflictError("evaluation finding id already has different content")
                 conn.commit()
-                return dict(existing)
+                return _finding_dict(existing)
             conn.execute(
                 """INSERT INTO mc_eval_findings (
                     finding_id,eval_run_id,category,severity,summary,remediation_owner,
@@ -225,7 +272,7 @@ class EvalRepository:
                 "SELECT * FROM mc_eval_findings WHERE finding_id=?", (finding.finding_id,)
             ).fetchone()
             conn.commit()
-            return dict(row)
+            return _finding_dict(row)
         except Exception:
             conn.rollback()
             raise

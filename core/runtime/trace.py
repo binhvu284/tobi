@@ -56,6 +56,7 @@ class RunTrace:
     status: str
     spans: tuple[TraceSpan, ...]
     context_refs: tuple[str, ...]
+    evidence_refs: tuple[str, ...]
     model_refs: tuple[str, ...]
     tool_refs: tuple[str, ...]
     policy_decision_refs: tuple[str, ...]
@@ -73,6 +74,7 @@ class RunTrace:
             "status": self.status,
             "spans": [span.to_dict() for span in self.spans],
             "context_refs": list(self.context_refs),
+            "evidence_refs": list(self.evidence_refs),
             "model_refs": list(self.model_refs),
             "tool_refs": list(self.tool_refs),
             "policy_decision_refs": list(self.policy_decision_refs),
@@ -181,6 +183,7 @@ def build_run_trace(run_id: str) -> RunTrace:
         status=str(run["status"]),
         spans=tuple(spans),
         context_refs=tuple(sorted(refs.get("context", set()))),
+        evidence_refs=tuple(sorted(refs.get("evidence", set()))),
         model_refs=tuple(sorted(refs.get("model", set()))),
         tool_refs=tuple(sorted(refs.get("tool", set()))),
         policy_decision_refs=tuple(sorted(refs.get("policy", set()))),

@@ -50,7 +50,7 @@ The Genesis vault can manage supported secrets from Mission Control after the ap
 | `venv\Scripts\python.exe main.py test` | Tests configured connections and may contact external services; run only when that is intended |
 | `venv\Scripts\python.exe -m core.coding_runner_service` | Runs the durable external coding-worker service; use with `TOBI_CODING_RUNNER_MODE=service` |
 
-For the current #34/T00 package gate, run from `tobi/` with the bundled D-drive interpreter:
+For the current #34/T01 package gate, run from `tobi/` with the bundled D-drive interpreter:
 
 ```powershell
 & "D:\[PERSONAL PROJECT FILES]\TOBI\.python\venv\Scripts\python.exe" scripts/gate.py
@@ -59,7 +59,10 @@ For the current #34/T00 package gate, run from `tobi/` with the bundled D-drive 
 This is separate from `venv\Scripts\python.exe`; use the interpreter named by the active
 `.claude/CURRENT_WORK.md` when validating the package.
 
-The local TOBIval T00 commands are:
+The T01 Gate runs the executable scorer, canonical runner, and inherited Runtime Eval checks. All
+fixtures use a temporary database; no model or holdout is called.
+
+The local TOBIval baseline commands are:
 
 ```powershell
 & "D:\[PERSONAL PROJECT FILES]\TOBI\.python\venv\Scripts\python.exe" scripts/tobival.py verify
