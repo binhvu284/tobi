@@ -5,8 +5,20 @@ import { Play, Loader2, CheckCircle2, AlertTriangle, Terminal, FlaskConical, Bui
 import { getRunReadiness, runEngine, type Readiness, type RunResult, type EngineName } from '../api.officev3'
 import { useToast } from '../context/ToastProvider'
 import { AmbientField } from '../components/motion'
+import { Link } from 'react-router-dom'
 
 const ICONS: Record<string, typeof Play> = { research: FlaskConical, execute: Building2, report: FileText, ceo: Crown }
+
+// Plain-language names for the keys TOBI may be missing, so the owner is told
+// what to do, not which internal variable to find.
+const FRIENDLY_KEYS: Record<string, string> = {
+  TAVILY_API_KEY: 'its research key (Tavily)',
+  ANTHROPIC_API_KEY: 'its Claude key',
+  OPENAI_API_KEY: 'its OpenAI key',
+  DEEPSEEK_API_KEY: 'its DeepSeek key',
+  GEMINI_API_KEY: 'its Gemini key',
+  GROK_API_KEY: 'its Grok key',
+}
 
 export default function ControlRoom() {
   const [engines, setEngines] = useState<Readiness[]>([])
@@ -66,7 +78,9 @@ export default function ControlRoom() {
 
               {!e.ready && e.needs && (
                 <div className="mb-2 rounded border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-[11px] text-warning">
-                  Needs <span className="font-mono">{e.needs}</span> in .env
+                  Not ready — TOBI needs {FRIENDLY_KEYS[e.needs] ?? 'a missing key'} to run this.{' '}
+                  <Link to="/integrations" className="underline hover:text-heading">Add it on the Integrations page</Link>
+                  <span className="ml-1 font-mono opacity-70">({e.needs})</span>
                 </div>
               )}
 
