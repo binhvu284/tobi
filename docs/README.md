@@ -39,6 +39,7 @@ When two sources disagree, trust the higher level and update the lower level. A 
 
 ## Special Files
 
+- [`UPDATE_DOCS_TM01.md`](UPDATE_DOCS_TM01.md) is the agent-neutral full documentation refresh protocol. Run it when the owner says `UPDATE DOCS TM01`; it defines inventory, verification, archive, queue, audit, and handoff rules.
 - `../SOUL.md` and `../hermes_skills/` are runtime inputs, not ordinary documentation. They were not changed during this docs refactor.
 - `.tobi/` and `.hermes/` contain ignored runtime or user data. Copies of Markdown files there are not canonical docs.
 - `graphify-out/` is generated navigation data. It can help locate code, but its local index may lag recent commits and must not override the code.
@@ -47,3 +48,5 @@ When two sources disagree, trust the higher level and update the lower level. A 
 ## Maintenance Rule
 
 Update `02_CURRENT_STATE.md`, `ARCHITECTURE.md`, and `MISSION_CONTROL.md` when a change alters a user-visible capability, API domain, persistent state owner, security boundary, route, or execution flow. Update the queue row when a queued feature changes status. Move superseded narrative into `archive/` rather than letting two files claim to be current.
+
+For a complete repository-wide refresh, follow [`UPDATE_DOCS_TM01.md`](UPDATE_DOCS_TM01.md). It is deliberately agent-neutral so Codex, Claude Code, OpenCode, Cursor, DeepSeek, and other agents use the same source-of-truth and archive rules.
