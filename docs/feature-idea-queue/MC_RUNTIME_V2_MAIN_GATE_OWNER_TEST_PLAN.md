@@ -22,6 +22,40 @@ today, and it stops before asking the owner to inspect a Run that cannot exist.
 | Runs page | Runs gives a truthful empty-state reason when Runtime V2 is not activated |
 | Runtime gate | The owner does not waste time testing Direct Chat Runs while the rollout is blocked |
 
+## T0. Start Mission Control Yourself - 3 Minutes
+
+Do this first, every time. It is the step that cost the 2026-08-20 run.
+
+A Mission Control started *inside an agent's terminal* inherits that agent's sandbox. On this
+machine that sandbox has no outbound internet and a different Windows identity, so the server
+looks perfectly healthy while every model call fails and every saved key stays locked. Chat then
+reports "the current model is struggling" and sends you to the model picker, which cannot help.
+Start the server from your own PowerShell window instead.
+
+1. Open **Windows Terminal** or **PowerShell** yourself. Not an agent chat, not a task runner.
+2. Paste these two lines and press Enter:
+
+```powershell
+cd "D:\[PERSONAL PROJECT FILES]\TOBI\tobi"
+& "D:\[PERSONAL PROJECT FILES]\TOBI\.python\venv\Scripts\python.exe" main.py api
+```
+
+3. Leave that window open. Closing it stops Mission Control.
+
+Correct result: the window prints `Database ready: ...\tobi\.tobi\agent.db` and
+`Starting API on :8000 and Dashboard on :8090`.
+
+Then confirm the server can actually reach the outside world, which is what T2 depends on:
+
+1. Open `http://127.0.0.1:8090`, go to **Health**, and press the deep check button.
+2. The **Chat** line must say it ran a tool and answered. Anything else and the model is not
+   reachable — stop and fix that before T2, because no test after this one can pass.
+
+If any connector says `vault locked — the saved key was not loaded`, your keys are safe and still
+saved; this login simply cannot open them yet. Open **Integrations**, unlock the vault with your
+master password once, and switch **auto-connect** back on. That saves the key again for this login,
+and later restarts unlock on their own.
+
 ## T1. Confirm Latest Server - 2 Minutes
 
 Owner action:

@@ -98,6 +98,13 @@ PROVIDERS: dict[str, dict] = {
         "models": ["nvidia/nemotron-3-super-120b-a12b:free", "anthropic/claude-opus-4-8",
                    "openai/gpt-4o", "google/gemini-2.5-pro"],
     },
+    "deepseek": {
+        # DeepSeek's own API — OpenAI-compatible. V4 models take a 1M context and
+        # support thinking mode; only the -vision-exp variant accepts images.
+        "label": "DeepSeek", "kind": "openai", "key_env": "DEEPSEEK_API_KEY",
+        "base_url": "https://api.deepseek.com", "needs_key": True, "editable_base_url": False,
+        "models": ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"],
+    },
     "gemini": {
         "label": "Google Gemini", "kind": "openai", "key_env": "GEMINI_API_KEY",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
@@ -226,6 +233,10 @@ def _provider_of(model_id: str) -> tuple[str, str]:
         return "gemini", model_id
     if name.startswith("grok"):
         return "grok", model_id
+    # Bare "deepseek-v4-*" is DeepSeek's own API; "deepseek/…" is an OpenRouter id
+    # and falls through to the "/" branch below.
+    if name.startswith("deepseek") and "/" not in model_id:
+        return "deepseek", model_id
     if "/" in model_id:
         return "openrouter", model_id
     return "openrouter", model_id

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from core.coding_policy import CodingPolicy, PolicyDenied
+from core.proc import no_window
 
 
 class CodingToolError(RuntimeError):
@@ -191,6 +192,7 @@ class CodingToolBroker:
             encoding="utf-8",
             errors="replace",
             timeout=self.policy.limit("command_timeout_seconds", 900),
+            creationflags=no_window(),
         )
         output = ((completed.stdout or "") + (completed.stderr or "")).encode(
             "utf-8", errors="replace")[-self.max_output_bytes:]
@@ -248,6 +250,7 @@ class CodingToolBroker:
             errors="replace",
             timeout=timeout,
             shell=False,
+            creationflags=no_window(),
         )
         output = (completed.stdout + completed.stderr).encode("utf-8", errors="replace")[-self.max_output_bytes:]
         result = {
@@ -294,6 +297,7 @@ print(json.dumps(doctor.analyze("quick"), ensure_ascii=True, default=str))
             encoding="utf-8",
             errors="replace",
             timeout=min(self.policy.limit("command_timeout_seconds", 900), 120),
+            creationflags=no_window(),
         )
         if completed.returncode != 0:
             detail = (completed.stderr or completed.stdout or "Analyzer failed.")[-2000:]

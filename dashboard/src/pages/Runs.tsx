@@ -4,6 +4,7 @@ import {
   FileSearch, Gauge, Layers3, Loader2, RefreshCw, RotateCcw, ShieldCheck, Workflow,
 } from 'lucide-react'
 import { runtimeStore, useRuntimeStore } from '../stores/runtime'
+import { ActionButton } from '../components/async-ui'
 import type { RuntimeRunSummary } from '../api.runtime'
 
 type DetailTab = 'timeline' | 'trace' | 'evals' | 'context'
@@ -95,10 +96,8 @@ export default function Runs() {
               {state.connection === 'loading' ? <Loader2 size={12} className="animate-spin" /> : state.connection === 'reconnecting' ? <RotateCcw size={12} /> : <span className="h-1.5 w-1.5 bg-success" />}
               {state.connection}
             </span>
-            <button type="button" title="Refresh runs" aria-label="Refresh runs" onClick={() => void runtimeStore.load()}
-              className="inline-flex h-9 w-9 items-center justify-center border border-border text-muted transition-colors hover:border-accent hover:text-accent">
-              <RefreshCw size={15} />
-            </button>
+            <ActionButton title="Refresh runs" onAction={() => runtimeStore.load()} icon={<RefreshCw size={15} />}
+              className="inline-flex h-9 w-9 items-center justify-center border border-border text-muted transition-colors hover:border-accent hover:text-accent" />
           </div>
         </div>
         <div className="mt-4 flex flex-col gap-2 sm:flex-row">
@@ -122,7 +121,7 @@ export default function Runs() {
           </div>
           {state.runs.length ? state.runs.map(run => <RunRow key={run.run_id} run={run} selected={run.run_id === state.selectedRunId} onSelect={() => void runtimeStore.selectRun(run.run_id)} />)
             : <div className="flex min-h-48 flex-col items-center justify-center gap-2 px-4 text-center text-muted"><Activity size={22} /><span className="max-w-xs text-xs">{emptyRunsMessage(state)}</span></div>}
-          {state.nextCursor && <button type="button" onClick={() => void runtimeStore.loadMore()} className="flex h-10 w-full items-center justify-center gap-2 border-t border-border text-xs text-muted hover:text-accent"><ArrowDown size={13} />Load more</button>}
+          {state.nextCursor && <ActionButton onAction={() => runtimeStore.loadMore()} icon={<ArrowDown size={13} />} className="flex h-10 w-full items-center justify-center gap-2 border-t border-border text-xs text-muted hover:text-accent">Load more</ActionButton>}
         </aside>
 
         <section className="min-w-0">

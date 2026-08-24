@@ -25,6 +25,7 @@ import json
 import time
 import base64
 import secrets as _secrets
+import logging
 import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
@@ -51,7 +52,7 @@ AUTO_LOCK_SECONDS = 15 * 60  # relock after this much inactivity
 
 # env-var NAMEs imported from the current environment on first-run setup
 KNOWN_ENV_KEYS = [
-    "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY",
     "TELEGRAM_BOT_TOKEN", "GITHUB_TOKEN", "NOTION_API_KEY",
     "VERCEL_TOKEN", "SUPABASE_URL", "SUPABASE_ANON_KEY",
     "TAVILY_API_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET",
@@ -682,6 +683,7 @@ def import_blob(conn: sqlite3.Connection, blob_b64: str, password: str) -> int:
 # already sits beside it). The unwrapped key is always re-verified against the
 # vault verifier before use, so a corrupt/foreign blob can never set a bad key.
 _AUTOUNLOCK_AAD = b"tobi-vault-autounlock-v1"
+_logger = logging.getLogger("tobi.vault")
 
 
 def _dpapi(data: bytes, *, unprotect: bool) -> Optional[bytes]:
@@ -778,6 +780,14 @@ def try_autounlock(conn: sqlite3.Connection) -> bool:
     method, blob = row[0], bytes(row[1])
     key = _dpapi(blob, unprotect=True) if method == "dpapi" else blob
     if not key or len(key) != _KEY_LEN:
+        # Windows seals this blob to the account AND the process identity that saved it, so a
+        # server started under a different one -- an agent sandbox, a service account, another
+        # machine after a restore -- silently gets nothing back, every connector reads as
+        # unconfigured, and no line anywhere says why. Say it once, plainly.
+        _logger.warning(
+            "Vault auto-unlock failed: the saved key could not be unwrapped by this process "
+            "(method=%s). Unlock the vault once in Integrations and re-enable auto-connect "
+            "to save it again for this login.", method)
         return False
     m = _meta(conn)
     if m is None or not _check_verifier(key, m["verifier"]):  # never trust an unverified key

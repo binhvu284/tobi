@@ -22,6 +22,7 @@ from core.coding_loop import CodingLoopService
 from core.coding_policy import PolicyDenied
 from core.coding_queue_authoring import create_queue_item
 from core.coding_workers import _platform_cli_command
+from core.proc import no_window
 
 
 router = APIRouter(prefix="/api/developer", tags=["developer"])
@@ -720,7 +721,7 @@ def worker_models(slug: str, refresh: bool = Query(False)) -> dict[str, Any]:
             encoding="utf-8",
             errors="replace",
             timeout=20,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+            creationflags=no_window(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise HTTPException(status_code=503, detail="OpenCode model discovery did not complete.") from exc

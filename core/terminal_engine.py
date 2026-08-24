@@ -52,6 +52,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
+from core.proc import no_window
 
 logger = logging.getLogger("tobi.terminal")
 
@@ -436,7 +437,7 @@ def _job_finish(job_id: int, status: str, exit_code: Optional[int], output: str)
 def _run_background(command: str, cwd: str, risk: str, mode: str, surface: str) -> dict:
     argv, shell = _shell_argv(command)
     proc = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, bufsize=1)
+                            text=True, bufsize=1, creationflags=no_window())
     job_id = _job_insert(command, cwd, shell, risk, mode, surface, proc.pid or 0)
     buf: list[str] = []
     with _LIVE_LOCK:
@@ -555,7 +556,7 @@ def run(command: str, *, cwd: Optional[str] = None, timeout: Optional[int] = Non
     to = timeout if timeout is not None else _default_timeout(risk)
     t0 = time.time()
     try:
-        proc = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=to)
+        proc = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=to, creationflags=no_window())
         raw = ((proc.stdout or "") + (proc.stderr or "")).strip()
         out = redact(raw)
         _emit(out[-OUTPUT_TAIL:])

@@ -5,6 +5,28 @@ readable. Nothing was shortened or removed here — each section is the note tha
 verbatim. `QUEUE.md` links to these sections; this file is the evidence behind them.
 
 
+<a id="item-34"></a>
+
+## 34. TOBIval Operational Intelligence and Model Independence
+
+`UPG-CORE-2D12H-011`
+
+Owner approved the plan on 2026-08-25. No implementation has started. #34 turns #21's Eval
+case/run/finding and release-gate foundation into an executable local benchmark, then moves common
+Mission Control routes, required fields, tool boundaries, typed arguments, evidence checks, and
+bounded outcomes out of unverified model-only judgment. The release targets are Eval Completion
+`>=90%`, LLM Dependency `<=50%` for a frozen supported-workflow manifest, `>=95%` reference-model
+completion or structured recovery, and zero critical safety or duplicate-side-effect failures.
+
+Truth comes before building: T00 freezes 72 total cases including 14 holdouts, formulas, supported scope, exact
+strong/weak model IDs, spend cap, and fixture hashes, then records an unchanged-code baseline whose
+target checks must fail before production behavior changes. The final acceptance independently
+recomputes the same metrics from unchanged cases across strong, weak, and no-model lanes. Open-ended
+coding, research, and writing are reported separately and cannot be hidden inside the `<=50%`
+claim. Implementation waits for #33 to be committed and closed. #29 is absorbed into #34's recovery
+and model-failure dataset and must not run as separate overlapping work.
+
+
 <a id="item-32"></a>
 
 ## 32. Health checks run together
@@ -37,6 +59,9 @@ The Health page's deep check reported the AI healthy on 2026-08-01 while every C
 `CHECK-DEV-8H-005`
 
 Created in Developer Work.
+
+Owner-approved #34 planning absorbs this draft into its frozen recovery, provider-failure, and
+idempotency case matrix. Preserve this entry as history, but do not implement #29 independently.
 
 
 <a id="item-28"></a>
@@ -102,6 +127,59 @@ Four-tab evidence-backed News system with ranked models, GitHub/tools discovery,
 Bounded Codex development with an independent reviewer is qualified. Same-run recovery, queue safety, validation, review, delivery synchronization, active-time tracking, and History evidence passed local regression. MC Native, OpenCode, and Claude Code remain locked for future qualification. This does not qualify the Developer runtime to execute #21 as one large job.
 
 
+<a id="item-33"></a>
+
+## 33. One-click infrastructure test
+
+`CHECK-CORE-4H-007`
+
+Observed in the local worktree during the 2026-08-25 TM01 refresh; not yet committed to `main`.
+Health gains an **Infrastructure** tab with one button. It runs twelve
+read-only checks of the running server — which database file is open, whether this process can
+reach the internet at all, whether every canonical table and migration is present, what the
+rollout switches say, whether the vault is loaded, whether a failing model has a fallback — and
+then every #21 acceptance suite, each as its own process against its own throwaway database.
+Twenty-three suites, 362 individual proofs, about 55 seconds, streamed row by row. This is local
+evidence only until the active #21/T15 package gate passes and the files are committed.
+
+The button and the release gate read one list, and `tests/test_infrastructure_self_check.py`
+fails if they ever differ, so a green page and a green gate cannot come to mean different things.
+Suite output is redacted before it reaches the page, and a failed suite is re-run once before it
+is believed — three of them start real worker processes, and a health light that goes red for a
+lost race is worse than no light.
+
+**Local follow-up, observed 2026-08-25 - the button flashed console windows, and it was never only
+the button.**
+TOBI runs as a background server, so when it starts a child process Windows has no console to lend
+it and creates a new one: a black window that appears, steals focus for a moment, and vanishes. The
+infrastructure test starts 23 children in a row, which turned a quiet long-standing defect into an
+obvious one. Twenty call sites did it — `git rev-parse` on every health check, `tasklist` on
+startup, the Hermes worker, the cloudflared tunnel, the terminal engine, the coding tools — while
+four others already passed `CREATE_NO_WINDOW`, which is how a rule that lives only in reviewers'
+heads ends up half-applied. `core/proc.no_window()` is now the one spelling, every server-side
+spawn passes it, and `tests/test_no_console_windows.py` reads the syntax tree and fails if a call
+site forgets. The Hermes worker keeps its own process group and gains the flag rather than
+swapping one for the other.
+
+**Architecture page updated for the new engine, 2026-08-21.** `overall-tobi` now shows every
+surface converging on the runtime rather than on the Conductor; `mission-control` gains the Runs
+pane, the shared runtime store and the Health infrastructure panel; and a third diagram,
+**Mission Control Runtime**, follows one request from the surface it arrived on to the receipt it
+leaves behind — identity, durable steps, policy, catalog, receipts, history, projections, traces,
+rollout, and the shadow path it is compared against. Every node in the new diagram has guide notes.
+The two architecture suites no longer pin a diagram count; they derive it from the allowlist and
+additionally require each registered diagram to exist on disk and pass the validator.
+
+Its first run found a real defect. `schema_migrations` is created by two modules with different
+definitions; Chat's runtime got there first on the owner's database, so its `applied_at NOT NULL`
+with no default was in force, and the runtime's `INSERT OR IGNORE ... (version)` violated it —
+silently, because `OR IGNORE` swallows constraint violations. The ledger stayed empty,
+`_schema_is_ready()` answered False forever, and the entire runtime schema was re-applied at all
+62 of its call sites on every runtime database operation. Fixed by writing `applied_at` explicitly
+and aligning both definitions; the live database repaired itself on the next restart, recording
+all 13 versions. The local package reports Gate 23/23, but this is not a delivered release result
+until the current worktree package is committed and the owner-facing queue status returns to Done.
+
 <a id="item-21"></a>
 
 ## 21. Mission Control Infrastructure V2
@@ -121,6 +199,22 @@ T13 is complete locally. The Runs page and Developer loop selector consume one s
 T14 is complete at `ba4ceb8`. Immutable comparisons retain only route, manifest hash, policy, outcome, latency, and evidence references. Each ordered stage requires seven consecutive matches plus the T11 release gate; Agent also requires the autonomy gate. Stages cannot skip or move backward, controls default off, and owner-authenticated commands activate, roll back, or resume. One master rollback returns new work to shadow mode while preserving the approved stage and all comparison history. Seven consecutive final local runs, the 23-check gate, T04 live activation, T12 security, T13 Runs, and compile regressions passed.
 
 T15 and Queue #21 are complete. Projects and Office use one passive HTTP boundary; CLI, Telegram, and all 18 scheduler callbacks use the same fail-open compatibility adapter. When event mirroring is enabled, each accepted request records only bounded surface, operation, status, and evidence references in one disabled canonical run; request and response bodies are never read. Adapter failures cannot interrupt legacy work, duplicate delivery reuses the run, and the first terminal outcome remains authoritative. Runtime operations, architecture, security, verification, and legacy-exit docs now describe the delivered system. The focused adapter gate passed 17/17; the final cross-package gate covers every T01-T15 boundary. All real owner rollout controls remain off, and legacy deletion is deferred to a separate owner-approved Queue item.
+
+**Owner test, 2026-08-20 — three defects found and fixed.** The owner's main-gate run stopped at T3,
+with Chat answering every message "the current model is struggling — switch to a stronger model".
+The model was never contacted: Mission Control had been started inside an agent sandbox with no
+outbound network, so every provider call raised a connection error, every integration test failed,
+and the isolated test gate on `8181` had also created a fresh empty database instead of opening the
+copied one. Fixed: (1) `core/runtime/transport_failure.py` classifies a failed provider call into one
+bounded code and owns its owner-facing sentence, `generate_step` stamps it on the client, and both
+failure paths — the tool loop's give-up branch and the composer's exhausted escalation — now say the
+model was never reached instead of blaming its output; the Chat card drops the model picker for that
+case, since switching models cannot fix a connection. (2) Failed provider calls no longer log the
+provider's error body, which can carry the request URL and Authorization header. (3) A vault
+auto-unlock that cannot unwrap its saved key now logs why, and the deep health check says
+"vault locked — the saved key was not loaded" instead of the untrue "not configured". Two unguarded
+buttons on the Runs page gained the required pending state. Gate 21/21. Main gate T1-T4 and the
+isolated gate T5 verified after the fix.
 
 
 <a id="item-20"></a>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { softFail } from '../lib/report'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -10,7 +10,8 @@ import {
   ChevronUp, MessagesSquare, ChevronRight, Pin, Youtube, Loader2, MoreVertical,
 } from 'lucide-react'
 import { SiGithub, SiGoogle, SiNotion, SiVercel, SiSupabase, type IconType } from '@icons-pack/react-simple-icons'
-import { type ChatSession, type AvailableModel, type ChatUsage, type ChatNotice, type ChatStoredMessage, type ChatAttachment, type ChatPicker, type ReaderChip, type ChatModeId, type ContextChip, type ChatArtifactEvent, type ChatArtifact, type ChatRuntimeEvent, type ChatTurnTrace, getChatSessions, createChatSession, getChatSession, patchChatSession, deleteChatSession, appendChatMessage, streamChatSession, getLlmModels, forkChatSession, setMessageFeedback, getSessionActivity, getChatConfig, commandAgentRun, getChatTurnTrace, getSessionArtifacts, getChatArtifact } from '../api.chat'
+import { type ChatSession, type AvailableModel, type ChatUsage, type ChatNotice, type ChatStoredMessage, type ChatAttachment, type ChatPicker, type ReaderChip, type ChatModeId, type ContextChip, type ChatArtifactEvent, type ChatArtifact, type ChatRuntimeEvent, type ChatTurnTrace, getChatSessions, createChatSession, getChatSession, patchChatSession, deleteChatSession, appendChatMessage, streamChatSession, getLlmModels, forkChatSession, setMessageFeedback, getSessionActivity, getChatConfig, commandAgentRun, getChatTurnTrace, getSessionArtifacts, getChatArtifact, getSessionAttachments, type StoredAttachment,
+} from '../api.chat'
 import { type ConductorAction, confirmConductorAction } from '../api.conductor'
 import { compactSession } from '../api.keys'
 import { getEvolution } from '../api.abilities'
@@ -24,6 +25,7 @@ import MarkdownView from '../components/chat/MarkdownView'
 import TierEmblem from '../components/TierEmblem'
 import ModelMenu from '../components/chat/ModelMenu'
 import ProcessTrace from '../components/chat/ProcessTrace'
+import { AttachmentStrip, ImageLightbox, SessionFiles, attachCount, stripAttachTag } from '../components/chat/Attachments'
 import PickerWizard, { type PickerAnswer } from '../components/chat/PickerWizard'
 import ChatAmbient, { ChatHeroMotif } from '../components/chat/ChatAmbient'
 import TerminalMode from '../components/chat/TerminalMode'
@@ -59,6 +61,9 @@ export default function Chat() {
   const [renameVal, setRenameVal] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(() => { try { return localStorage.getItem('tobi.chat.sidebar') !== '0' } catch { return true } })
   const [modelIssue, setModelIssue] = useState(false)
+  // Set only when the turn never reached a provider: the sentence explaining why, which
+  // replaces the "switch to a stronger model" card that cannot fix a connection problem.
+  const [modelUnreachable, setModelUnreachable] = useState<string | null>(null)
   const [tier, setTier] = useState<TierMark | null>(null)
   const [titleEditing, setTitleEditing] = useState(false)
   const [titleVal, setTitleVal] = useState('')
@@ -73,6 +78,9 @@ export default function Chat() {
 
   // attachments / tools
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
+  const [lightbox, setLightbox] = useState<StoredAttachment | null>(null)
+  const [sessionFiles, setSessionFiles] = useState<StoredAttachment[]>([])
+  const [filesOpen, setFilesOpen] = useState(false)
   const [plusOpen, setPlusOpen] = useState(false)
   const [plusPanel, setPlusPanel] = useState<'connectors' | 'confirmations' | null>('connectors')
   const [webResearch, setWebResearch] = useState(() => { try { return localStorage.getItem('tobi.chat.webResearch') === '1' } catch { return false } })
@@ -196,7 +204,7 @@ export default function Chat() {
   useEffect(() => {
     if (activeId == null) return
     let cancelled = false
-    setPending(null); setActivityOpen(false); setModelIssue(false); setAutoAcceptChat(false); setReaderChips([])
+    setPending(null); setActivityOpen(false); setModelIssue(false); setModelUnreachable(null); setAutoAcceptChat(false); setReaderChips([])
     setMessages([]); setSending(false); setStreaming(false)
     const s = sessions.find(x => x.id === activeId)
     setModel(s?.model ?? null)
@@ -211,6 +219,7 @@ export default function Chat() {
       setModel(r.session.model ?? null)
       const artifactMap = new Map(artifactResult.artifacts.map(a => [a.id, a]))
       setMessages(r.messages.map(m => storedToMsg(m, artifactMap)))
+      loadSessionFiles(activeId)                 // stored files for this session
     }).catch(() => { if (!cancelled) setMessages([]) })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -306,7 +315,7 @@ export default function Chat() {
     try { await patchChatSession(id, { title }) } catch (error) { softFail('chat data')(error) }
   }
   const changeModel = async (val: string) => {
-    const m = val || null; setModel(m); setModelIssue(false)
+    const m = val || null; setModel(m); setModelIssue(false); setModelUnreachable(null)
     if (activeId != null) { try { await patchChatSession(activeId, { model: m ?? '' }) } catch (error) { softFail('chat data')(error) } }
   }
   const syncQueuedTurns = (next: QueuedTurn[]) => {
@@ -355,8 +364,8 @@ export default function Chat() {
   const runTurn = async (text: string, sid: number, opts: TurnOpts) => {
     lastTurnRef.current = { text, opts }; lastMetaRef.current = {}
     const tag = opts.attachments?.length ? `  📎×${opts.attachments.length}` : ''
-    setMessages(m => [...m, { role: 'user', content: text + tag }])
-    setSending(true); setPending(null); setModelIssue(false)
+    setMessages(m => [...m, { role: 'user', content: text + tag, attachments: opts.attachments }])
+    setSending(true); setPending(null); setModelIssue(false); setModelUnreachable(null)
     setContextChips([]); setRunPaused(false); setPausedRunId(null)
     setRuntimeEvents([]); setTurnTrace(null)
     // YouTube reader chip (#14): show 'reading' immediately if the message has a link;
@@ -401,7 +410,7 @@ export default function Chat() {
         onAction: (a) => { flushDelta(); setPending(a) },
         onPicker: (p) => { flushDelta(); setPicker(p) },
         onNotice: (n) => {
-          if (n.kind === 'model_issue') setModelIssue(true)
+          if (n.kind === 'model_issue') { setModelIssue(true); setModelUnreachable(n.detail || null) }
           else if (n.kind === 'model_escalated') toast({ kind: 'info', title: 'Model escalated', detail: 'The selected model returned malformed output, so TOBI retried once with the configured fallback.' })
           else if (n.kind === 'model_fallback') {
             const route = n as ChatNotice & { from_model?: string; to_model?: string; reason?: string }
@@ -436,7 +445,7 @@ export default function Chat() {
         onRecoveryRequired: (e) => {
           const rid = Number(e.data?.run_id)
           if (Number.isFinite(rid) && rid > 0) setPausedRunId(rid)
-          if (e.data?.code === 'model.malformed_output') setModelIssue(true)
+          if (String(e.data?.code || '').startsWith('model.')) setModelIssue(true)
           else setRunPaused(true)
         },
         onTerminal: (line) => setTerminalLines(ls => [...ls, line]),
@@ -475,7 +484,9 @@ export default function Chat() {
       if (deltaRafRef.current != null) { cancelAnimationFrame(deltaRafRef.current); deltaRafRef.current = null }
       flushDelta()
       setSending(false); setStreaming(false); abortRef.current = null
-      reloadMessages(sid); refreshSessions(); if (activityOpen) loadActivity(sid)
+      // the turn just stored its attachments against the new user message id
+      reloadMessages(sid); refreshSessions(); loadSessionFiles(sid)
+      if (activityOpen) loadActivity(sid)
       const queued = activeIdRef.current === sid ? shiftQueuedTurn() : undefined
       if (queued) {
         setMode(queued.mode)
@@ -573,7 +584,7 @@ export default function Chat() {
   }
 
   // ── edit → branch ──
-  const startEdit = (m: Msg) => { if (m.id == null) return; setEditing(m.id); setEditVal(m.content.replace(/\s*📎×\d+$/, '')) }
+  const startEdit = (m: Msg) => { if (m.id == null) return; setEditing(m.id); setEditVal(stripAttachTag(m.content)) }
   const saveBranch = async () => {
     if (editing == null || activeId == null) return
     const text = editVal.trim(); const mid = editing; setEditing(null)
@@ -644,6 +655,22 @@ export default function Chat() {
   }
 
   const toggleConnector = (id: string) => setConnectors(c => c.includes(id) ? c.filter(x => x !== id) : [...c, id])
+  // message id -> the files stored against it, so a bubble renders from the server's rows
+  const filesByMessage = useMemo(() => {
+    const map = new Map<number, StoredAttachment[]>()
+    for (const a of sessionFiles) {
+      if (a.message_id == null) continue
+      const list = map.get(a.message_id)
+      if (list) list.push(a); else map.set(a.message_id, [a])
+    }
+    return map
+  }, [sessionFiles])
+
+  const loadSessionFiles = async (sid: number) => {
+    try { setSessionFiles((await getSessionAttachments(sid)).attachments) }
+    catch (error) { softFail('chat attachments')(error) }
+  }
+
   const activeFlags = (webResearch ? 1 : 0) + connectors.length + attachments.length
 
   // ── picker wizard (Feature 3) — answers go back to TOBI as the owner's next message ──
@@ -985,6 +1012,9 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
         )}
 
         <div className="relative flex min-h-0 flex-1">
+          {/* files sent in this session, tucked to the left of the transcript */}
+          <SessionFiles items={sessionFiles} collapsed={!filesOpen}
+            onToggle={() => setFilesOpen(o => !o)} onOpen={setLightbox} />
           <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-6 sm:px-8">
             <div className={`${COLUMN} space-y-6`}>
               {models.length === 0 && (
@@ -1028,12 +1058,16 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
                         </div>
                       ) : (
                         <>
-                          <div className="rounded-2xl rounded-tr-sm border border-accent/20 bg-accent/10 px-4 py-2.5 text-[15px] text-text"><div className="whitespace-pre-wrap leading-relaxed">{m.content}</div></div>
+                          <div className="rounded-2xl rounded-tr-sm border border-accent/20 bg-accent/10 px-4 py-2.5 text-[15px] text-text"><div className="whitespace-pre-wrap leading-relaxed">{stripAttachTag(m.content)}</div></div>
+                          <AttachmentStrip
+                            items={m.id != null ? (filesByMessage.get(m.id) ?? []) : []}
+                            pendingCount={m.id == null ? attachCount(m.content) : 0}
+                            onOpen={setLightbox} />
                           {m.created_at && <div className="mt-0.5 flex justify-end"><span title={fmtAbsolute(m.created_at)} className="cursor-default text-[10px] text-muted/50">{fmtRelative(m.created_at)}</span></div>}
                           <div className="mt-1 flex justify-end gap-3 opacity-0 transition-opacity group-hover:opacity-100">
-                            <button onClick={() => copy(m.content.replace(/\s*📎×\d+$/, ''))} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent"><Copy size={10} /> Copy</button>
-                            <button onClick={() => startWith(m.content.replace(/\s*📎×\d+$/, ''))} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent"><RotateCcw size={10} /> Resend</button>
-                            <button onClick={() => remember(m.content.replace(/\s*📎×\d+$/, ''), m.id)} disabled={remembering === m.id} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent disabled:opacity-50">
+                            <button onClick={() => copy(stripAttachTag(m.content))} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent"><Copy size={10} /> Copy</button>
+                            <button onClick={() => startWith(stripAttachTag(m.content))} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent"><RotateCcw size={10} /> Resend</button>
+                            <button onClick={() => remember(stripAttachTag(m.content), m.id)} disabled={remembering === m.id} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent disabled:opacity-50">
                               {remembering === m.id ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />} Remember
                             </button>
                             {m.id != null && <button onClick={() => startEdit(m)} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent"><Pencil size={10} /> Edit → branch</button>}
@@ -1136,14 +1170,16 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
                 </motion.div>
               )}
 
-              {/* model-issue notice — one-tap switch */}
+              {/* model-issue notice — two different failures, never the same card.
+                  `modelUnreachable` means no provider was reached, so the model picker is not
+                  offered: switching models cannot fix a connection the request never made. */}
               {modelIssue && !busy && (
                 <motion.div initial={{ opacity: 0, y: reduced ? 0 : 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-xl border border-warning/40 bg-warning/5 p-3.5">
-                  <div className="mb-1.5 flex items-center gap-2 text-sm font-semibold text-warning"><AlertTriangle size={15} /> The current model is struggling</div>
-                  <div className="mb-3 text-[13px] text-text">It kept returning incomplete output, sir. Switch to a stronger model and I’ll pick this straight back up.</div>
+                  <div className="mb-1.5 flex items-center gap-2 text-sm font-semibold text-warning"><AlertTriangle size={15} /> {modelUnreachable ? 'I could not reach the model' : 'The current model is struggling'}</div>
+                  <div className="mb-3 text-[13px] text-text">{modelUnreachable || 'It kept returning incomplete output, sir. Switch to a stronger model and I’ll pick this straight back up.'}</div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <ModelMenu models={models} value={model} onChange={changeModel} />
-                    <button onClick={() => { setModelIssue(false); pausedRunId != null ? recoverRun('retry_step') : regenerate() }} className="flex items-center gap-1.5 rounded-lg border border-warning/50 bg-warning/15 px-3 py-1.5 text-xs font-medium text-warning hover:bg-warning/25"><Zap size={13} /> Retry</button>
+                    {!modelUnreachable && <ModelMenu models={models} value={model} onChange={changeModel} />}
+                    <button onClick={() => { setModelIssue(false); setModelUnreachable(null); pausedRunId != null ? recoverRun('retry_step') : regenerate() }} className="flex items-center gap-1.5 rounded-lg border border-warning/50 bg-warning/15 px-3 py-1.5 text-xs font-medium text-warning hover:bg-warning/25"><Zap size={13} /> Retry</button>
                   </div>
                 </motion.div>
               )}
@@ -1541,6 +1577,9 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
           </div>
         </div>
       </div>
+
+      {/* full-screen view of an attached image, opened from the owner's own message */}
+      <ImageLightbox attachment={lightbox} onClose={() => setLightbox(null)} />
     </div>
   )
 }

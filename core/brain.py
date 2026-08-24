@@ -23,6 +23,7 @@ from core.database import (
     get_connection, load_conversation_history, save_conversation_message,
 )
 from core import embeddings as emb
+from core.proc import no_window
 
 logger = logging.getLogger(__name__)
 
@@ -1351,6 +1352,7 @@ def mirror_to_hermes(limit: int = 50) -> dict:
             res = subprocess.run(
                 ["hermes", "memory", "add", line],
                 capture_output=True, timeout=8, check=False,
+                creationflags=no_window(),
             )
             if res.returncode == 0:
                 conn.execute(

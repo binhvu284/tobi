@@ -251,6 +251,25 @@ def _timed_check(fn) -> dict:
     return {"ok": bool(ok), "detail": str(detail)[:120], "latency_ms": int((_t.perf_counter() - t0) * 1000)}
 
 
+def _vault_secret_names() -> set[str]:
+    """Names of the secrets the vault holds — never their values, and no unlock needed.
+
+    Only useful while the vault is locked: an unlocked vault has already put these into the
+    environment, so a connector that is still unavailable really has nothing saved.
+    """
+    try:
+        from core import vault
+        if vault.is_unlocked():
+            return set()
+        conn = _get_conn()
+        try:
+            return {str(row.get("name") or "") for row in vault.list_secrets(conn)}
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001 - a health check never fails on its own diagnostics
+        return set()
+
+
 def _deep_check_plan() -> tuple[Any, list[tuple[str, Any]], dict]:
     """Build the deep check without running any of it.
 
@@ -309,11 +328,23 @@ def _deep_check_plan() -> tuple[Any, list[tuple[str, Any]], dict]:
     integrations: dict = {}
     scheduled: list[tuple[str, Any]] = [("telegram", _tg), ("tavily", _tav)]
     try:
-        from core.integrations import _integrations
+        from core.integrations import REQUIRED_SECRETS, _integrations
+        stored = _vault_secret_names()
         for name, cls in _integrations.items():
             inst = cls()
             if not inst.is_available():
-                integrations[name] = {"ok": False, "detail": "not configured", "latency_ms": 0}
+                # "not configured" was said for two different situations: no key was ever
+                # saved, and the key is saved but the vault is locked so nothing was loaded
+                # into the environment. The second one is fixed by unlocking, and the owner
+                # can only know that if we say which one he has.
+                needed = REQUIRED_SECRETS.get(name, ())
+                locked_out = bool(stored) and any(secret in stored for secret in needed)
+                integrations[name] = {
+                    "ok": False,
+                    "detail": ("vault locked — the saved key was not loaded"
+                               if locked_out else "not configured"),
+                    "latency_ms": 0,
+                }
                 continue
 
             def _it(inst=inst):
@@ -397,6 +428,69 @@ async def api_health_deep_stream():
 
         yield _sse("done", {"summary": {"ok": sum(1 for c in results.values() if c.get("ok")),
                                         "total": len(results)}})
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ── Infrastructure self-check (#21) ──────────────────────────────────────────────
+# One button that proves the Runtime V2 foundation works *on this machine*: the wiring checks
+# answer instantly, then every acceptance suite runs in its own throwaway database. Streamed,
+# because the whole sweep is about a minute and a page that shows nothing for a minute is a
+# page the owner stops trusting.
+
+def _infra_plan() -> tuple[list, list]:
+    from core.runtime import self_check
+    return list(self_check.WIRING), list(self_check.SUITES)
+
+
+@router.get("/api/health/infrastructure")
+async def api_health_infrastructure():
+    """Every #21 infrastructure check, run now. Button-triggered, never on page load."""
+    from core.runtime import self_check
+    wiring = await asyncio.to_thread(self_check.wiring_checks)
+    suites = []
+    for spec in self_check.SUITES:
+        suites.append(await asyncio.to_thread(self_check.run_suite, spec))
+    return {"timestamp": datetime.now().isoformat(), "wiring": wiring, "suites": suites,
+            "summary": self_check.summarise(wiring, suites)}
+
+
+@router.get("/api/health/infrastructure/stream")
+async def api_health_infrastructure_stream():
+    """The same sweep, with each row sent the moment it lands.
+
+    The suites run one at a time on purpose. Three of them start real worker processes and wait
+    on real timeouts; running them alongside each other is what made one lose a race and report
+    a failure that was never in the code.
+    """
+    from core.runtime import self_check
+
+    async def events():
+        wiring_specs, suite_specs = _infra_plan()
+        yield _sse("start", {
+            "timestamp": datetime.now().isoformat(),
+            "wiring": [{"id": id, "label": label} for id, label, _fn, _hint in wiring_specs],
+            "suites": [{"id": s.id, "label": s.label, "package": s.package, "proves": s.proves}
+                       for s in suite_specs],
+        })
+        wiring = await asyncio.to_thread(self_check.wiring_checks)
+        for row in wiring:
+            yield _sse("wiring", row)
+
+        suites: list[dict] = []
+        for spec in suite_specs:
+            try:
+                row = await asyncio.to_thread(self_check.run_suite, spec)
+            except Exception as exc:  # noqa: BLE001 - reported as a failed row, never raised
+                row = {"id": spec.id, "label": spec.label, "package": spec.package,
+                       "proves": spec.proves, "ok": False, "checks": 0, "failed": 1,
+                       "detail": self_check.redact(str(exc))[:220], "retried": False,
+                       "duration_ms": 0}
+            suites.append(row)
+            yield _sse("suite", row)
+
+        yield _sse("done", {"summary": self_check.summarise(wiring, suites)})
 
     return StreamingResponse(events(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

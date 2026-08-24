@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterator, Mapping, Optional
 
 from core.conductor_parsing import _parse_tool_call, strip_tool_calls
+from core.runtime import transport_failure
 
 logger = logging.getLogger("tobi.conductor")
 
@@ -163,6 +164,9 @@ def compose_final_response(
             usage_context=context.usage_context)
 
     if decision.requires_escalation:
+        # Set only when a second model was actually reached — reaching one proves the network
+        # is fine and the first model really is the problem, which is when switching helps.
+        escalation_reached = False
         try:
             stronger, stronger_id = get_escalation_llm(context.requested_model)
             if stronger is not None:
@@ -211,6 +215,7 @@ def compose_final_response(
                     )
                 finally:
                     restore_usage_context(previous_usage)
+                escalation_reached = transport_failure.last(stronger) is None
                 retry_clean, retry_reasoning = split_reasoning(retry)
                 if retry_is_answer and retry_clean and not _parse_tool_call(retry_clean):
                     actual_retry_model = getattr(stronger, "actual_model_id", None) or stronger_id
@@ -226,6 +231,19 @@ def compose_final_response(
                         reason_override="malformed_output")
         except Exception as exc:  # noqa: BLE001
             logger.warning("conductor model escalation failed: %s", exc)
+        # An empty answer from a provider that was never reached is not a model that answered
+        # badly, and telling the owner to switch models sends him somewhere that cannot help.
+        transport_code = transport_failure.last(context.client)
+        if transport_code and not escalation_reached:
+            return attach_model_metadata({
+                "reply": transport_failure.owner_message(transport_code),
+                "tools_used": list(context.tools_used),
+                "intent": context.intent,
+                "model_issue": True,
+                "model_unreachable": transport_code,
+                "streamed": False,
+            }, client=context.client, requested_model=context.requested_model,
+                usage_context=context.usage_context)
         return attach_model_metadata({
             "reply": model_struggling_text,
             "tools_used": list(context.tools_used),
@@ -266,12 +284,18 @@ def generate_step(
     on_reset: Optional[Callable[[], None]] = None,
 ) -> ModelStepResult:
     """Run one model turn while buffering anything classified as a tool call."""
+    # A stamp from the previous step would describe the wrong call, so clear it first and
+    # only set it again if this call really fails to reach a provider.
+    transport_failure.record(client, None)
     streamer = getattr(client, "complete_stream", None)
     if not on_delta or streamer is None:
         try:
             text = client.complete(list(messages), system=system, max_tokens=max_tokens) or ""
         except Exception as exc:  # noqa: BLE001
-            logger.warning("conductor step failed: %s", exc)
+            code = transport_failure.record(client, exc)
+            # The exception body can carry the request URL and the Authorization header,
+            # so the log gets the shape of the failure, never the provider's own text.
+            logger.warning("conductor step failed: %s (%s)", type(exc).__name__, code)
             return ModelStepResult("", False, "error")
         is_answer = _parse_tool_call(text) is None and not looks_like_tool_start(text.lstrip())
         if is_answer and on_delta:
@@ -313,11 +337,15 @@ def generate_step(
                     on_delta(buffer[emitted:])
                     emitted = len(buffer)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("conductor stream failed: %s", exc)
+        logger.warning("conductor stream failed: %s", type(exc).__name__)
         try:
             buffer = client.complete(list(messages), system=system, max_tokens=max_tokens) or buffer
-        except Exception:
-            pass
+        except Exception as retry_exc:  # noqa: BLE001
+            # Both paths failed and nothing arrived: this step never reached a provider, and
+            # the reason must survive the empty string it is about to become.
+            if not buffer:
+                logger.warning("conductor step failed: %s (%s)", type(retry_exc).__name__,
+                               transport_failure.record(client, retry_exc))
 
     if decided is None:
         decided = (

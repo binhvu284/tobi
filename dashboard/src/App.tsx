@@ -37,6 +37,9 @@ const Developer = lazy(() => import('./pages/Developer'))
 const Runs = lazy(() => import('./pages/Runs'))
 // Architecture V2 dynamically imports the Mermaid renderer (~500KB) — lazy-load so it stays out of the main bundle.
 const Architecture = lazy(() => import('./pages/Architecture'))
+// Morpheus is the private sibling app: its own shell, tabs, theme and gate. Lazy-loaded so
+// none of it reaches the main bundle for owners who never open it.
+const MorpheusApp = lazy(() => import('./morpheus/MorpheusApp'))
 
 function RouteSet({ location }: { location?: string }) {
   return (
@@ -108,17 +111,31 @@ function WorkspaceRoutePanes() {
   )
 }
 
+/** TOBI's own shell. Everything except Morpheus renders inside it. */
+function TobiWorkspace() {
+  return (
+    <WorkspaceTabsProvider>
+      <AppShell>
+        <WorkspaceRoutePanes />
+      </AppShell>
+    </WorkspaceTabsProvider>
+  )
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <ThemeProvider>
         <MotionProvider>
           <ToastProvider>
-            <WorkspaceTabsProvider>
-              <AppShell>
-                <WorkspaceRoutePanes />
-              </AppShell>
-            </WorkspaceTabsProvider>
+            {/* Morpheus sits OUTSIDE AppShell: it brings its own sidebar, tab strip and theme,
+                so nesting it inside TOBI's chrome would give the owner two of each. */}
+            <Routes>
+              <Route path="/morpheus/*" element={
+                <Suspense fallback={<PageLoader />}><MorpheusApp /></Suspense>
+              } />
+              <Route path="*" element={<TobiWorkspace />} />
+            </Routes>
           </ToastProvider>
         </MotionProvider>
       </ThemeProvider>

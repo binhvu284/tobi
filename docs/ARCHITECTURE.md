@@ -1,6 +1,15 @@
 # TOBI Architecture
 
-> Current architecture snapshot: 2026-07-16. Code and tests remain authoritative. Configuration-dependent external services were not called during this update.
+> Current architecture snapshot: 2026-08-25. Code and tests remain authoritative. Configuration-dependent external services were not called during this update.
+
+## TM01 Refresh Snapshot - 2026-08-25
+
+The committed Runtime V2 foundation ends at the passive surface-adapter boundary: Chat has the
+gated canonical path, while Projects, Office, CLI, Telegram, and schedulers keep their existing
+owners and can mirror bounded evidence. The current checkout also contains an uncommitted T15
+package for a Health Infrastructure self-check, shared hidden-window process options, expanded
+architecture diagrams, and loading-state checks. These local files are not treated as released
+architecture until the active package gate and commit complete.
 
 ## System Context
 
@@ -238,7 +247,11 @@ Schema initialization is additive. `core/database.py` creates the main families;
 
 ### LLM providers
 
-The router catalog currently includes Anthropic, GLM/Z.ai, OpenAI, OpenRouter, Gemini, Grok, Codex, Ollama, and custom OpenAI-compatible endpoints. Model selection follows explicit model -> task override -> default -> legacy environment fallback, then configured fallback behavior.
+The router catalog currently includes Anthropic, GLM/Z.ai, OpenAI, OpenRouter, DeepSeek, Gemini, Grok, Codex, Ollama, and custom OpenAI-compatible endpoints. Model selection follows explicit model -> task override -> default -> legacy environment fallback, then configured fallback behavior.
+
+DeepSeek uses its own OpenAI-compatible endpoint (`https://api.deepseek.com`, key `DEEPSEEK_API_KEY`) and ships `deepseek-v4-pro`, `deepseek-v4-flash`, and `deepseek-v4-flash-vision-exp`. Bare `deepseek-*` model ids resolve to this provider; `deepseek/...` ids remain OpenRouter ids. Only the `-vision-exp` model declares image input. Verified 2026-08-25 against `core/model_router.PROVIDERS` and a live 401 from the provider.
+
+When a model returns output Chat cannot use, `get_escalation_llm` hands off to a second model. It reads the configured `fallback` list first, then falls back to the catalog itself — the current provider's sibling models first, then other enabled providers — so recovery works on a stock install with nothing configured. `tests/test_escalation_without_config.py` locks that behavior. The catalog walk does not check key presence, so a provider that is enabled but has no key can consume one escalation attempt before the chain moves on.
 
 Every claim about actual model availability depends on current keys/tokens and provider configuration.
 

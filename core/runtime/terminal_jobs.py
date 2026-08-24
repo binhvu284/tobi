@@ -18,6 +18,7 @@ from core import database
 from core.runtime.contracts import RuntimeToolCall
 from core.runtime.event_store import redact_payload
 from core.schema.runtime import _ensure_runtime_schema
+from core.proc import no_window
 
 
 MAX_JOB_OUTPUT_CHARS = 6_000
@@ -744,10 +745,9 @@ def launch_detached_worker(
         "close_fds": True,
     }
     if os.name == "nt":
-        kwargs["creationflags"] = (
+        kwargs["creationflags"] = no_window(
             getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
             | getattr(subprocess, "DETACHED_PROCESS", 0)
-            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
         )
     else:
         kwargs["start_new_session"] = True

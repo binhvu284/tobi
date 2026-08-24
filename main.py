@@ -60,6 +60,7 @@ from core.scheduled_jobs import (
     get_telegram_app, job_execution_cycle, notify, setup_schedules,
     shutdown_telegram_app, start_telegram_polling,
 )
+from core.proc import no_window
 
 PROJECT_DIR = Path(__file__).resolve().parent
 _PID_FILE = PROJECT_DIR / ".tobi" / "tobi.pid"
@@ -167,6 +168,7 @@ def _pid_alive(pid: int) -> bool:
             out = subprocess.run(
                 ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
                 capture_output=True, text=True, timeout=10,
+                creationflags=no_window(),
             ).stdout
             return str(pid) in out
         except Exception:
@@ -185,7 +187,7 @@ def _terminate_pid(pid: int, force: bool = False) -> None:
     if os.name == "nt":
         import subprocess
         args = ["taskkill", "/PID", str(pid)] + (["/F"] if force else [])
-        subprocess.run(args, capture_output=True, text=True)
+        subprocess.run(args, capture_output=True, text=True, creationflags=no_window())
         return
     os.kill(pid, signal.SIGKILL if force else signal.SIGTERM)
 
@@ -362,11 +364,13 @@ def _ensure_port_public():
         subprocess.run(
             ["gh", "codespace", "ports", "visibility", f"{port}:public", "-c", codespace],
             capture_output=True, text=True,
+            creationflags=no_window(),
         )
         try:
             listing = subprocess.run(
                 ["gh", "codespace", "ports", "-c", codespace],
                 capture_output=True, text=True, timeout=15,
+                creationflags=no_window(),
             ).stdout
         except Exception:
             listing = ""

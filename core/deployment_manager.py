@@ -9,6 +9,7 @@ from typing import Any, Sequence
 
 from core.coding_policy import CodingPolicy, PolicyDenied
 from core.development_store import DevelopmentStore, utc_now
+from core.proc import no_window
 
 
 class DeploymentError(RuntimeError):
@@ -30,6 +31,7 @@ class DeploymentManager:
         result = subprocess.run(
             list(argv), cwd=str(cwd), capture_output=True, text=True,
             timeout=self.policy.limit("command_timeout_seconds", 900),
+            creationflags=no_window(),
         )
         stdout = redact(result.stdout[-20_000:])
         stderr = redact(result.stderr[-20_000:])

@@ -49,7 +49,9 @@ database.init_database()
 r = client.get("/api/architecture/diagrams")
 ok("GET diagrams → 200", r.status_code == 200)
 body = r.json()
-ok("diagrams envelope has 2 items", body["count"] == 2 and len(body["items"]) == 2, str(body))
+from core import architecture_docs as _ad
+ok("diagrams envelope lists every registered diagram",
+   body["count"] == len(_ad.DIAGRAMS) and len(body["items"]) == len(_ad.DIAGRAMS), str(body))
 ids = [it["id"] for it in body["items"]]
 ok("both canonical ids present", "overall-tobi" in ids and "mission-control" in ids)
 

@@ -1,6 +1,17 @@
 # Current State
 
-> Verified from the D-drive repository through 2026-08-20. Queue #21 Runtime V2 was checked with Graphify-guided navigation, focused package gates, broad runtime/security regressions, production dashboard build, and desktop/mobile browser checks. No production activation, deployment, Supabase action, or Vercel action was performed.
+> Verified from the D-drive repository through 2026-08-25. Queue #21 Runtime V2 is complete in committed source. No production activation, deployment, Supabase action, or Vercel action was performed.
+>
+> TM01 full refresh at `6617575`: active docs were compared with current code, tests, queue, and Git history. The checkout is dirty with an uncommitted #21/T15 package containing Infrastructure self-check, process-spawn hardening, diagrams, and UI changes. Those local changes are described as work in progress, not shipped behavior. See `DOCUMENTATION_AUDIT.md`.
+
+## TM01 Refresh Snapshot - 2026-08-25
+
+| State | Meaning |
+|---|---|
+| Committed | #21 Runtime V2 T00-T15 is present through `31d95ec` and later local commits. Runtime history, rollout controls, Runs projections, and passive surface adapters are documented below. |
+| Local only | The current worktree adds #33 Infrastructure self-check, `core/proc.py` no-console process spawning, additional architecture diagrams, and related tests/UI. It must be committed and pass the active gate before the queue can call it shipped. |
+| Not verified here | Live integrations, VPS behavior, public deployment, and owner rollout activation. No external service was contacted by this refresh. |
+| Freshness | Claims in this file use the 2026-08-25 refresh unless a row explicitly names an older evidence date. |
 
 ## Executive Summary
 
@@ -27,7 +38,7 @@ The largest truth gaps are no longer "nothing is built." Chat/Agent mode policy,
 | Mission Control Runtime V2 | Canonical durable runs, leases, checkpoints, recovery, loops, policy, approvals, tool contracts, receipts, traces, evaluations, System Model, Runs page, staged rollout/rollback, and passive adapters for Projects, Office, CLI, Telegram, and schedulers. All rollout controls default off |
 | Coding Agent v2 | Developer goal assessment, bounded sprint contracts, explicit MC Native/Codex/OpenCode profiles, portable checkpoints, checkpoint-only worker switching, deterministic quality gates, independent review, encrypted Vault-to-runner credential handoff, supervised service execution, and evidence-backed learning/replay |
 | Hermes skill view | Read-only parsing of repository `hermes_skills/*.md` through `/api/hermes/skills`, displayed separately on Ability with execution disabled |
-| Model routing | Anthropic, GLM/Z.ai, OpenAI, OpenRouter, Gemini, Grok, Codex, Ollama, and custom OpenAI-compatible providers; per-task routing, fallback, streaming, vision, and usage logging |
+| Model routing | Anthropic, GLM/Z.ai, OpenAI, OpenRouter, DeepSeek, Gemini, Grok, Codex, Ollama, and custom OpenAI-compatible providers; per-task routing, fallback, streaming, vision, and usage logging. DeepSeek (added 2026-08-25) ships the three V4 models with a 1M context, priced in `config/llm_prices.yaml` at peak rates; its key is not set in this checkout, so the provider shows "No key" until the owner adds one |
 | Vault and integrations | Encrypted vault, profiles, auto-unlock option, key slots, audit, export/import, live environment injection, and integration management in MC |
 | Google connector | OAuth code paths for Drive, Gmail, and Calendar reads are implemented. Credential-stage setup is not treated as verified read access; the OAuth callback must complete and a read test must succeed. Actual availability was not live-tested in this audit |
 | Other connectors | Notion and GitHub have read/write methods; Vercel has deployment reads; Supabase has table query/insert methods. Credential rotation/import resets cached test evidence, and actual availability remains configuration- and authorization-dependent |

@@ -1,5 +1,143 @@
 # Documentation Audit
 
+## Refresh - 2026-08-25 (TM01, full checkout)
+
+Protocol: [`UPDATE_DOCS_TM01.md`](UPDATE_DOCS_TM01.md). Agent: Codex. Revision inspected:
+`6617575` on `main`; `origin/main` is `31d95ec`. The checkout was already dirty with the active
+#21/T15 package and unrelated runtime/UI changes. Those changes were preserved and are clearly
+labelled local-only below.
+
+### Active documents updated
+
+- `README.md`: refreshed the index, added architecture/security/acceptance/queue sources, and
+  marked the local Morpheus mockup as non-shipped.
+- `02_CURRENT_STATE.md`: replaced the partial-refresh banner with a full committed-vs-local
+  snapshot and updated freshness language.
+- `ARCHITECTURE.md`, `MISSION_CONTROL.md`, and `RUNTIME_V2.md`: updated dates and described the
+  committed passive-adapter boundary plus the uncommitted Infrastructure self-check package.
+- `DEVELOPMENT.md`: recorded the current revision split, stale Graphify index, and active gate
+  command.
+- `03_ROADMAP.md`: clarified that #22 is Codex-only qualification and full Agent tier remains
+  open.
+- `feature-idea-queue/QUEUE.md` and `QUEUE_DELIVERY_LOG.md`: corrected #33 from shipped to local
+  work in progress because its implementation is not in committed source yet.
+- `archive/README.md`: added the historical handover category.
+
+### Archived
+
+- `HANDOVER_DEVELOPER_MODULE_2026-07-28.md` -> `archive/handovers/`: old branch/commit handover
+  is historical and no longer a safe current Developer source.
+- `REFACTORING_PLAN.md` -> `archive/roadmaps/`: proposed structural plan is historical; the
+  active docs and current package file now describe the live architecture and work boundary.
+
+### Queue and current-work finding
+
+#21 remains complete in committed source. #33 is not closed: the code, tests, diagrams, and spec
+are in the current worktree under the active T15 package, but `git log` has no #33 delivery commit.
+This correction prevents a new agent from assuming the Health button is already released.
+
+### Unresolved code/docs gaps
+
+1. The active #21/T15 package still needs its own gate, commit, and owner acceptance before #33
+   can return to Done.
+2. The dashboard and much of the MC API remain a trusted single-owner surface rather than a
+   generally authenticated public service.
+3. Runtime V2 rollout is still off by default; passive adapters do not replace legacy execution.
+4. The Graphify executable is unavailable in this environment and the checked-in index is stale;
+   direct source and test verification was used instead.
+
+### Checks
+
+- `git diff --check`: pass. Git printed only existing line-ending normalization warnings.
+- Markdown relative-link scan: pass (`MARKDOWN_LINKS_OK`).
+- `python scripts/gate.py`: the bare command was unavailable in this PowerShell session; the
+  required D-drive interpreter command passed with `GATE GREEN (24 of 24 checks pass)`.
+- No code, runtime data, external service, Supabase, or Vercel action was performed by TM01.
+
+## Refresh - 2026-08-25 (TM01, partial)
+
+> Superseded by the full 2026-08-25 TM01 refresh above. Retained only as provenance for the
+> earlier narrowed model-routing pass; its scope and unresolved-gap list are not current status.
+
+Protocol: `UPDATE_DOCS_TM01.md`. Agent: Claude Code (Opus 5). Revision inspected:
+`6617575` on `main`, 9 commits ahead of `origin/main`, worktree dirty with 221 files
+before the refresh.
+
+**Scope was deliberately narrowed to the model-routing area.** A large concurrent change
+set from another agent lane was in flight during this refresh -- `core/runtime/self_check.py`,
+`core/proc.py`, `core/runtime/transport_failure.py`, four architecture diagram files,
+`QUEUE.md`, `QUEUE_DELIVERY_LOG.md`, and `INFRASTRUCTURE_SELF_CHECK_SPEC.md` were all
+uncommitted. Those files were left untouched, and the rows describing that work were not
+re-verified. Nothing was committed or pushed.
+
+### Active documents updated
+
+- `02_CURRENT_STATE.md` -- Model routing row now lists DeepSeek and records that its key is
+  absent in this checkout. Added a TM01 banner line stating exactly which area carries a
+  2026-08-25 evidence date and which rows still carry 2026-08-20.
+- `ARCHITECTURE.md` -- Provider catalog list now includes DeepSeek. Added the DeepSeek
+  endpoint/model/id-resolution paragraph, and a paragraph describing catalog-based escalation
+  (`get_escalation_llm`), which was previously undocumented in every current doc despite two
+  commits and a dedicated regression test covering it.
+- `.env.example` -- Added the `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`, and `XAI_API_KEY` names.
+  `DEVELOPMENT.md` names this file as the authority for environment variable names, and all
+  three providers existed in the router catalog without an entry here.
+- `REFACTORING_PLAN.md` -- Added a status stamp only; the plan body was not revised. Its header
+  still read "Proposed (not started)" while two of its three targets had shipped:
+  `api/dashboard.py` is 412 lines against a plan figure of 6,636 and a goal of under ~500, and
+  `core/conductor.py` is 478 against 3,121. `core/development_store.py` is untouched and has
+  grown from 1,748 to 2,658 lines. Line counts measured at `6617575`.
+- `README.md` -- Indexed `BRAIN_V2_OPERATIONS.md` as an active operations document, and added a
+  level-4 section indexing `REFACTORING_PLAN.md` and `HANDOVER_DEVELOPER_MODULE_2026-07-28.md`.
+  All three existed in `docs/` without appearing in the index.
+
+### Checks
+
+- `git diff --check` -- pass (exit 0; only repo-wide CRLF advisories, present on files this
+  refresh did not touch).
+- `python scripts/gate.py` -- pass, 24/24 `[PASS]`, exit 0.
+
+### Verification performed
+
+- `core/model_router.PROVIDERS` read directly; provider/model resolution exercised for bare
+  ids, prefixed ids, and OpenRouter `deepseek/...` ids.
+- Live request through `build_client('deepseek:deepseek-v4-flash')` returned HTTP 401 from
+  `api.deepseek.com`, proving endpoint and model id, not merely code presence.
+- Tests run green: `test_model_routing_usage.py` (6), `test_escalation_without_config.py` (13),
+  `test_model_unreachable_message.py`, `test_chat_self_check.py`, `test_codex_auth_freshness.py` (4),
+  `test_infrastructure_self_check.py`, `test_vault_payload.py` (17), `test_storage_usage.py` (36),
+  `test_premium_readers.py` (72). Dashboard `tsc --noEmit` clean; `vite build` clean.
+
+### Archived
+
+Nothing.
+
+### Queue
+
+Unchanged. The DeepSeek provider was a direct owner request, not a queued item, and
+`QUEUE.md` was already being edited in the concurrent lane.
+
+### Unresolved gaps
+
+1. `MISSION_CONTROL.md` still carries a 2026-07-16 evidence date and was not re-verified.
+2. Queue item #33 (infrastructure self-check) is marked Done in `QUEUE.md` and its test passes,
+   but no current-state or architecture document describes it yet. It belongs to the concurrent
+   lane and was left to that lane to document.
+3. `get_escalation_llm` walks the catalog without checking key presence, so an enabled provider
+   with no key can consume one escalation attempt. Documented as current behavior in
+   `ARCHITECTURE.md`; needs an owner decision on whether to filter, not a docs fix.
+4. `tests/` mixes pytest files with script-style files that call `raise SystemExit` at module
+   level; the latter abort a shared pytest invocation. Not a docs defect, but it makes any
+   "run the suite" instruction in `DEVELOPMENT.md` misleading.
+5. `tests/test_premium_readers.py` permanently reassigns `model_router.available_models` with no
+   cleanup, so it poisons `test_model_routing_usage.py` when both run in one pytest process.
+6. `core/development_store.py` is now the single largest backend module at 2,658 lines and is the
+   only remaining target in `REFACTORING_PLAN.md`. Needs an owner decision, not a docs fix.
+7. `MISSION_CONTROL.md`, `RUNTIME_V2.md`, `DEVELOPMENT.md`, `03_ROADMAP.md`, and `01_VISION.md`
+   were read for drift against the model-routing change but were not line-by-line re-verified
+   against the whole codebase. They keep their existing evidence dates.
+
+
 ## Refresh - 2026-07-14
 
 The maintained truth documents were rechecked from the previous broad docs baseline (`7802175`)

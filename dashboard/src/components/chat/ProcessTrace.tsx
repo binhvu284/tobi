@@ -1,18 +1,24 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check, ChevronRight } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { useReducedMotionPref } from '../../context/MotionProvider'
-import { Orb, CAT_TOKEN, PHRASES, phaseCategory, resolvePhaseIcon, type OrbCat } from './ThinkingOrb'
+import {
+  PhaseNode, StepMarker, CAT_TOKEN, PHASE_VERB, phaseCategory, resolvePhaseIcon, getToolIcon,
+  type OrbCat,
+} from './PhaseIndicator'
 
-/* ProcessTrace — TOBI's "show your work", with the old thinking-orb's soul.
+/* ProcessTrace - TOBI's "show your work".
 
-   Structure (from the flicker fix): a stable, accumulating checkpoint timeline while working,
-   collapsing into a "Worked for Xs" disclosure above the answer once done — so process is never
-   confused with result. Feel (restored per the owner): the live orb *leads* the current step,
-   shifting colour by the action category (recall=purple · web=amber · act=green · read/think=
-   accent); a living header label cycles soft phrases with a blur-slide; each new checkpoint eases
-   in with a dreamy blur-slide; the panel carries a soft category-tinted glow + a slow sheen.
-   Reduced-motion collapses to a calm static orb + gentle fades (guards live in index.css). */
+   Live, it is a checkpoint rail: each tool the model runs lands as a settled row with its own
+   icon, and the row currently running carries a breathing node and a shimmer across its text.
+   Finished, the whole thing folds into one quiet "Worked for Xs" disclosure above the answer,
+   so process is never mistaken for result.
+
+   Design note (2026-08-25): this replaced a glowing orb that ran nine animated layers while a
+   header cycled invented phrases ("Turning it over...", "Digging into the archives...") on a
+   1.9s timer. The phrases described nothing real, and the motion competed with the checkpoint
+   list that was already saying what was happening. Now the only things that move are the
+   running step and arriving checkpoints, and every word on screen comes from the backend. */
 
 // Mirrors the backend _TOOL_PHASE map (core/conductor.py) so the persisted view (which only has
 // the tool names) reconstructs the same human checkpoints the live stream showed.
@@ -41,8 +47,22 @@ export function toolPhase(tool: string): string {
   return PHASE_BY_TOOL[tool] || `Used ${tool.replace(/_/g, ' ')}`
 }
 
+// Exact reverse of the map above. A rendered step is a human phrase, not a tool name, so
+// resolving its icon by keyword ("Listed your repos" contains no "github") lost the right
+// glyph on 10 of the 43 phases. Going phrase -> tool -> icon makes every known step exact,
+// and keyword matching stays only as the fallback for a phase this build does not know.
+const TOOL_BY_PHASE: Record<string, string> = Object.fromEntries(
+  Object.entries(PHASE_BY_TOOL).map(([tool, phrase]) => [phrase.toLowerCase(), tool]),
+)
+
+/** The icon for a rendered step: its own tool's glyph, else a keyword guess, else null. */
+export function stepIcon(step: string) {
+  const tool = TOOL_BY_PHASE[step.trim().toLowerCase()]
+  return (tool && getToolIcon(tool)) || resolvePhaseIcon(step)
+}
+
 const catOf = (step: string): OrbCat => phaseCategory(step)
-const rgb = (token: string, a?: number) => a != null ? `rgb(var(--${token}) / ${a})` : `rgb(var(--${token}))`
+const GENERIC = /^(thinking|composing)/i
 
 type Props = {
   active?: boolean          // the turn is still running → live timeline
@@ -65,17 +85,50 @@ export default function ProcessTrace({ active, steps, tools, thinking, startedAt
   const toolList = tools?.length ? tools : (isConsulted ? thinking!.slice(11).split(', ').map(s => s.trim()).filter(Boolean) : [])
   // drop the generic bookend placeholders (Thinking… / Composing…) — a plain reply with no real
   // tool actions or reasoning shows no disclosure at all
-  const stepList = (steps?.length ? steps : toolList.map(toolPhase)).filter(s => !/^(thinking|composing)/i.test(s.trim()))
+  const stepList = (steps?.length ? steps : toolList.map(toolPhase)).filter(s => !GENERIC.test(s.trim()))
   if (!stepList.length && !reasoning && !toolList.length) return null
   return <FinishedTrace steps={stepList} reasoning={reasoning} tools={toolList}
     elapsedMs={elapsedMs} tokens={tokens} reduced={reduced} />
 }
 
-// ── live: orb-led checklist under a living label, softly glowing per current action ─────
+/** Reveal arrived steps one at a time.
+ *
+ *  The stream can hand over several phases in a single update - a fast tool burst, a resumed
+ *  run, or a re-render that carries the whole array - and dropping four rows in together reads
+ *  as a jolt rather than as progress. This walks a cursor up to the real count so each row
+ *  lands on its own beat, in order. A long backlog plays faster so the list never feels behind
+ *  the model, and reduced motion skips the cascade entirely. */
+function useSequentialReveal(total: number, reduced: boolean) {
+  const [count, setCount] = useState(total ? 1 : 0)
+  const lastAt = useRef(0)
+  useEffect(() => {
+    if (reduced) { setCount(total); return }
+    if (total < count) { setCount(total); lastAt.current = Date.now(); return }  // a new turn reset it
+    if (count >= total) return
+    const backlog = total - count
+    // pace only what actually piled up. A step that arrives on its own, well after the previous
+    // one, has already earned its beat and shows immediately - the cascade must never make the
+    // list lag behind the model it is reporting on.
+    const minGap = backlog > 3 ? 110 : 240
+    const wait = count === 0 ? 0 : Math.max(0, minGap - (Date.now() - lastAt.current))
+    const t = setTimeout(() => { lastAt.current = Date.now(); setCount(c => Math.min(c + 1, total)) }, wait)
+    return () => clearTimeout(t)
+  }, [total, count, reduced])
+  return count
+}
+
+// ── live: a bare checkpoint rail, the running step breathing and shimmering ─────────────
 function LiveTrace({ steps, startedAt, reduced }: { steps: string[]; startedAt: number; reduced: boolean }) {
-  const shown = steps.length ? steps : ['Thinking…']
+  // "Thinking…" / "Composing…" are bookend placeholders, not work. Keep one only while it is
+  // the row actually running, so a finished turn never leaves "Thinking…" sitting in the list.
+  const real = steps.filter(s => !GENERIC.test(s.trim()))
+  const tail = steps[steps.length - 1] ?? ''
+  const all = real.length || !tail ? (real.length ? real : [PHASE_VERB['think']]) : [...real, tail]
+  // the cascade holds back rows that arrived together; the newest visible row stays the live one,
+  // so the pulse and the timer walk down the list as it fills instead of blinking out
+  const revealed = useSequentialReveal(all.length, reduced)
+  const shown = all.slice(0, Math.max(1, revealed))
   const curCat = catOf(shown[shown.length - 1])
-  const token = CAT_TOKEN[curCat]
 
   const [elapsed, setElapsed] = useState(0)
   useEffect(() => {
@@ -83,69 +136,47 @@ function LiveTrace({ steps, startedAt, reduced }: { steps: string[]; startedAt: 
     return () => clearInterval(t)
   }, [startedAt])
 
-  // living header: ambient category phrases that keep evolving (the concrete work is the list)
-  const pool = PHRASES[curCat]
-  const [idx, setIdx] = useState(0)
-  useEffect(() => { setIdx(0) }, [curCat])
-  useEffect(() => {
-    const t = setInterval(() => setIdx(i => (i + 1) % pool.length), reduced ? 2800 : 1950)
-    return () => clearInterval(t)
-  }, [pool, reduced])
-  const label = pool[idx % pool.length]
-
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, transition: { duration: 0 } }}
-      className="proc-panel inline-block min-w-[240px] max-w-full" style={{ ['--orb' as string]: `var(--${token})` }}>
-      <div className="proc-sheen" aria-hidden />
-      <div className="relative">
-        {/* living label + soft dot wave + elapsed */}
-        <div className="mb-2 flex items-center gap-2">
-          <span className="orb-label-grad inline-flex text-[13px] font-medium">
-            <AnimatePresence mode="wait">
-              <motion.span key={label}
-                initial={{ opacity: 0, y: reduced ? 0 : 7, filter: reduced ? 'none' : 'blur(3px)' }}
-                animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-                exit={{ opacity: 0, y: reduced ? 0 : -7, filter: reduced ? 'none' : 'blur(3px)' }}
-                transition={{ duration: 0.42, ease: 'easeOut' }} className="inline-block">{label}</motion.span>
-            </AnimatePresence>
-          </span>
-          <span className="orb-dots" aria-hidden>
-            <i className="orb-dot" style={{ ['--i' as string]: 0 }} />
-            <i className="orb-dot" style={{ ['--i' as string]: 1 }} />
-            <i className="orb-dot" style={{ ['--i' as string]: 2 }} />
-          </span>
-          <span className="ml-auto pl-3 font-mono text-[10px] tabular-nums text-muted/70">{elapsed.toFixed(1)}s</span>
-        </div>
-        {/* checkpoint timeline — orb leads the current step, tool icons on the done ones */}
-        <ol className="space-y-1.5">
-          <AnimatePresence initial={false}>
-            {shown.map((s, i) => {
-              const isLast = i === shown.length - 1
-              const cat = catOf(s)
-              const tok = CAT_TOKEN[cat]
-              const Icon = resolvePhaseIcon(s)
-              return (
-                <motion.li key={`${i}-${s}`} layout={!reduced}
-                  initial={{ opacity: 0, y: reduced ? 0 : 6, filter: reduced ? 'none' : 'blur(3px)' }}
-                  animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-                  transition={{ duration: 0.4, ease: 'easeOut' }}
-                  className="flex items-center gap-2.5 text-[12.5px]">
+      transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+      className="py-0.5"
+      role="status" aria-live="polite"
+      aria-label={`${shown[shown.length - 1]}, ${elapsed.toFixed(0)} seconds elapsed`}
+    >
+      <ol className="proc-rail">
+        <AnimatePresence initial={false}>
+          {shown.map((step, i) => {
+            const isLast = i === shown.length - 1
+            const cat = catOf(step)
+            const Icon = stepIcon(step)
+            return (
+              <motion.li
+                key={`${i}-${step}`}
+                layout={!reduced}
+                initial={{ opacity: 0, y: reduced ? 0 : 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.34, ease: [0.16, 1, 0.3, 1] }}
+                className="proc-step"
+                data-running={isLast ? 'true' : undefined}
+                style={{ ['--orb' as string]: `var(--${CAT_TOKEN[cat]})` }}
+              >
+                <span className="proc-marker">
                   {isLast
-                    ? <span className="proc-orb"><Orb cat={cat} reduced={reduced} /></span>
-                    : <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md"
-                        style={{ background: rgb(tok, 0.08) }}>
-                        {Icon
-                          ? <Icon size={13} style={{ color: rgb(tok, 0.85) }} />
-                          : <Check size={13} style={{ color: rgb(tok, 0.7) }} />}
-                      </span>}
-                  <span className={isLast ? 'font-medium' : 'text-muted'} style={isLast ? { color: rgb(tok) } : undefined}>{s}</span>
-                </motion.li>
-              )
-            })}
-          </AnimatePresence>
-        </ol>
-      </div>
+                    ? <PhaseNode cat={cat} Icon={Icon} reduced={reduced} />
+                    : <StepMarker cat={cat} Icon={Icon} />}
+                </span>
+                <span className={isLast ? (reduced ? 'proc-live-still' : 'proc-live') : 'text-muted'}>
+                  {step.replace(/…$/, '')}
+                </span>
+                {isLast && (
+                  <span className="ml-1.5 font-mono text-[10px] tabular-nums text-muted/55">{elapsed.toFixed(1)}s</span>
+                )}
+              </motion.li>
+            )
+          })}
+        </AnimatePresence>
+      </ol>
     </motion.div>
   )
 }
@@ -183,16 +214,10 @@ function FinishedTrace({ steps, reasoning, tools, elapsedMs, tokens, reduced }:
               {steps.length > 0 && (
                 <ol className="space-y-1">
                   {steps.map((s, i) => {
-                    const stepTok = CAT_TOKEN[catOf(s)]
-                    const StepIcon = resolvePhaseIcon(s)
+                    const StepIcon = stepIcon(s)
                     return (
                       <li key={i} className="flex items-center gap-2 text-[12px] text-muted">
-                        <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded"
-                          style={{ background: rgb(stepTok, 0.08) }}>
-                          {StepIcon
-                            ? <StepIcon size={11} style={{ color: rgb(stepTok, 0.85) }} />
-                            : <Check size={12} style={{ color: rgb(stepTok, 0.7) }} />}
-                        </span>
+                        <StepMarker cat={catOf(s)} Icon={StepIcon} size={16} />
                         {s}
                       </li>
                     )
@@ -206,7 +231,7 @@ function FinishedTrace({ steps, reasoning, tools, elapsedMs, tokens, reduced }:
                 <div className={`flex flex-wrap gap-1 ${(steps.length || reasoning) ? 'mt-2 border-t border-border/60 pt-2' : ''}`}>
                   <span className="text-[10px] uppercase tracking-wide text-muted/70">Tools</span>
                   {tools.map(t => {
-                    const ToolIcon = resolvePhaseIcon(t)
+                    const ToolIcon = getToolIcon(t) || resolvePhaseIcon(t)
                     return (
                       <span key={t} className="flex items-center gap-1 rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] text-muted">
                         {ToolIcon && <ToolIcon size={10} />}

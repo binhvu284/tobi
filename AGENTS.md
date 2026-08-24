@@ -14,6 +14,9 @@ This file applies to source-code work in this checkout. The workspace root is
    documents before deciding that a plan or queue item matches the code.
 4. Use `graphify-out/` only as a navigation map. Verify every important finding
    in current code and tests because the graph can be older than the checkout.
+5. When the owner says `SIMPLE RESULT VN TM2`, follow
+   `docs/SIMPLE_RESULT_VN_TM02.md` and give the current result in brief, plain
+   Vietnamese while keeping useful technical terms in English.
 
 ## Work Safely
 

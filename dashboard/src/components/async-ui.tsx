@@ -19,7 +19,7 @@ import { AlertTriangle, Loader2, RotateCw } from 'lucide-react'
  *  The `finally` is the point: an action that throws must still re-enable its button, and a
  *  hand-written try/catch that forgets it leaves the control dead until the page reloads. */
 export function ActionButton({
-  onAction, children, icon, disabled = false, title, className = '', type = 'button', busy = false,
+  onAction, children, icon, disabled = false, title, ariaLabel, className = '', type = 'button', busy = false,
 }: {
   onAction: () => unknown | Promise<unknown>
   children?: ReactNode
@@ -27,6 +27,8 @@ export function ActionButton({
   icon?: ReactNode
   disabled?: boolean
   title?: string
+  /** Accessible name. Defaults to `title` for icon-only buttons, which have no other name. */
+  ariaLabel?: string
   className?: string
   type?: 'button' | 'submit'
   /** External pending state, for actions owned by a parent. ORed with the internal one. */
@@ -50,7 +52,8 @@ export function ActionButton({
 
   const showSpinner = pending || busy
   return (
-    <button type={type} title={title} disabled={showSpinner || disabled} onClick={() => void click()}
+    <button type={type} title={title} aria-label={ariaLabel ?? (children ? undefined : title)}
+      disabled={showSpinner || disabled} onClick={() => void click()}
       aria-busy={showSpinner} className={`${className} disabled:cursor-not-allowed disabled:opacity-45`}>
       {showSpinner ? <Loader2 size={13} className="animate-spin" aria-hidden /> : icon}
       {children}

@@ -1,5 +1,8 @@
 # Mission Control Runtime V2
 
+> Verified 2026-08-25 against committed Runtime V2 source and the active #21/T15 worktree. No
+> rollout activation, deployment, Supabase action, or Vercel action was performed.
+
 ## Current Status
 
 Queue #21 is complete. Runtime V2 supplies one validated contract family, durable SQLite history,
@@ -8,6 +11,10 @@ staged rollout, and compatibility adapters for every current request surface.
 
 All Runtime V2 rollout controls default off. The #21 implementation and activation tests used
 temporary local databases; they did not change the owner's live flags or call an external service.
+
+The current checkout includes a local-only Infrastructure self-check package that runs the
+release suites from Health and checks process-spawn and loading-state rules. It is not counted as
+shipped until its worktree changes are committed and the active gate passes.
 
 ## Request Flow
 

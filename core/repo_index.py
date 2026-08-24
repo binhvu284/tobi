@@ -10,6 +10,7 @@ from typing import Any
 
 from core.coding_policy import CodingPolicy
 from core.development_store import DevelopmentStore
+from core.proc import no_window
 
 
 class RepositoryIndex:
@@ -23,6 +24,7 @@ class RepositoryIndex:
         target = (root or self.root).resolve()
         result = subprocess.run(
             ["git", "-C", str(target), *args], capture_output=True, text=True, timeout=30,
+            creationflags=no_window(),
         )
         if result.returncode != 0:
             raise RuntimeError(result.stderr.strip() or "Git index command failed.")

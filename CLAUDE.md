@@ -1,6 +1,6 @@
 # TOBI Agent Guide
 
-Read [`docs/README.md`](docs/README.md) first. For implementation work, also read [`docs/02_CURRENT_STATE.md`](docs/02_CURRENT_STATE.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and the relevant feature plan or domain section.
+Read [`docs/README.md`](docs/README.md) first. For implementation work, also read [`docs/02_CURRENT_STATE.md`](docs/02_CURRENT_STATE.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and the relevant feature plan or domain section. When the owner says `UPDATE DOCS TM01`, follow [`docs/UPDATE_DOCS_TM01.md`](docs/UPDATE_DOCS_TM01.md) before reporting status. When the owner says `SIMPLE RESULT VN TM2`, follow [`docs/SIMPLE_RESULT_VN_TM02.md`](docs/SIMPLE_RESULT_VN_TM02.md) and present the result in brief, plain Vietnamese while keeping useful technical terms in English.
 
 ## Reporting To The Owner
 

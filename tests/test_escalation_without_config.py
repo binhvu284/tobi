@@ -57,7 +57,7 @@ def _fake_build(model_id, cfg=None, **kw):
     _built.append(model_id)
     provider = model_id.split(":", 1)[0] if ":" in model_id else ""
     if (
-        provider in ("openai", "anthropic", "openrouter", "gemini", "grok", "glm")
+        provider in ("openai", "anthropic", "openrouter", "gemini", "grok", "glm", "deepseek")
         and not ((cfg or {}).get("providers", {}).get(provider, {}).get("enabled") is True)
         and not kw.get("allow_disabled")
     ):

@@ -848,6 +848,18 @@ _integrations = {
     "supabase": SupabaseIntegration,
 }
 
+# The environment names each connector reads, kept beside the classes that read them so the
+# two cannot drift. Vault secrets are stored under these same names, which is what lets a
+# caller tell "no key was ever saved" apart from "the key is saved but the vault is locked" —
+# two states that both make is_available() False and used to be reported identically.
+REQUIRED_SECRETS: dict[str, tuple[str, ...]] = {
+    "notion":   ("NOTION_API_KEY",),
+    "github":   ("GITHUB_TOKEN",),
+    "google":   ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"),
+    "vercel":   ("VERCEL_TOKEN",),
+    "supabase": ("SUPABASE_URL", "SUPABASE_ANON_KEY"),
+}
+
 
 def check_all() -> dict:
     """Returns {name: is_available} for all integrations."""

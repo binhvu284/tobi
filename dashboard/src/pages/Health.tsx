@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react'
 import { softFail } from '../lib/report'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { RefreshCw, Activity, AlertTriangle, CheckCircle2, Database, Server, Loader2, KeyRound, ExternalLink, Cpu, Stethoscope } from 'lucide-react'
+import { RefreshCw, Activity, AlertTriangle, CheckCircle2, Database, Server, Loader2, KeyRound, ExternalLink, Cpu, Stethoscope, Layers } from 'lucide-react'
 import Logo from '../components/Logo'
 import HealthBar from '../components/HealthBar'
 import PageLoader from '../components/PageLoader'
 import { LoadFailure } from '../components/async-ui'
 import PerformanceDoctor from '../components/PerformanceDoctor'
+import InfrastructureCheck from '../components/InfrastructureCheck'
 import { Stagger, StaggerItem } from '../components/motion'
 import { useReducedMotionPref } from '../context/MotionProvider'
 import { getLlmUsage, type UsageSummary } from '../api.keys'
@@ -72,7 +73,7 @@ export default function Health() {
   const [deepError, setDeepError] = useState<unknown>(null)
   const [gen, setGen] = useState<IntegrationsResponse | null>(null)
   const [usage, setUsage] = useState<UsageSummary | null>(null)
-  const [tab, setTab] = useState<'overview' | 'performance'>('overview')
+  const [tab, setTab] = useState<'overview' | 'infrastructure' | 'performance'>('overview')
   const reduced = useReducedMotionPref() !== 'full'
 
   const load = async () => {
@@ -158,7 +159,7 @@ export default function Health() {
 
       {/* Tabs: Overview (live checks) | Performance (system doctor) */}
       <div className="flex items-center gap-1 border-b border-border">
-        {([['overview', 'Overview', Activity], ['performance', 'Performance', Stethoscope]] as const).map(([key, label, Icon]) => (
+        {([['overview', 'Overview', Activity], ['infrastructure', 'Infrastructure', Layers], ['performance', 'Performance', Stethoscope]] as const).map(([key, label, Icon]) => (
           <button key={key} onClick={() => setTab(key)}
             className={`relative flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${tab === key ? 'text-accent' : 'text-muted hover:text-text'}`}>
             <Icon size={13} /> {label}
@@ -170,6 +171,8 @@ export default function Health() {
       {deepError != null && (
         <LoadFailure error={deepError} what="the full health check" onRetry={onDeepTest} />
       )}
+
+      {tab === 'infrastructure' && <InfrastructureCheck />}
 
       {tab === 'performance' && <PerformanceDoctor />}
 

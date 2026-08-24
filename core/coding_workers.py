@@ -17,6 +17,7 @@ from core.coding_runner import IsolatedProcessRunner, QueuedProcessRunner, Runne
 from core.coding_tools import CodingToolBroker, CodingToolError
 from core.development_store import utc_now
 from core.hermes_worker import HermesUnavailable, HermesWorker
+from core.proc import no_window
 
 
 class CodingWorkerUnavailable(RuntimeError):
@@ -450,7 +451,7 @@ class ExternalCLIWorker:
                         encoding="utf-8",
                         errors="replace",
                         timeout=12,
-                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+                        creationflags=no_window(),
                     )
                     auth_output = f"{checked.stdout}\n{checked.stderr}"
                     if not self.native_auth_valid(checked.returncode, auth_output):

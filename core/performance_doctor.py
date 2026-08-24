@@ -27,6 +27,7 @@ import time
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Optional
+from core.proc import no_window
 
 _ROOT = Path(__file__).resolve().parent.parent          # the tobi/ repo root
 _GRAPH = _ROOT / "graphify-out" / "graph.json"
@@ -305,7 +306,7 @@ def _build_findings(code: dict, subs: list[dict], freshness: dict, runtime: dict
 def _git(*args: str) -> Optional[str]:
     try:
         out = subprocess.run(["git", *args], cwd=str(_ROOT), capture_output=True,
-                             text=True, timeout=6)
+                             text=True, timeout=6, creationflags=no_window())
         return out.stdout.strip() if out.returncode == 0 else None
     except Exception:
         return None

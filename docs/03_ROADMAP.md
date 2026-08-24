@@ -19,16 +19,27 @@ flowchart TD
 
 ## Current Position
 
-TOBI is currently **entering Agent tier**, not finishing Agent tier.
+TOBI is currently **in Agent tier qualification**, not finishing the full Agent tier.
 
 The platform already has persistent memory, backend-enforced Chat/Agent modes, grounded Conductor tools, persisted Agent runs and recovery, Deep Research, project-resource read/search, project/task operations, full-machine terminal control, model routing, Premium readers, Awakening evidence, integrations, MCP/A2A, Performance Doctor, Mission Control, scheduled jobs, Telegram access, and Office V3.
 
 The main danger now is confusing **having tools** with **being a capable agent**. Agent tier requires proven workflows. Operator tier requires judgment about which workflows matter.
 
+### TM01 Refresh - 2026-08-25
+
+- #21 Mission Control Infrastructure V2 is complete in committed source. Its rollout controls
+  remain off, and legacy deletion is still a separate owner-approved decision.
+- #22 Coding Agent V2 is qualified for the Codex-only path. That proves bounded coding-agent
+  operation, not unlimited autonomous development or readiness for every large task.
+- #33 Infrastructure self-check is local work in progress in the current checkout, not a shipped
+  platform gate until its dirty files are committed and validated.
+- The next honest move is to finish and commit the active T15/self-check package, then run small
+  real Agent workflows before declaring the entire Agent tier complete.
+
 ```mermaid
 flowchart LR
   A["Current state\nAwakening accepted"] --> B["Agent foundation\n#18 #20 #21"]
-  B --> C["Agent closure\nProposed #22"]
+  B --> C["Agent closure\n#22 qualification"]
   C --> D["Operator"]
 ```
 
@@ -102,7 +113,11 @@ flowchart LR
   C --> D["#22 Agent Tier Closure"]
 ```
 
-### Proposed #22 - Agent Tier Closure
+### #22 - Agent Tier Closure
+
+**Current status:** Coding Agent V2 is qualified for Codex-only bounded work. Full Agent-tier
+closure remains open because broader workflows, browser actions, external writes, monitoring, and
+longer reliability evidence still need separate proof.
 
 After #18, #20, and #21, add:
 

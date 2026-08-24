@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from core.proc import no_window
 
 
 class RunnerError(RuntimeError):
@@ -120,7 +121,7 @@ class IsolatedProcessRunner:
         for key, value in (env_overrides or {}).items():
             if key in allowed_names:
                 environment[key] = value
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+        flags = no_window()
         process = subprocess.Popen(
             [str(item) for item in argv],
             cwd=str(Path(cwd).resolve()),

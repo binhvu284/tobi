@@ -2,6 +2,17 @@
 
 This guide describes the current repository commands. It does not replace the archived Hermes/VPS notes, and it does not claim that external services are configured.
 
+## TM01 Refresh Snapshot - 2026-08-25
+
+The verified base is commit `6617575`, with `origin/main` at `31d95ec`. The checkout is not clean:
+the active #21/T15 package adds Infrastructure self-check, hidden-window process spawning, new
+diagram files, and related tests/UI. Do not use `git status` as proof that those changes shipped;
+run the active gate and inspect the commit after the package is closed.
+
+Graphify is available only as the checked-in navigation output for this checkout; the generated
+index predates the current revision. Use it to find likely files, then verify current code and
+tests directly.
+
 ## Prerequisites
 
 - Windows development is the actively represented local setup (`venv/Scripts/python.exe`, PowerShell-capable terminal engine).
@@ -38,6 +49,15 @@ The Genesis vault can manage supported secrets from Mission Control after the ap
 | `venv\Scripts\python.exe main.py terminal` | Starts the interactive TOBI terminal/Conductor REPL |
 | `venv\Scripts\python.exe main.py test` | Tests configured connections and may contact external services; run only when that is intended |
 | `venv\Scripts\python.exe -m core.coding_runner_service` | Runs the durable external coding-worker service; use with `TOBI_CODING_RUNNER_MODE=service` |
+
+For the current #21 package gate, run from `tobi/` with the bundled D-drive interpreter:
+
+```powershell
+& "D:\[PERSONAL PROJECT FILES]\TOBI\.python\venv\Scripts\python.exe" scripts/gate.py
+```
+
+This is separate from `venv\Scripts\python.exe`; use the interpreter named by the active
+`.claude/CURRENT_WORK.md` when validating the package.
 
 `main.py start`, `research`, `execute`, `ceo`, `test`, and configured Telegram flows can cause external calls or messages. Choose the narrowest command for the task.
 
@@ -146,7 +166,9 @@ Use `main.py api` for local smoke work. Confirm only the domain endpoints releva
 
 ## Graphify Workflow
 
-Graphify output can narrow the first reading pass, but the local index at commit `c39c34a` is 85 commits behind the 2026-07-14 documentation snapshot. It predates recent Terminal, Theme, Project, Chat Runtime, Office, Awakening, and resource-access changes.
+Graphify output can narrow the first reading pass, but this checkout has no installed `graphify`
+command. The checked-in `graphify-out/` map was generated on 2026-08-19 and is stale relative to
+the current revision, so direct `rg` and source/test verification remains required.
 
 When Graphify is installed:
 

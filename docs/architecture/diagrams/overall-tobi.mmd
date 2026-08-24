@@ -1,23 +1,40 @@
-%% TOBI — overall system architecture (canonical). Flowchart-only subset (#20 Architecture V2).
+%% TOBI - overall system architecture (canonical). Flowchart-only subset (#20 Architecture V2).
+%% Rewritten for #21 Mission Control Infrastructure V2: every surface now enters one engine.
 %% Edit this file to change the rendered Overall TOBI diagram; the runtime validates it on load.
 flowchart TD
   Owner[Owner] --> MC[Mission Control web app]
   Owner --> TG[Telegram bot]
   Owner --> CLI[TOBI CLI and terminal]
+  Sched[Scheduler jobs] --> Adapter
 
-  MC --> DashAPI[Mission Control FastAPI 8080]
+  MC --> DashAPI[Mission Control FastAPI 8090]
   TG --> TelegramAdapter[core telegram_bot]
   CLI --> Main[main.py]
-
-  DashAPI --> Conductor[Conductor]
-  DashAPI --> DevControl[Coding Agent control plane]
-  TelegramAdapter --> Conductor
-  Main --> Scheduler[Scheduler jobs]
+  Main --> Sched
   Main --> PublicAPI[External API 8000]
 
+  DashAPI --> Gateway[Runtime gateway]
+  TelegramAdapter --> Adapter[Surface adapter]
+  DashAPI --> Adapter
+  Main --> Adapter
+  DashAPI --> DevControl[Coding Agent control plane]
+
+  subgraph Runtime["Runtime V2 - one engine behind every request"]
+    Gateway --> Rollout[Rollout controls and rollback]
+    Gateway --> Run[Canonical run]
+    Adapter --> Run
+    Run --> History[Ordered run history, redacted]
+    Run --> Steps[Leased steps and checkpoints]
+    Run --> Policy[Policy, approvals, budgets]
+    Policy --> Catalog[Tool catalog and validation]
+    Catalog --> Receipts[Action receipts, applied once]
+    Run --> Trace[Traces and quality gates]
+  end
+
+  Gateway --> Conductor[Conductor facade]
   Conductor --> Brain[Brain and Graph context]
-  Conductor --> Models[Model router]
-  Conductor --> Tools[Read and action tools]
+  Conductor --> Models[Model router and fallbacks]
+  Catalog --> Tools[Read and action tools]
 
   Tools --> Projects[Projects, tasks, goals, resources]
   Tools --> Terminal[Terminal engine]
@@ -25,12 +42,19 @@ flowchart TD
   Tools --> MCP[MCP and A2A]
   Tools --> Engines[Research, execution, CEO, Explore]
 
+  Trace --> RunsPage[Runs page and health checks]
+  Rollout --> RunsPage
+
   Brain --> SQLite[(SQLite)]
+  History --> SQLite
+  Steps --> SQLite
+  Receipts --> SQLite
   Projects --> SQLite
   Projects --> Files[(Project resource files)]
-  Tools --> SQLite
   Models --> Providers[LLM providers]
   Integrations --> External[External APIs]
+
+  DevControl --> Run
   DevControl --> DevDB[(Development ledger)]
   DevControl --> Worktrees[(Isolated Git worktrees)]
   DevControl --> RunnerQueue[Durable runner queue]

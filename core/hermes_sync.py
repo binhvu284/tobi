@@ -25,6 +25,7 @@ import logging
 import subprocess
 from datetime import datetime, timezone
 from typing import Optional
+from core.proc import no_window
 
 logger = logging.getLogger("tobi.hermes_sync")
 
@@ -134,15 +135,15 @@ def _cli_set(cfg: dict) -> bool:
     try:
         # Primary model name (Hermes resolves the endpoint from its own provider config).
         subprocess.run([exe, "config", "set", "primary_model_name", _bare_model(default)],
-                       timeout=15, capture_output=True)
+                       timeout=15, capture_output=True, creationflags=no_window())
         ok = True
         # If a local Ollama model is in the fallback chain, wire it as the secondary endpoint.
         for fb in cfg.get("fallback") or []:
             if fb.startswith("ollama:"):
                 subprocess.run([exe, "config", "set", "secondary_model_endpoint",
-                                "http://localhost:11434/v1"], timeout=15, capture_output=True)
+                                "http://localhost:11434/v1"], timeout=15, capture_output=True, creationflags=no_window())
                 subprocess.run([exe, "config", "set", "secondary_model_name", _bare_model(fb)],
-                               timeout=15, capture_output=True)
+                               timeout=15, capture_output=True, creationflags=no_window())
                 break
     except Exception as e:
         logger.warning("hermes cli set failed: %s", e)

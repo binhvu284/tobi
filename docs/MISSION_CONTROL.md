@@ -1,6 +1,14 @@
 # Mission Control
 
-> Current product and implementation reference for the web cockpit as of 2026-07-16. The old June master specification is preserved in `archive/specifications/` and is not current architecture.
+> Current product and implementation reference for the web cockpit as of 2026-08-25. The old June master specification is preserved in `archive/specifications/` and is not current architecture.
+
+## TM01 Refresh Snapshot - 2026-08-25
+
+The current MC shell has Overview, Work, Process, Agents, History, and System views for the
+Developer area, shared Runtime V2 Runs projections, and a persistent workspace-tab shell. The
+committed runtime keeps rollout controls off and uses passive adapters for non-Chat surfaces.
+The worktree also contains an uncommitted Health Infrastructure self-check and related UI; use
+the queue status and Git revision, not a local button alone, to decide whether it is delivered.
 
 ## Purpose
 

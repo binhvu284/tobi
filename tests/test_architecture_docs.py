@@ -36,7 +36,20 @@ def ok(name: str, cond: bool, detail: str = ""):
 
 # ── list + canonical files pass the runtime validator (the CI gate) ─────────────────
 lst = AD.list_diagrams()
-ok("list_diagrams returns {items,count} with 2 diagrams", lst["count"] == 2 and len(lst["items"]) == 2, str(lst))
+# Counted from the allowlist rather than pinned to a number: a new diagram is a normal
+# change, but one that is registered and missing from disk is not.
+ok("list_diagrams returns {items,count} covering every registered diagram",
+   lst["count"] == len(AD.DIAGRAMS) and len(lst["items"]) == len(AD.DIAGRAMS), str(lst))
+ok("every registered diagram has its file and guide on disk",
+   all((AD.DIAGRAMS_DIR / spec["file"]).is_file() and (AD.DIAGRAMS_DIR / spec["guide"]).is_file()
+       for spec in AD.DIAGRAMS.values()),
+   str([spec["file"] for spec in AD.DIAGRAMS.values()
+        if not (AD.DIAGRAMS_DIR / spec["file"]).is_file()]))
+ok("every registered diagram passes the validator",
+   all(AD.validate((AD.DIAGRAMS_DIR / spec["file"]).read_text(encoding="utf-8"))[0]
+       for spec in AD.DIAGRAMS.values()),
+   str([name for name, spec in AD.DIAGRAMS.items()
+        if not AD.validate((AD.DIAGRAMS_DIR / spec["file"]).read_text(encoding="utf-8"))[0]]))
 for did in ("overall-tobi", "mission-control"):
     d = AD.get_diagram(did)
     ok(f"canonical '{did}' validates and has content", d is not None and d["valid"] and len(d["content"]) > 50, str(d and d.get("reasons")))

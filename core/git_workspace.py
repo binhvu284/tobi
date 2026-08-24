@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from core.coding_policy import CodingPolicy, PolicyDenied, find_probable_secrets
+from core.proc import no_window
 
 
 class GitCommandError(RuntimeError):
@@ -45,6 +46,7 @@ class GitWorkspaceManager:
         result = subprocess.run(
             list(argv), cwd=str(cwd or self.repo_root), capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=timeout, env=os.environ.copy(),
+            creationflags=no_window(),
         )
         if result.returncode != 0:
             message = (result.stderr or result.stdout or "Git command failed.").strip()

@@ -74,6 +74,12 @@ class NoCacheAPIMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         response = await call_next(request)
         if request.url.path.startswith("/api/"):
+            # A handler that deliberately declared its bytes immutable keeps its own policy.
+            # Only content-addressed payloads (chat attachments) do this: the id names the
+            # content, so the response can never go stale. Every dynamic JSON route is
+            # untouched and still forced to revalidate.
+            if "immutable" in response.headers.get("Cache-Control", ""):
+                return response
             response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
             response.headers["Pragma"] = "no-cache"
         return response

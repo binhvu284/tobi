@@ -44,6 +44,94 @@ export async function runDeepTestStream(
   return summary
 }
 
+// ── Infrastructure self-check (#21) ───────────────────────────
+
+/** One read-only check of the running server: which database, whether it can reach the
+ *  internet, whether the canonical tables are there. `hint` is only set when it failed, and is
+ *  the next thing the owner should do about it. */
+export type WiringCheck = {
+  id: string
+  label: string
+  ok: boolean
+  detail: string
+  hint?: string
+  duration_ms?: number
+}
+
+/** One acceptance suite, run in its own throwaway database. `checks` is how many individual
+ *  proofs ran inside it; `retried` means the first run failed and the second passed, which is a
+ *  timing flake rather than a defect — shown, never hidden. */
+export type SuiteResult = {
+  id: string
+  label: string
+  package: string
+  proves: string
+  ok: boolean
+  checks: number
+  failed?: number
+  detail: string
+  retried?: boolean
+  duration_ms?: number
+}
+
+export type InfraSummary = {
+  ok: number
+  total: number
+  checks: number
+  failed_ids: string[]
+  flaky_ids: string[]
+}
+
+export type InfraReport = {
+  timestamp: string
+  wiring: WiringCheck[]
+  suites: SuiteResult[]
+  summary?: InfraSummary
+}
+
+/** Run the whole #21 infrastructure sweep, delivering each row as it lands.
+ *
+ *  The wiring checks answer in under a second; the suites take about a minute in total because
+ *  they run one at a time on purpose (several start real worker processes, and running them
+ *  together is what made one lose a race it should have won). `onStart` gives the page the full
+ *  list up front so it can show every row as pending rather than growing a list from nothing. */
+export async function runInfrastructureCheckStream(
+  handlers: {
+    onStart?: (plan: { wiring: { id: string; label: string }[]; suites: { id: string; label: string; package: string; proves: string }[] }) => void
+    onWiring?: (row: WiringCheck) => void
+    onSuite?: (row: SuiteResult) => void
+  },
+  signal?: AbortSignal,
+): Promise<InfraSummary | null> {
+  const response = await fetch('/api/health/infrastructure/stream', { signal })
+  if (!response.ok || !response.body) throw new Error(`Infrastructure check failed (HTTP ${response.status})`)
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let summary: InfraSummary | null = null
+
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const events = buffer.split('\n\n')
+    buffer = events.pop() ?? ''
+    for (const raw of events) {
+      const lines = raw.split('\n')
+      const event = lines.find(l => l.startsWith('event:'))?.slice(6).trim()
+      const data = lines.find(l => l.startsWith('data:'))
+      if (!event || !data) continue
+      const payload = JSON.parse(data.slice(5))
+      if (event === 'start') handlers.onStart?.(payload)
+      else if (event === 'wiring') handlers.onWiring?.(payload as WiringCheck)
+      else if (event === 'suite') handlers.onSuite?.(payload as SuiteResult)
+      else if (event === 'done') summary = payload.summary as InfraSummary
+    }
+  }
+  return summary
+}
+
 // ── Health diagnostics ──────────────────────────────────────────────
 export type LivenessCheck = { ok: boolean; detail: string; latency_ms?: number }
 export type LogEntry = { level: 'ERROR' | 'WARNING'; msg: string; source: string }

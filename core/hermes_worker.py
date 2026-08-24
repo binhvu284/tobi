@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from core.coding_policy import CodingPolicy, PolicyDenied
+from core.proc import no_window
 
 
 class HermesUnavailable(RuntimeError):
@@ -76,7 +77,10 @@ class HermesWorker:
         argv = wrapped
         timeout = self.policy.limit("worker_timeout_seconds", 1800)
         output_limit = self.policy.limit("worker_output_bytes", 2_097_152)
-        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+        # Its own process group so a cancel can signal the whole tree, and no console window:
+        # this runs from a background server, where a new console is a window on the owner's screen.
+        creationflags = no_window(
+            subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0)
         proc = subprocess.Popen(
             argv, cwd=str(cwd), env=self._environment(workflow_id, stage_id),
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -161,7 +165,7 @@ class HermesWorker:
         if proc.poll() is None:
             if os.name == "nt":
                 subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-                               capture_output=True, timeout=10)
+                               capture_output=True, timeout=10, creationflags=no_window())
             else:
                 os.killpg(proc.pid, signal.SIGKILL)
         return True

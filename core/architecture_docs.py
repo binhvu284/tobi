@@ -20,6 +20,7 @@ from __future__ import annotations
 import re
 import subprocess
 from pathlib import Path
+from core.proc import no_window
 
 # <repo>/core/architecture_docs.py  ->  <repo>
 _ROOT = Path(__file__).resolve().parent.parent
@@ -34,6 +35,11 @@ DIAGRAMS: dict[str, dict] = {
     "mission-control": {
         "title": "Mission Control", "file": "mission-control.mmd", "guide": "mission-control.guide.md",
         "description": "The React Mission Control frontend: providers, shell, panes, and the API client.",
+    },
+    "mc-runtime": {
+        "title": "Mission Control Runtime", "file": "mc-runtime.mmd", "guide": "mc-runtime.guide.md",
+        "description": "Queue #21's engine: one request from the surface it arrived on to the "
+                       "receipt it leaves behind — durable steps, policy, tools, history, rollout.",
     },
 }
 
@@ -139,7 +145,7 @@ _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 def _git(*args: str, timeout: int = 6):
     try:
-        out = subprocess.run(["git", *args], cwd=str(_ROOT), capture_output=True, text=True, timeout=timeout)
+        out = subprocess.run(["git", *args], cwd=str(_ROOT), capture_output=True, text=True, timeout=timeout, creationflags=no_window())
         return out.stdout if out.returncode == 0 else None
     except Exception:
         return None
@@ -211,19 +217,29 @@ def version(diagram_id: str, sha: str):
 
 # ── layer prose (moved verbatim from conductor._ARCHITECTURE; #20 collapses a drift source) ──
 LAYERS = {
-    "summary": "TOBI is a personal-Jarvis agent: a Python service that runs Mission Control "
-               "and a Telegram bot over one shared brain.",
+    "summary": "TOBI is a personal-Jarvis agent: a Python service that runs Mission Control and a "
+               "Telegram bot over one shared brain. Since queue #21 every request from every "
+               "surface becomes one canonical run with ordered history that survives a restart.",
     "layers": [
         {"layer": "Host / runtime", "detail": "Python 3 process on a Windows dev box (local migration) or VPS; "
-         "main.py is the orchestrator + scheduler (run modes: start/bot/api/research/execute/ceo)."},
-        {"layer": "API", "detail": "FastAPI in api/dashboard.py serves the Mission Control dashboard and every "
-         "/api/* endpoint, plus the mounted MCP server."},
+         "main.py is the orchestrator + scheduler (run modes: start/bot/api/research/execute/ceo). "
+         "Locally the dashboard is on 8090 and the external API on 8000."},
+        {"layer": "API", "detail": "FastAPI in api/dashboard.py plus the routers under api/routers/ serve the "
+         "Mission Control dashboard and every /api/* endpoint — including /api/runtime/* for canonical runs "
+         "and rollout — plus the mounted MCP server."},
+        {"layer": "Runtime V2 (core/runtime/)", "detail": "One engine behind every request: a gateway for Chat "
+         "and Agent, a fail-open adapter for Projects, Office, CLI, Telegram and schedulers, then canonical "
+         "runs with append-only redacted history, leased steps, restart checkpoints, one policy authority, one "
+         "validated tool catalog, immutable action receipts, traces with quality gates, and staged activation "
+         "with a rollback switch. The controls ship off: today it records and compares in shadow mode."},
         {"layer": "Engines (core/)", "detail": "model_router, task_classifier, research, executor, CEO loop, "
-         "brain (the second brain), graph_engine, and this conductor."},
+         "brain (the second brain), graph_engine, and the conductor — which is now a thin compatibility facade "
+         "over the runtime services rather than the engine itself."},
         {"layer": "Data", "detail": "SQLite (core/database.py): projects, tasks, agents, missions, lessons, "
-         "conversations, brain_memories, and the encrypted vault."},
-        {"layer": "Interfaces", "detail": "The React Mission Control chat and the Telegram bot — both front doors "
-         "onto the Conductor."},
+         "conversations, brain_memories, the encrypted vault, and the 22 canonical mc_* runtime tables. "
+         "Additive migrations only, recorded in a shared ledger."},
+        {"layer": "Interfaces", "detail": "The React Mission Control chat, the Runs page (one live view of every "
+         "run), and the Telegram bot. Health → Infrastructure runs the whole engine as a one-click test."},
         {"layer": "Integrations", "detail": "The Genesis vault holds encrypted credentials for Notion, GitHub, "
          "Vercel, Supabase, Telegram, the LLM providers, and Tavily."},
     ],

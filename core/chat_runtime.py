@@ -73,7 +73,7 @@ def ensure_schema() -> None:
             """
             CREATE TABLE IF NOT EXISTS schema_migrations (
                 version TEXT PRIMARY KEY,
-                applied_at TEXT NOT NULL
+                applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS chat_turns (
                 id TEXT PRIMARY KEY,

@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional
 
+from core.runtime import transport_failure
 from core.runtime.response_composer import FinalResponseContext, compose_final_response
 
 
@@ -354,11 +355,16 @@ def run_conductor_turn(
     if loop.turn_response is not None:
         return loop.turn_response
     if loop.model_issue:
+        # The loop gives up after N empty steps without asking why they were empty. If they
+        # were empty because no provider was ever reached, say that instead of blaming output.
+        transport_code = transport_failure.last(client)
         return {
-            "reply": bindings.model_struggling_text,
+            "reply": (transport_failure.owner_message(transport_code) if transport_code
+                      else bindings.model_struggling_text),
             "tools_used": used_tools,
             "intent": intent,
             "model_issue": True,
+            **({"model_unreachable": transport_code} if transport_code else {}),
             "streamed": False,
         }
     return compose(loop.final_text or "")

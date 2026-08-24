@@ -5,6 +5,7 @@ import os
 import subprocess
 from functools import lru_cache
 from pathlib import Path
+from core.proc import no_window
 
 
 @lru_cache(maxsize=1)
@@ -17,6 +18,7 @@ def revision() -> str:
         result = subprocess.run(
             ["git", "-C", str(root), "rev-parse", "HEAD"],
             capture_output=True, text=True, timeout=5,
+            creationflags=no_window(),
         )
         if result.returncode == 0:
             return result.stdout.strip()

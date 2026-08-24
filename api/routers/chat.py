@@ -146,7 +146,12 @@ def chat_session_patch(sid: int, body: ChatSessionPatch):
 
 @router.delete("/api/chat/sessions/{sid}")
 def chat_session_delete(sid: int):
-    from core import chat_store
+    from core import chat_store, chat_attachments
+    # drop the stored files first; orphaned bytes on disk outlive the row that explains them
+    try:
+        chat_attachments.delete_for_session(sid)
+    except Exception:
+        logger.warning("attachment cleanup failed for session %s", sid, exc_info=True)
     chat_store.delete_session(sid)
     return {"ok": True}
 
@@ -449,7 +454,14 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         from core.database import save_conversation_message as _bridge_msg
         history = await loop.run_in_executor(None, lambda: chat_store.recent_history(sid, limit=8))
         stored_user = message + (f"  📎×{len(payload.attachments)}" if payload.attachments else "")
-        await loop.run_in_executor(None, lambda: chat_store.add_message(sid, "user", stored_user, model=model))
+        user_mid = await loop.run_in_executor(
+            None, lambda: chat_store.add_message(sid, "user", stored_user, model=model))
+        # Durably store what was attached, bound to this message. The bytes used to be decoded
+        # for the model and dropped, so reopening the session showed only the 📎×N count.
+        if payload.attachments:
+            from core import chat_attachments
+            await loop.run_in_executor(
+                None, lambda: chat_attachments.save_many(sid, user_mid, payload.attachments))
         await loop.run_in_executor(None, lambda: _bridge_msg(cid, "user", message))
         await loop.run_in_executor(None, lambda: chat_store.auto_title(sid, message or "Attachment"))
         t0 = _time.time()
@@ -962,11 +974,20 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             for chunk in conductor._stream_chunks(reply):
                 yield f"event: delta\ndata: {json.dumps({'text': chunk})}\n\n"
         if res.get("model_issue"):
-            yield f"event: notice\ndata: {json.dumps({'kind': 'model_issue'})}\n\n"
+            # A turn that never reached a provider is not a turn the model answered badly, and
+            # the UI must not offer the model picker as the fix for it. `reason` is one of the
+            # bounded codes from core.runtime.transport_failure — never provider text.
+            unreachable = res.get("model_unreachable")
+            notice = {"kind": "model_issue"}
+            if unreachable:
+                notice.update({"reason": unreachable, "detail": reply})
+            yield f"event: notice\ndata: {json.dumps(notice)}\n\n"
             if runtime_tracking:
                 yield runtime_frame("recovery_required", "model", {
-                    "run_id": run_id, "code": "model.malformed_output",
-                    "actions": ["retry_step", "revise", "cancel"],
+                    "run_id": run_id,
+                    "code": f"model.{unreachable}" if unreachable else "model.malformed_output",
+                    "actions": ["retry_step", "cancel"] if unreachable
+                               else ["retry_step", "revise", "cancel"],
                 })
         # A chain stopped on a failed step → the run is paused awaiting the owner's call
         # (Retry / Skip / Revise quick actions in the UI) [D10].
@@ -1219,6 +1240,32 @@ def chat_artifact_detail(artifact_id: int):
     if not art:
         raise HTTPException(status_code=404, detail="artifact not found")
     return art
+
+
+@router.get("/api/chat/sessions/{sid}/attachments")
+def chat_session_attachments(sid: int):
+    """Every file the owner sent in this session, oldest first (metadata only)."""
+    from core import chat_attachments
+    return {"attachments": chat_attachments.list_for_session(sid)}
+
+
+@router.get("/api/chat/attachments/{attachment_id}")
+def chat_attachment_bytes(attachment_id: int, download: bool = False):
+    """Serve one stored attachment. Content-addressed on disk, so this is a plain file read."""
+    from fastapi.responses import FileResponse
+    from core import chat_attachments
+    att = chat_attachments.get(attachment_id)
+    if not att:
+        raise HTTPException(status_code=404, detail="attachment not found")
+    disposition = "attachment" if download else "inline"
+    return FileResponse(
+        att["path"], media_type=att["mime"],
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{att["name"]}"',
+            # content-addressed bytes never change under an id, so let the browser keep them
+            "Cache-Control": "private, max-age=31536000, immutable",
+        },
+    )
 
 
 class ChatCompactReq(BaseModel):

@@ -52,6 +52,11 @@ run history, document the final system, and close #21 without deleting legacy be
 ../.python/venv/Scripts/python.exe tests/test_mc_runtime_runs_ui.py
 ../.python/venv/Scripts/python.exe tests/test_mc_runtime_rollout.py
 ../.python/venv/Scripts/python.exe tests/test_mc_runtime_surface_adapters.py
+../.python/venv/Scripts/python.exe tests/test_model_unreachable_message.py
+../.python/venv/Scripts/python.exe tests/test_runtime_schema_ledger.py
+../.python/venv/Scripts/python.exe tests/test_infrastructure_self_check.py
+../.python/venv/Scripts/python.exe tests/test_no_console_windows.py
+../.python/venv/Scripts/python.exe tests/test_ui_loading_states.py
 ```
 
 ---

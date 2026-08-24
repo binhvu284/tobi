@@ -8,7 +8,7 @@ import {
   Menu, X, Bell, Palette, Circle, FolderKanban, TrendingUp,
   ChevronsLeft, ChevronsRight, ChevronUp, ChevronDown, Brain, MessagesSquare,
   Share2, KeyRound, Inbox, FileText, Code2, Workflow, History, Cpu, HardDrive,
-  Newspaper, Activity, Plus, Search,
+  Newspaper, Activity, Plus, Search, Eye,
 } from 'lucide-react'
 import { useTheme } from '../context/ThemeProvider'
 import { THEME_GROUPS, THEME_DEFS } from '../context/themeTokens'
@@ -51,7 +51,11 @@ const NAV = [
 const ALL_LINKS = NAV.flatMap(g => g.links)
 
 // Bottom badge menu — system and owner-control surfaces.
-const BOTTOM_MENU: { to?: string; icon: typeof Settings; label: string; soon?: boolean }[] = [
+// `tone` marks an entry that is not an ordinary page: Morpheus is a separate app behind its own
+// gate, so it carries purple wherever it appears and reads as a door rather than a destination.
+const BOTTOM_MENU: {
+  to?: string; icon: typeof Settings; label: string; soon?: boolean; tone?: 'purple'
+}[] = [
   { to: '/settings', icon: Settings, label: 'Setting' },
   { to: '/models', icon: Cpu, label: 'Models' },
   { to: '/storage', icon: HardDrive, label: 'Storage' },
@@ -59,6 +63,7 @@ const BOTTOM_MENU: { to?: string; icon: typeof Settings; label: string; soon?: b
   { to: '/integrations', icon: KeyRound, label: 'Integrations' },
   { to: '/mcp', icon: Workflow, label: 'MCP' },
   { to: '/developer', icon: Code2, label: 'Developer' },
+  { to: '/morpheus', icon: Eye, label: 'Morpheus', tone: 'purple' },
 ]
 
 // Mobile bottom tabs (by path so it survives nav reordering)
@@ -287,7 +292,9 @@ function BottomMenu({ collapsed, evo, onNavigate }: {
               ) : (
                 <NavLink key={item.label} to={item.to!} onClick={() => { setOpen(false); onNavigate?.() }}
                   className={({ isActive }) => `flex items-center gap-2 px-3 py-2 text-xs ${
-                    isActive ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-overlay/5 hover:text-text'}`}>
+                    item.tone === 'purple'
+                      ? `border-t border-border text-purple hover:bg-purple/10 ${isActive ? 'bg-purple/15' : ''}`
+                      : isActive ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-overlay/5 hover:text-text'}`}>
                   <item.icon size={15} /> {item.label}
                 </NavLink>
               ))}

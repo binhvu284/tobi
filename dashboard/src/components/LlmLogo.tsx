@@ -55,6 +55,7 @@ export function brandForProvider(pid?: string | null): Brand {
     case 'gemini': case 'google': return 'gemini'
     case 'grok': case 'xai': return 'grok'
     case 'openrouter': return 'openrouter'
+    case 'deepseek': return 'deepseek'
     case 'ollama': return 'ollama'
     default: return 'custom'
   }

@@ -15,6 +15,7 @@ import subprocess
 from datetime import datetime, timezone
 
 from core.database import get_connection
+from core.proc import no_window
 
 _URL_RE = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 
@@ -64,6 +65,7 @@ def start(port: int, timeout: float = 25.0) -> dict:
             _proc = subprocess.Popen(
                 ["cloudflared", "tunnel", "--url", f"http://localhost:{port}", "--no-autoupdate"],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1,
+                creationflags=no_window(),
             )
         except Exception as e:
             return {"ok": False, "error": f"failed to launch cloudflared: {e}"}

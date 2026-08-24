@@ -54,8 +54,42 @@ Domain API modules (`api.tasks.ts`, `api.pm.ts`, `api.brain.ts`, `api.abilities.
 backend-mismatch detection every domain module builds on.
 
 ## DashAPI
-The FastAPI app on port 8080 that serves these endpoints and the built React bundle.
+The FastAPI app on port 8090 locally that serves these endpoints and the built React bundle.
+
+## RuntimeAPI
+`/api/runtime/*` and `/api/health/*` — canonical runs, run snapshots, rollout state, and the
+infrastructure self-check. Added by queue #21; see the **Mission Control Runtime** diagram.
+
+## Runs
+The Runs pane under Operation — one live view of every run across Chat, Projects, Office, the CLI,
+Telegram and the schedulers. Read-only, bounded summaries, and when it is empty it says why.
+
+## RuntimeStore
+`stores/runtime.ts` — one shared reconnecting store behind Runs and the Chat run views, so two
+pages cannot disagree about the state of the same run.
+
+## InfraCheck
+`components/InfrastructureCheck.tsx` — the Health page's Infrastructure tab. One button that runs
+twelve read-only checks of this server and then every acceptance suite in its own throwaway
+database.
+
+## Stream
+Both deep checks arrive as server-sent events, one row at a time, so a sweep that takes a minute
+shows progress instead of a blank panel.
+
+## Async
+`components/async-ui.tsx` — `ActionButton`, `BusyOverlay`, `ActivityBar` and `SectionSkeleton`.
+Every control that starts async work uses one of these, so nothing can be double-fired or look
+frozen. `tests/test_ui_loading_states.py` fails if a control ships without one.
 
 ## Lazy
 Heavy chunks (Graph's force-graph, Office's Phaser engine, Recharts pages, the Architecture
 Mermaid renderer, and project workspaces) are lazy-loaded to keep the main bundle small.
+
+## Health
+The Health page: an Overview tab with live API checks, an **Infrastructure** tab that proves the
+Runtime V2 engine works on this machine, and a Performance tab with the system doctor.
+
+## Developer
+The Developer page — the Coding Agent control plane: goals, the queue, sprints, review, and the
+durable runner.

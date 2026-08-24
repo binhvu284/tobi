@@ -33,6 +33,8 @@ PRICES: list[tuple[str, tuple[float, float]]] = [
     ("gemini-2.5-pro", (1.25, 10.0)),
     ("gemini-2.5-flash", (0.30, 2.50)),
     ("gemini", (0.50, 3.0)),
+    ("deepseek-v4-pro", (1.32, 3.96)),      # DeepSeek peak rates; off-peak is half
+    ("deepseek-v4-flash", (0.44, 1.32)),
     ("grok-4", (5.0, 15.0)),
     ("grok-3-mini", (0.30, 0.50)),
     ("grok", (3.0, 15.0)),

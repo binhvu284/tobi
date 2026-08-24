@@ -70,6 +70,12 @@ _RULES: list[tuple[str, Caps]] = [
     ("glm-4.5v", {"vision": True, "reasoning": False, "context": 131072}),
     ("glm-4.6", {"vision": False, "reasoning": True, "context": 200000}),
     ("glm", {"vision": False, "reasoning": False, "context": 131072}),
+    # ── DeepSeek — V4 takes a 1M context and thinks; only -vision-exp sees images ──
+    ("deepseek-v4-flash-vision", {"vision": True, "reasoning": True, "context": 1000000}),
+    ("deepseek-v4-pro", {"vision": False, "reasoning": True, "context": 1000000}),
+    ("deepseek-v4-flash", {"vision": False, "reasoning": True, "context": 1000000}),
+    ("deepseek-r1", {"vision": False, "reasoning": True, "context": 131072}),
+    ("deepseek", {"vision": False, "reasoning": False, "context": 131072}),
     # ── Open models (OpenRouter / Ollama) ──
     ("llava", {"vision": True, "reasoning": False, "context": 32768}),
     ("qwen2.5-vl", {"vision": True, "reasoning": False, "context": 131072}),

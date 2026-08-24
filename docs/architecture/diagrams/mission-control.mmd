@@ -1,5 +1,5 @@
-%% Mission Control — React frontend architecture (canonical). Flowchart-only subset (#20).
-%% Derived from dashboard/src App.tsx composition, the provider stack, and the API client split.
+%% Mission Control - React frontend architecture (canonical). Flowchart-only subset (#20).
+%% Updated for #21: the Runs pane, the shared runtime store, and the Health infrastructure test.
 flowchart TD
   App[App.tsx route composition] --> Theme[ThemeProvider]
   Theme --> Motion[MotionProvider]
@@ -12,17 +12,25 @@ flowchart TD
   Shell --> Panes[Mounted workspace route panes]
 
   Panes --> Chat[Chat and Agent]
+  Panes --> Runs[Runs - one live view of every run]
   Panes --> Projects[Projects and workspaces]
   Panes --> Brain[Brain]
   Panes --> Graph[Graph]
   Panes --> Evolution[Evolution and Ability]
   Panes --> Architecture[Architecture]
   Panes --> Office[Office V3]
-  Panes --> Health[Health and Performance]
+  Panes --> Health[Health, Infrastructure, Performance]
   Panes --> Developer[Developer]
   Panes --> More[Explore, Storage, Integrations, Settings]
 
-  Chat --> Client[api.ts barrel]
+  Runs --> RuntimeStore[Runtime store, reconnecting]
+  Chat --> RuntimeStore
+  RuntimeStore --> Client[api.ts barrel]
+
+  Health --> InfraCheck[Infrastructure test panel]
+  InfraCheck --> Stream[Server-sent check rows]
+
+  Chat --> Client
   Projects --> Client
   Brain --> Client
   Evolution --> Client
@@ -30,8 +38,12 @@ flowchart TD
   Health --> Client
 
   Client --> Domains[Domain API modules]
+  Stream --> Domains
   Domains --> Core[apiCore get and request]
-  Core --> DashAPI[FastAPI 8080]
+  Core --> DashAPI[FastAPI 8090]
+  DashAPI --> RuntimeAPI[Runtime runs, rollout, health]
+
+  Panes --> Async[Shared pending-state primitives]
 
   Graph -.-> Lazy[Lazy-loaded heavy chunks]
   Office -.-> Lazy

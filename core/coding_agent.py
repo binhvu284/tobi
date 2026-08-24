@@ -33,6 +33,7 @@ from core.coding_tools import resolve_runtime_command
 from core.release_manager import ReleaseManager
 from core.repo_index import RepositoryIndex
 from core.runtime.coding_adapter import CodingRuntimeAdapter
+from core.proc import no_window
 
 
 STALE_SNAPSHOT_ERRORS = {"policy_changed", "plan_changed"}
@@ -164,6 +165,7 @@ class CodingAgent:
                     errors="replace",
                     timeout=timeout,
                     env=environment,
+                    creationflags=no_window(),
                 )
                 output = ((completed.stdout or "") + (completed.stderr or ""))[-4000:]
                 result = {
@@ -1771,6 +1773,7 @@ class CodingAgent:
                     resolve_runtime_command(invocation), cwd=str(worktree), capture_output=True,
                     text=True, encoding="utf-8", errors="replace", timeout=timeout,
                     env=check_env,
+                    creationflags=no_window(),
                 )
             except (OSError, subprocess.SubprocessError) as exc:
                 # The command could not be launched at all (missing binary, bad shim).

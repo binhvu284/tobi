@@ -1,0 +1,58 @@
+%% Mission Control Runtime V2 - the engine every request runs on (canonical, queue #21).
+%% One request, from the surface it arrived on to the receipt it leaves behind.
+flowchart TD
+  ChatIn[Chat or Agent turn] --> Gateway[Runtime gateway]
+  Surfaces[Projects, Office, CLI, Telegram, schedulers] --> AdapterIn[Surface adapter, fail-open]
+  Coding[Coding agent sessions] --> AdapterIn
+
+  Gateway --> Identity[Request identity check]
+  Identity --> Reuse[Same request reuses one run]
+  Identity --> Run[Canonical run]
+  AdapterIn --> Run
+
+  subgraph Durable["Durable execution"]
+    Run --> Plan[Validated step plan]
+    Plan --> Lease[Exclusive step lease]
+    Lease --> Work[Step execution]
+    Work --> Checkpoint[Restart checkpoint]
+    Checkpoint --> Resume[Crash resumes the same run]
+    Work --> Retry[Bounded retries and cancellation]
+  end
+
+  subgraph Authority["One place decides"]
+    Work --> Policy[Permissions and risk tiers]
+    Policy --> Approval[Owner approval when required]
+    Policy --> Budget[Budget and limits]
+    Policy --> Creds[Credential availability]
+  end
+
+  Approval --> Catalog[Tool catalog]
+  Budget --> Catalog
+  Creds --> Catalog
+  Catalog --> Validate[Arguments validated before running]
+  Validate --> Reserve[Action reservation]
+  Reserve --> Execute[Files, terminal, projects, connectors]
+  Execute --> Receipt[Immutable receipt, applied once]
+
+  Run --> Events[Append-only ordered history]
+  Events --> Redact[Secrets masked before storage]
+  Redact --> Store[(SQLite canonical tables)]
+  Receipt --> Store
+  Checkpoint --> Store
+
+  Events --> Projection[Current-state projection]
+  Projection --> RunsView[Runs view, bounded summaries]
+  RunsView --> RunsPage[Runs page]
+
+  Run --> Traces[One trace per request]
+  Traces --> Evals[Quality gates and evidence]
+  Evals --> Rollout[Staged activation]
+  Rollout --> Compare[Seven matching comparisons required]
+  Rollout --> Rollback[One switch returns new work to shadow]
+
+  Gateway --> Shadow[Shadow mode - old path still answers]
+  Shadow --> Legacy[Conductor facade and legacy tools]
+  Legacy --> Compare
+
+  RunsPage --> Health[Health infrastructure test]
+  Store --> Health

@@ -84,6 +84,22 @@ export async function getChatArtifact(artifactId: number): Promise<ChatArtifact>
   return get(`/api/chat/artifacts/${artifactId}`)
 }
 
+/** A file the owner sent into this session, as stored by the backend. Metadata only: the bytes
+ *  are fetched by URL so a long session never carries megabytes of base64 in its JSON. */
+export type StoredAttachment = {
+  id: number; session_id: number; message_id: number | null
+  name: string; mime: string; kind: string; bytes: number; created_at?: string
+}
+
+export async function getSessionAttachments(id: number): Promise<{ attachments: StoredAttachment[] }> {
+  return get(`/api/chat/sessions/${id}/attachments`)
+}
+
+/** Where the bytes live. Content-addressed and immutable under an id, so the browser caches it. */
+export function attachmentUrl(attachmentId: number, download = false): string {
+  return `/api/chat/attachments/${attachmentId}${download ? '?download=true' : ''}`
+}
+
 export type ChatStoredMessage = {
   id: number; role: string; content: string; parent_id?: number | null
   model?: string | null; tokens?: number | null; thinking?: string | null
@@ -95,7 +111,9 @@ export type ChatUsage = {
   fallback_reason?: string | null; attempts?: number
 }
 export type ReaderChip = { url: string; state: string; title?: string | null }
-export type ChatNotice = { kind: 'model_issue' | 'reader' | string; reader?: string; items?: ReaderChip[]; run_id?: number }
+// `reason`/`detail` ride only on a model_issue the server could not blame on model output:
+// a bounded transport code plus the owner sentence for it. Absent = the model answered badly.
+export type ChatNotice = { kind: 'model_issue' | 'reader' | string; reader?: string; items?: ReaderChip[]; run_id?: number; reason?: string; detail?: string }
 export type PickerQuestion = { question: string; options?: string[] }
 export type ChatPicker = { topic: string; questions: PickerQuestion[] }
 export type ChatStreamHandlers = {

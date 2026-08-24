@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from datetime import datetime, timezone
 
 
 RUNTIME_SCHEMA_VERSIONS = (
@@ -22,6 +23,12 @@ RUNTIME_SCHEMA_VERSIONS = (
 )
 RUNTIME_SCHEMA_VERSION = RUNTIME_SCHEMA_VERSIONS[-1]
 _SCHEMA_LOCK = threading.Lock()
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 _RUNTIME_TABLES = {
     "mc_run_events",
     "mc_change_events",
@@ -940,9 +947,15 @@ def _apply_runtime_schema(conn: sqlite3.Connection) -> None:
             "CREATE INDEX IF NOT EXISTS idx_mc_run_steps_retry_due "
             "ON mc_run_steps(status, next_attempt_at, run_id, position)"
         )
+        # `schema_migrations` is shared with Chat's runtime, which creates it without a default
+        # for `applied_at`. Leaving that column out therefore breaks NOT NULL on any database
+        # where Chat got there first -- and `OR IGNORE` swallows that violation silently, so
+        # the ledger stayed empty, `_schema_is_ready` answered False forever, and this whole
+        # schema was re-applied on every runtime call. Supply every column we depend on.
+        applied_at = _now()
         conn.executemany(
-            "INSERT OR IGNORE INTO schema_migrations (version) VALUES (?)",
-            [(version,) for version in RUNTIME_SCHEMA_VERSIONS],
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            [(version, applied_at) for version in RUNTIME_SCHEMA_VERSIONS],
         )
         conn.execute("RELEASE SAVEPOINT mc_runtime_schema")
     except Exception:

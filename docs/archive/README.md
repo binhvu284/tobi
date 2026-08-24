@@ -12,6 +12,7 @@ Use current documents from [`../README.md`](../README.md) before reading anythin
 | `completion-notes/` | Historical phase delivery notes |
 | `legacy-hermes/` | Old Hermes/VPS setup, cost, troubleshooting, and spike material |
 | `roadmaps/` | Superseded MMO-oriented schedules |
+| `handovers/` | Point-in-time agent handovers that no longer describe the active checkout |
 
 Archived documents are intentionally kept close to their original content. Their status claims, links, model names, prices, paths, commands, security assumptions, and implementation descriptions may be wrong today.
 
