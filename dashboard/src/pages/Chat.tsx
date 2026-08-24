@@ -88,6 +88,8 @@ export default function Chat() {
   const [connectorOpts, setConnectorOpts] = useState<{ id: string; label: string }[]>([])
   const [thinkingStartedAt, setThinkingStartedAt] = useState(0)
   const [liveTokens, setLiveTokens] = useState(0)   // live prompt+completion token count this turn
+  const promptRef = useRef(0)    // context/prompt tokens for the current turn
+  const charsRef = useRef(0)     // streamed answer chars → live output-token estimate
   const [thinkingSteps, setThinkingSteps] = useState<string[]>([])   // accumulated checkpoint timeline
   const [editing, setEditing] = useState<number | null>(null)
   const [editVal, setEditVal] = useState('')
@@ -373,7 +375,7 @@ export default function Chat() {
     // the backend confirms real per-link states via a `reader` notice event.
     const ytIds = findYouTube(text)
     setReaderChips(ytIds.length ? ytIds.map(id => ({ url: `https://youtu.be/${id}`, state: 'reading' })) : [])
-    setThinkingStartedAt(Date.now()); setLiveTokens(0); setTerminalLines([])
+    setThinkingStartedAt(Date.now()); setLiveTokens(0); promptRef.current = 0; charsRef.current = 0; setTerminalLines([])
     setThinkingSteps([]); stepsRef.current = []
     const ac = new AbortController(); abortRef.current = ac
     let streamed = false; let toolsSeen: string[] = []
@@ -405,6 +407,9 @@ export default function Chat() {
         onDelta: (delta) => {
           startAssistant()
           deltaBufRef.current += delta
+          // tick the live token counter up as the answer streams (start at context, grow by output)
+          charsRef.current += delta.length
+          setLiveTokens(promptRef.current + Math.round(charsRef.current / 4))
           if (deltaRafRef.current == null) deltaRafRef.current = requestAnimationFrame(flushDelta)
         },
         // Authorization is server-side. An action event always represents a real checkpoint.
@@ -459,11 +464,13 @@ export default function Chat() {
             stepsRef.current = stepsRef.current.slice(0, -1); setThinkingSteps(stepsRef.current)
           }
           streamed = false; setStreaming(false); setSending(true)
+          charsRef.current = 0
           setMessages(m => (m.length && m[m.length - 1].role === 'assistant') ? m.slice(0, -1) : m)
         },
         onUsage: (u: ChatUsage) => {
           flushDelta()
-          setLiveTokens((u.prompt_tokens || 0) + (u.completion_tokens || 0))
+          promptRef.current = u.prompt_tokens || 0
+          if (u.completion_tokens) setLiveTokens(promptRef.current + (u.completion_tokens || 0))  // authoritative total at end
           lastMetaRef.current = {
             elapsedMs: u.latency_ms, tokens: u.completion_tokens, tools: toolsSeen, steps: stepsRef.current,
             mode: modeSeen, context: contextSeen, artifacts: artifactsSeen.length ? artifactsSeen : undefined,
