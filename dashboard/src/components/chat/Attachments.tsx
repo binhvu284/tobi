@@ -37,6 +37,28 @@ export function prettyBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
+/**
+ * What the lightbox needs, decoupled from where the image lives.
+ *
+ * A sent image is a row id and is fetched from the server; an image still sitting in the
+ * composer exists only as a data URL in browser memory. Both are openable, so the viewer takes
+ * this shape rather than a `StoredAttachment`.
+ */
+export type LightboxImage = {
+  key: string
+  src: string
+  name: string
+  bytes?: number
+  /** Href for the download button - a data URL needs `downloadName` to save under a real name. */
+  downloadSrc: string
+  downloadName?: string
+}
+
+export const storedImage = (a: StoredAttachment): LightboxImage => ({
+  key: `s${a.id}`, src: attachmentUrl(a.id), name: a.name, bytes: a.bytes,
+  downloadSrc: attachmentUrl(a.id, true),
+})
+
 function FileGlyph({ a, size = 12 }: { a: StoredAttachment; size?: number }) {
   return a.mime === 'application/pdf' ? <FileType2 size={size} /> : <FileText size={size} />
 }
@@ -182,15 +204,15 @@ export function SessionFiles({ items, collapsed, onToggle, onOpen }: {
   )
 }
 
-/** Full-screen view of one attached image. Esc or a click outside closes it. */
-export function ImageLightbox({ attachment, onClose }: {
-  attachment: StoredAttachment | null
+/** Full-screen view of one image, sent or still in the composer. Esc or a click outside closes it. */
+export function ImageLightbox({ image, onClose }: {
+  image: LightboxImage | null
   onClose: () => void
 }) {
   const closeRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    if (!attachment) return
+    if (!image) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
     const prev = document.body.style.overflow      // the page behind must not scroll
@@ -200,19 +222,22 @@ export function ImageLightbox({ attachment, onClose }: {
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = prev
     }
-  }, [attachment, onClose])
+  }, [image, onClose])
 
   return (
     <AnimatePresence>
-      {attachment && (
+      {image && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           transition={{ duration: 0.16 }}
-          className="att-overlay" role="dialog" aria-modal="true" aria-label={attachment.name}
+          className="att-overlay" role="dialog" aria-modal="true" aria-label={image.name}
           onClick={onClose}
         >
           <div className="att-actions" onClick={e => e.stopPropagation()}>
-            <a href={attachmentUrl(attachment.id, true)} className="att-btn" title="Download" aria-label="Download image">
+            <a
+              href={image.downloadSrc} download={image.downloadName}
+              className="att-btn" title="Download" aria-label="Download image"
+            >
               <Download size={16} />
             </a>
             <button ref={closeRef} type="button" onClick={onClose} className="att-btn" aria-label="Close image">
@@ -220,9 +245,9 @@ export function ImageLightbox({ attachment, onClose }: {
             </button>
           </div>
           <motion.img
-            key={attachment.id}
-            src={attachmentUrl(attachment.id)}
-            alt={attachment.name}
+            key={image.key}
+            src={image.src}
+            alt={image.name}
             initial={{ opacity: 0, scale: 0.97 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.98 }}
@@ -231,8 +256,8 @@ export function ImageLightbox({ attachment, onClose }: {
             onClick={e => e.stopPropagation()}
           />
           <span className="att-caption">
-            {attachment.name}
-            <span className="text-muted/60"> · {prettyBytes(attachment.bytes)}</span>
+            {image.name}
+            {image.bytes != null && <span className="text-muted/60"> · {prettyBytes(image.bytes)}</span>}
           </span>
         </motion.div>
       )}

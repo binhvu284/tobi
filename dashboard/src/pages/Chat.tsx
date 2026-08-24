@@ -7,7 +7,7 @@ import {
   Paperclip, Globe, Image as ImageIcon, FileText, ThumbsUp, ThumbsDown, Activity,
   GitBranch, Plug, Layers, PanelLeftClose, PanelLeftOpen, AlertTriangle, Zap, Quote,
   Terminal, Search, Briefcase, Wrench, ShieldCheck, CheckCircle2, XCircle, ListChecks, Radio, Gauge,
-  ChevronUp, MessagesSquare, ChevronRight, Pin, Youtube, Loader2, MoreVertical,
+  ChevronUp, MessagesSquare, ChevronRight, Pin, Youtube, Loader2, MoreVertical, Expand,
 } from 'lucide-react'
 import { SiGithub, SiGoogle, SiNotion, SiVercel, SiSupabase, type IconType } from '@icons-pack/react-simple-icons'
 import { type ChatSession, type AvailableModel, type ChatUsage, type ChatNotice, type ChatStoredMessage, type ChatAttachment, type ChatPicker, type ReaderChip, type ChatModeId, type ContextChip, type ChatArtifactEvent, type ChatArtifact, type ChatRuntimeEvent, type ChatTurnTrace, getChatSessions, createChatSession, getChatSession, patchChatSession, deleteChatSession, appendChatMessage, streamChatSession, getLlmModels, forkChatSession, setMessageFeedback, getSessionActivity, getChatConfig, commandAgentRun, getChatTurnTrace, getSessionArtifacts, getChatArtifact, getSessionAttachments, type StoredAttachment,
@@ -25,7 +25,7 @@ import MarkdownView from '../components/chat/MarkdownView'
 import TierEmblem from '../components/TierEmblem'
 import ModelMenu from '../components/chat/ModelMenu'
 import ProcessTrace from '../components/chat/ProcessTrace'
-import { AttachmentStrip, ImageLightbox, SessionFiles, attachCount, stripAttachTag } from '../components/chat/Attachments'
+import { AttachmentStrip, ImageLightbox, SessionFiles, attachCount, stripAttachTag, storedImage, type LightboxImage } from '../components/chat/Attachments'
 import PickerWizard, { type PickerAnswer } from '../components/chat/PickerWizard'
 import ChatAmbient, { ChatHeroMotif } from '../components/chat/ChatAmbient'
 import TerminalMode from '../components/chat/TerminalMode'
@@ -78,7 +78,7 @@ export default function Chat() {
 
   // attachments / tools
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
-  const [lightbox, setLightbox] = useState<StoredAttachment | null>(null)
+  const [lightbox, setLightbox] = useState<LightboxImage | null>(null)
   const [sessionFiles, setSessionFiles] = useState<StoredAttachment[]>([])
   const [filesOpen, setFilesOpen] = useState(false)
   const [plusOpen, setPlusOpen] = useState(false)
@@ -1014,7 +1014,7 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
         <div className="relative flex min-h-0 flex-1">
           {/* files sent in this session, tucked to the left of the transcript */}
           <SessionFiles items={sessionFiles} collapsed={!filesOpen}
-            onToggle={() => setFilesOpen(o => !o)} onOpen={setLightbox} />
+            onToggle={() => setFilesOpen(o => !o)} onOpen={a => setLightbox(storedImage(a))} />
           <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-6 sm:px-8">
             <div className={`${COLUMN} space-y-6`}>
               {models.length === 0 && (
@@ -1062,7 +1062,7 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
                           <AttachmentStrip
                             items={m.id != null ? (filesByMessage.get(m.id) ?? []) : []}
                             pendingCount={m.id == null ? attachCount(m.content) : 0}
-                            onOpen={setLightbox} />
+                            onOpen={a => setLightbox(storedImage(a))} />
                           {m.created_at && <div className="mt-0.5 flex justify-end"><span title={fmtAbsolute(m.created_at)} className="cursor-default text-[10px] text-muted/50">{fmtRelative(m.created_at)}</span></div>}
                           <div className="mt-1 flex justify-end gap-3 opacity-0 transition-opacity group-hover:opacity-100">
                             <button onClick={() => copy(stripAttachTag(m.content))} className="flex items-center gap-1 text-[10px] text-muted hover:text-accent"><Copy size={10} /> Copy</button>
@@ -1310,7 +1310,12 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
               {attachments.map((a, i) => (
                 <div key={i} className="group/att relative flex items-center gap-2 rounded-xl border border-border bg-surface/70 p-1.5 pr-3">
                   {a.kind === 'image' && a.data_url
-                    ? <img src={a.data_url} alt={a.name} className="h-11 w-11 rounded-lg border border-border object-cover" />
+                    ? <button type="button" title={`Open ${a.name} full screen`} aria-label={`Open ${a.name} full screen`}
+                        onClick={() => setLightbox({ key: `p${i}`, src: a.data_url!, name: a.name, bytes: attBytes(a), downloadSrc: a.data_url!, downloadName: a.name })}
+                        className="att-thumb att-thumb-sq h-11 w-11">
+                        <img src={a.data_url} alt={a.name} />
+                        <span className="att-thumb-veil" aria-hidden><Expand size={13} /></span>
+                      </button>
                     : <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-bg/60 text-accent">{a.kind === 'image' ? <ImageIcon size={18} /> : <FileText size={18} />}</span>}
                   <div className="min-w-0">
                     <div className="max-w-[140px] truncate text-xs font-medium text-text">{a.name}</div>
@@ -1579,7 +1584,7 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
       </div>
 
       {/* full-screen view of an attached image, opened from the owner's own message */}
-      <ImageLightbox attachment={lightbox} onClose={() => setLightbox(null)} />
+      <ImageLightbox image={lightbox} onClose={() => setLightbox(null)} />
     </div>
   )
 }
