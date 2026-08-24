@@ -77,7 +77,7 @@ type Props = {
 export default function ProcessTrace({ active, steps, tools, thinking, startedAt, elapsedMs, tokens }: Props) {
   const reduced = useReducedMotionPref() !== 'full'
 
-  if (active) return <LiveTrace steps={steps ?? []} startedAt={startedAt ?? Date.now()} reduced={reduced} />
+  if (active) return <LiveTrace steps={steps ?? []} startedAt={startedAt ?? Date.now()} reduced={reduced} tokens={tokens} />
 
   // ── finished: reconstruct the checkpoints from live steps, else from the stored tool list ──
   const isConsulted = thinking?.startsWith('Consulted: ')
@@ -118,7 +118,7 @@ function useSequentialReveal(total: number, reduced: boolean) {
 }
 
 // ── live: a bare checkpoint rail, the running step breathing and shimmering ─────────────
-function LiveTrace({ steps, startedAt, reduced }: { steps: string[]; startedAt: number; reduced: boolean }) {
+function LiveTrace({ steps, startedAt, reduced, tokens }: { steps: string[]; startedAt: number; reduced: boolean; tokens?: number }) {
   // "Thinking…" / "Composing…" are bookend placeholders, not work. Keep one only while it is
   // the row actually running, so a finished turn never leaves "Thinking…" sitting in the list.
   const real = steps.filter(s => !GENERIC.test(s.trim()))
@@ -171,6 +171,11 @@ function LiveTrace({ steps, startedAt, reduced }: { steps: string[]; startedAt: 
                 </span>
                 {isLast && (
                   <span className="ml-1.5 font-mono text-[10px] tabular-nums text-muted/55">{elapsed.toFixed(1)}s</span>
+                )}
+                {isLast && tokens != null && tokens > 0 && (
+                  <span className="ml-1.5 font-mono text-[10px] tabular-nums text-muted/55">
+                    {tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : tokens} tokens
+                  </span>
                 )}
               </motion.li>
             )

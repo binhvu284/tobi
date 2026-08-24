@@ -87,6 +87,7 @@ export default function Chat() {
   const [connectors, setConnectors] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem('tobi.chat.connectors') || '[]') } catch { return [] } })
   const [connectorOpts, setConnectorOpts] = useState<{ id: string; label: string }[]>([])
   const [thinkingStartedAt, setThinkingStartedAt] = useState(0)
+  const [liveTokens, setLiveTokens] = useState(0)   // live prompt+completion token count this turn
   const [thinkingSteps, setThinkingSteps] = useState<string[]>([])   // accumulated checkpoint timeline
   const [editing, setEditing] = useState<number | null>(null)
   const [editVal, setEditVal] = useState('')
@@ -372,7 +373,7 @@ export default function Chat() {
     // the backend confirms real per-link states via a `reader` notice event.
     const ytIds = findYouTube(text)
     setReaderChips(ytIds.length ? ytIds.map(id => ({ url: `https://youtu.be/${id}`, state: 'reading' })) : [])
-    setThinkingStartedAt(Date.now()); setTerminalLines([])
+    setThinkingStartedAt(Date.now()); setLiveTokens(0); setTerminalLines([])
     setThinkingSteps([]); stepsRef.current = []
     const ac = new AbortController(); abortRef.current = ac
     let streamed = false; let toolsSeen: string[] = []
@@ -462,6 +463,7 @@ export default function Chat() {
         },
         onUsage: (u: ChatUsage) => {
           flushDelta()
+          setLiveTokens((u.prompt_tokens || 0) + (u.completion_tokens || 0))
           lastMetaRef.current = {
             elapsedMs: u.latency_ms, tokens: u.completion_tokens, tools: toolsSeen, steps: stepsRef.current,
             mode: modeSeen, context: contextSeen, artifacts: artifactsSeen.length ? artifactsSeen : undefined,
@@ -1132,7 +1134,7 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
                   // the streamed answer appears beneath it (no brief double "Working" panel)
                   <motion.div key="proc" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, transition: { duration: 0 } }} className="flex gap-3">
                     <div className="pt-0.5">{tobiMark(28)}</div>
-                    <div className="min-w-0 flex-1"><ProcessTrace active steps={thinkingSteps} startedAt={thinkingStartedAt} /></div>
+                    <div className="min-w-0 flex-1"><ProcessTrace active steps={thinkingSteps} startedAt={thinkingStartedAt} tokens={liveTokens} /></div>
                   </motion.div>
                 )}
               </AnimatePresence>

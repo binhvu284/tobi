@@ -752,6 +752,16 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             source="chat_runtime",
             is_background=False,
         )
+        # Live token metric: surface the context size as soon as the turn starts thinking so the
+        # owner sees token spend during the thinking phase; the final usage event completes it
+        # with the real completion count once the answer has finished.
+        _live_usage = {
+            "prompt_tokens": model_router.estimate_tokens(
+                (message or "") + (atext or "")
+                + " ".join(str(m.get("content") or "") for m in (history or []))),
+            "completion_tokens": 0,
+        }
+        yield "event: usage\ndata: " + json.dumps(_live_usage) + "\n\n"
         fut = loop.run_in_executor(chat_runtime.chat_executor(), lambda: conductor.answer(
             message or "(see attached)", cid, "mc", model=model, history=history,
             attachments_text=atext or None,
