@@ -210,6 +210,26 @@ Every agent running TM01 must report:
 The agent must end with a short owner decision: what the owner can do next and
 what remains blocked.
 
+## Owner Report Style
+
+The final report is for a non-technical owner, not for another developer. Keep
+it short and use ordinary words. Do not make the owner read the full audit to
+understand the result.
+
+Use this exact order:
+
+1. **Result:** `Complete`, `Complete with warnings`, or `Blocked`.
+2. **Updated:** the important current documents changed, in plain language.
+3. **Archived:** what was moved and why; write `Nothing` when none moved.
+4. **Notice:** the most important remaining mismatch, missing evidence, or risk;
+   write `Nothing` when none remains.
+5. **Next action:** one clear thing the owner should do next.
+
+Keep the owner-facing section to five short bullets or fewer. Put exact paths,
+commands, commit IDs, and detailed evidence after it under an optional
+`Technical details` section. Never hide a blocker behind a green-looking
+summary, and never report a document as current when it was not checked.
+
 ## Safety Rules
 
 - Do not interact with Supabase or Vercel.
