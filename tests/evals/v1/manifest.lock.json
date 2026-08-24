@@ -1,0 +1,11 @@
+{
+  "aggregate_sha256": "8b0791c9195c2dbb574f0f360a8a8b410f33b1695518d2eed3df9f652ad86b12",
+  "dataset_version": "v1",
+  "files": {
+    "baseline_observations.json": "b6b14d505b40e99e21ce754885d6642ad09448641039378128579993a8864b70",
+    "benchmark.json": "ec8b1bee76c8c758820e06bf10d432d02b1832b1fe4b0c4647fab27a8698487d",
+    "case_manifest.json": "9081ddca810354f9d307396cf45452b17dbd12cbc7c32d83398fc244df538f58",
+    "supported_workflows.json": "267e49e9b2d9314113b00a2a0b3c03555c1533d1c92c7933a140e46f2e930192"
+  },
+  "schema_version": "tobival.dataset-lock.v1"
+}

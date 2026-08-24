@@ -11,7 +11,8 @@ verbatim. `QUEUE.md` links to these sections; this file is the evidence behind t
 
 `UPG-CORE-2D12H-011`
 
-Owner approved the plan on 2026-08-25. No implementation has started. #34 turns #21's Eval
+Owner approved the plan on 2026-08-25. T00 is active locally; production behavior has not changed.
+#34 turns #21's Eval
 case/run/finding and release-gate foundation into an executable local benchmark, then moves common
 Mission Control routes, required fields, tool boundaries, typed arguments, evidence checks, and
 bounded outcomes out of unverified model-only judgment. The release targets are Eval Completion
@@ -25,6 +26,18 @@ recomputes the same metrics from unchanged cases across strong, weak, and no-mod
 coding, research, and writing are reported separately and cannot be hidden inside the `<=50%`
 claim. Implementation waits for #33 to be committed and closed. #29 is absorbed into #34's recovery
 and model-failure dataset and must not run as separate overlapping work.
+
+T00 started locally on 2026-08-25 after commit `a317604` and the inherited 24/24 gate proved #33
+green. The package adds no `core/`, `api/`, or `dashboard/` behavior. It freezes 72 synthetic cases
+including 14 guarded holdouts, 21 supported workflows, the ECR/LDR formulas, source hashes, and a
+dataset lock. The owner approved strong `codex:gpt-5.6-sol`, weak `codex:gpt-5.4-mini`, 168 bounded
+calls, and `$0` direct spend through Codex subscription. The completed baseline is tied to production
+commit `5ffa3d93`: ECR `50`, Unguarded Decision Share `100`, Quality Loss `42.3077`, final LLM
+Dependency `85.5769`, strong reliability `44.8276%`, weak reliability `18.9655%`, no-model
+reliability `0%`, and direct cost `$0`. It fails the intended ECR/LDR targets and proves the work is
+needed. One weak-model response was structurally malformed and scored `0`; all other 167 probes were
+scored. The owner accepted both immutable artifact hashes on 2026-08-25, closing T00 and allowing
+T01 to begin.
 
 
 <a id="item-32"></a>
@@ -133,14 +146,14 @@ Bounded Codex development with an independent reviewer is qualified. Same-run re
 
 `CHECK-CORE-4H-007`
 
-Observed in the local worktree during the 2026-08-25 TM01 refresh; not yet committed to `main`.
+Delivered in `a317604` on 2026-08-25. The inherited package gate then passed 24/24, including the
+infrastructure self-check and process-window regression suites.
 Health gains an **Infrastructure** tab with one button. It runs twelve
 read-only checks of the running server — which database file is open, whether this process can
 reach the internet at all, whether every canonical table and migration is present, what the
 rollout switches say, whether the vault is loaded, whether a failing model has a fallback — and
 then every #21 acceptance suite, each as its own process against its own throwaway database.
-Twenty-three suites, 362 individual proofs, about 55 seconds, streamed row by row. This is local
-evidence only until the active #21/T15 package gate passes and the files are committed.
+Twenty-three suites, 362 individual proofs, about 55 seconds, streamed row by row.
 
 The button and the release gate read one list, and `tests/test_infrastructure_self_check.py`
 fails if they ever differ, so a green page and a green gate cannot come to mean different things.
@@ -177,8 +190,7 @@ silently, because `OR IGNORE` swallows constraint violations. The ledger stayed 
 `_schema_is_ready()` answered False forever, and the entire runtime schema was re-applied at all
 62 of its call sites on every runtime database operation. Fixed by writing `applied_at` explicitly
 and aligning both definitions; the live database repaired itself on the next restart, recording
-all 13 versions. The local package reports Gate 23/23, but this is not a delivered release result
-until the current worktree package is committed and the owner-facing queue status returns to Done.
+all 13 versions. The committed package is now recorded as Done; Runtime rollout flags remain off.
 
 <a id="item-21"></a>
 

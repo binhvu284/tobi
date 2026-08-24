@@ -1,0 +1,22 @@
+{
+  "approval": {
+    "approved_at": "2026-08-24T20:23:20.7683052Z",
+    "approved_by": "owner",
+    "requested_at": "2026-08-25",
+    "status": "approved"
+  },
+  "billing_mode": "codex_subscription",
+  "dataset_version": "v1",
+  "development_case_count": 58,
+  "holdout_case_count": 14,
+  "max_cost_usd": 0.0,
+  "model_repetitions": 3,
+  "models": {
+    "no_model": "disabled",
+    "strong": "codex:gpt-5.6-sol",
+    "weak": "codex:gpt-5.4-mini"
+  },
+  "no_model_min_cases": 30,
+  "random_seed": 340011,
+  "schema_version": "tobival.benchmark.v1"
+}

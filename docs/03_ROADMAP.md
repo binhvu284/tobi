@@ -31,10 +31,9 @@ The main danger now is confusing **having tools** with **being a capable agent**
   remain off, and legacy deletion is still a separate owner-approved decision.
 - #22 Coding Agent V2 is qualified for the Codex-only path. That proves bounded coding-agent
   operation, not unlimited autonomous development or readiness for every large task.
-- #33 Infrastructure self-check is local work in progress in the current checkout, not a shipped
-  platform gate until its dirty files are committed and validated.
-- The next honest move is to finish and commit the active T15/self-check package, then run small
-  real Agent workflows before declaring the entire Agent tier complete.
+- #33 Infrastructure self-check is committed and green in `a317604`.
+- #34/T00 records the owner-accepted 72-case unchanged-code TOBIval baseline: ECR `50` and LLM
+  Dependency `85.5769`. T01 may now begin.
 
 ```mermaid
 flowchart LR

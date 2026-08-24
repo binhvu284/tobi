@@ -1,6 +1,6 @@
 # TOBIval Operational Intelligence And Model Independence
 
-`UPG-CORE-2D12H-011` | Queue item #34 | Owner-approved plan | Not implemented
+`UPG-CORE-2D12H-011` | Queue item #34 | Owner-approved plan | T00 baseline owner-accepted
 
 ## The One Outcome
 
@@ -13,9 +13,8 @@ This item has two measurable targets:
 1. Raise operational Eval Completion from the current estimated 30-40% to at least 90%.
 2. Reduce measured LLM Dependency to at most 50% for supported, bounded Mission Control work.
 
-The current percentages are architecture estimates, not measured baselines. T00 must calculate the
-first reproducible baseline before production code changes. The plan must report the measured value
-even when it disagrees with the estimate.
+The owner-accepted unchanged-code baseline measures ECR `50` and LLM Dependency `85.5769`.
+These measured values replace the earlier architecture estimates and permit T01 to begin.
 
 ## Plain-Language Product Result
 

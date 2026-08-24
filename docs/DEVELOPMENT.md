@@ -50,7 +50,7 @@ The Genesis vault can manage supported secrets from Mission Control after the ap
 | `venv\Scripts\python.exe main.py test` | Tests configured connections and may contact external services; run only when that is intended |
 | `venv\Scripts\python.exe -m core.coding_runner_service` | Runs the durable external coding-worker service; use with `TOBI_CODING_RUNNER_MODE=service` |
 
-For the current #21 package gate, run from `tobi/` with the bundled D-drive interpreter:
+For the current #34/T00 package gate, run from `tobi/` with the bundled D-drive interpreter:
 
 ```powershell
 & "D:\[PERSONAL PROJECT FILES]\TOBI\.python\venv\Scripts\python.exe" scripts/gate.py
@@ -58,6 +58,19 @@ For the current #21 package gate, run from `tobi/` with the bundled D-drive inte
 
 This is separate from `venv\Scripts\python.exe`; use the interpreter named by the active
 `.claude/CURRENT_WORK.md` when validating the package.
+
+The local TOBIval T00 commands are:
+
+```powershell
+& "D:\[PERSONAL PROJECT FILES]\TOBI\.python\venv\Scripts\python.exe" scripts/tobival.py verify
+& "D:\[PERSONAL PROJECT FILES]\TOBI\.python\venv\Scripts\python.exe" scripts/tobival.py baseline --output tests/evals/baselines/5ffa3d93fd18ade107694947226e440947f1225c/unchanged-baseline.json
+& "D:\[PERSONAL PROJECT FILES]\TOBI\.python\venv\Scripts\python.exe" scripts/tobival.py run-model-baseline
+```
+
+`verify` and `baseline` are offline. `run-model-baseline` makes 168 bounded model calls and refuses
+to start until `tests/evals/v1/benchmark.json` records owner approval. Development runs exclude all
+14 holdouts; only the final-acceptance purpose can load them. An existing model artifact is immutable;
+replacement requires both `--replace` and `--confirm` plus renewed owner authorization.
 
 `main.py start`, `research`, `execute`, `ceo`, `test`, and configured Telegram flows can cause external calls or messages. Choose the narrowest command for the task.
 

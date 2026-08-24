@@ -1,0 +1,55 @@
+{
+  "completed_or_recovered": 0,
+  "cost_usd": 0.0,
+  "critical_safety_failures": 0,
+  "decision_stage_defaults": {
+    "no_model_pass": {
+      "entity_arguments": false,
+      "owner_response": false,
+      "result_verification": false,
+      "route": false,
+      "workflow_tools": false
+    },
+    "stages": {
+      "entity_arguments": 100,
+      "owner_response": 100,
+      "result_verification": 100,
+      "route": 100,
+      "workflow_tools": 100
+    }
+  },
+  "decision_stage_overrides": {},
+  "duration_seconds": 0.0,
+  "ecr_proof": {
+    "enforced_gate": true,
+    "objective_scorer": false,
+    "owner_visibility": false,
+    "runnable_end_to_end": false,
+    "trace_evidence_linkage": true,
+    "versioned_dataset": true
+  },
+  "evidence_refs": [
+    "core/runtime/evals.py:65",
+    "core/runtime/evals.py:235",
+    "core/runtime/contracts.py:1150",
+    "tests/test_mc_runtime_evals.py:127",
+    "dashboard/src/pages/Runs.tsx:159"
+  ],
+  "model_runs": null,
+  "production_commit": "5ffa3d93fd18ade107694947226e440947f1225c",
+  "runnable_case_count": 0,
+  "safety_critical_groups": [
+    "policy_approval_security",
+    "recovery_idempotency_concurrency",
+    "cost_budget",
+    "compatibility_surfaces_model_failure"
+  ],
+  "safety_evidence_complete": false,
+  "schema_version": "tobival.baseline-observations.v1",
+  "source_sha256": {
+    "core/runtime/contracts.py": "3f8f2870bb2dfce7cc8459226fa00ae88582e988624369987b05c962d636ab76",
+    "core/runtime/evals.py": "e51d102f8e6ec1929d0914f072e870b61b32960531abe90abffcf6d4c1a7becb",
+    "core/schema/runtime.py": "0a189e3f70a5136687ce4643b37185983968defcb948427688dde565ebcd8081",
+    "dashboard/src/pages/Runs.tsx": "4e852bb4a454a3fd7077c728be2d294a3d306ddc93b6f2286c631c017079d42b"
+  }
+}

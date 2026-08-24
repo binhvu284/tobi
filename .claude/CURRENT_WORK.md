@@ -8,55 +8,34 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 
 ---
 
-**Item:** #21 Mission Control Infrastructure V2
-**Package:** T15 - Remaining surface adapters, documentation, and #21 closeout
+**Item:** #34 TOBIval Operational Intelligence and Model Independence
+**Package:** T00 - Metric contract, frozen dataset, and unchanged-code baseline
 
 **Purpose (one sentence, plain words):**
-Give Projects, Office, CLI, Telegram, and schedulers one safe compatibility adapter into canonical
-run history, document the final system, and close #21 without deleting legacy behavior.
+Freeze the exam, formulas, supported scope, model lanes, and unchanged-code result before any
+production behavior changes, so later improvement claims cannot move the target.
 
 **Not doing:**
-- No raw request, prompt, response, tool output, secret, or error body in adapter history.
-- No replacement of existing Projects, Office, CLI, Telegram, or scheduler execution.
-- No activation flag change in the real owner database.
-- No legacy deletion; retirement remains a separate owner-approved decision.
-- No Supabase, Vercel, external integration, or production-runtime interaction.
+- No edits to `core/`, `api/`, or `dashboard/` production behavior.
+- No holdout execution or tuning against the 14 holdout cases.
+- No model benchmark outside the approved exact model IDs, 168-call limit, and `$0` direct-cost cap.
+- No Runtime V2 activation, connector writes, deployment, Supabase, or Vercel interaction.
+- No T01 implementation until the owner reviews and accepts the recorded baseline.
 
 **Files expected:**
 - `.claude/CURRENT_WORK.md`
-- `core/runtime/surface_adapter.py`
-- `api/runtime_surface.py` and API composition wiring
-- narrow `main.py`, Telegram, and scheduler entrypoint wiring
-- architecture, operation, API, testing, security, queue, and legacy-exit docs
-- focused adapter and full final gate tests
+- `tobival/` metric, dataset, and baseline tooling
+- `scripts/tobival.py`
+- `tests/evals/v1/` frozen manifest, fixtures, workflow scope, lock, and baseline evidence
+- `tests/test_tobival_metric_contracts.py`
+- `tests/test_tobival_baseline_harness.py`
+- queue, delivery-log, and development docs
 
 **Gate: green**
 
 ```gate
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_contracts.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_event_store.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_repository.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_gateway_live_chat.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_policy.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_tool_catalog.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_project_tools.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_file_tools.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_terminal_jobs.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_conductor_facade.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_owner_intelligence.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_coding_adapter.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_evals.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_system_model.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_security.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_runs_view.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_runs_ui.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_rollout.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_surface_adapters.py
-../.python/venv/Scripts/python.exe tests/test_model_unreachable_message.py
-../.python/venv/Scripts/python.exe tests/test_runtime_schema_ledger.py
-../.python/venv/Scripts/python.exe tests/test_infrastructure_self_check.py
-../.python/venv/Scripts/python.exe tests/test_no_console_windows.py
-../.python/venv/Scripts/python.exe tests/test_ui_loading_states.py
+../.python/venv/Scripts/python.exe tests/test_tobival_metric_contracts.py
+../.python/venv/Scripts/python.exe tests/test_tobival_baseline_harness.py
 ```
 
 ---

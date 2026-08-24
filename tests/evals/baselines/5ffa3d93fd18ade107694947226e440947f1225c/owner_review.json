@@ -1,0 +1,8 @@
+{
+  "baseline_sha256": "9ce4a6f77a1d6dc36d4f64addb2cb671ab57d0badaba5f631d5496f259781684",
+  "model_runs_sha256": "8dce657762a766cfad1f95ec3308ffff5a000edc872038d0b162752aa535cf95",
+  "reviewed_at": "2026-08-24T20:44:27.8797003Z",
+  "reviewed_by": "owner",
+  "schema_version": "tobival.owner-review.v1",
+  "status": "accepted"
+}
