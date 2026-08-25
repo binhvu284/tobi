@@ -13,9 +13,11 @@ All Runtime V2 rollout controls default off. The #21 implementation and activati
 temporary local databases; they did not change the owner's live flags or call an external service.
 
 The Infrastructure self-check is committed in `a317604`; the inherited release gate passed 24/24.
-#34/T00 freezes the accepted TOBIval baseline. T01 locally adds executable scorers and a runner that
-attaches bounded observed evidence to canonical traces and the existing immutable Eval tables. It
-does not activate Runtime execution or change any rollout flag.
+#34/T00 freezes the accepted TOBIval baseline. T01 adds executable scorers and a runner that attaches
+bounded observed evidence to canonical traces and the existing immutable Eval tables. T02 adds a
+hash-verified 21-workflow catalog, deterministic selection and tool boundaries, plus bounded workflow
+version and selection-reason trace evidence. Its adapter is not wired into production Chat until T03
+can resolve typed fields. These packages do not activate Runtime execution or change any rollout flag.
 
 ## Request Flow
 

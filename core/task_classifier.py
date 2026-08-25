@@ -1,5 +1,9 @@
 """Fast task classifier — no LLM, pure regex. Used for routing in handle_chat."""
 import re
+from typing import TYPE_CHECKING, Any, Mapping
+
+if TYPE_CHECKING:
+    from core.runtime.workflows import WorkflowSelection
 
 _SMALLTALK = [
     r"^(hi|hello|hey|yo)\b",
@@ -64,3 +68,12 @@ def classify(text: str) -> str:
     if any(re.search(p, tl) for p in _EXECUTION):
         return "EXECUTION"
     return "QUESTION"
+
+
+def classify_workflow(
+    text: str, fields: Mapping[str, Any] | None = None,
+) -> "WorkflowSelection":
+    """Select a frozen supported workflow without invoking a model."""
+    from core.runtime.workflows import supported_workflow_catalog
+
+    return supported_workflow_catalog().select(text, fields)

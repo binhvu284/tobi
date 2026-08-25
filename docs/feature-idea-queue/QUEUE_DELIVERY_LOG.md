@@ -49,6 +49,17 @@ bounded finding. ECR is derived from persisted proof rather than a percentage su
 The focused Gate passes `3/3`; contracts, event store, repository, Eval, Runs projection, and Runs UI
 regressions pass `93/93`. No model, holdout, rollout flag, connector, API, or dashboard was used.
 
+T02 is green locally on 2026-08-26. `core/runtime/workflows.py` verifies the accepted dataset hash
+before loading all 21 versioned workflow definitions. It selects known intents without a model,
+clarifies equal matches and missing required fields, reports unsupported open-ended work, and rejects
+any proposed workflow or tool outside the selected allowlist. Additive adapters expose the selection
+through the existing task classifier and Chat Runtime, while production `route_turn` remains unchanged
+until T03 can resolve typed fields and identities. Canonical traces and Eval evidence now include
+bounded workflow-version and selection-reason references. The focused Gate passes `3/3`; `156`
+relevant workflow, Chat, Runtime, and TOBIval checks pass. The T00 unchanged-source sentinel remains
+red by design because implementation source now differs from accepted production commit `5ffa3d93`.
+No model, holdout, owner rollout flag, external service, API route, or dashboard was used.
+
 
 <a id="item-32"></a>
 

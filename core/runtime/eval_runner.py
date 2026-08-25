@@ -23,6 +23,8 @@ def _now() -> str:
 def _trace_refs(trace: RunTrace) -> set[str]:
     refs = set(trace.context_refs)
     refs.update(trace.evidence_refs)
+    refs.update(trace.workflow_refs)
+    refs.update(trace.selection_reason_refs)
     refs.update(trace.tool_refs)
     refs.update(trace.policy_decision_refs)
     refs.update(trace.approval_refs)
@@ -89,6 +91,8 @@ class EvalRunner:
         finding_id = f"{eval_run_id}:finding" if not score.passed else None
         artifact_refs = set(score.evidence_refs)
         artifact_refs.update(trace.evidence_refs)
+        artifact_refs.update(trace.workflow_refs)
+        artifact_refs.update(trace.selection_reason_refs)
         artifact_refs.update(trace.outcome_refs)
         artifact_refs.add(f"observation:{score.observation_hash}")
         run = EvalRun(

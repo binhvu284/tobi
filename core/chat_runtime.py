@@ -10,7 +10,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 from core.chat_runtime_contracts import RouteDecision, TurnError, TurnRequest
 from core.database import get_connection
@@ -228,6 +228,58 @@ def route_turn(req: TurnRequest, intent: str, owner_context: Any = None) -> Rout
             reason="owner-memory fallback read hint",
         )
     return RouteDecision("direct", intent, 0.82, reason="ordinary conversation", final_tokens=1600)
+
+
+def route_supported_turn(
+    req: TurnRequest,
+    *,
+    fields: Mapping[str, Any] | None = None,
+    proposed_workflow_id: str | None = None,
+    proposed_tools: Iterable[str] | None = None,
+) -> RouteDecision:
+    """Route through the frozen catalog; production wiring follows typed resolution in T03."""
+    from core.runtime.workflows import supported_workflow_catalog
+
+    catalog = supported_workflow_catalog()
+    selection = catalog.select(req.message, fields)
+    if selection.status != "matched":
+        confidence = 0.98 if selection.status == "clarify" else 0.0
+        return RouteDecision(
+            "clarify",
+            "SUPPORTED_WORKFLOW",
+            confidence,
+            requires_clarification=True,
+            reason=selection.reason,
+            final_tokens=900,
+        )
+
+    boundary = catalog.enforce(
+        selection,
+        proposed_workflow_id=proposed_workflow_id,
+        proposed_tools=proposed_tools,
+    )
+    reason = (
+        f"{boundary.selection_reason}; workflow={boundary.workflow_id}@v{boundary.version}; "
+        f"policy={boundary.policy_class}"
+    )
+    if boundary.route == "action" and req.mode != "agent":
+        return RouteDecision(
+            "clarify",
+            "SUPPORTED_WORKFLOW",
+            0.99,
+            requires_clarification=True,
+            reason=f"{reason}; Agent mode required",
+            final_tokens=900,
+        )
+    return RouteDecision(
+        boundary.route,
+        "SUPPORTED_WORKFLOW",
+        0.99,
+        boundary.allowed_tools,
+        max_tool_steps=4 if boundary.route in {"action", "recovery"} else 2,
+        reason=reason,
+        final_tokens=1200,
+    )
 
 
 @dataclass

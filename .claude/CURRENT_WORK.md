@@ -9,36 +9,36 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #34 TOBIval Operational Intelligence and Model Independence
-**Package:** T01 - Real runner, scorers, and immutable results
+**Package:** T02 - Deterministic Supported-Workflow Catalog
 
 **Purpose (one sentence, plain words):**
-Execute frozen development cases, score observed behavior from bounded evidence, and persist
-immutable results against canonical Runtime runs instead of accepting manually inserted passes.
+Route common Mission Control requests through versioned workflow definitions without model
+judgment, while failing closed on ambiguity, missing fields, and tool-boundary violations.
 
 **Not doing:**
-- No T02 deterministic workflow routing or production Chat behavior changes.
+- No T03 entity or typed argument resolution.
+- No production Chat routing switch; the new adapter remains additive until later packages connect it.
 - No holdout execution or tuning against the 14 holdout cases.
-- No model calls; T01 uses deterministic test executors only.
+- No model calls.
 - No API or dashboard work; those belong to T05/T06.
 - No Runtime V2 activation, connector writes, deployment, Supabase, or Vercel interaction.
 
 **Files expected:**
 - `.claude/CURRENT_WORK.md`
-- `core/runtime/evals.py` existing persistence ownership
-- `core/runtime/eval_dataset.py`
-- `core/runtime/eval_scorers.py`
+- `core/runtime/workflows.py`
+- `core/task_classifier.py`
+- `core/chat_runtime.py`
+- `core/runtime/trace.py`
 - `core/runtime/eval_runner.py`
-- `core/runtime/eval_metrics.py`
-- `core/runtime/trace.py` bounded evidence-reference projection
-- `tests/test_tobival_scorers.py`
-- `tests/test_tobival_runner.py`
+- `tests/test_tobival_workflows.py`
+- inherited Chat Runtime and Runtime Eval tests
 - queue, delivery-log, and development docs
 
 **Gate: green**
 
 ```gate
-../.python/venv/Scripts/python.exe tests/test_tobival_scorers.py
-../.python/venv/Scripts/python.exe tests/test_tobival_runner.py
+../.python/venv/Scripts/python.exe tests/test_tobival_workflows.py
+../.python/venv/Scripts/python.exe tests/test_chat_runtime.py
 ../.python/venv/Scripts/python.exe tests/test_mc_runtime_evals.py
 ```
 

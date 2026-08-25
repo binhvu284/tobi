@@ -50,7 +50,7 @@ The Genesis vault can manage supported secrets from Mission Control after the ap
 | `venv\Scripts\python.exe main.py test` | Tests configured connections and may contact external services; run only when that is intended |
 | `venv\Scripts\python.exe -m core.coding_runner_service` | Runs the durable external coding-worker service; use with `TOBI_CODING_RUNNER_MODE=service` |
 
-For the current #34/T01 package gate, run from `tobi/` with the bundled D-drive interpreter:
+For the current #34/T02 package gate, run from `tobi/` with the bundled D-drive interpreter:
 
 ```powershell
 & "D:\[PERSONAL PROJECT FILES]\TOBI\.python\venv\Scripts\python.exe" scripts/gate.py
@@ -59,8 +59,9 @@ For the current #34/T01 package gate, run from `tobi/` with the bundled D-drive 
 This is separate from `venv\Scripts\python.exe`; use the interpreter named by the active
 `.claude/CURRENT_WORK.md` when validating the package.
 
-The T01 Gate runs the executable scorer, canonical runner, and inherited Runtime Eval checks. All
-fixtures use a temporary database; no model or holdout is called.
+The T02 Gate runs deterministic workflow selection, the inherited Chat Runtime route checks, and
+the canonical Runtime trace/Eval checks. All fixtures use a temporary database; no model or holdout
+is called.
 
 The local TOBIval baseline commands are:
 
@@ -74,6 +75,9 @@ The local TOBIval baseline commands are:
 to start until `tests/evals/v1/benchmark.json` records owner approval. Development runs exclude all
 14 holdouts; only the final-acceptance purpose can load them. An existing model artifact is immutable;
 replacement requires both `--replace` and `--confirm` plus renewed owner authorization.
+The unchanged-source `baseline` command intentionally fails after implementation changes any locked
+production source; use the accepted artifact under
+`tests/evals/baselines/5ffa3d93fd18ade107694947226e440947f1225c/` for comparison.
 
 `main.py start`, `research`, `execute`, `ceo`, `test`, and configured Telegram flows can cause external calls or messages. Choose the narrowest command for the task.
 
