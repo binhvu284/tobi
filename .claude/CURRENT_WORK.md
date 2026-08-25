@@ -9,15 +9,15 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #34 TOBIval Operational Intelligence and Model Independence
-**Package:** T02 - Deterministic Supported-Workflow Catalog
+**Package:** T03 - Typed Entity And Argument Resolution
 
 **Purpose (one sentence, plain words):**
-Route common Mission Control requests through versioned workflow definitions without model
-judgment, while failing closed on ambiguity, missing fields, and tool-boundary violations.
+Resolve project, task, and resource identities plus tool arguments into exact validated requests,
+while asking bounded questions instead of letting a model invent or silently choose identifiers.
 
 **Not doing:**
-- No T03 entity or typed argument resolution.
-- No production Chat routing switch; the new adapter remains additive until later packages connect it.
+- No T04 grounded outcome templates or provider recovery.
+- No production Chat routing switch; typed resolution remains additive until later packages connect it.
 - No holdout execution or tuning against the 14 holdout cases.
 - No model calls.
 - No API or dashboard work; those belong to T05/T06.
@@ -25,21 +25,18 @@ judgment, while failing closed on ambiguity, missing fields, and tool-boundary v
 
 **Files expected:**
 - `.claude/CURRENT_WORK.md`
-- `core/runtime/workflows.py`
-- `core/task_classifier.py`
-- `core/chat_runtime.py`
-- `core/runtime/trace.py`
-- `core/runtime/eval_runner.py`
-- `tests/test_tobival_workflows.py`
-- inherited Chat Runtime and Runtime Eval tests
+- `core/runtime/typed_resolution.py`
+- existing `core/runtime/workflows.py` and canonical tool catalog contracts
+- `tests/test_tobival_typed_resolution.py`
+- inherited canonical project-tool and tool-registry tests
 - queue, delivery-log, and development docs
 
 **Gate: green**
 
 ```gate
-../.python/venv/Scripts/python.exe tests/test_tobival_workflows.py
-../.python/venv/Scripts/python.exe tests/test_chat_runtime.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_evals.py
+../.python/venv/Scripts/python.exe tests/test_tobival_typed_resolution.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_project_tools.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_tool_registry.py
 ```
 
 ---

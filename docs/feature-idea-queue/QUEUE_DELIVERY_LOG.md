@@ -60,6 +60,18 @@ relevant workflow, Chat, Runtime, and TOBIval checks pass. The T00 unchanged-sou
 red by design because implementation source now differs from accepted production commit `5ffa3d93`.
 No model, holdout, owner rollout flag, external service, API route, or dashboard was used.
 
+T03 is green locally on 2026-08-26. `core/runtime/typed_resolution.py` performs read-only bounded
+identity lookup against the existing `pm_projects`, `tasks`, and `pm_resources` tables. Exact IDs and
+unique names become canonical integers; missing, invented, cross-project, or multiple matches cannot
+produce a tool call and instead return at most five owner choices. `TypedRequestResolver` enforces the
+T02 workflow/tool boundary, rejects unknown fields, validates types with the existing canonical JSON
+Schema catalog, and stores accepted arguments as an immutable canonical JSON snapshot plus hash.
+Equivalent name/ID proposals from reference and weaker model lanes produce the same contract hash.
+Retries reconstruct the same validated call and idempotency key; the inherited executor proves the
+mutation replays without a second effect. Trace payloads contain only typed-request, workflow, and
+tool references. The focused Gate passes `3/3`; `90` relevant T01-T03, tool, trace, resource, and
+idempotency checks pass. No model, holdout, production route, external service, or rollout flag was used.
+
 
 <a id="item-32"></a>
 

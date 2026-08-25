@@ -16,8 +16,10 @@ The Infrastructure self-check is committed in `a317604`; the inherited release g
 #34/T00 freezes the accepted TOBIval baseline. T01 adds executable scorers and a runner that attaches
 bounded observed evidence to canonical traces and the existing immutable Eval tables. T02 adds a
 hash-verified 21-workflow catalog, deterministic selection and tool boundaries, plus bounded workflow
-version and selection-reason trace evidence. Its adapter is not wired into production Chat until T03
-can resolve typed fields. These packages do not activate Runtime execution or change any rollout flag.
+version and selection-reason trace evidence. T03 resolves current project/task/resource identities,
+validates proposed arguments through canonical tool schemas, and freezes accepted requests with stable
+hashes and idempotency keys. These adapters are not wired into production Chat and do not activate
+Runtime execution or change any rollout flag.
 
 ## Request Flow
 

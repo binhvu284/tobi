@@ -24,6 +24,7 @@ _REFERENCE_KINDS = {
     "result_ref": "outcome",
     "selection_reason_ref": "selection_reason",
     "tool_ref": "tool",
+    "typed_request_ref": "evidence",
     "workflow_ref": "workflow",
 }
 
