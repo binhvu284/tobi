@@ -18,8 +18,10 @@ bounded observed evidence to canonical traces and the existing immutable Eval ta
 hash-verified 21-workflow catalog, deterministic selection and tool boundaries, plus bounded workflow
 version and selection-reason trace evidence. T03 resolves current project/task/resource identities,
 validates proposed arguments through canonical tool schemas, and freezes accepted requests with stable
-hashes and idempotency keys. These adapters are not wired into production Chat and do not activate
-Runtime execution or change any rollout flag.
+hashes and idempotency keys. T04 composes no-model outcomes from typed evidence and blocks action-success
+claims without the matching receipt; malformed structured output has one bounded repair and optional
+escalation before a truthful failure. These adapters are not wired into production Chat and do not
+activate Runtime execution or change any rollout flag.
 
 ## Request Flow
 

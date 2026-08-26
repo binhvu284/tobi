@@ -9,15 +9,15 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #34 TOBIval Operational Intelligence and Model Independence
-**Package:** T03 - Typed Entity And Argument Resolution
+**Package:** T04 - Grounded Outcomes And Bounded Model Recovery
 
 **Purpose (one sentence, plain words):**
-Resolve project, task, and resource identities plus tool arguments into exact validated requests,
-while asking bounded questions instead of letting a model invent or silently choose identifiers.
+Render common Mission Control outcomes only from typed evidence and recover malformed/provider
+failures through bounded truthful paths that still work when no model is available.
 
 **Not doing:**
-- No T04 grounded outcome templates or provider recovery.
-- No production Chat routing switch; typed resolution remains additive until later packages connect it.
+- No T05 live Eval attachment or release-gate enforcement.
+- No production Chat routing switch; outcome composition remains additive until later packages connect it.
 - No holdout execution or tuning against the 14 holdout cases.
 - No model calls.
 - No API or dashboard work; those belong to T05/T06.
@@ -25,18 +25,18 @@ while asking bounded questions instead of letting a model invent or silently cho
 
 **Files expected:**
 - `.claude/CURRENT_WORK.md`
-- `core/runtime/typed_resolution.py`
-- existing `core/runtime/workflows.py` and canonical tool catalog contracts
-- `tests/test_tobival_typed_resolution.py`
-- inherited canonical project-tool and tool-registry tests
+- `core/runtime/grounded_outcomes.py`
+- existing Runtime result, receipt, policy, response-composer, and transport-failure contracts
+- `tests/test_tobival_grounded_outcomes.py`
+- inherited response-composer and model-unreachable tests
 - queue, delivery-log, and development docs
 
 **Gate: green**
 
 ```gate
-../.python/venv/Scripts/python.exe tests/test_tobival_typed_resolution.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_project_tools.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_tool_registry.py
+../.python/venv/Scripts/python.exe tests/test_tobival_grounded_outcomes.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_response_composer.py
+../.python/venv/Scripts/python.exe tests/test_model_unreachable_message.py
 ```
 
 ---

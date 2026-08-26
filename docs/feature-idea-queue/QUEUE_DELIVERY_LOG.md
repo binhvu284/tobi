@@ -72,6 +72,17 @@ mutation replays without a second effect. Trace payloads contain only typed-requ
 tool references. The focused Gate passes `3/3`; `90` relevant T01-T03, tool, trace, resource, and
 idempotency checks pass. No model, holdout, production route, external service, or rollout flag was used.
 
+T04 is green locally on 2026-08-26. `core/runtime/grounded_outcomes.py` turns typed results,
+receipts, policy decisions, connector freshness, and recovery state into bounded owner-readable
+outcomes without requiring a model. A reversible or terminal action cannot claim success without the
+exact matching receipt and allowed tool. Structured model output gets at most one deterministic repair
+and one configured escalation; unrecoverable output becomes an explicit bounded failure, while
+provider transport failures keep their truthful provider classification. Outcome traces contain only
+workflow, result, and evidence references. The focused Gate passes `3/3`; all `17` T04 checks plus
+response-composer, provider-failure, action-receipt, policy, runner, and typed-resolution regressions
+pass. Production Chat, Runtime flags, external services, and accepted baseline/holdout results remain
+unchanged.
+
 
 <a id="item-32"></a>
 
