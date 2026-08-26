@@ -1222,6 +1222,99 @@ class EvalFinding:
         _require_tuple(self.evidence_refs, "evidence_refs", str)
 
 
+def _require_bounded_eval_refs(
+    values: tuple[str, ...], name: str, *, maximum_items: int,
+) -> None:
+    _require_tuple(values, name, str)
+    if len(values) > maximum_items:
+        raise ValueError(f"{name} exceeds its bounded item count")
+    if any(not value.strip() or len(value) > 240 for value in values):
+        raise ValueError(f"{name} items must be bounded non-empty text")
+    if len(set(values)) != len(values):
+        raise ValueError(f"{name} items must be unique")
+
+
+@dataclass(frozen=True)
+class EvalCaseControl:
+    eval_case_id: str
+    eval_case_version: str
+    capability_refs: tuple[str, ...]
+    freshness_seconds: int
+    sample_eligible: bool = True
+
+    def __post_init__(self) -> None:
+        _require_text(self.eval_case_id, "eval_case_id")
+        _require_text(self.eval_case_version, "eval_case_version")
+        _require_bounded_eval_refs(
+            self.capability_refs, "capability_refs", maximum_items=20,
+        )
+        if not self.capability_refs:
+            raise ValueError("capability_refs must not be empty")
+        _require_positive_int(self.freshness_seconds, "freshness_seconds")
+        if self.freshness_seconds > 2_592_000:
+            raise ValueError("freshness_seconds cannot exceed 30 days")
+        if not isinstance(self.sample_eligible, bool):
+            raise ValueError("sample_eligible must be bool")
+
+
+@dataclass(frozen=True)
+class EvalSuiteRun:
+    suite_run_id: str
+    trigger: str
+    lane: str
+    status: EvalStatus
+    capability_refs: tuple[str, ...]
+    case_refs: tuple[str, ...]
+    eval_run_refs: tuple[str, ...]
+    started_at: str
+    completed_at: str
+
+    def __post_init__(self) -> None:
+        for name in ("suite_run_id", "trigger", "lane", "started_at", "completed_at"):
+            _require_text(getattr(self, name), name)
+            if len(getattr(self, name)) > 240:
+                raise ValueError(f"{name} must be bounded text")
+        if self.trigger not in {"manual", "scheduled"}:
+            raise ValueError("trigger must be manual or scheduled")
+        if self.lane not in {"strong", "weak", "no_model"}:
+            raise ValueError("unknown Eval lane")
+        _require_enum(self.status, EvalStatus, "status")
+        if self.status not in {EvalStatus.PASSED, EvalStatus.FAILED}:
+            raise ValueError("completed suite status must be passed or failed")
+        _require_bounded_eval_refs(
+            self.capability_refs, "capability_refs", maximum_items=20,
+        )
+        _require_bounded_eval_refs(self.case_refs, "case_refs", maximum_items=72)
+        _require_bounded_eval_refs(
+            self.eval_run_refs, "eval_run_refs", maximum_items=72,
+        )
+        if not self.case_refs or len(self.case_refs) != len(self.eval_run_refs):
+            raise ValueError("suite case and Eval run references must align")
+
+
+@dataclass(frozen=True)
+class EvalFindingEvent:
+    event_id: str
+    finding_id: str
+    status: str
+    actor: str
+    evidence_refs: tuple[str, ...]
+    created_at: str
+
+    def __post_init__(self) -> None:
+        for name in ("event_id", "finding_id", "status", "actor", "created_at"):
+            _require_text(getattr(self, name), name)
+            if len(getattr(self, name)) > 240:
+                raise ValueError(f"{name} must be bounded text")
+        if self.status not in {"acknowledged", "resolved", "accepted"}:
+            raise ValueError("unknown finding lifecycle status")
+        _require_bounded_eval_refs(
+            self.evidence_refs, "evidence_refs", maximum_items=20,
+        )
+        if not self.evidence_refs:
+            raise ValueError("finding lifecycle event requires evidence")
+
+
 @dataclass(frozen=True)
 class SystemEntity:
     entity_id: str

@@ -20,8 +20,10 @@ version and selection-reason trace evidence. T03 resolves current project/task/r
 validates proposed arguments through canonical tool schemas, and freezes accepted requests with stable
 hashes and idempotency keys. T04 composes no-model outcomes from typed evidence and blocks action-success
 claims without the matching receipt; malformed structured output has one bounded repair and optional
-escalation before a truthful failure. These adapters are not wired into production Chat and do not
-activate Runtime execution or change any rollout flag.
+escalation before a truthful failure. T05 adds immutable suite/control/finding-event records, scoped
+freshness gates, and an explicit bounded live-suite service; `RolloutController` checks the affected
+scope server-side. These adapters are not wired into production Chat and do not activate Runtime
+execution or change any rollout flag.
 
 ## Request Flow
 

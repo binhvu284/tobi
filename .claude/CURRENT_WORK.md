@@ -9,34 +9,37 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #34 TOBIval Operational Intelligence and Model Independence
-**Package:** T04 - Grounded Outcomes And Bounded Model Recovery
+**Package:** T05 - Live Eval Attachment And Enforced Regression Gates
 
 **Purpose (one sentence, plain words):**
-Render common Mission Control outcomes only from typed evidence and recover malformed/provider
-failures through bounded truthful paths that still work when no model is available.
+Attach bounded Eval suites to canonical Runtime evidence and block only affected release or autonomy
+scope when required proof is missing, stale, failed, or unsafe.
 
 **Not doing:**
-- No T05 live Eval attachment or release-gate enforcement.
-- No production Chat routing switch; outcome composition remains additive until later packages connect it.
+- No T06 Eval API or dashboard.
+- No production Chat routing switch or full-suite work inside an owner turn.
 - No holdout execution or tuning against the 14 holdout cases.
 - No model calls.
-- No API or dashboard work; those belong to T05/T06.
+- No owner-facing API or dashboard work; those belong to T06.
 - No Runtime V2 activation, connector writes, deployment, Supabase, or Vercel interaction.
 
 **Files expected:**
 - `.claude/CURRENT_WORK.md`
-- `core/runtime/grounded_outcomes.py`
-- existing Runtime result, receipt, policy, response-composer, and transport-failure contracts
-- `tests/test_tobival_grounded_outcomes.py`
-- inherited response-composer and model-unreachable tests
+- `core/schema/runtime.py`
+- `core/runtime/contracts.py`
+- `core/runtime/evals.py`
+- `core/runtime/eval_live.py`
+- `core/runtime/rollout.py`
+- `tests/test_tobival_runtime_gates.py`
+- inherited Eval runner, rollout, security, and schema-ledger tests
 - queue, delivery-log, and development docs
 
 **Gate: green**
 
 ```gate
-../.python/venv/Scripts/python.exe tests/test_tobival_grounded_outcomes.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_response_composer.py
-../.python/venv/Scripts/python.exe tests/test_model_unreachable_message.py
+../.python/venv/Scripts/python.exe tests/test_tobival_runtime_gates.py
+../.python/venv/Scripts/python.exe tests/test_tobival_runner.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_rollout.py
 ```
 
 ---

@@ -83,6 +83,17 @@ response-composer, provider-failure, action-receipt, policy, runner, and typed-r
 pass. Production Chat, Runtime flags, external services, and accepted baseline/holdout results remain
 unchanged.
 
+T05 is green locally on 2026-08-26. Runtime schema v14 adds immutable case-control, suite-run, and
+finding-lifecycle records without prompt, response, tool-output, provider-error, or secret columns.
+`LiveEvalService` runs only explicit manual suites or scheduled samples capped at five cases; holdouts
+remain inaccessible and normal Chat/Conductor routes do not import it. The real runner now projects
+typed evidence references that the gate can consume. `EvalRepository.gate` enforces each registered
+case's capability scope and freshness window, uses the latest append-only finding status, and keeps
+legacy unscoped #21 cases fail-closed. `RolloutController` checks the affected stage scope server-side.
+The focused Gate passes `3/3`; `14` T05 checks plus `76` runner, rollout, Eval, security, and schema
+checks pass. All Runtime execution flags remain off; no model, holdout, owner activation, external
+service, Supabase, Vercel, or deployment was used.
+
 
 <a id="item-32"></a>
 

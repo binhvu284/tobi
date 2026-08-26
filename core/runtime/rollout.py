@@ -15,6 +15,9 @@ from core.schema.runtime import _ensure_runtime_schema
 
 
 ROLLOUT_STAGES = ("direct_chat", "read_chat", "actions", "agent")
+_ROLLOUT_EVAL_SCOPES = {
+    stage: (f"rollout:{stage}",) for stage in ROLLOUT_STAGES
+}
 REQUIRED_CONSECUTIVE_PASSES = 7
 _TOKEN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.:@/-]{0,159}$")
 _DIGEST = re.compile(r"^[a-f0-9]{64}$")
@@ -181,7 +184,7 @@ class RolloutController:
         finally:
             conn.close()
 
-    def decision(self, stage: str) -> RolloutDecision:
+    def decision(self, stage: str, *, now: str | None = None) -> RolloutDecision:
         if stage not in ROLLOUT_STAGES:
             raise ValueError("unknown rollout stage")
         conn = get_connection()
@@ -201,11 +204,15 @@ class RolloutController:
         blockers: list[str] = []
         if consecutive < REQUIRED_CONSECUTIVE_PASSES:
             blockers.append(f"comparison-streak:{consecutive}/{REQUIRED_CONSECUTIVE_PASSES}")
-        release = EvalRepository().gate("release")
+        release = EvalRepository().gate(
+            "release", capability_refs=_ROLLOUT_EVAL_SCOPES[stage], now=now,
+        )
         if not release.allowed:
             blockers.extend(f"release-eval:{blocker}" for blocker in release.blockers)
         if stage == "agent":
-            autonomy = EvalRepository().gate("autonomy")
+            autonomy = EvalRepository().gate(
+                "autonomy", capability_refs=_ROLLOUT_EVAL_SCOPES[stage], now=now,
+            )
             if not autonomy.allowed:
                 blockers.extend(f"autonomy-eval:{blocker}" for blocker in autonomy.blockers)
         return RolloutDecision(

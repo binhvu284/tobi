@@ -20,6 +20,7 @@ RUNTIME_SCHEMA_VERSIONS = (
     "mc-runtime-v2-011",
     "mc-runtime-v2-012",
     "mc-runtime-v2-013",
+    "mc-runtime-v2-014",
 )
 RUNTIME_SCHEMA_VERSION = RUNTIME_SCHEMA_VERSIONS[-1]
 _SCHEMA_LOCK = threading.Lock()
@@ -50,6 +51,9 @@ _RUNTIME_TABLES = {
     "mc_eval_cases",
     "mc_eval_runs",
     "mc_eval_findings",
+    "mc_eval_case_controls",
+    "mc_eval_suite_runs",
+    "mc_eval_finding_events",
     "mc_runtime_preferences",
     "mc_rollout_comparisons",
 }
@@ -224,6 +228,45 @@ _STATEMENTS = (
         FOREIGN KEY (eval_run_id) REFERENCES mc_eval_runs(eval_run_id)
     )""",
     "CREATE INDEX IF NOT EXISTS idx_mc_eval_findings_run ON mc_eval_findings(eval_run_id, severity, created_at)",
+    """CREATE TABLE IF NOT EXISTS mc_eval_case_controls (
+        eval_case_id TEXT NOT NULL,
+        eval_case_version TEXT NOT NULL,
+        capability_refs_json TEXT NOT NULL,
+        freshness_seconds INTEGER NOT NULL CHECK (freshness_seconds > 0),
+        sample_eligible INTEGER NOT NULL CHECK (sample_eligible IN (0,1)),
+        contract_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (eval_case_id, eval_case_version),
+        FOREIGN KEY (eval_case_id, eval_case_version)
+            REFERENCES mc_eval_cases(eval_case_id, version)
+    )""",
+    """CREATE TABLE IF NOT EXISTS mc_eval_suite_runs (
+        suite_run_id TEXT PRIMARY KEY,
+        trigger TEXT NOT NULL CHECK (trigger IN ('manual','scheduled')),
+        lane TEXT NOT NULL CHECK (lane IN ('strong','weak','no_model')),
+        status TEXT NOT NULL CHECK (status IN ('passed','failed')),
+        capability_refs_json TEXT NOT NULL,
+        case_refs_json TEXT NOT NULL,
+        eval_run_refs_json TEXT NOT NULL,
+        contract_hash TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        completed_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_mc_eval_suite_runs_completed ON mc_eval_suite_runs(completed_at DESC)",
+    """CREATE TABLE IF NOT EXISTS mc_eval_finding_events (
+        event_id TEXT PRIMARY KEY,
+        finding_id TEXT NOT NULL,
+        sequence INTEGER NOT NULL CHECK (sequence > 0),
+        status TEXT NOT NULL CHECK (status IN ('acknowledged','resolved','accepted')),
+        actor TEXT NOT NULL,
+        evidence_refs_json TEXT NOT NULL,
+        contract_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (finding_id, sequence),
+        FOREIGN KEY (finding_id) REFERENCES mc_eval_findings(finding_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_mc_eval_finding_events_current ON mc_eval_finding_events(finding_id,sequence DESC)",
     """CREATE TABLE IF NOT EXISTS mc_runtime_preferences (
         preference_key TEXT PRIMARY KEY,
         value_json TEXT NOT NULL,
@@ -285,6 +328,30 @@ _STATEMENTS = (
     """CREATE TRIGGER IF NOT EXISTS mc_eval_findings_delete_guard
         BEFORE DELETE ON mc_eval_findings BEGIN
             SELECT RAISE(ABORT, 'mc_eval_findings history is immutable');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_eval_case_controls_update_guard
+        BEFORE UPDATE ON mc_eval_case_controls BEGIN
+            SELECT RAISE(ABORT, 'mc_eval_case_controls history is immutable');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_eval_case_controls_delete_guard
+        BEFORE DELETE ON mc_eval_case_controls BEGIN
+            SELECT RAISE(ABORT, 'mc_eval_case_controls history is immutable');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_eval_suite_runs_update_guard
+        BEFORE UPDATE ON mc_eval_suite_runs BEGIN
+            SELECT RAISE(ABORT, 'mc_eval_suite_runs history is immutable');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_eval_suite_runs_delete_guard
+        BEFORE DELETE ON mc_eval_suite_runs BEGIN
+            SELECT RAISE(ABORT, 'mc_eval_suite_runs history is immutable');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_eval_finding_events_update_guard
+        BEFORE UPDATE ON mc_eval_finding_events BEGIN
+            SELECT RAISE(ABORT, 'mc_eval_finding_events history is immutable');
+        END""",
+    """CREATE TRIGGER IF NOT EXISTS mc_eval_finding_events_delete_guard
+        BEFORE DELETE ON mc_eval_finding_events BEGIN
+            SELECT RAISE(ABORT, 'mc_eval_finding_events history is immutable');
         END""",
     """CREATE TRIGGER IF NOT EXISTS mc_run_events_update_immutable
         BEFORE UPDATE ON mc_run_events BEGIN

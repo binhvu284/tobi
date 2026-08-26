@@ -90,6 +90,11 @@ class EvalRunner:
         eval_run_id = f"{suite_run_id}:{runtime_case.eval_case_id}@{runtime_case.version}"
         finding_id = f"{eval_run_id}:finding" if not score.passed else None
         artifact_refs = set(score.evidence_refs)
+        artifact_refs.update(
+            f"{item.kind}:{item.ref}"
+            for item in observation.evidence
+            if item.status == "valid"
+        )
         artifact_refs.update(trace.evidence_refs)
         artifact_refs.update(trace.workflow_refs)
         artifact_refs.update(trace.selection_reason_refs)
