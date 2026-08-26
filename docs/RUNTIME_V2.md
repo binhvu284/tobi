@@ -25,6 +25,9 @@ freshness gates, and an explicit bounded live-suite service; `RolloutController`
 scope server-side. T06 adds a vault-protected Eval projection/API and the Runs -> Evaluations owner
 view, including truthful unavailable states and bounded case evidence. These adapters are not wired into production Chat and do not activate Runtime
 execution or change any rollout flag.
+T07 adds the frozen final-acceptance runner and bounded local artifact. The Eval view projects its
+ECR, LDR, lane, holdout, usage, cost, and duration evidence while keeping the release gate closed
+until owner acceptance.
 
 ## Request Flow
 

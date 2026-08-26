@@ -158,6 +158,15 @@ ok("LDR stays unavailable until both model lanes have required proof", (
     and overview["metrics"]["ldr"]["status"] == "missing_evidence"
     and overview["metrics"]["ldr"]["formula"] == "0.75 * U + 0.25 * Q"
 ))
+final_overview = EvalControlView(
+    repository, include_final_acceptance=True,
+).overview(now="2026-08-26T05:30:00Z")
+ok("final acceptance overrides metrics but still waits for owner acceptance", (
+    final_overview["metrics"]["ecr"]["overall"] == 100.0
+    and final_overview["metrics"]["ldr"]["value"] <= 50
+    and final_overview["acceptance"]["holdout_passed"] == 14
+    and final_overview["gates"]["release"]["blockers"] == ["owner-acceptance-required"]
+))
 ok("overview includes category workflow freshness and scoped gate state", (
     overview["categories"][0]["pass_rate"] == 100.0
     and overview["workflows"][0]["workflow_id"] == "system.status.read"

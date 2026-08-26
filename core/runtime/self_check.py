@@ -5,7 +5,7 @@ second server quietly serving an empty database. Both looked fine because nothin
 things that were broken. This module is the answer to that: press one button and get two kinds
 of evidence back, because neither kind is enough on its own.
 
-**Behaviour** — the 21 acceptance suites that define #21, each run in its own throwaway
+**Behaviour** — the registered #21 and #34 acceptance suites, each run in its own throwaway
 database as a separate process. They are the project's gate, so the health page and the gate
 can never disagree about whether the runtime works; nothing is re-implemented here, only named
 in plain words and executed.
@@ -155,6 +155,10 @@ SUITES: tuple[SuiteSpec, ...] = (
     SuiteSpec("ui_loading", "Every button shows it is working", "UI",
               "tests/test_ui_loading_states.py",
               "No control in the app can be pressed twice or appear frozen while it works."),
+    SuiteSpec("tobival_final", "TOBIval clears its frozen final exam", "#34 T07",
+              "tests/test_tobival_acceptance.py",
+              "All 72 frozen cases and 14 holdouts meet the quality and model-independence targets, "
+              "with real provider evidence and bounded recovery."),
 )
 
 _PASS_LINE = re.compile(r"^PASS\s", re.MULTILINE)

@@ -116,7 +116,9 @@ def score_expected_subset(expected: dict[str, Any], observed: dict[str, Any]) ->
     return round(matches / len(leaves), 4)
 
 
-def _prompt(case: dict[str, Any], workflow: dict[str, Any], repetition: int, seed: int) -> str:
+def model_case_prompt(
+    case: dict[str, Any], workflow: dict[str, Any], repetition: int, seed: int,
+) -> str:
     payload = {
         "case_id": case["case_id"],
         "repetition": repetition,
@@ -128,7 +130,7 @@ def _prompt(case: dict[str, Any], workflow: dict[str, Any], repetition: int, see
     return _canonical(payload)
 
 
-def _system_instruction() -> str:
+def model_system_instruction() -> str:
     return (
         "This is a synthetic TOBIval decision probe. Use only the supplied workflow and fixture. "
         "Return exactly one JSON object with the required output fields. Do not add markdown or "
@@ -180,11 +182,11 @@ def run_model_baseline(
                 failure_code = None
                 try:
                     raw = client.complete(
-                        [{"role": "user", "content": _prompt(
+                        [{"role": "user", "content": model_case_prompt(
                             case, workflows[case["workflow_id"]], repetition,
                             int(benchmark["random_seed"]),
                         )}],
-                        system=_system_instruction(),
+                        system=model_system_instruction(),
                         max_tokens=600,
                     )
                     observed = parse_json_object(raw)

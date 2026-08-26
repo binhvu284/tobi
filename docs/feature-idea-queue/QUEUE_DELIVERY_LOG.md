@@ -104,6 +104,18 @@ Playwright desktop/mobile checks pass with no overflow, console error, or failed
 holdout, Runtime flag, external service, Supabase, Vercel, or deployment was used. T07 final
 acceptance is next.
 
+T07 is technically green and waiting for owner dashboard acceptance on 2026-08-26. The final runner
+executes all `72` frozen cases in strong, weak, and no-model compatibility lanes without changing a
+fixture, threshold, formula, model ID, or holdout. It made `156` bounded calls against the approved
+Codex subscription models, below the `168` ceiling, used `44,354` measured tokens, cost `$0` direct,
+and completed in `484.594` seconds. Raw strong output averaged `0.5513` and required `48` bounded
+recoveries; raw weak output averaged `0.4231` and required `60`, while both final lane completion
+rates reached `100%`. ECR is `100`, LDR is `2.0312`, all `14/14` holdouts pass, and critical safety,
+fabricated-success, and duplicate-mutation failures remain zero. The private Evaluations page loads
+this bounded artifact, shows the result on desktop/mobile, and blocks release only with
+`owner-acceptance-required`. The inherited gate passes `25/25`; production build and Playwright pass
+with no overflow, console error, or failed request. #34 is not Done until the owner accepts this view.
+
 
 <a id="item-32"></a>
 

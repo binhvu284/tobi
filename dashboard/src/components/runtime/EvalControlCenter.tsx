@@ -9,6 +9,7 @@ import {
   type RuntimeEvalCaseDetail, type RuntimeEvalOverview,
 } from '../../api.runtime'
 import VaultUnlockPanel from '../VaultUnlockPanel'
+import { ActionButton } from '../async-ui'
 
 function pct(value: number | null) {
   return value == null ? 'Missing' : `${value.toFixed(value % 1 ? 1 : 0)}%`
@@ -68,15 +69,20 @@ export default function EvalControlCenter() {
 
   if (loading && !data) return <div className="flex min-h-80 items-center justify-center text-muted"><Loader2 size={22} className="animate-spin" /></div>
   if (error?.status === 401) return <VaultUnlockPanel title="Unlock Evaluations" detail="Eval evidence is owner-only." onUnlocked={load} />
-  if (error && !data) return <div className="mx-4 mt-5 border-l-2 border-danger bg-danger/5 p-4 sm:mx-6"><div className="flex gap-3"><AlertTriangle size={17} className="mt-0.5 text-danger" /><div><div className="text-sm font-semibold text-heading">Evaluation data unavailable</div><div className="mt-1 text-xs text-muted">{error.message}</div><button onClick={() => void load()} className="mt-3 inline-flex h-8 items-center gap-2 border border-border px-2.5 text-xs hover:border-accent"><RefreshCw size={13} />Retry</button></div></div></div>
+  if (error && !data) return <div className="mx-4 mt-5 border-l-2 border-danger bg-danger/5 p-4 sm:mx-6"><div className="flex gap-3"><AlertTriangle size={17} className="mt-0.5 text-danger" /><div><div className="text-sm font-semibold text-heading">Evaluation data unavailable</div><div className="mt-1 text-xs text-muted">{error.message}</div><ActionButton onAction={load} icon={<RefreshCw size={13} />} className="mt-3 inline-flex h-8 items-center gap-2 border border-border px-2.5 text-xs hover:border-accent">Retry</ActionButton></div></div></div>
   if (!data) return null
 
   const release = data.gates.release
   return <div className="min-w-0">
     <div className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-6">
       <div><div className="text-sm font-semibold text-heading">Eval Control Center</div><div className="mt-0.5 text-[10px] uppercase text-muted">Evidence refreshed {when(data.freshness.latest_suite_at)}</div></div>
-      <button onClick={() => void load()} title="Refresh evaluation evidence" className="inline-flex h-9 w-9 items-center justify-center border border-border text-muted hover:border-accent hover:text-accent"><RefreshCw size={15} className={loading ? 'animate-spin' : ''} /></button>
+      <ActionButton onAction={load} busy={loading} title="Refresh evaluation evidence" icon={<RefreshCw size={15} />} className="inline-flex h-9 w-9 items-center justify-center border border-border text-muted hover:border-accent hover:text-accent" />
     </div>
+
+    {data.acceptance && <div className="grid border-b border-success/40 bg-success/5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+      <div className="px-4 py-3 sm:px-6"><div className="flex items-center gap-2 text-xs font-semibold text-success"><ShieldCheck size={15} />Final acceptance ready</div><div className="mt-1 text-[10px] text-muted">{data.acceptance.case_count} cases - {data.acceptance.holdout_passed}/{data.acceptance.holdout_count} holdouts - {data.acceptance.model_calls}/{data.acceptance.approved_model_call_ceiling} model calls - US${data.acceptance.cost_usd.toFixed(2)} direct spend - {(data.acceptance.duration_seconds / 60).toFixed(1)} min</div></div>
+      <div className="border-t border-success/20 px-4 py-3 text-[10px] font-semibold uppercase text-warning sm:border-l sm:border-t-0 sm:px-6">Owner acceptance required</div>
+    </div>}
 
     <div className="grid border-b border-border sm:grid-cols-4">
       <Metric label="ECR" value={pct(data.metrics.ecr.overall)} detail={`${data.metrics.ecr.case_count} persisted cases`} good={data.metrics.ecr.overall >= 90} />
@@ -111,7 +117,7 @@ export default function EvalControlCenter() {
     <div className="grid min-h-80 lg:grid-cols-[minmax(260px,0.8fr)_minmax(0,1.2fr)]">
       <section className="border-b border-border lg:border-b-0 lg:border-r">
         <div className="border-b border-border px-4 py-3 text-[10px] font-semibold uppercase text-muted">Cases {data.cases.length}</div>
-        {data.cases.length ? data.cases.map(item => { const key = `${item.eval_case_id}@${item.version}`; return <button key={key} onClick={() => void openCase(item.eval_case_id, item.version)} className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 py-3 text-left ${selected === key ? 'bg-accent/10' : 'hover:bg-overlay/5'}`}><span className="min-w-0"><span className="block truncate text-xs font-medium text-heading">{item.eval_case_id}</span><span className="mt-1 block truncate text-[10px] text-muted">{item.workflow_id} - {item.category}</span></span><span className="flex items-center gap-2"><span className={`font-mono text-[10px] ${tone(item.status)}`}>{item.score ?? '-'}</span><ChevronRight size={14} className="text-muted" /></span></button> }) : <div className="flex min-h-48 flex-col items-center justify-center gap-2 text-muted"><FileSearch size={20} /><span className="text-xs">No Eval cases persisted.</span></div>}
+        {data.cases.length ? data.cases.map(item => { const key = `${item.eval_case_id}@${item.version}`; return <ActionButton key={key} onAction={() => openCase(item.eval_case_id, item.version)} icon={<CheckCircle2 size={14} className={tone(item.status)} />} className={`grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 py-3 text-left ${selected === key ? 'bg-accent/10' : 'hover:bg-overlay/5'}`}><span className="min-w-0"><span className="block truncate text-xs font-medium text-heading">{item.eval_case_id}</span><span className="mt-1 block truncate text-[10px] text-muted">{item.workflow_id} - {item.category}</span></span><span className="flex items-center gap-2"><span className={`font-mono text-[10px] ${tone(item.status)}`}>{item.score ?? '-'}</span><ChevronRight size={14} className="text-muted" /></span></ActionButton> }) : <div className="flex min-h-48 flex-col items-center justify-center gap-2 text-muted"><FileSearch size={20} /><span className="text-xs">No Eval cases persisted.</span></div>}
       </section>
       <section className="min-w-0 p-4 sm:p-5">
         {!selected ? <div className="flex min-h-48 flex-col items-center justify-center gap-2 text-muted"><Gauge size={21} /><span className="text-xs">Select a case to inspect its proof.</span></div>

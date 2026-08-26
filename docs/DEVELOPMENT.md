@@ -50,7 +50,7 @@ The Genesis vault can manage supported secrets from Mission Control after the ap
 | `venv\Scripts\python.exe main.py test` | Tests configured connections and may contact external services; run only when that is intended |
 | `venv\Scripts\python.exe -m core.coding_runner_service` | Runs the durable external coding-worker service; use with `TOBI_CODING_RUNNER_MODE=service` |
 
-For the current #34/T06 package gate, run from `tobi/` with the bundled D-drive interpreter:
+For the current #34/T07 package gate, run from `tobi/` with the bundled D-drive interpreter:
 
 ```powershell
 & "D:\[PERSONAL PROJECT FILES]\TOBI\.python\venv\Scripts\python.exe" scripts/gate.py
@@ -59,10 +59,12 @@ For the current #34/T06 package gate, run from `tobi/` with the bundled D-drive 
 This is separate from `venv\Scripts\python.exe`; use the interpreter named by the active
 `.claude/CURRENT_WORK.md` when validating the package.
 
-The T06 Gate checks the private Eval API, its bounded owner projection, existing Runs links, and
-inherited live gates. Dashboard verification also requires `npm run build` and the Playwright owner
-flow in `tests/ui/tobival_eval_control.mjs`. No model, holdout, normal Chat path, or external service
-is called.
+The T07 Gate runs the complete `25`-suite Infrastructure registry, including the offline final
+acceptance verifier. The provider-backed artifact is generated separately with `scripts/tobival.py
+acceptance --output tests/evals/acceptance/final-acceptance.json`; it uses only the owner-approved
+Codex subscription models and stores scores, hashes, usage, recovery counts, cost, and timing rather
+than prompt or response bodies. Dashboard verification also requires `npm run build` and the
+Playwright owner flow in `tests/ui/tobival_eval_control.mjs`.
 
 The local TOBIval baseline commands are:
 

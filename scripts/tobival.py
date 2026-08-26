@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tobival.baseline import build_unchanged_baseline  # noqa: E402
+from tobival.acceptance import run_final_acceptance  # noqa: E402
 from tobival.dataset import (  # noqa: E402
     DATASET_VERSION,
     build_dataset_lock,
@@ -46,6 +47,10 @@ def _parser() -> argparse.ArgumentParser:
     model_baseline.add_argument(
         "--confirm", action="store_true", help="confirm intentional replacement"
     )
+    acceptance = subcommands.add_parser(
+        "acceptance", help="run all frozen cases and guarded holdouts"
+    )
+    acceptance.add_argument("--output", type=Path)
     return parser
 
 
@@ -97,6 +102,23 @@ def main() -> int:
             "duration_seconds": report["duration_seconds"],
         }, indent=2, sort_keys=True))
         return 0
+
+    if args.command == "acceptance":
+        report = run_final_acceptance(args.version)
+        if args.output:
+            _write_json(args.output, report)
+        print(json.dumps({
+            "case_count": report["case_count"],
+            "holdout_passed": report["holdouts"]["passed"],
+            "ecr": report["metrics"]["ecr"]["overall"],
+            "ldr": report["metrics"]["ldr"],
+            "cost_usd": report["cost_usd"],
+            "duration_seconds": report["duration_seconds"],
+            "release_ready": report["release_ready"],
+            "blockers": report["blockers"],
+            "output": str(args.output) if args.output else None,
+        }, indent=2, sort_keys=True))
+        return 0 if report["release_ready"] else 1
 
     report = build_unchanged_baseline(args.version)
     if args.output:

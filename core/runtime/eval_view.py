@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Any
 
 from core.runtime.eval_metrics import compute_eval_completion
 from core.runtime.evals import EvalGateDecision, EvalRepository
+from tobival.acceptance import FINAL_ACCEPTANCE_PATH, load_final_acceptance_report
 
 
 _LANES = ("strong", "weak", "no_model")
@@ -50,8 +52,18 @@ def _workflow_ref(control: dict[str, Any] | None) -> str:
 
 
 class EvalControlView:
-    def __init__(self, repository: EvalRepository | None = None) -> None:
+    def __init__(
+        self,
+        repository: EvalRepository | None = None,
+        *,
+        include_final_acceptance: bool | None = None,
+    ) -> None:
         self._repository = repository or EvalRepository()
+        self._include_final_acceptance = (
+            repository is None
+            if include_final_acceptance is None
+            else include_final_acceptance
+        )
 
     def overview(self, *, now: str | None = None) -> dict[str, Any]:
         cases = self._repository.list_cases()
@@ -59,6 +71,9 @@ class EvalControlView:
         suites = self._repository.list_suite_runs()
         findings = self._repository.list_findings()
         latest = _latest_by_case(runs)
+        acceptance_report = (
+            load_final_acceptance_report() if self._include_final_acceptance else None
+        )
 
         if cases:
             ecr = compute_eval_completion(self._repository, owner_visible=True)
@@ -93,6 +108,51 @@ class EvalControlView:
                 "case_count": len(selected),
                 "passed": passed,
                 "completion_rate": _rate(passed, len(selected)),
+            }
+
+        acceptance = None
+        ldr = {
+            "value": None,
+            "status": "missing_evidence",
+            "formula": "0.75 * U + 0.25 * Q",
+            "unguarded_decision_share": None,
+            "quality_loss": None,
+            "missing": ["decision-stage ownership", "strong and weak three-run scores"],
+        }
+        if acceptance_report is not None:
+            accepted_metrics = acceptance_report["metrics"]
+            ecr = {
+                **accepted_metrics["ecr"],
+                "case_count": acceptance_report["case_count"],
+                "source": "frozen_final_acceptance",
+            }
+            ldr = {
+                "value": accepted_metrics["ldr"],
+                "status": "available",
+                "formula": accepted_metrics["formula"],
+                "unguarded_decision_share": accepted_metrics["unguarded_decision_share"],
+                "quality_loss": accepted_metrics["quality_loss"],
+                "missing": [],
+            }
+            lanes = {
+                lane: {
+                    "status": "available",
+                    "case_count": acceptance_report["lanes"][lane]["case_count"],
+                    "passed": acceptance_report["lanes"][lane]["passed"],
+                    "completion_rate": acceptance_report["lanes"][lane]["completion_rate"],
+                }
+                for lane in _LANES
+            }
+            acceptance = {
+                "status": "ready_for_owner",
+                "release_ready": acceptance_report["release_ready"],
+                "case_count": acceptance_report["case_count"],
+                "holdout_count": acceptance_report["holdouts"]["case_count"],
+                "holdout_passed": acceptance_report["holdouts"]["passed"],
+                "model_calls": acceptance_report["model_calls"],
+                "approved_model_call_ceiling": acceptance_report["approved_model_call_ceiling"],
+                "cost_usd": acceptance_report["cost_usd"],
+                "duration_seconds": acceptance_report["duration_seconds"],
             }
 
         category_rows: dict[str, list[dict[str, Any] | None]] = defaultdict(list)
@@ -152,14 +212,25 @@ class EvalControlView:
         release = self._repository.gate("release", now=now)
         autonomy = self._repository.gate("autonomy", now=now)
         latest_suite = suites[0] if suites else None
+        release_payload = _gate(release)
+        if acceptance is not None and acceptance["release_ready"]:
+            release_payload = {
+                "scope": "release",
+                "allowed": False,
+                "required_cases": [],
+                "passed_cases": [],
+                "blockers": ["owner-acceptance-required"],
+            }
         next_action = (
+            "owner-acceptance-required"
+            if acceptance is not None and acceptance["release_ready"] else (
             release.blockers[0]
             if release.blockers else (
                 "run-strong-and-weak-lanes"
                 if lanes["strong"]["status"] == "missing_evidence"
                 or lanes["weak"]["status"] == "missing_evidence"
                 else "review-current-evidence"
-            )
+            ))
         )
         case_items = []
         for case in cases:
@@ -181,23 +252,27 @@ class EvalControlView:
         return {
             "metrics": {
                 "ecr": ecr,
-                "ldr": {
-                    "value": None,
-                    "status": "missing_evidence",
-                    "formula": "0.75 * U + 0.25 * Q",
-                    "unguarded_decision_share": None,
-                    "quality_loss": None,
-                    "missing": ["decision-stage ownership", "strong and weak three-run scores"],
-                },
+                "ldr": ldr,
             },
             "freshness": {
-                "latest_suite_at": latest_suite["completed_at"] if latest_suite else None,
-                "latest_suite_id": latest_suite["suite_run_id"] if latest_suite else None,
+                "latest_suite_at": (
+                    latest_suite["completed_at"] if latest_suite else (
+                        datetime.fromtimestamp(
+                            FINAL_ACCEPTANCE_PATH.stat().st_mtime, tz=timezone.utc,
+                        ).isoformat()
+                        if acceptance is not None else None
+                    )
+                ),
+                "latest_suite_id": (
+                    latest_suite["suite_run_id"] if latest_suite else (
+                        "tobival.final-acceptance.v1" if acceptance is not None else None
+                    )
+                ),
             },
             "lanes": lanes,
             "categories": rows(category_rows, "category"),
             "workflows": rows(workflow_rows, "workflow_id"),
-            "gates": {"release": _gate(release), "autonomy": _gate(autonomy)},
+            "gates": {"release": release_payload, "autonomy": _gate(autonomy)},
             "regressions": regressions[:50],
             "findings": active_findings[:100],
             "suites": [{
@@ -207,6 +282,7 @@ class EvalControlView:
                 )
             } for suite in suites[:50]],
             "cases": case_items,
+            "acceptance": acceptance,
             "next_action": next_action,
         }
 

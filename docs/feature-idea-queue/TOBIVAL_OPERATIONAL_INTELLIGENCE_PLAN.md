@@ -1,6 +1,6 @@
 # TOBIval Operational Intelligence And Model Independence
 
-`UPG-CORE-2D12H-011` | Queue item #34 | Owner-approved plan | T01 green locally; T02 next
+`UPG-CORE-2D12H-011` | Queue item #34 | Owner-approved plan | T07 technically green; owner acceptance required
 
 ## The One Outcome
 

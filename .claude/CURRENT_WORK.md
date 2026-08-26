@@ -9,37 +9,61 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #34 TOBIval Operational Intelligence and Model Independence
-**Package:** T06 - Owner-Facing Eval Control Center
+**Package:** T07 - Full Acceptance, Holdout, And Rollout Proof
 
 **Purpose (one sentence, plain words):**
-Show the owner current Eval quality, missing proof, regressions, findings, and bounded case evidence
-inside Mission Control without exposing private bodies or requiring test-log reading.
+Prove the frozen #34 targets across all 72 cases and 14 holdouts, publish bounded final evidence,
+and keep release blocked until the owner accepts the dashboard result.
 
 **Not doing:**
-- No T07 holdout or final model-lane acceptance execution.
+- No fixture, threshold, formula, model ID, or holdout changes.
+- No tuning after holdout results are visible.
 - No production Chat routing switch or Eval suite execution inside an owner turn.
-- No holdout execution or tuning against the 14 holdout cases.
-- No model calls.
+- No paid API model calls; lane compatibility must stay inside the approved Codex subscription contract.
 - No public or unauthenticated Eval data route.
 - No Runtime V2 activation, connector writes, deployment, Supabase, or Vercel interaction.
 
 **Files expected:**
 - `.claude/CURRENT_WORK.md`
+- `tobival/acceptance.py`
+- `scripts/tobival.py`
 - `core/runtime/eval_view.py`
-- `api/routers/runtime.py`
+- `core/runtime/self_check.py`
 - `dashboard/src/api.runtime.ts`
-- `dashboard/src/pages/Runs.tsx`
 - `dashboard/src/components/runtime/EvalControlCenter.tsx`
-- `tests/test_tobival_api.py`
-- inherited Runs-view and Eval gate tests; dashboard production build and Playwright
+- `tests/test_tobival_acceptance.py`
+- final bounded acceptance artifact under `tests/evals/acceptance/`
+- inherited #21 release gate, TOBIval, API/redaction, dashboard build, and Playwright checks
 - queue, delivery-log, and development docs
 
 **Gate: green**
 
 ```gate
-../.python/venv/Scripts/python.exe tests/test_tobival_api.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_contracts.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_event_store.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_repository.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_gateway_live_chat.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_policy.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_tool_catalog.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_project_tools.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_file_tools.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_terminal_jobs.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_conductor_facade.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_owner_intelligence.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_coding_adapter.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_evals.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_system_model.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_security.py
 ../.python/venv/Scripts/python.exe tests/test_mc_runtime_runs_view.py
-../.python/venv/Scripts/python.exe tests/test_tobival_runtime_gates.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_runs_ui.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_rollout.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_surface_adapters.py
+../.python/venv/Scripts/python.exe tests/test_model_unreachable_message.py
+../.python/venv/Scripts/python.exe tests/test_runtime_schema_ledger.py
+../.python/venv/Scripts/python.exe tests/test_infrastructure_self_check.py
+../.python/venv/Scripts/python.exe tests/test_no_console_windows.py
+../.python/venv/Scripts/python.exe tests/test_ui_loading_states.py
+../.python/venv/Scripts/python.exe tests/test_tobival_acceptance.py
 ```
 
 ---
