@@ -94,6 +94,16 @@ The focused Gate passes `3/3`; `14` T05 checks plus `76` runner, rollout, Eval, 
 checks pass. All Runtime execution flags remain off; no model, holdout, owner activation, external
 service, Supabase, Vercel, or deployment was used.
 
+T06 is green locally on 2026-08-26. The vault-protected Runtime Eval API projects current ECR,
+truthful LDR availability, lane/category/workflow rates, scoped release gates, regressions, findings,
+suite freshness, and bounded case evidence without private bodies. Mission Control exposes that
+projection under Runs -> Evaluations with explicit loading, locked, unavailable, and missing-proof
+states. Existing Runs details retain linked Eval results. The focused Gate passes `3/3`; `12` API
+checks plus `28` inherited Runs and live-gate checks pass. The production dashboard build and
+Playwright desktop/mobile checks pass with no overflow, console error, or failed request. No model,
+holdout, Runtime flag, external service, Supabase, Vercel, or deployment was used. T07 final
+acceptance is next.
+
 
 <a id="item-32"></a>
 

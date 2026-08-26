@@ -22,7 +22,8 @@ hashes and idempotency keys. T04 composes no-model outcomes from typed evidence 
 claims without the matching receipt; malformed structured output has one bounded repair and optional
 escalation before a truthful failure. T05 adds immutable suite/control/finding-event records, scoped
 freshness gates, and an explicit bounded live-suite service; `RolloutController` checks the affected
-scope server-side. These adapters are not wired into production Chat and do not activate Runtime
+scope server-side. T06 adds a vault-protected Eval projection/API and the Runs -> Evaluations owner
+view, including truthful unavailable states and bounded case evidence. These adapters are not wired into production Chat and do not activate Runtime
 execution or change any rollout flag.
 
 ## Request Flow

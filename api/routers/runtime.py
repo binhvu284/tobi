@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from core.runtime import config
 from core.runtime.contracts import RunEvent
 from core.runtime.gateway import REPLAY_PAGE_LIMIT, TurnGateway
+from core.runtime.eval_view import EvalControlView
 from core.runtime.repository import RunNotFoundError
 from core.runtime.runs_view import RuntimeRunsView, RunsViewValidationError
 from core.runtime.rollout import RolloutController, RolloutNotReadyError
@@ -26,6 +27,27 @@ _TERMINAL_EVENTS = {"shadow.turn_completed"}
 class DeveloperLoopSelection(BaseModel):
     recipe_id: str
     version: str
+
+
+@router.get("/api/runtime/evals")
+def runtime_eval_overview(
+    x_vault_session: str | None = Header(None, alias="X-Vault-Session"),
+):
+    _vault_guard(x_vault_session)
+    return EvalControlView().overview()
+
+
+@router.get("/api/runtime/evals/cases/{eval_case_id}")
+def runtime_eval_case(
+    eval_case_id: str,
+    version: str | None = None,
+    x_vault_session: str | None = Header(None, alias="X-Vault-Session"),
+):
+    _vault_guard(x_vault_session)
+    try:
+        return EvalControlView().case_detail(eval_case_id, version=version)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="evaluation case not found") from exc
 
 
 @router.get("/api/runtime/runs")

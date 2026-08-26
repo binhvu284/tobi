@@ -9,37 +9,37 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #34 TOBIval Operational Intelligence and Model Independence
-**Package:** T05 - Live Eval Attachment And Enforced Regression Gates
+**Package:** T06 - Owner-Facing Eval Control Center
 
 **Purpose (one sentence, plain words):**
-Attach bounded Eval suites to canonical Runtime evidence and block only affected release or autonomy
-scope when required proof is missing, stale, failed, or unsafe.
+Show the owner current Eval quality, missing proof, regressions, findings, and bounded case evidence
+inside Mission Control without exposing private bodies or requiring test-log reading.
 
 **Not doing:**
-- No T06 Eval API or dashboard.
-- No production Chat routing switch or full-suite work inside an owner turn.
+- No T07 holdout or final model-lane acceptance execution.
+- No production Chat routing switch or Eval suite execution inside an owner turn.
 - No holdout execution or tuning against the 14 holdout cases.
 - No model calls.
-- No owner-facing API or dashboard work; those belong to T06.
+- No public or unauthenticated Eval data route.
 - No Runtime V2 activation, connector writes, deployment, Supabase, or Vercel interaction.
 
 **Files expected:**
 - `.claude/CURRENT_WORK.md`
-- `core/schema/runtime.py`
-- `core/runtime/contracts.py`
-- `core/runtime/evals.py`
-- `core/runtime/eval_live.py`
-- `core/runtime/rollout.py`
-- `tests/test_tobival_runtime_gates.py`
-- inherited Eval runner, rollout, security, and schema-ledger tests
+- `core/runtime/eval_view.py`
+- `api/routers/runtime.py`
+- `dashboard/src/api.runtime.ts`
+- `dashboard/src/pages/Runs.tsx`
+- `dashboard/src/components/runtime/EvalControlCenter.tsx`
+- `tests/test_tobival_api.py`
+- inherited Runs-view and Eval gate tests; dashboard production build and Playwright
 - queue, delivery-log, and development docs
 
 **Gate: green**
 
 ```gate
+../.python/venv/Scripts/python.exe tests/test_tobival_api.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_runs_view.py
 ../.python/venv/Scripts/python.exe tests/test_tobival_runtime_gates.py
-../.python/venv/Scripts/python.exe tests/test_tobival_runner.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_rollout.py
 ```
 
 ---

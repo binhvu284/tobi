@@ -5,9 +5,11 @@ import {
 } from 'lucide-react'
 import { runtimeStore, useRuntimeStore } from '../stores/runtime'
 import { ActionButton } from '../components/async-ui'
+import EvalControlCenter from '../components/runtime/EvalControlCenter'
 import type { RuntimeRunSummary } from '../api.runtime'
 
 type DetailTab = 'timeline' | 'trace' | 'evals' | 'context'
+type PageView = 'runs' | 'evaluations'
 
 const SURFACES = ['', 'chat', 'agent', 'developer', 'office', 'projects', 'mcp', 'telegram', 'cli', 'scheduler']
 const STATUSES = ['', 'accepted', 'routing', 'clarifying', 'planned', 'waiting_approval', 'running', 'waiting_external', 'recovering', 'waiting_owner', 'succeeded', 'failed', 'cancelled']
@@ -78,6 +80,7 @@ function ReferenceList({ title, items }: { title: string; items: string[] }) {
 
 export default function Runs() {
   const state = useRuntimeStore()
+  const [pageView, setPageView] = useState<PageView>('runs')
   const [tab, setTab] = useState<DetailTab>('timeline')
   const detail = state.detail
   const usage = useMemo(() => Object.entries(detail?.trace.usage ?? {}), [detail])
@@ -100,7 +103,10 @@ export default function Runs() {
               className="inline-flex h-9 w-9 items-center justify-center border border-border text-muted transition-colors hover:border-accent hover:text-accent" />
           </div>
         </div>
-        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+        <div className="mt-4 flex border-b border-border" role="tablist" aria-label="Runtime views">
+          {([['runs', 'Runs'], ['evaluations', 'Evaluations']] as const).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={pageView === id} onClick={() => setPageView(id)} className={`h-9 border-b-2 px-3 text-xs font-medium ${pageView === id ? 'border-accent text-accent' : 'border-transparent text-muted hover:text-text'}`}>{label}</button>)}
+        </div>
+        {pageView === 'runs' && <div className="mt-3 flex flex-col gap-2 sm:flex-row">
           <select aria-label="Filter runs by surface" value={state.surface} onChange={event => filtersChanged(event.target.value, state.status)}
             className="h-9 border border-border bg-surface px-2 text-xs capitalize text-text outline-none focus:border-accent">
             {SURFACES.map(surface => <option key={surface || 'all'} value={surface}>{surface || 'All surfaces'}</option>)}
@@ -109,12 +115,12 @@ export default function Runs() {
             className="h-9 border border-border bg-surface px-2 text-xs capitalize text-text outline-none focus:border-accent">
             {STATUSES.map(status => <option key={status || 'all'} value={status}>{status ? compact(status) : 'All statuses'}</option>)}
           </select>
-        </div>
+        </div>}
       </header>
 
-      {state.error && <div className="flex items-center gap-2 border-b border-danger/40 bg-danger/5 px-4 py-2 text-xs text-danger sm:px-6"><AlertTriangle size={14} />{state.error}</div>}
+      {pageView === 'runs' && state.error && <div className="flex items-center gap-2 border-b border-danger/40 bg-danger/5 px-4 py-2 text-xs text-danger sm:px-6"><AlertTriangle size={14} />{state.error}</div>}
 
-      <main className="grid min-h-[calc(100vh-12rem)] lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,2fr)]">
+      {pageView === 'evaluations' ? <EvalControlCenter /> : <main className="grid min-h-[calc(100vh-12rem)] lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,2fr)]">
         <aside className="border-b border-border lg:border-b-0 lg:border-r">
           <div className="flex h-10 items-center justify-between border-b border-border px-3 text-[10px] font-semibold uppercase text-muted">
             <span>{state.runs.length} runs</span><span>Newest first</span>
@@ -172,7 +178,7 @@ export default function Runs() {
             </div>
           </>}
         </section>
-      </main>
+      </main>}
     </div>
   )
 }

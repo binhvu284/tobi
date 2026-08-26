@@ -1,4 +1,5 @@
 import { get, request } from './apiCore'
+import { vreq } from './apiVault'
 
 export type RuntimeRunSummary = {
   run_id: string
@@ -124,6 +125,30 @@ export type RuntimeLoops = {
   developer_selection: RuntimeLoopSelection | null
 }
 
+export type RuntimeEvalOverview = {
+  metrics: {
+    ecr: { overall: number; categories: Record<string, number>; case_count: number; source: string }
+    ldr: { value: number | null; status: string; formula: string; unguarded_decision_share: number | null; quality_loss: number | null; missing: string[] }
+  }
+  freshness: { latest_suite_at: string | null; latest_suite_id: string | null }
+  lanes: Record<string, { status: string; case_count: number; passed: number; completion_rate: number | null }>
+  categories: Array<{ category: string; case_count: number; passed: number; pass_rate: number | null }>
+  workflows: Array<{ workflow_id: string; case_count: number; passed: number; pass_rate: number | null }>
+  gates: Record<string, { scope: string; allowed: boolean; required_cases: string[]; passed_cases: string[]; blockers: string[] }>
+  regressions: Array<{ case_ref: string; latest_eval_run_id: string; status: string }>
+  findings: Array<{ finding_id: string; eval_run_id: string; category: string; severity: string; summary: string; remediation_owner: string; status: string; evidence_refs: string[] }>
+  suites: Array<{ suite_run_id: string; trigger: string; lane: string; status: string; case_count: number; capability_refs: string[]; started_at: string; completed_at: string }>
+  cases: Array<{ eval_case_id: string; version: string; category: string; workflow_id: string; status: string; score: number | null; threshold: number; completed_at: string | null; release_gate: boolean; autonomy_gate: boolean }>
+  next_action: string
+}
+
+export type RuntimeEvalCaseDetail = {
+  case: { eval_case_id: string; version: string; category: string; objective: string; scorer: string; threshold: number; required_evidence: string[]; release_gate: boolean; autonomy_gate: boolean; created_at: string }
+  control: { capability_refs: string[]; freshness_seconds: number; sample_eligible: boolean; created_at: string } | null
+  runs: Array<{ eval_run_id: string; status: string; score: number | null; threshold: number; run_id: string | null; trace_id: string | null; completed_at: string | null; evidence_refs: string[] }>
+  findings: RuntimeEvalOverview['findings']
+}
+
 export async function getRuntimeRuns(params: {
   limit?: number
   cursor?: string | null
@@ -148,6 +173,14 @@ export async function getRuntimeRun(runId: string, after = 0): Promise<RuntimeRu
 
 export async function getRuntimeLoops(): Promise<RuntimeLoops> {
   return get('/api/runtime/loops')
+}
+
+export async function getRuntimeEvals(signal?: AbortSignal): Promise<RuntimeEvalOverview> {
+  return vreq('/api/runtime/evals', { signal })
+}
+
+export async function getRuntimeEvalCase(evalCaseId: string, version: string, signal?: AbortSignal): Promise<RuntimeEvalCaseDetail> {
+  return vreq(`/api/runtime/evals/cases/${encodeURIComponent(evalCaseId)}?version=${encodeURIComponent(version)}`, { signal })
 }
 
 export async function setDeveloperLoop(selection: RuntimeLoopSelection): Promise<RuntimeLoopSelection> {
