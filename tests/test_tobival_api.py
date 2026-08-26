@@ -167,6 +167,28 @@ ok("final acceptance overrides metrics but still waits for owner acceptance", (
     and final_overview["acceptance"]["holdout_passed"] == 14
     and final_overview["gates"]["release"]["blockers"] == ["owner-acceptance-required"]
 ))
+ok("final acceptance projects every frozen category workflow and case", (
+    len(final_overview["categories"]) == 9
+    and all(row["pass_rate"] == 100.0 for row in final_overview["categories"])
+    and len(final_overview["workflows"]) == 15
+    and all(row["pass_rate"] == 100.0 for row in final_overview["workflows"])
+    and len(final_overview["cases"]) == 72
+    and all(row["status"] == "passed" for row in final_overview["cases"])
+))
+artifact_detail = EvalControlView(
+    repository, include_final_acceptance=True,
+).case_detail("tobival.v1.final.status_grounded", version="1")
+ok("final artifact case detail exposes all lanes as bounded proof", (
+    artifact_detail["case"]["workflow_id"] == "system.status.read"
+    and {run["lane"] for run in artifact_detail["runs"]} == {"strong", "weak", "no_model"}
+    and all(run["status"] == "passed" for run in artifact_detail["runs"])
+    and all(run["evidence_refs"] for run in artifact_detail["runs"])
+))
+artifact_detail_json = json.dumps(artifact_detail, sort_keys=True)
+ok("final artifact projection excludes frozen request and expected bodies", all(
+    marker not in artifact_detail_json
+    for marker in ("Summarize this synthetic system status", "runtime active", "chat ready")
+))
 ok("overview includes category workflow freshness and scoped gate state", (
     overview["categories"][0]["pass_rate"] == 100.0
     and overview["workflows"][0]["workflow_id"] == "system.status.read"

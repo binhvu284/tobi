@@ -144,9 +144,9 @@ export type RuntimeEvalOverview = {
 }
 
 export type RuntimeEvalCaseDetail = {
-  case: { eval_case_id: string; version: string; category: string; objective: string; scorer: string; threshold: number; required_evidence: string[]; release_gate: boolean; autonomy_gate: boolean; created_at: string }
+  case: { eval_case_id: string; version: string; category: string; workflow_id?: string; objective: string; scorer: string; threshold: number; required_evidence: string[]; release_gate: boolean; autonomy_gate: boolean; created_at: string }
   control: { capability_refs: string[]; freshness_seconds: number; sample_eligible: boolean; created_at: string } | null
-  runs: Array<{ eval_run_id: string; status: string; score: number | null; threshold: number; run_id: string | null; trace_id: string | null; completed_at: string | null; evidence_refs: string[] }>
+  runs: Array<{ eval_run_id: string; lane?: string; status: string; score: number | null; threshold: number; run_id: string | null; trace_id: string | null; completed_at: string | null; evidence_refs: string[] }>
   findings: RuntimeEvalOverview['findings']
 }
 

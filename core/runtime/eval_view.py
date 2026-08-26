@@ -5,6 +5,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
+from core.runtime.eval_dataset import FrozenEvalCase, load_frozen_cases
 from core.runtime.eval_metrics import compute_eval_completion
 from core.runtime.evals import EvalGateDecision, EvalRepository
 from tobival.acceptance import FINAL_ACCEPTANCE_PATH, load_final_acceptance_report
@@ -51,6 +52,131 @@ def _workflow_ref(control: dict[str, Any] | None) -> str:
     return "unscoped"
 
 
+def _artifact_case_id(version: str, case_id: str) -> str:
+    return f"tobival.{version}.{case_id}"
+
+
+def _artifact_completed_at() -> str:
+    return datetime.fromtimestamp(
+        FINAL_ACCEPTANCE_PATH.stat().st_mtime, tz=timezone.utc,
+    ).isoformat()
+
+
+def _acceptance_rows(
+    report: dict[str, Any],
+) -> tuple[tuple[FrozenEvalCase, ...], dict[tuple[str, str], dict[str, Any]]]:
+    cases = load_frozen_cases(
+        report["dataset_version"],
+        include_holdouts=True,
+        purpose="final_acceptance",
+    )
+    rows: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in report.get("results", []):
+        key = (str(row.get("case_id", "")), str(row.get("lane", "")))
+        if key in rows:
+            raise ValueError(f"duplicate final acceptance result: {key[0]}:{key[1]}")
+        rows[key] = row
+    expected = {(case.case_id, lane) for case in cases for lane in _LANES}
+    if set(rows) != expected:
+        raise ValueError("final acceptance result matrix is incomplete")
+    return cases, rows
+
+
+def _acceptance_projection(report: dict[str, Any]) -> dict[str, Any]:
+    cases, rows = _acceptance_rows(report)
+    completed_at = _artifact_completed_at()
+    case_items = []
+    category_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    workflow_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for case in cases:
+        lane_rows = [rows[(case.case_id, lane)] for lane in _LANES]
+        passed = all(row["status"] == "passed" for row in lane_rows)
+        item = {
+            "eval_case_id": _artifact_case_id(report["dataset_version"], case.case_id),
+            "version": case.version,
+            "category": case.group,
+            "workflow_id": case.workflow_id,
+            "status": "passed" if passed else "failed",
+            "score": min(float(row["score"]) for row in lane_rows),
+            "threshold": case.threshold,
+            "completed_at": completed_at,
+            "release_gate": case.supported,
+            "autonomy_gate": case.safety_critical,
+        }
+        case_items.append(item)
+        category_groups[case.group].append(item)
+        workflow_groups[case.workflow_id].append(item)
+
+    def progress(groups: dict[str, list[dict[str, Any]]], key: str) -> list[dict[str, Any]]:
+        result = []
+        for name, items in sorted(groups.items()):
+            passed = sum(item["status"] == "passed" for item in items)
+            result.append({
+                key: name,
+                "case_count": len(items),
+                "passed": passed,
+                "pass_rate": _rate(passed, len(items)),
+            })
+        return result
+
+    return {
+        "cases": case_items,
+        "categories": progress(category_groups, "category"),
+        "workflows": progress(workflow_groups, "workflow_id"),
+    }
+
+
+def _acceptance_case_detail(
+    report: dict[str, Any], eval_case_id: str, version: str | None,
+) -> dict[str, Any] | None:
+    cases, rows = _acceptance_rows(report)
+    match = next((
+        case for case in cases
+        if _artifact_case_id(report["dataset_version"], case.case_id) == eval_case_id
+        and (version is None or case.version == version)
+    ), None)
+    if match is None:
+        return None
+    completed_at = _artifact_completed_at()
+    return {
+        "case": {
+            "eval_case_id": eval_case_id,
+            "version": match.version,
+            "category": match.group,
+            "workflow_id": match.workflow_id,
+            "objective": f"Execute frozen TOBIval case {match.case_id}",
+            "scorer": match.scorer,
+            "threshold": match.threshold,
+            "required_evidence": list(match.required_evidence),
+            "release_gate": match.supported,
+            "autonomy_gate": match.safety_critical,
+            "created_at": completed_at,
+        },
+        "control": {
+            "capability_refs": [
+                f"workflow:{match.workflow_id}", f"surface:{match.surface}",
+            ],
+            "freshness_seconds": 0,
+            "sample_eligible": False,
+            "created_at": completed_at,
+        },
+        "runs": [{
+            "eval_run_id": (
+                f"tobival-final:{report['dataset_version']}:{lane}:{match.case_id}@{match.version}"
+            ),
+            "lane": lane,
+            "status": rows[(match.case_id, lane)]["status"],
+            "score": rows[(match.case_id, lane)]["score"],
+            "threshold": rows[(match.case_id, lane)]["threshold"],
+            "run_id": None,
+            "trace_id": rows[(match.case_id, lane)]["trace_ref"],
+            "completed_at": completed_at,
+            "evidence_refs": rows[(match.case_id, lane)]["evidence_refs"][:50],
+        } for lane in _LANES],
+        "findings": [],
+    }
+
+
 class EvalControlView:
     def __init__(
         self,
@@ -73,6 +199,10 @@ class EvalControlView:
         latest = _latest_by_case(runs)
         acceptance_report = (
             load_final_acceptance_report() if self._include_final_acceptance else None
+        )
+        acceptance_projection = (
+            _acceptance_projection(acceptance_report)
+            if acceptance_report is not None else None
         )
 
         if cases:
@@ -270,8 +400,14 @@ class EvalControlView:
                 ),
             },
             "lanes": lanes,
-            "categories": rows(category_rows, "category"),
-            "workflows": rows(workflow_rows, "workflow_id"),
+            "categories": (
+                acceptance_projection["categories"] if acceptance_projection is not None
+                else rows(category_rows, "category")
+            ),
+            "workflows": (
+                acceptance_projection["workflows"] if acceptance_projection is not None
+                else rows(workflow_rows, "workflow_id")
+            ),
             "gates": {"release": release_payload, "autonomy": _gate(autonomy)},
             "regressions": regressions[:50],
             "findings": active_findings[:100],
@@ -281,12 +417,21 @@ class EvalControlView:
                     "capability_refs", "started_at", "completed_at",
                 )
             } for suite in suites[:50]],
-            "cases": case_items,
+            "cases": (
+                acceptance_projection["cases"] if acceptance_projection is not None
+                else case_items
+            ),
             "acceptance": acceptance,
             "next_action": next_action,
         }
 
     def case_detail(self, eval_case_id: str, *, version: str | None = None) -> dict[str, Any]:
+        if self._include_final_acceptance:
+            report = load_final_acceptance_report()
+            if report is not None:
+                artifact_detail = _acceptance_case_detail(report, eval_case_id, version)
+                if artifact_detail is not None:
+                    return artifact_detail
         matching = [
             case for case in self._repository.list_cases()
             if case["eval_case_id"] == eval_case_id
