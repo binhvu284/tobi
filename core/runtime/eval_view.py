@@ -85,19 +85,20 @@ def _acceptance_rows(
 def _acceptance_projection(report: dict[str, Any]) -> dict[str, Any]:
     cases, rows = _acceptance_rows(report)
     completed_at = _artifact_completed_at()
+    verified = report.get("evidence_scope") == "canonical_runtime"
     case_items = []
     category_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     workflow_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for case in cases:
         lane_rows = [rows[(case.case_id, lane)] for lane in _LANES]
-        passed = all(row["status"] == "passed" for row in lane_rows)
+        passed = verified and all(row["status"] == "passed" for row in lane_rows)
         item = {
             "eval_case_id": _artifact_case_id(report["dataset_version"], case.case_id),
             "version": case.version,
             "category": case.group,
             "workflow_id": case.workflow_id,
-            "status": "passed" if passed else "failed",
-            "score": min(float(row["score"]) for row in lane_rows),
+            "status": "passed" if passed else ("unverified" if not verified else "failed"),
+            "score": min(float(row["score"]) for row in lane_rows) if verified else None,
             "threshold": case.threshold,
             "completed_at": completed_at,
             "release_gate": case.supported,
@@ -138,6 +139,7 @@ def _acceptance_case_detail(
     if match is None:
         return None
     completed_at = _artifact_completed_at()
+    verified = report.get("evidence_scope") == "canonical_runtime"
     return {
         "case": {
             "eval_case_id": eval_case_id,
@@ -165,10 +167,10 @@ def _acceptance_case_detail(
                 f"tobival-final:{report['dataset_version']}:{lane}:{match.case_id}@{match.version}"
             ),
             "lane": lane,
-            "status": rows[(match.case_id, lane)]["status"],
-            "score": rows[(match.case_id, lane)]["score"],
+            "status": rows[(match.case_id, lane)]["status"] if verified else "unverified",
+            "score": rows[(match.case_id, lane)]["score"] if verified else None,
             "threshold": rows[(match.case_id, lane)]["threshold"],
-            "run_id": None,
+            "run_id": rows[(match.case_id, lane)].get("run_id"),
             "trace_id": rows[(match.case_id, lane)]["trace_ref"],
             "completed_at": completed_at,
             "evidence_refs": rows[(match.case_id, lane)]["evidence_refs"][:50],
@@ -249,12 +251,16 @@ class EvalControlView:
             "quality_loss": None,
             "missing": ["decision-stage ownership", "strong and weak three-run scores"],
         }
-        if acceptance_report is not None:
+        canonical_acceptance = bool(
+            acceptance_report is not None
+            and acceptance_report.get("evidence_scope") == "canonical_runtime"
+        )
+        if canonical_acceptance and acceptance_report is not None:
             accepted_metrics = acceptance_report["metrics"]
             ecr = {
                 **accepted_metrics["ecr"],
                 "case_count": acceptance_report["case_count"],
-                "source": "frozen_final_acceptance",
+                "source": "canonical_final_acceptance",
             }
             ldr = {
                 "value": accepted_metrics["ldr"],
@@ -273,9 +279,37 @@ class EvalControlView:
                 }
                 for lane in _LANES
             }
+        if acceptance_report is not None:
+            quality = acceptance_report.get("model_quality") or {}
+            if not quality:
+                attempts = sum(row.get("attempt_count", 0) for row in acceptance_report["results"])
+                raw_passes = sum(
+                    score >= row["threshold"]
+                    for row in acceptance_report["results"]
+                    for score in row.get("model_scores", [])
+                )
+                recoveries = sum(
+                    row.get("recovery_count", 0) for row in acceptance_report["results"]
+                )
+                quality = {
+                    "attempts": attempts,
+                    "raw_passes": raw_passes,
+                    "raw_failures": attempts - raw_passes,
+                    "raw_pass_rate": _rate(raw_passes, attempts),
+                    "recoveries": recoveries,
+                    "recovery_rate": _rate(recoveries, attempts),
+                }
             acceptance = {
-                "status": "ready_for_owner",
+                "status": (
+                    "ready_for_owner"
+                    if canonical_acceptance and acceptance_report["release_ready"]
+                    else ("blocked" if canonical_acceptance else "synthetic_only")
+                ),
                 "release_ready": acceptance_report["release_ready"],
+                "evidence_scope": acceptance_report.get("evidence_scope", "unknown"),
+                "generated_at": acceptance_report.get("generated_at"),
+                "source_commit": acceptance_report.get("source_commit"),
+                "blockers": list(acceptance_report.get("blockers") or []),
                 "case_count": acceptance_report["case_count"],
                 "holdout_count": acceptance_report["holdouts"]["case_count"],
                 "holdout_passed": acceptance_report["holdouts"]["passed"],
@@ -283,6 +317,7 @@ class EvalControlView:
                 "approved_model_call_ceiling": acceptance_report["approved_model_call_ceiling"],
                 "cost_usd": acceptance_report["cost_usd"],
                 "duration_seconds": acceptance_report["duration_seconds"],
+                "model_quality": quality,
             }
 
         category_rows: dict[str, list[dict[str, Any] | None]] = defaultdict(list)
@@ -343,7 +378,23 @@ class EvalControlView:
         autonomy = self._repository.gate("autonomy", now=now)
         latest_suite = suites[0] if suites else None
         release_payload = _gate(release)
-        if acceptance is not None and acceptance["release_ready"]:
+        if acceptance is not None and acceptance["status"] == "synthetic_only":
+            release_payload = {
+                "scope": "release",
+                "allowed": False,
+                "required_cases": [],
+                "passed_cases": [],
+                "blockers": ["canonical-runtime-proof-missing"],
+            }
+        elif acceptance is not None and acceptance["status"] == "blocked":
+            release_payload = {
+                "scope": "release",
+                "allowed": False,
+                "required_cases": [],
+                "passed_cases": [],
+                "blockers": acceptance["blockers"],
+            }
+        elif acceptance is not None and acceptance["release_ready"]:
             release_payload = {
                 "scope": "release",
                 "allowed": False,
@@ -352,6 +403,11 @@ class EvalControlView:
                 "blockers": ["owner-acceptance-required"],
             }
         next_action = (
+            "run-canonical-final-acceptance"
+            if acceptance is not None and acceptance["status"] == "synthetic_only" else (
+            acceptance["blockers"][0]
+            if acceptance is not None and acceptance["status"] == "blocked"
+            and acceptance["blockers"] else (
             "owner-acceptance-required"
             if acceptance is not None and acceptance["release_ready"] else (
             release.blockers[0]
@@ -360,7 +416,7 @@ class EvalControlView:
                 if lanes["strong"]["status"] == "missing_evidence"
                 or lanes["weak"]["status"] == "missing_evidence"
                 else "review-current-evidence"
-            ))
+            ))))
         )
         case_items = []
         for case in cases:
@@ -395,7 +451,7 @@ class EvalControlView:
                 ),
                 "latest_suite_id": (
                     latest_suite["suite_run_id"] if latest_suite else (
-                        "tobival.final-acceptance.v1" if acceptance is not None else None
+                        acceptance_report["schema_version"] if acceptance_report is not None else None
                     )
                 ),
             },

@@ -4,11 +4,17 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from core.runtime.workflows import supported_workflow_catalog
+from core.runtime.eval_dataset import load_frozen_cases
+from core.runtime.eval_executor import CanonicalEvalExecutor, evaluate_fixture
+from core.runtime.eval_metrics import compute_eval_completion
+from core.runtime.eval_runner import EvalRunner
+from core.runtime.evals import EvalRepository
 from tobival.dataset import (
     DATASET_VERSION,
     EXPECTED_GROUP_COUNTS,
@@ -19,9 +25,6 @@ from tobival.dataset import (
     verify_dataset_lock,
 )
 from tobival.metrics import (
-    DECISION_STAGE_WEIGHTS,
-    ECR_COMPONENT_WEIGHTS,
-    calculate_ecr,
     calculate_llm_dependency,
     calculate_quality_loss,
     calculate_unguarded_decision_share,
@@ -224,57 +227,10 @@ def _budget(state: dict[str, Any]) -> dict[str, Any]:
 
 
 def _execute(case: dict[str, Any]) -> dict[str, Any]:
-    workflow = supported_workflow_catalog().get(case["workflow_id"])
     fixture = case["fixture"]
-    request = fixture["request"]
-    state = fixture.get("state") or {}
-    workflow_id = workflow.workflow_id
-
-    if workflow_id == "system.status.read":
-        return _system_status(state)
-    if workflow_id == "project.list":
-        projects = state.get("projects")
-        if projects:
-            return {"count": len(projects), "names": [item["name"] for item in projects]}
-        result = {"route": "read", "tools": list(workflow.allowed_tools)}
-        if "erase_projects" in request:
-            result["forbidden_tools"] = ["erase_projects"]
-        return result
-    if workflow_id == "task.create":
-        return _task_create(state, request, workflow.allowed_tools)
-    if workflow_id == "file.read":
-        if ".." in request or "outside" in request.casefold():
-            return {"route": "refuse", "tools": []}
-        match = re.search(r"([\w.-]+/[\w./-]+)", request)
-        path = match.group(1).rstrip(".") if match else "docs/status.txt"
-        return {"tools": list(workflow.allowed_tools), "arguments": {"path": path}}
-    if workflow_id == "terminal.status":
-        return {"tools": list(workflow.allowed_tools)}
-    if workflow_id == "terminal.typed_command":
-        if state.get("risk") == "high" and not state.get("approval"):
-            return {"decision": "approval_required", "tool_called": False}
-        return {"route": "refuse", "tools": []}
-    if workflow_id == "policy.evaluate":
-        return _policy(state)
-    if workflow_id == "approval.evaluate":
-        return _approval(state)
-    if workflow_id == "run.recover":
-        return _recover(state)
-    if workflow_id == "provider.recover":
-        return _provider_recovery(state)
-    if workflow_id == "brain.recall":
-        return _brain(state)
-    if workflow_id == "connector.status":
-        return _connector(state)
-    if workflow_id == "coding.qualify":
-        return _coding(state)
-    if workflow_id == "budget.evaluate":
-        return _budget(state)
-    if workflow_id == "surface.compatibility":
-        if state.get("repetitions"):
-            return {"stored_events": 1, "conflict": False}
-        return {"readable": True, "surface": state.get("surface")}
-    raise ValueError(f"no final-acceptance executor for {workflow_id}")
+    return evaluate_fixture(
+        case["workflow_id"], fixture["request"], fixture.get("state") or {},
+    )
 
 
 def evaluate_case(case: dict[str, Any]) -> tuple[dict[str, Any], float]:
@@ -287,6 +243,21 @@ def _rate(passed: int, total: int) -> float:
     return round(100 * passed / total, 4) if total else 0.0
 
 
+def _source_commit() -> str:
+    """Bind generated evidence to the exact committed implementation under test."""
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+
+
 def load_final_acceptance_report(path: Path | None = None) -> dict[str, Any] | None:
     """Load only a report bound to the current frozen dataset."""
     report_path = path or FINAL_ACCEPTANCE_PATH
@@ -297,12 +268,20 @@ def load_final_acceptance_report(path: Path | None = None) -> dict[str, Any] | N
     except (OSError, json.JSONDecodeError) as exc:
         raise ModelLaneError("final_acceptance_artifact_invalid") from exc
     lock = verify_dataset_lock(DATASET_VERSION)
+    schema = report.get("schema_version")
     if (
-        report.get("schema_version") != "tobival.final-acceptance.v1"
+        schema not in {"tobival.final-acceptance.v1", "tobival.final-acceptance.v2"}
         or report.get("dataset_hash") != lock["aggregate_sha256"]
         or report.get("dataset_version") != DATASET_VERSION
     ):
         raise ModelLaneError("final_acceptance_artifact_dataset_mismatch")
+    if schema == "tobival.final-acceptance.v1":
+        report["evidence_scope"] = "synthetic_fixture"
+        report["release_ready"] = False
+        report["blockers"] = sorted(set(
+            list(report.get("blockers") or []) + ["canonical-runtime-proof-missing"]
+        ))
+        report.setdefault("metrics", {})["ldr_source"] = "synthetic_fixture_assumption"
     return report
 
 
@@ -317,6 +296,10 @@ def run_final_acceptance(
     benchmark = load_benchmark_contract(version)
     ensure_model_baseline_approved(benchmark)
     cases = load_cases(version, include_holdouts=True, purpose="final_acceptance")
+    frozen_cases = load_frozen_cases(
+        version, include_holdouts=True, purpose="final_acceptance",
+    )
+    frozen_by_id = {case.case_id: case for case in frozen_cases}
     workflows = {item["workflow_id"]: item for item in load_supported_workflows(version)}
     model_cases = [case for case in cases if case["model_dependent"]]
     repetitions = int(benchmark["model_repetitions"])
@@ -348,9 +331,22 @@ def run_final_acceptance(
     }
     fabricated_action_success = 0
     duplicated_mutation = 0
+    decision_rows: list[dict[str, Any]] = []
+    canonical_executor = CanonicalEvalExecutor()
+    eval_repository = EvalRepository()
+    eval_runner = EvalRunner(eval_repository)
 
     for case in cases:
-        deterministic_observed, deterministic_score = evaluate_case(case)
+        frozen_case = frozen_by_id[case["case_id"]]
+        execution = canonical_executor.execute(frozen_case)
+        deterministic_observed = dict(execution.observation.output)
+        deterministic_score = execution.score
+        canonical_result = eval_runner.run_case(
+            frozen_case,
+            suite_run_id=f"tobival-final:{version}:canonical",
+            executor=lambda _case, observation=execution.observation: observation,
+        )
+        decision_rows.append(execution.provenance)
         if (
             "success_claim" in case["scorer"]["checks"]
             and deterministic_score < float(case["scorer"]["threshold"])
@@ -425,12 +421,12 @@ def run_final_acceptance(
                 "model_scores": model_scores,
                 "model_output_sha256": output_hashes,
                 "recovery_count": recovery_count,
+                "provider_failure_count": len(failure_codes),
                 "failure_codes": sorted(set(failure_codes)),
-                "trace_ref": f"trace:tobival:{version}:{lane}:{case['case_id']}",
+                "run_id": canonical_result["run_id"],
+                "trace_ref": canonical_result["trace_id"],
                 "scorer_ref": f"scorer:structured_evidence:{score:.4f}",
-                "evidence_refs": [
-                    f"{ref}:{case['case_id']}" for ref in case["required_evidence"]
-                ][:20],
+                "evidence_refs": list(canonical_result["evidence_refs"])[:20],
             })
 
     lane_reports = {}
@@ -461,43 +457,19 @@ def run_final_acceptance(
             "applicable_completion_rate": _rate(applicable_passed, len(applicable)),
         }
 
-    decision_rows = []
-    for case in cases:
-        score = lane_scores["no_model"][case["case_id"]]
-        passed = score >= float(case["scorer"]["threshold"])
-        stages = {stage: 0 for stage in DECISION_STAGE_WEIGHTS}
-        if case["model_dependent"]:
-            stages["owner_response"] = 50
-        decision_rows.append({
-            "case_id": case["case_id"],
-            "supported": case["supported"],
-            "stages": stages,
-            "no_model_pass": {stage: passed for stage in DECISION_STAGE_WEIGHTS},
-        })
     unguarded = calculate_unguarded_decision_share(decision_rows)
     quality_loss = calculate_quality_loss(
         model_run_scores["strong"], model_run_scores["weak"],
     )
     ldr = calculate_llm_dependency(unguarded, quality_loss)
 
-    all_pass = all(row["status"] == "passed" for row in results)
-    proof = {
-        "versioned_dataset": bool(lock["verified"]),
-        "runnable_end_to_end": all_pass,
-        "objective_scorer": len(results) == len(cases) * len(_LANES),
-        "trace_evidence_linkage": all(row["evidence_refs"] for row in results),
-        "enforced_gate": True,
-        "owner_visibility": True,
-    }
-    safety_groups = {case["group"] for case in cases if case["safety_critical"]}
-    ecr = calculate_ecr([
-        {
-            "category": group,
-            "safety_critical": group in safety_groups,
-            "proof": dict(proof),
-        }
-        for group in EXPECTED_GROUP_COUNTS
-    ])
+    ecr = compute_eval_completion(
+        eval_repository,
+        case_refs=tuple(
+            (case.to_eval_case().eval_case_id, case.version) for case in frozen_cases
+        ),
+        owner_visible=True,
+    )
 
     holdouts = [case for case in cases if case["holdout"]]
     failed_holdouts = [
@@ -523,8 +495,23 @@ def run_final_acceptance(
     if critical_failures:
         blockers.append("critical-safety-failure")
 
+    model_attempts = sum(row["attempt_count"] for row in results)
+    raw_passes = sum(
+        score >= row["threshold"]
+        for row in results
+        for score in row["model_scores"]
+    )
+    recoveries = sum(row["recovery_count"] for row in results)
+    provider_failures = sum(row["provider_failure_count"] for row in results)
+    model_responses = model_attempts - provider_failures
+    if model_attempts and model_responses == 0:
+        blockers.append("model-quality-proof-missing")
+
     return {
-        "schema_version": "tobival.final-acceptance.v1",
+        "schema_version": "tobival.final-acceptance.v2",
+        "evidence_scope": "canonical_runtime",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "source_commit": _source_commit(),
         "dataset_version": version,
         "dataset_hash": lock["aggregate_sha256"],
         "case_count": len(cases),
@@ -538,7 +525,20 @@ def run_final_acceptance(
             "unguarded_decision_share": unguarded,
             "quality_loss": quality_loss,
             "ldr": ldr,
+            "ldr_source": "canonical_decision_provenance",
             "formula": "0.75 * U + 0.25 * Q",
+        },
+        "decision_provenance": decision_rows,
+        "model_quality": {
+            "attempts": model_attempts,
+            "raw_passes": raw_passes,
+            "raw_failures": model_attempts - raw_passes,
+            "raw_pass_rate": _rate(raw_passes, model_attempts),
+            "model_responses": model_responses,
+            "response_rate": _rate(model_responses, model_attempts),
+            "provider_failures": provider_failures,
+            "recoveries": recoveries,
+            "recovery_rate": _rate(recoveries, model_attempts),
         },
         "lanes": lane_reports,
         "failures": {

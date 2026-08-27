@@ -73,20 +73,22 @@ export default function EvalControlCenter() {
   if (!data) return null
 
   const release = data.gates.release
+  const acceptanceReady = data.acceptance?.status === 'ready_for_owner'
+  const acceptanceBlocked = data.acceptance?.status === 'blocked'
   return <div className="min-w-0">
     <div className="flex items-center justify-between border-b border-border px-4 py-3 sm:px-6">
       <div><div className="text-sm font-semibold text-heading">Eval Control Center</div><div className="mt-0.5 text-[10px] uppercase text-muted">Evidence refreshed {when(data.freshness.latest_suite_at)}</div></div>
       <ActionButton onAction={load} busy={loading} title="Refresh evaluation evidence" icon={<RefreshCw size={15} />} className="inline-flex h-9 w-9 items-center justify-center border border-border text-muted hover:border-accent hover:text-accent" />
     </div>
 
-    {data.acceptance && <div className="grid border-b border-success/40 bg-success/5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-      <div className="px-4 py-3 sm:px-6"><div className="flex items-center gap-2 text-xs font-semibold text-success"><ShieldCheck size={15} />Final acceptance ready</div><div className="mt-1 text-[10px] text-muted">{data.acceptance.case_count} cases - {data.acceptance.holdout_passed}/{data.acceptance.holdout_count} holdouts - {data.acceptance.model_calls}/{data.acceptance.approved_model_call_ceiling} model calls - US${data.acceptance.cost_usd.toFixed(2)} direct spend - {(data.acceptance.duration_seconds / 60).toFixed(1)} min</div></div>
-      <div className="border-t border-success/20 px-4 py-3 text-[10px] font-semibold uppercase text-warning sm:border-l sm:border-t-0 sm:px-6">Owner acceptance required</div>
+    {data.acceptance && <div className={`grid border-b sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center ${acceptanceReady ? 'border-success/40 bg-success/5' : 'border-warning/40 bg-warning/5'}`}>
+      <div className="px-4 py-3 sm:px-6"><div className={`flex items-center gap-2 text-xs font-semibold ${acceptanceReady ? 'text-success' : 'text-warning'}`}>{acceptanceReady ? <ShieldCheck size={15} /> : <AlertTriangle size={15} />}{acceptanceReady ? 'Canonical final acceptance ready' : acceptanceBlocked ? 'Canonical acceptance blocked' : 'Synthetic benchmark quarantined'}</div><div className="mt-1 text-[10px] text-muted">{data.acceptance.case_count} cases - model response {pct(data.acceptance.model_quality.response_rate ?? null)} - raw pass {pct(data.acceptance.model_quality.raw_pass_rate)} - deterministic recovery {pct(data.acceptance.model_quality.recovery_rate)} - US${data.acceptance.cost_usd.toFixed(2)} direct spend</div></div>
+      <div className="border-t border-current/10 px-4 py-3 text-[10px] font-semibold uppercase text-warning sm:border-l sm:border-t-0 sm:px-6">{acceptanceReady ? 'Owner acceptance required' : acceptanceBlocked ? data.acceptance.blockers[0]?.replace(/-/g, ' ') || 'Live model proof required' : 'Canonical rerun required'}</div>
     </div>}
 
     <div className="grid border-b border-border sm:grid-cols-4">
       <Metric label="ECR" value={pct(data.metrics.ecr.overall)} detail={`${data.metrics.ecr.case_count} persisted cases`} good={data.metrics.ecr.overall >= 90} />
-      <Metric label="LDR" value={pct(data.metrics.ldr.value)} detail={data.metrics.ldr.formula} good={data.metrics.ldr.value != null && data.metrics.ldr.value <= 50} />
+      <Metric label="LDR" value={pct(data.metrics.ldr.value)} detail={data.metrics.ldr.status === 'available' ? data.metrics.ldr.formula : data.metrics.ldr.missing[0] || 'Canonical proof missing'} good={data.metrics.ldr.value != null && data.metrics.ldr.value <= 50} />
       <Metric label="Release gate" value={release.allowed ? 'Open' : 'Blocked'} detail={release.allowed ? `${release.passed_cases.length} cases passed` : release.blockers[0] || 'Proof missing'} good={release.allowed} />
       <Metric label="Open findings" value={String(data.findings.length)} detail={data.next_action.replace(/-/g, ' ')} good={!data.findings.length} />
     </div>

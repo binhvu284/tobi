@@ -161,27 +161,63 @@ ok("LDR stays unavailable until both model lanes have required proof", (
 final_overview = EvalControlView(
     repository, include_final_acceptance=True,
 ).overview(now="2026-08-26T05:30:00Z")
-ok("final acceptance overrides metrics but still waits for owner acceptance", (
-    final_overview["metrics"]["ecr"]["overall"] == 100.0
-    and final_overview["metrics"]["ldr"]["value"] <= 50
-    and final_overview["acceptance"]["holdout_passed"] == 14
-    and final_overview["gates"]["release"]["blockers"] == ["owner-acceptance-required"]
-))
-ok("final acceptance projects every frozen category workflow and case", (
-    len(final_overview["categories"]) == 9
-    and all(row["pass_rate"] == 100.0 for row in final_overview["categories"])
-    and len(final_overview["workflows"]) == 15
-    and all(row["pass_rate"] == 100.0 for row in final_overview["workflows"])
-    and len(final_overview["cases"]) == 72
-    and all(row["status"] == "passed" for row in final_overview["cases"])
-))
+if final_overview["acceptance"]["status"] == "synthetic_only":
+    ok("synthetic final artifact cannot publish ECR or LDR as canonical", (
+        final_overview["metrics"]["ecr"]["source"] == "immutable_runtime_eval_evidence"
+        and final_overview["metrics"]["ldr"]["value"] is None
+        and final_overview["gates"]["release"]["blockers"]
+            == ["canonical-runtime-proof-missing"]
+    ))
+    ok("synthetic categories workflows and cases stay visibly unverified", (
+        len(final_overview["categories"]) == 9
+        and all(row["pass_rate"] == 0.0 for row in final_overview["categories"])
+        and len(final_overview["workflows"]) == 15
+        and all(row["pass_rate"] == 0.0 for row in final_overview["workflows"])
+        and len(final_overview["cases"]) == 72
+        and all(row["status"] == "unverified" for row in final_overview["cases"])
+    ))
+elif final_overview["acceptance"]["status"] == "blocked":
+    ok("canonical final acceptance exposes its real blocker", (
+        final_overview["metrics"]["ecr"]["overall"] == 100.0
+        and final_overview["metrics"]["ldr"]["value"] <= 50
+        and final_overview["gates"]["release"]["blockers"]
+            == final_overview["acceptance"]["blockers"]
+    ))
+    ok("blocked canonical proof still projects its bounded case evidence", (
+        len(final_overview["categories"]) == 9
+        and len(final_overview["workflows"]) == 15
+        and len(final_overview["cases"]) == 72
+    ))
+else:
+    ok("canonical final acceptance overrides metrics but waits for owner", (
+        final_overview["metrics"]["ecr"]["overall"] == 100.0
+        and final_overview["metrics"]["ldr"]["value"] <= 50
+        and final_overview["acceptance"]["holdout_passed"] == 14
+        and final_overview["gates"]["release"]["blockers"]
+            == ["owner-acceptance-required"]
+    ))
+    ok("canonical acceptance projects every frozen category workflow and case", (
+        len(final_overview["categories"]) == 9
+        and all(row["pass_rate"] == 100.0 for row in final_overview["categories"])
+        and len(final_overview["workflows"]) == 15
+        and all(row["pass_rate"] == 100.0 for row in final_overview["workflows"])
+        and len(final_overview["cases"]) == 72
+        and all(row["status"] == "passed" for row in final_overview["cases"])
+    ))
 artifact_detail = EvalControlView(
     repository, include_final_acceptance=True,
 ).case_detail("tobival.v1.final.status_grounded", version="1")
 ok("final artifact case detail exposes all lanes as bounded proof", (
     artifact_detail["case"]["workflow_id"] == "system.status.read"
     and {run["lane"] for run in artifact_detail["runs"]} == {"strong", "weak", "no_model"}
-    and all(run["status"] == "passed" for run in artifact_detail["runs"])
+    and all(
+        run["status"] == (
+            "unverified"
+            if final_overview["acceptance"]["status"] == "synthetic_only"
+            else "passed"
+        )
+        for run in artifact_detail["runs"]
+    )
     and all(run["evidence_refs"] for run in artifact_detail["runs"])
 ))
 artifact_detail_json = json.dumps(artifact_detail, sort_keys=True)

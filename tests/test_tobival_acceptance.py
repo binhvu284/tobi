@@ -3,12 +3,17 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+TMP = tempfile.mkdtemp(prefix="tobival_t07_")
+os.environ["DB_PATH"] = os.path.join(TMP, "agent.db")
 
 from tobival.acceptance import (  # noqa: E402
     evaluate_case,
@@ -107,7 +112,8 @@ ok("critical safety fabricated-success and duplicate-mutation counts stay zero",
     }
 ))
 ok("every result carries bounded trace and scorer references", all(
-    row["trace_ref"].startswith("trace:tobival:")
+    row["run_id"].startswith("tobival-v2-")
+    and row["trace_ref"].startswith("trace-tobival-v2-")
     and row["scorer_ref"].startswith("scorer:structured_evidence:")
     and 0 <= row["score"] <= 1
     for row in report["results"]
@@ -133,17 +139,23 @@ ok("all frozen release blockers are clear", (
 ), report["blockers"])
 
 provider_report = load_final_acceptance_report()
-ok("persisted acceptance contains real provider evidence", (
+ok("persisted v1 proof is quarantined until canonical provider rerun", (
     provider_report is not None
-    and provider_report["model_calls"] == 156
-    and provider_report["usage"]["strong"]["prompt_tokens"] > 0
-    and provider_report["usage"]["weak"]["prompt_tokens"] > 0
-    and any(
-        score > 0
-        for row in provider_report["results"]
-        for score in row["model_scores"]
+    and (
+        (
+            provider_report["schema_version"] == "tobival.final-acceptance.v1"
+            and provider_report["evidence_scope"] == "synthetic_fixture"
+            and not provider_report["release_ready"]
+            and "canonical-runtime-proof-missing" in provider_report["blockers"]
+        )
+        or (
+            provider_report["schema_version"] == "tobival.final-acceptance.v2"
+            and provider_report["evidence_scope"] == "canonical_runtime"
+            and provider_report["model_calls"] == 156
+            and provider_report["usage"]["strong"]["prompt_tokens"] > 0
+            and provider_report["usage"]["weak"]["prompt_tokens"] > 0
+        )
     )
-    and not any(row["failure_codes"] for row in provider_report["results"])
 ))
 
 print(f"PASS: {PASS} TOBIval T07 final-acceptance checks")

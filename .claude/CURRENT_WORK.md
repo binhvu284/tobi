@@ -9,29 +9,32 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #34 TOBIval Operational Intelligence and Model Independence
-**Package:** T07 - Full Acceptance, Holdout, And Rollout Proof
+**Package:** T08 - Truth Repair And Canonical Production Proof
 
 **Purpose (one sentence, plain words):**
-Prove the frozen #34 targets across all 72 cases and 14 holdouts, publish bounded final evidence,
-and keep release blocked until the owner accepts the dashboard result.
+Replace the synthetic final claim with canonical MC execution evidence, measure model dependence from
+recorded decision ownership, and keep the result blocked unless that production-linked proof passes.
 
 **Not doing:**
 - No fixture, threshold, formula, model ID, or holdout changes.
 - No tuning after holdout results are visible.
-- No production Chat routing switch or Eval suite execution inside an owner turn.
+- No full Eval suite execution inside an owner turn.
 - No paid API model calls; lane compatibility must stay inside the approved Codex subscription contract.
 - No public or unauthenticated Eval data route.
-- No Runtime V2 activation, connector writes, deployment, Supabase, or Vercel interaction.
+- No broad Runtime V2 activation, connector writes, deployment, Supabase, or Vercel interaction.
 
 **Files expected:**
 - `.claude/CURRENT_WORK.md`
+- `core/runtime/eval_executor.py`
+- `core/runtime/eval_metrics.py`
+- `core/chat_runtime.py`
 - `tobival/acceptance.py`
 - `scripts/tobival.py`
 - `core/runtime/eval_view.py`
-- `core/runtime/self_check.py`
 - `dashboard/src/api.runtime.ts`
 - `dashboard/src/components/runtime/EvalControlCenter.tsx`
 - `tests/test_tobival_acceptance.py`
+- `tests/test_tobival_model_dependency.py`
 - final bounded acceptance artifact under `tests/evals/acceptance/`
 - inherited #21 release gate, TOBIval, API/redaction, dashboard build, and Playwright checks
 - queue, delivery-log, and development docs
@@ -64,6 +67,10 @@ and keep release blocked until the owner accepts the dashboard result.
 ../.python/venv/Scripts/python.exe tests/test_no_console_windows.py
 ../.python/venv/Scripts/python.exe tests/test_ui_loading_states.py
 ../.python/venv/Scripts/python.exe tests/test_tobival_acceptance.py
+../.python/venv/Scripts/python.exe tests/test_tobival_model_dependency.py
+../.python/venv/Scripts/python.exe tests/test_tobival_api.py
+../.python/venv/Scripts/python.exe tests/test_tobival_workflows.py
+../.python/venv/Scripts/python.exe tests/test_chat_runtime.py
 ```
 
 ---

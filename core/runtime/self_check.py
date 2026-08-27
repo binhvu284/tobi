@@ -155,10 +155,26 @@ SUITES: tuple[SuiteSpec, ...] = (
     SuiteSpec("ui_loading", "Every button shows it is working", "UI",
               "tests/test_ui_loading_states.py",
               "No control in the app can be pressed twice or appear frozen while it works."),
+    SuiteSpec("tobival_workflows", "Supported work follows one workflow", "#34 T02",
+              "tests/test_tobival_workflows.py",
+              "Known Mission Control requests select one frozen workflow and cannot escape its "
+              "tool boundary, while unsupported work remains explicit."),
+    SuiteSpec("tobival_api", "Evaluation proof stays bounded and private", "#34 T06",
+              "tests/test_tobival_api.py",
+              "The owner view reports canonical metrics and blockers without exposing prompts, "
+              "responses, fixtures, secrets, or raw tool output."),
     SuiteSpec("tobival_final", "TOBIval clears its frozen final exam", "#34 T07",
               "tests/test_tobival_acceptance.py",
               "All 72 frozen cases and 14 holdouts meet the quality and model-independence targets, "
               "with real provider evidence and bounded recovery."),
+    SuiteSpec("tobival_dependency", "Model dependence comes from recorded proof", "#34 T08",
+              "tests/test_tobival_model_dependency.py",
+              "Canonical decision ownership is recomputed from Runtime events, raw model quality "
+              "stays visible, and a provider outage cannot be reported as quality proof."),
+    SuiteSpec("chat_runtime", "Normal Chat uses the supported workflow boundary", "#34 T08",
+              "tests/test_chat_runtime.py",
+              "The production Chat router selects supported deterministic reads without changing "
+              "the established mode, recovery, or compatibility behavior."),
 )
 
 _PASS_LINE = re.compile(r"^PASS\s", re.MULTILINE)

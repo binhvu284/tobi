@@ -27,6 +27,10 @@ _ACTION_RE = re.compile(r"\b(create|add|update|rename|delete|remove|assign|compl
 _PROJECT_RE = re.compile(r"\b(project|task|goal|resource|progress)\b", re.I)
 _CHAT_EXECUTOR: Optional[ThreadPoolExecutor] = None
 _CHAT_EXECUTOR_LOCK = threading.Lock()
+_SUPPORTED_TOOL_ALIASES = {
+    "tobi.projects.list_projects@1": "list_projects",
+    "tobi.terminal.terminal_status@1": "terminal_status",
+}
 
 
 def chat_executor() -> ThreadPoolExecutor:
@@ -190,6 +194,9 @@ def route_turn(req: TurnRequest, intent: str, owner_context: Any = None) -> Rout
                                  ("outline_plan", "terminal_status", "run_command", "list_jobs",
                                   "job_output", "install_package", "list_installed_tools"),
                                  max_tool_steps=4, reason="Agent coding route")
+    supported = _production_supported_route(req)
+    if supported is not None:
+        return supported
     if _PAST_RE.search(text):
         return RouteDecision("read", intent, 0.96, ("recall_conversations", "recall"), max_tool_steps=2)
     if caps.get("web_search") or _CURRENT_RE.search(text):
@@ -228,6 +235,37 @@ def route_turn(req: TurnRequest, intent: str, owner_context: Any = None) -> Rout
             reason="owner-memory fallback read hint",
         )
     return RouteDecision("direct", intent, 0.82, reason="ordinary conversation", final_tokens=1600)
+
+
+def _production_supported_route(req: TurnRequest) -> RouteDecision | None:
+    """Use frozen deterministic routes that need no model-extracted fields."""
+    from core.runtime.workflows import supported_workflow_catalog
+
+    selection = supported_workflow_catalog().select(req.message)
+    if (
+        selection.status != "matched"
+        or selection.workflow is None
+        or selection.workflow.required_fields
+    ):
+        return None
+    decision = route_supported_turn(req)
+    aliases: list[str] = []
+    for tool_ref in decision.allowed_tools:
+        alias = _SUPPORTED_TOOL_ALIASES.get(tool_ref)
+        if alias is None:
+            return None
+        aliases.append(alias)
+    return RouteDecision(
+        decision.route,
+        decision.intent,
+        decision.confidence,
+        tuple(aliases),
+        requires_clarification=decision.requires_clarification,
+        reason=decision.reason,
+        max_tool_steps=decision.max_tool_steps,
+        step_tokens=decision.step_tokens,
+        final_tokens=decision.final_tokens,
+    )
 
 
 def route_supported_turn(

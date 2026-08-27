@@ -139,7 +139,7 @@ export type RuntimeEvalOverview = {
   findings: Array<{ finding_id: string; eval_run_id: string; category: string; severity: string; summary: string; remediation_owner: string; status: string; evidence_refs: string[] }>
   suites: Array<{ suite_run_id: string; trigger: string; lane: string; status: string; case_count: number; capability_refs: string[]; started_at: string; completed_at: string }>
   cases: Array<{ eval_case_id: string; version: string; category: string; workflow_id: string; status: string; score: number | null; threshold: number; completed_at: string | null; release_gate: boolean; autonomy_gate: boolean }>
-  acceptance: { status: string; release_ready: boolean; case_count: number; holdout_count: number; holdout_passed: number; model_calls: number; approved_model_call_ceiling: number; cost_usd: number; duration_seconds: number } | null
+  acceptance: { status: string; release_ready: boolean; evidence_scope: string; generated_at: string | null; source_commit: string | null; blockers: string[]; case_count: number; holdout_count: number; holdout_passed: number; model_calls: number; approved_model_call_ceiling: number; cost_usd: number; duration_seconds: number; model_quality: { attempts: number; raw_passes: number; raw_failures: number; raw_pass_rate: number | null; model_responses?: number; response_rate?: number | null; provider_failures?: number; recoveries: number; recovery_rate: number | null } } | null
   next_action: string
 }
 

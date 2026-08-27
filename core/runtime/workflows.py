@@ -126,6 +126,19 @@ def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^\w]+", " ", text.casefold())).strip()
 
 
+def _contains_intent(tokens: tuple[str, ...], intent: tuple[str, ...]) -> bool:
+    """Match intent words in order while allowing harmless owner wording between them."""
+    if not intent:
+        return False
+    position = 0
+    for token in tokens:
+        if token == intent[position]:
+            position += 1
+            if position == len(intent):
+                return True
+    return False
+
+
 def _has_value(value: Any) -> bool:
     if value is None:
         return False
@@ -184,13 +197,14 @@ class SupportedWorkflowCatalog:
                 reason="unsupported:no_supported_intent",
             )
 
-        haystack = f" {normalized} "
+        tokens = tuple(normalized.split())
         matches: list[tuple[int, WorkflowDefinition, str]] = []
         for workflow in self.definitions:
             for intent in workflow.intents:
                 normalized_intent = _normalize(intent)
-                if normalized_intent and f" {normalized_intent} " in haystack:
-                    matches.append((len(normalized_intent.split()), workflow, intent))
+                intent_tokens = tuple(normalized_intent.split())
+                if _contains_intent(tokens, intent_tokens):
+                    matches.append((len(intent_tokens), workflow, intent))
         if not matches:
             return WorkflowSelection(
                 status="unsupported",
