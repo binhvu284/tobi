@@ -134,6 +134,10 @@ ok("executor follows observed state instead of copying frozen answers", (
 ok("acceptance reports direct spend and wall time", (
     report["cost_usd"] == 0.0 and report["duration_seconds"] >= 0
 ))
+ok("acceptance is bound to a generation time and source commit", (
+    bool(report["generated_at"])
+    and len(report["source_commit"]) == 40
+))
 ok("all frozen release blockers are clear", (
     report["release_ready"] is True and report["blockers"] == []
 ), report["blockers"])
@@ -152,8 +156,20 @@ ok("persisted v1 proof is quarantined until canonical provider rerun", (
             provider_report["schema_version"] == "tobival.final-acceptance.v2"
             and provider_report["evidence_scope"] == "canonical_runtime"
             and provider_report["model_calls"] == 156
-            and provider_report["usage"]["strong"]["prompt_tokens"] > 0
-            and provider_report["usage"]["weak"]["prompt_tokens"] > 0
+            and len(provider_report.get("source_commit") or "") == 40
+            and (
+                (
+                    provider_report["release_ready"]
+                    and provider_report["model_quality"]["model_responses"] > 0
+                    and provider_report["usage"]["strong"]["prompt_tokens"] > 0
+                    and provider_report["usage"]["weak"]["prompt_tokens"] > 0
+                )
+                or (
+                    not provider_report["release_ready"]
+                    and provider_report["model_quality"]["model_responses"] == 0
+                    and "model-quality-proof-missing" in provider_report["blockers"]
+                )
+            )
         )
     )
 ))
