@@ -59,8 +59,8 @@ export type WiringCheck = {
 }
 
 /** One acceptance suite, run in its own throwaway database. `checks` is how many individual
- *  proofs ran inside it; `retried` means the first run failed and the second passed, which is a
- *  timing flake rather than a defect — shown, never hidden. */
+ *  proofs ran inside it; `retried` means the first run failed and a second run was attempted.
+ *  The final `ok` value says whether that retry passed or failed. */
 export type SuiteResult = {
   id: string
   label: string

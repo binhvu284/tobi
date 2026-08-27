@@ -494,11 +494,12 @@ class TypedRequestResolver:
             return self._rejected("arguments.not_canonical_json")
         idempotency_key = None
         if spec.side_effect_class is not SideEffectClass.NONE:
-            idempotency_key = f"typed-action:{_digest({
+            idempotency_payload = {
                 'run_id': run_id,
                 'step_id': step_id,
                 'contract_hash': contract_hash,
-            })}"
+            }
+            idempotency_key = f"typed-action:{_digest(idempotency_payload)}"
         try:
             call = self._tools.prepare_call(
                 call_id=call_id,

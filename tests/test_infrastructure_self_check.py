@@ -113,6 +113,7 @@ health_page = (ROOT / "dashboard" / "src" / "pages" / "Health.tsx").read_text(en
 component = (ROOT / "dashboard" / "src" / "components" / "InfrastructureCheck.tsx").read_text(encoding="utf-8")
 client = (ROOT / "dashboard" / "src" / "api.abilities.ts").read_text(encoding="utf-8")
 router = (ROOT / "api" / "routers" / "health.py").read_text(encoding="utf-8")
+launcher = (ROOT / "tobi.cmd").read_text(encoding="utf-8")
 
 ok("Health has an Infrastructure tab", "'infrastructure', 'Infrastructure'" in health_page)
 ok("the tab renders the check", "<InfrastructureCheck />" in health_page)
@@ -122,6 +123,11 @@ ok("the client points at the endpoint the server serves",
    and '"/api/health/infrastructure/stream"' in router)
 ok("the button cannot be pressed twice while it runs", "ActionButton" in component)
 ok("a failed row shows the next thing to do", "row.hint" in component)
+ok("the retry success badge requires a passing second run",
+   "row?.retried && row.ok" in component)
+ok("a suite that fails twice is labeled honestly", "failed twice" in component)
+ok("the Windows launcher verifies its interpreter and has the D-drive fallback",
+   "--version" in launcher and "..\\.python\\venv\\Scripts\\python.exe" in launcher)
 
 print(f"\n{'ALL' if not FAILURES else str(len(FAILURES)) + ' OF'} "
       f"{'INFRASTRUCTURE SELF-CHECK CHECKS PASSED' if not FAILURES else 'CHECKS FAILED: ' + ', '.join(FAILURES)}")

@@ -63,7 +63,9 @@ def bare_spawns(path: Path) -> list[tuple[int, str]]:
     last check in this suite fails if a hand-rolled version reappears.
     """
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        # Production still supports Python 3.11. Parse with that grammar even when the gate
+        # itself runs on 3.12, otherwise newer f-string syntax can pass the gate and fail in MC.
+        tree = ast.parse(path.read_text(encoding="utf-8"), feature_version=(3, 11))
     except SyntaxError as exc:  # a file that will not parse is a failure worth seeing
         return [(getattr(exc, "lineno", 0) or 0, f"cannot parse: {exc}")]
     found: list[tuple[int, str]] = []

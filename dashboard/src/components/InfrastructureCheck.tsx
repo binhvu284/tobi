@@ -206,10 +206,16 @@ export default function InfrastructureCheck() {
                     <span className="w-16 shrink-0 rounded bg-surface px-1.5 py-0.5 text-center font-mono text-[10px] text-muted"
                       title={PACKAGE_HINT[plan.package] ?? plan.package}>{plan.package}</span>
                     <span className="min-w-0 flex-1 truncate text-xs font-medium text-text">{plan.label}</span>
-                    {row?.retried && (
+                    {row?.retried && row.ok && (
                       <span className="shrink-0 rounded-full bg-warning/15 px-2 py-0.5 text-[10px] text-warning"
                         title="The first run failed and the second passed — a timing flake, not a defect.">
                         passed on retry
+                      </span>
+                    )}
+                    {row?.retried && !row.ok && (
+                      <span className="shrink-0 rounded-full bg-danger/15 px-2 py-0.5 text-[10px] text-danger"
+                        title="Both runs failed, so this is a confirmed failure rather than a timing flake.">
+                        failed twice
                       </span>
                     )}
                     <span className="shrink-0 font-mono text-[10px] text-muted">
