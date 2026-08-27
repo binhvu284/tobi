@@ -106,7 +106,7 @@ suites green (pm-fix 13, #7 P2 24/P3 17, #8 P1 26/P1b 10/P2 25/P3 23).
 
 **Shipped (frontend):** the conversation is now a **centered ~760px reading column** with comfortable
 density (assistant full-width block, user right bubbles). A new **signature AI orb**
-([`components/chat/ThinkingOrb.tsx`](../../dashboard/src/components/chat/ThinkingOrb.tsx)) replaces the
+(`components/chat/ThinkingOrb.tsx`, a historical path that is no longer present) replaces the
 old pulsing dot — a morphing-gradient core + breathing glow + rotating ring + orbiting particles, whose
 **colour and micro-animation change per live phase** (recall · read · act · web · think) derived from the
 SSE `thinking` events, with a shimmering phase label and a calm reduced-motion fallback. **Dependency-free

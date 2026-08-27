@@ -2,9 +2,9 @@
 
 This directory separates current system truth from implementation plans and historical design records.
 
-> TM01 full refresh: 2026-08-25. Committed source is `6617575`; the checkout also contains an
-> active, uncommitted #21/T15 worktree package. Current docs distinguish shipped behavior from
-> that local work.
+> TM01 full refresh: 2026-08-28. #34/T08 repair is committed and pushed through `685a1a8`.
+> The canonical offline proof passes its deterministic cases but correctly keeps release blocked
+> until live model-quality evidence exists and the owner accepts the result.
 
 ## Read Order
 
@@ -33,8 +33,8 @@ When two sources disagree, trust the higher level and update the lower level. A 
 | Document | Maintained content |
 |---|---|
 | [`01_VISION.md`](01_VISION.md) | Jarvis mission, pillars, and product principles |
-| [`02_CURRENT_STATE.md`](02_CURRENT_STATE.md) | Honest feature and risk inventory, refreshed 2026-08-25 |
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Backend/frontend/runtime map and primary data flows, refreshed 2026-08-25 |
+| [`02_CURRENT_STATE.md`](02_CURRENT_STATE.md) | Honest feature and risk inventory, refreshed 2026-08-28 |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Backend/frontend/runtime map and primary data flows, refreshed 2026-08-28 |
 | [`MISSION_CONTROL.md`](MISSION_CONTROL.md) | Current MC routes, ownership boundaries, runtime projections, and UI truth gaps |
 | [`RUNTIME_V2.md`](RUNTIME_V2.md) | Mission Control Runtime V2 contracts, data, APIs, rollout, adapters, and gates |
 | [`architecture/diagrams/`](architecture/diagrams/) | Source diagrams plus guide notes for overall TOBI, MC, and Runtime V2 |

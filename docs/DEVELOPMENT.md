@@ -2,12 +2,11 @@
 
 This guide describes the current repository commands. It does not replace the archived Hermes/VPS notes, and it does not claim that external services are configured.
 
-## TM01 Refresh Snapshot - 2026-08-25
+## TM01 Refresh Snapshot - 2026-08-28
 
-The verified base is commit `6617575`, with `origin/main` at `31d95ec`. The checkout is not clean:
-the active #21/T15 package adds Infrastructure self-check, hidden-window process spawning, new
-diagram files, and related tests/UI. Do not use `git status` as proof that those changes shipped;
-run the active gate and inspect the commit after the package is closed.
+The verified implementation base is commit `685a1a8`, which matches `origin/main`. #34/T08 is
+committed and its bounded artifact is checked in. The checkout also contains unrelated existing
+changes; do not use `git status` alone as delivery proof.
 
 Graphify is available only as the checked-in navigation output for this checkout; the generated
 index predates the current revision. Use it to find likely files, then verify current code and
@@ -50,7 +49,7 @@ The Genesis vault can manage supported secrets from Mission Control after the ap
 | `venv\Scripts\python.exe main.py test` | Tests configured connections and may contact external services; run only when that is intended |
 | `venv\Scripts\python.exe -m core.coding_runner_service` | Runs the durable external coding-worker service; use with `TOBI_CODING_RUNNER_MODE=service` |
 
-For the current #34/T07 package gate, run from `tobi/` with the bundled D-drive interpreter:
+For the current #34/T08 package gate, run from `tobi/` with the bundled D-drive interpreter:
 
 ```powershell
 & "D:\[PERSONAL PROJECT FILES]\TOBI\.python\venv\Scripts\python.exe" scripts/gate.py
@@ -59,12 +58,28 @@ For the current #34/T07 package gate, run from `tobi/` with the bundled D-drive 
 This is separate from `venv\Scripts\python.exe`; use the interpreter named by the active
 `.claude/CURRENT_WORK.md` when validating the package.
 
-The T07 Gate runs the complete `25`-suite Infrastructure registry, including the offline final
-acceptance verifier. The provider-backed artifact is generated separately with `scripts/tobival.py
-acceptance --output tests/evals/acceptance/final-acceptance.json`; it uses only the owner-approved
-Codex subscription models and stores scores, hashes, usage, recovery counts, cost, and timing rather
-than prompt or response bodies. Dashboard verification also requires `npm run build` and the
-Playwright owner flow in `tests/ui/tobival_eval_control.mjs`.
+The T08 Gate runs the complete shared `29`-suite Infrastructure registry, including canonical
+acceptance, model-dependency, API, workflow, and production-route checks. It does not make live model
+calls. The committed offline artifact is intentionally blocked by `model-quality-proof-missing`:
+all 156 model attempts failed before a response, while deterministic recovery completed the cases.
+
+The live final-acceptance command below makes 156 bounded calls to the accepted strong and weak Codex
+subscription models. Run it only after explicit owner approval for those calls:
+
+```powershell
+& "D:\[PERSONAL PROJECT FILES]\TOBI\.python\venv\Scripts\python.exe" scripts/tobival.py acceptance --output tests/evals/acceptance/final-acceptance.json
+```
+
+The artifact stores scores, hashes, usage, recovery counts, cost, and timing rather than prompt or
+response bodies. A valid live result must show nonzero `model_responses`; deterministic recovery
+cannot substitute for raw model quality. Dashboard verification also requires:
+
+```powershell
+npm.cmd --prefix dashboard run build
+node tests/ui/tobival_eval_control.mjs http://127.0.0.1:8080
+```
+
+The Playwright command above expects the main MC server to be running on port 8080.
 
 The local TOBIval baseline commands are:
 

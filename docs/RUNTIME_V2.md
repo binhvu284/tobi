@@ -1,6 +1,6 @@
 # Mission Control Runtime V2
 
-> Verified 2026-08-25 against committed Runtime V2 source and the active #21/T15 worktree. No
+> Verified 2026-08-28 against committed Runtime V2 and #34/T08 source through `685a1a8`. No
 > rollout activation, deployment, Supabase action, or Vercel action was performed.
 
 ## Current Status
@@ -12,7 +12,8 @@ staged rollout, and compatibility adapters for every current request surface.
 All Runtime V2 rollout controls default off. The #21 implementation and activation tests used
 temporary local databases; they did not change the owner's live flags or call an external service.
 
-The Infrastructure self-check is committed in `a317604`; the inherited release gate passed 24/24.
+The Infrastructure self-check is committed; Health and the release gate now execute the same 29
+suites.
 #34/T00 freezes the accepted TOBIval baseline. T01 adds executable scorers and a runner that attaches
 bounded observed evidence to canonical traces and the existing immutable Eval tables. T02 adds a
 hash-verified 21-workflow catalog, deterministic selection and tool boundaries, plus bounded workflow
@@ -23,11 +24,16 @@ claims without the matching receipt; malformed structured output has one bounded
 escalation before a truthful failure. T05 adds immutable suite/control/finding-event records, scoped
 freshness gates, and an explicit bounded live-suite service; `RolloutController` checks the affected
 scope server-side. T06 adds a vault-protected Eval projection/API and the Runs -> Evaluations owner
-view, including truthful unavailable states and bounded case evidence. These adapters are not wired into production Chat and do not activate Runtime
-execution or change any rollout flag.
-T07 adds the frozen final-acceptance runner and bounded local artifact. The Eval view projects its
-ECR, LDR, lane, holdout, usage, cost, and duration evidence while keeping the release gate closed
-until owner acceptance.
+view, including truthful unavailable states and bounded case evidence. T07 added the frozen
+final-acceptance runner and bounded local artifact.
+
+T08 repairs the final claim. Every frozen case now enters a canonical Runtime lifecycle and records
+bounded route, context, validation, execution, and final-outcome decision ownership. The acceptance
+report separates live model responses and raw pass rate from deterministic recovery, quarantines
+legacy v1 synthetic artifacts, and blocks release with `model-quality-proof-missing` when no live
+response exists. A narrow production `route_turn` boundary handles safe supported workflows with no
+required fields; broader typed workflows remain outside normal Chat/Agent execution. No rollout flag
+was activated.
 
 ## Request Flow
 
@@ -44,7 +50,7 @@ until owner acceptance.
 
 | Surface | Runtime V2 behavior | Existing execution owner |
 |---|---|---|
-| Chat and Agent | Canonical gateway; direct plain-text Chat has a gated active path; other routes retain shadow compatibility | Chat route and Conductor |
+| Chat and Agent | Canonical gateway; direct plain-text Chat has a gated active path, and #34 adds a narrow deterministic route for safe supported requests with no required fields; other routes retain shadow compatibility | Chat route and Conductor |
 | Developer/Coding | Accepted #22 history is mirrored into one canonical run | DevelopmentStore and Coding Agent V2 |
 | Projects | Mutating `/api/pm` requests create passive shadow runs when event mirroring is enabled | Project v2 routes and services |
 | Office | Mutating `/api/office` requests create passive shadow runs when event mirroring is enabled | Office routes, missions, and artifacts |
@@ -58,7 +64,7 @@ the caller supplies `X-Request-ID` or `Idempotency-Key`, preventing unbounded hi
 
 ## Data
 
-Runtime schema versions are recorded as `mc-runtime-v2-001` through `mc-runtime-v2-013`.
+Runtime schema versions are recorded as `mc-runtime-v2-001` through `mc-runtime-v2-014`.
 Authoritative history includes runs, events, steps, checkpoints, commands, loops, approvals,
 policy decisions, receipts, evaluations, System entities and edges, rollout comparisons, terminal
 jobs, and bounded preferences. Immutable history tables reject update and delete operations at the
@@ -99,7 +105,8 @@ Run the final package gate from `tobi/`:
 & "D:\[PERSONAL PROJECT FILES]\TOBI\.python\venv\Scripts\python.exe" scripts/gate.py
 ```
 
-The gate covers all 17 #21 packages. Focused tests remain under `tests/test_mc_runtime_*.py`.
+The gate covers the 29 shared #21/#33/#34 release suites. Focused tests remain under
+`tests/test_mc_runtime_*.py` and `tests/test_tobival_*.py`.
 The dashboard production build is `npm.cmd --prefix dashboard run build`.
 
 ## Legacy Exit

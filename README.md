@@ -2,8 +2,8 @@
 
 TOBI is a single-owner AI assistant platform. The repository contains the Python agent runtime, Mission Control web application, persistent memory and project systems, terminal execution, integrations, and the Hermes bridge.
 
-> Documentation was refreshed with `UPDATE DOCS TM01` on 2026-08-25. Read [`docs/README.md`](docs/README.md)
-> for the current source-of-truth order; the checkout also contains an uncommitted #21/T15 worktree package.
+> Documentation was refreshed with `UPDATE DOCS TM01` on 2026-08-28 against committed source
+> `685a1a8`. Read [`docs/README.md`](docs/README.md) for the current source-of-truth order.
 
 The long-term goal is a personal Jarvis: an assistant that understands its owner, can safely act across a computer and connected services, and remains available without being prompted.
 

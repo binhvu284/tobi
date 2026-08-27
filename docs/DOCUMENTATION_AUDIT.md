@@ -1,5 +1,62 @@
 # Documentation Audit
 
+## Refresh - 2026-08-28 (TM01, full checkout)
+
+Protocol: [`UPDATE_DOCS_TM01.md`](UPDATE_DOCS_TM01.md). Agent: Codex. Implementation revision
+inspected: `685a1a8` on `main`, matching `origin/main` before this docs-only refresh. The
+checked-in Graphify output predates the verified revision, so it was used only for navigation and all
+#34 claims were checked against current source, tests, artifact, gate definition, and Git history.
+
+### Active documents updated
+
+- Root `README.md` and `docs/README.md`: refreshed the source-of-truth banner and index dates.
+- `02_CURRENT_STATE.md`, `ARCHITECTURE.md`, `MISSION_CONTROL.md`, and `RUNTIME_V2.md`:
+  replaced the T07 synthetic overclaim with the canonical T08 execution boundary, evidence, and
+  live-model blocker.
+- `DEVELOPMENT.md`: documented the 29-suite gate, offline blocker, live 156-call command and
+  approval boundary, dashboard build, and owner-flow command.
+- `03_ROADMAP.md`: updated #34 sequencing and remaining release proof.
+- `feature-idea-queue/PREMIUM_CHAT_V2_SPEC.md`: removed one dead link to the historical,
+  no-longer-present `ThinkingOrb.tsx` source path while preserving the delivery note.
+- `feature-idea-queue/QUEUE.md`, `QUEUE_DELIVERY_LOG.md`, and
+  `TOBIVAL_OPERATIONAL_INTELLIGENCE_PLAN.md`: kept #34 In progress, corrected its delivery evidence,
+  and appended the T08 implementation addendum without rewriting the accepted original plan.
+- `DOCUMENTATION_AUDIT.md`: recorded this refresh, its boundaries, and its checks.
+
+### Archived or removed
+
+None. No active document was superseded, duplicated, or obsolete enough to archive. Historical T00
+through T07 evidence remains useful provenance and is explicitly corrected by the T08 addendum.
+
+### Queue and current-work finding
+
+#34 remains In progress. T08 is committed and pushed, all 72 cases and 14 holdouts now use canonical
+Runtime evidence, and the shared gate is green. The current artifact has `0` live model responses
+and `156` provider failures, so release is correctly blocked by
+`model-quality-proof-missing`. A 156-call live rerun and owner dashboard acceptance remain.
+
+### Unresolved code/docs gaps
+
+1. Live strong/weak model quality and the original model-independence outcome are not yet proven.
+2. Production routing uses only narrow safe workflows with no required fields; broad typed workflow
+   execution and grounded outcomes remain outside normal Chat/Agent paths.
+3. The port-8080 dashboard still assumes a trusted single-owner boundary.
+4. Graphify is stale and should not be used for exact current graph claims until refreshed.
+
+### Verification
+
+- `git diff --check` over the TM01 files: pass; only existing Windows line-ending warnings were printed.
+- Active Markdown relative-link scan: pass, `MARKDOWN_LINKS_OK (70 active files)`.
+- Added-line secret-signature scan: pass, `DOC_SECRET_SIGNATURE_SCAN_OK`.
+- `& "D:\[PERSONAL PROJECT FILES]\TOBI\.python\venv\Scripts\python.exe" scripts/gate.py`:
+  pass, `GATE GREEN (29 of 29 checks pass)`.
+- `npm.cmd --prefix dashboard run build`: pass; TypeScript and Vite completed. Vite reported only
+  its existing large-chunk advisory.
+- No runtime activation, live model call, connector, deployment, Supabase, or Vercel action was
+  performed by TM01.
+- Existing unrelated changes in `AGENTS.md`, `CLAUDE.md`, `docs/OUTPUT_STYLE_ADHD.md`,
+  `artifacts/`, and `%SystemDrive%/` were preserved.
+
 ## Refresh - 2026-08-25 (TM01, full checkout)
 
 Protocol: [`UPDATE_DOCS_TM01.md`](UPDATE_DOCS_TM01.md). Agent: Codex. Revision inspected:

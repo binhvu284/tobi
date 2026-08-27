@@ -1,17 +1,19 @@
 # Current State
 
-> Verified from the D-drive repository through 2026-08-25. Queue #21 Runtime V2 is complete in committed source. No production activation, deployment, Supabase action, or Vercel action was performed.
+> Verified from the D-drive repository through 2026-08-28. Queue #21 Runtime V2 is complete in committed source. No production activation, deployment, Supabase action, or Vercel action was performed.
 >
-> TM01 full refresh at `6617575`: active docs were compared with current code, tests, queue, and Git history. The checkout is dirty with an uncommitted #21/T15 package containing Infrastructure self-check, process-spawn hardening, diagrams, and UI changes. Those local changes are described as work in progress, not shipped behavior. See `DOCUMENTATION_AUDIT.md`.
+> TM01 full refresh at `685a1a8`: active docs were compared with current code, tests, the bounded
+> acceptance artifact, queue, and Git history. #34/T08 is committed and pushed. Unrelated existing
+> worktree changes were preserved and are not treated as #34 evidence. See `DOCUMENTATION_AUDIT.md`.
 
-## TM01 Refresh Snapshot - 2026-08-25
+## TM01 Refresh Snapshot - 2026-08-28
 
 | State | Meaning |
 |---|---|
-| Committed | #21 Runtime V2 T00-T15 is present through `31d95ec` and later local commits. Runtime history, rollout controls, Runs projections, and passive surface adapters are documented below. |
-| Local only | The current worktree adds #33 Infrastructure self-check, `core/proc.py` no-console process spawning, additional architecture diagrams, and related tests/UI. It must be committed and pass the active gate before the queue can call it shipped. |
+| Committed | #21 Runtime V2, #33 Infrastructure self-check, and the #34/T08 repair are present through `685a1a8`. The repair replaces synthetic final proof with canonical Runtime evidence and blocks missing model-quality proof. |
+| Local only | Existing changes in `AGENTS.md`, `CLAUDE.md`, `docs/OUTPUT_STYLE_ADHD.md`, `artifacts/`, and `%SystemDrive%/` are unrelated to this refresh and are not delivery evidence. |
 | Not verified here | Live integrations, VPS behavior, public deployment, and owner rollout activation. No external service was contacted by this refresh. |
-| Freshness | Claims in this file use the 2026-08-25 refresh unless a row explicitly names an older evidence date. |
+| Freshness | Claims in this file use the 2026-08-28 refresh unless a row explicitly names an older evidence date. |
 
 ## Executive Summary
 
@@ -63,7 +65,7 @@ The largest truth gaps are no longer "nothing is built." Chat/Agent mode policy,
 | Integration status | Code paths or credentials alone are not proof of access. Awakening requires adapter readiness plus fresh successful-test metadata; other surfaces must still use current MC status and an explicit test before claiming availability |
 | Personal computer control | Terminal execution is real. Browser automation, screen understanding, GUI control, and a hardened personal-PC service are not implemented |
 | Proactivity | Scheduler and Telegram push are real. General event-driven observation and context-aware interruption are not |
-| Tests | Focused tracked script suites cover terminal safety, storage/usage, Premium readers, Chat modes/runtime/routes, mode enforcement, network guards, Conductor final guards, Performance Doctor, Office V3, Awakening, project resources, and Coding Agent v1/v2 production invariants. #33 adds one committed Infrastructure check over the Runtime release suites. #34/T00 has an owner-accepted frozen 72-case baseline: ECR `50`, LLM Dependency `85.5769`, and `$0` direct model cost. T01-T06 add executable scoring, deterministic workflows, grounded recovery, scoped gates, a private Eval API, and owner view. T07 is technically green with 72/72 cases, 14/14 holdouts, ECR `100`, LDR `2.0312`, `$0` direct spend, and a 25/25 inherited gate; it waits for owner dashboard acceptance. Production routing remains unchanged. Browser visual regression outside this owner flow, broad live integrations, target-VPS soak, and broad end-to-end behavior remain incomplete |
+| Tests | Focused tracked suites cover the established runtime, security, UI, and compatibility paths. #34/T00 preserves the accepted unchanged-code baseline: ECR `50` and LLM Dependency `85.5769`. T08 now executes all 72 cases, including 14 holdouts, through canonical Runtime runs and independently records five decision stages. The bounded offline artifact reports ECR `100` and scoped LDR `8.8021`, but it received `0` live model responses and `156` provider failures; deterministic recovery reached `100%`, so release correctly remains blocked by `model-quality-proof-missing`. The shared Health/release gate passes 29/29 and the dashboard production build passes. These values prove deterministic coverage, not live model quality. |
 
 ## Runtime and Persistence
 
@@ -82,14 +84,17 @@ The largest truth gaps are no longer "nothing is built." Chat/Agent mode policy,
 - #14 Premium Ability is delivered at v1, including the follow-up vision-model borrowing and Ability reorganization.
 - #16 Chat Mode Backend Upgrade is delivered. #17 Awakening Tier 1 Completion reached owner-runtime acceptance at 9/9 on 2026-07-14 through a successful GitHub read verification, advancing Evolution to the Agent tier; connector health still follows the 24-hour evidence-freshness rule. #19 Performance "System Doctor" is delivered (v1).
 - #15 Office V3 is delivered at v1 with owner visual acceptance still open.
-- #18 TOBI Coding Agent v1 remains the base continuous goal/lease/worktree/review/deployment system. #22 Coding Agent V2 is qualified for the Codex-only path; its target-VPS soak remains a deployment gate. #21 Mission Control Infrastructure V2 and #33 Infrastructure self-check are complete. #34 has an accepted T00 baseline, green T01-T06 packages, and technically green T07 final proof; only owner dashboard acceptance remains before Done. Legacy deletion is explicitly deferred to a separate owner-approved exit review.
+- #18 TOBI Coding Agent v1 remains the base continuous goal/lease/worktree/review/deployment system. #22 Coding Agent V2 is qualified for the Codex-only path; its target-VPS soak remains a deployment gate. #21 Mission Control Infrastructure V2 and #33 Infrastructure self-check are complete. #34 remains in progress: T08 repaired the evidence path, but an explicitly approved 156-call live rerun and owner dashboard acceptance are still required before Done. Legacy deletion is explicitly deferred to a separate owner-approved exit review.
 - Original plans remain under `feature-idea-queue/`; they are requirements history, not proof of current behavior.
 
 ## Highest-Risk Gaps
 
 1. Secure or constrain the port-8080 dashboard before treating it as safely internet-accessible.
-2. Complete the typed/checkpointed Chat Runtime v2 rollout and keep provider, tool, recovery, and context contracts measurable.
-3. Extend evidence-based Evolution beyond Awakening without weakening the Tier-1 evidence gates.
-4. Reconcile curated Ability tables, repository skill metadata, runtime Hermes state, and future Agent-tier capabilities into one explicit ownership model.
-5. Add integration, migration, concurrency, and browser-level regression tests around the highest-value workflows.
-6. Reduce ownership and change-collision risk in `api/dashboard.py`, frontend API aggregation, and the dual project models.
+2. #34 has canonical deterministic proof but no current live model-quality proof. Its `8.8021` LDR
+   is scoped to recorded decision ownership and cannot establish the original live dependency target
+   until the approved strong/weak model rerun succeeds.
+3. Complete the typed/checkpointed Chat Runtime v2 rollout and keep provider, tool, recovery, and context contracts measurable.
+4. Extend evidence-based Evolution beyond Awakening without weakening the Tier-1 evidence gates.
+5. Reconcile curated Ability tables, repository skill metadata, runtime Hermes state, and future Agent-tier capabilities into one explicit ownership model.
+6. Add integration, migration, concurrency, and browser-level regression tests around the highest-value workflows.
+7. Reduce ownership and change-collision risk in `api/dashboard.py`, frontend API aggregation, and the dual project models.

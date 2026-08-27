@@ -1,14 +1,14 @@
 # Mission Control
 
-> Current product and implementation reference for the web cockpit as of 2026-08-25. The old June master specification is preserved in `archive/specifications/` and is not current architecture.
+> Current product and implementation reference for the web cockpit as of 2026-08-28. The old June master specification is preserved in `archive/specifications/` and is not current architecture.
 
-## TM01 Refresh Snapshot - 2026-08-25
+## TM01 Refresh Snapshot - 2026-08-28
 
 The current MC shell has Overview, Work, Process, Agents, History, and System views for the
 Developer area, shared Runtime V2 Runs projections, and a persistent workspace-tab shell. The
 committed runtime keeps rollout controls off and uses passive adapters for non-Chat surfaces.
-The worktree also contains an uncommitted Health Infrastructure self-check and related UI; use
-the queue status and Git revision, not a local button alone, to decide whether it is delivered.
+#34/T08 makes the Evaluations view distinguish canonical evidence, raw model quality, deterministic
+recovery, and the exact release blocker. Health and the release gate now use the same 29-suite list.
 
 ## Purpose
 
@@ -146,6 +146,12 @@ an unlocked owner vault session. Projects, Office, CLI, Telegram, and scheduler 
 passive shadow adapters when Runtime event mirroring is enabled; their existing execution remains
 the rollback owner.
 
+The Runs -> Evaluations tab reads the bounded final-acceptance artifact. Canonical v2 artifacts show
+category, workflow, lane, case, ECR, LDR, model-response, raw-pass, recovery, and blocker evidence.
+Legacy v1 synthetic artifacts are quarantined rather than presented as release proof. The current
+artifact shows all deterministic cases passing but release blocked by `model-quality-proof-missing`
+because no live model response was recorded.
+
 Runtime route scopes narrow the usual tool set for speed. They are not permission grants: a known read-only tool can be admitted if the classifier routed too narrowly, while unknown or acting tools remain route-denied and mode/risk/approval policy stays server-authoritative. A direct-route prediction no longer creates an explicit empty allowlist at the Chat gateway.
 
 ### Agent run history
@@ -240,7 +246,7 @@ The browser client should use functions exported by `dashboard/src/api.ts` or it
 | `/api/storage`, `/api/usage` | Disk and cost analytics |
 | `/api/explore` | News/models/tools/social/config/digest |
 | `/api/run` | Manual engine readiness and execution |
-| `/api/runtime` | Canonical runs, replay/snapshots, loops, staged rollout, rollback, and resume |
+| `/api/runtime` | Canonical runs, replay/snapshots, loops, bounded Eval evidence, staged rollout, rollback, and resume |
 
 Sensitive vault/MCP management calls use `X-Vault-Session`. The broader MC API does not currently have a general login/auth layer.
 
@@ -250,7 +256,8 @@ Sensitive vault/MCP management calls use `X-Vault-Session`. The broader MC API d
 2. Tier 1 uses real Awakening evidence, but later Evolution tiers still rely on legacy definitions.
 3. `/ability` combines curated DB abilities, repository Hermes skills, and an Awakening mirror without one unified runtime ownership model.
 4. Runtime V2 is delivered, but passive adapters intentionally retain legacy execution as the rollback path; deletion needs a separate owner-approved exit review.
-5. Awakening now requires fresh verified connector evidence, but several other integration and health labels remain configuration-dependent and must not be treated as successful without usable/authorized evidence.
+5. #34 routes only narrow safe workflows with no required fields through the supported production boundary. Required-field typed resolution and grounded outcomes are not broadly active in normal Chat/Agent work.
+6. Awakening now requires fresh verified connector evidence, but several other integration and health labels remain configuration-dependent and must not be treated as successful without usable/authorized evidence.
 
 These are documented rather than fixed here because this refactor is docs-only.
 

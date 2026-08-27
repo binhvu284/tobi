@@ -1,6 +1,6 @@
 # TOBIval Operational Intelligence And Model Independence
 
-`UPG-CORE-2D12H-011` | Queue item #34 | Owner-approved plan | T07 technically green; owner acceptance required
+`UPG-CORE-2D12H-011` | Queue item #34 | Owner-approved plan | T08 repair committed; live model-quality proof required
 
 ## The One Outcome
 
@@ -379,6 +379,26 @@ than asking the owner to infer them.
 | Eval leaks owner data | Synthetic/redacted fixtures and reference-only trace projections |
 | Eval slows normal Chat | Offline/manual runner plus bounded sampling; never run the full suite in a user turn |
 | #33 or dirty work overlaps | Start only after #33 closure; inspect and preserve unrelated changes before every package |
+
+## T08 Implementation Addendum - Truth Repair And Canonical Production Proof
+
+Added 2026-08-28 after owner review found that T07's green compatibility result did not prove the
+original outcome. This addendum preserves the accepted plan above and records the corrected delivery
+state.
+
+| Evidence | Current result |
+|---|---|
+| Commits | `d426619` implements the repair; `685a1a8` publishes the bounded offline artifact |
+| Execution | All 72 frozen cases, including 14 holdouts, enter a canonical Runtime lifecycle and link to bounded run/trace evidence |
+| Decision ownership | Route, context, validation, execution, and final outcome are recorded independently |
+| Metrics | ECR `100`; scoped decision-provenance LDR `8.8021`; 29/29 shared Health/release suites green |
+| Model truth | `0` live model responses, `156` provider failures, raw pass `0%`, deterministic recovery `100%` |
+| Release | Blocked by `model-quality-proof-missing`; deterministic recovery does not count as raw model quality |
+| Production boundary | Narrow safe workflows with no required fields use the frozen route boundary; broad typed resolution and grounded outcomes are not active across normal Chat/Agent work |
+
+#34 remains In progress. The next release evidence is an explicitly approved 156-call live
+strong/weak-model rerun, followed by owner review of the corrected Evaluations page. No fixture,
+threshold, formula, model ID, or holdout was changed by T08.
 
 ## Definition Of Done
 

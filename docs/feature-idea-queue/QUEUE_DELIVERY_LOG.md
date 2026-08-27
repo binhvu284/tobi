@@ -116,6 +116,23 @@ this bounded artifact, shows the result on desktop/mobile, and blocks release on
 `owner-acceptance-required`. The inherited gate passes `25/25`; production build and Playwright pass
 with no overflow, console error, or failed request. #34 is not Done until the owner accepts this view.
 
+T08 truth repair is committed and pushed in `d426619` and `685a1a8` on 2026-08-28 after owner
+review found that T07's synthetic compatibility harness did not prove canonical production execution
+or live model independence. `CanonicalEvalExecutor` now sends every frozen case through a real
+Runtime lifecycle and records bounded run/trace IDs plus route, context, validation, execution, and
+final-outcome decision provenance. The final report is schema v2 with
+`evidence_scope=canonical_runtime`; legacy v1 synthetic artifacts are quarantined. Raw model
+responses, raw pass rate, provider failures, and deterministic recovery are reported separately.
+
+The committed bounded artifact runs all `72` cases and `14` holdouts, reports ECR `100` and
+scoped LDR `8.8021`, and records `156` recoveries. It also records `0` live model responses and
+`156` provider failures, so release correctly remains blocked by
+`model-quality-proof-missing`. Health and the release gate share the same `29` suites, all green,
+and the dashboard production build passes. Production `route_turn` now uses the frozen workflow
+boundary only for narrow safe routes with no required fields; broader typed resolution and grounded
+outcomes are not claimed as active in normal Chat/Agent execution. The remaining work is an
+explicitly approved 156-call live rerun followed by owner dashboard acceptance.
+
 
 <a id="item-32"></a>
 

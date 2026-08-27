@@ -25,16 +25,17 @@ The platform already has persistent memory, backend-enforced Chat/Agent modes, g
 
 The main danger now is confusing **having tools** with **being a capable agent**. Agent tier requires proven workflows. Operator tier requires judgment about which workflows matter.
 
-### TM01 Refresh - 2026-08-25
+### TM01 Refresh - 2026-08-28
 
 - #21 Mission Control Infrastructure V2 is complete in committed source. Its rollout controls
   remain off, and legacy deletion is still a separate owner-approved decision.
 - #22 Coding Agent V2 is qualified for the Codex-only path. That proves bounded coding-agent
   operation, not unlimited autonomous development or readiness for every large task.
 - #33 Infrastructure self-check is committed and green in `a317604`.
-- #34/T00 records the owner-accepted 72-case unchanged-code TOBIval baseline: ECR `50` and LLM
-  Dependency `85.5769`. T01's executable runner/scorer package is green locally; T02 deterministic
-  supported-workflow routing is next.
+- #34/T08 is committed and pushed through `685a1a8`. Canonical deterministic evidence reports
+  ECR `100` and scoped LDR `8.8021`, but the current artifact has no live model response and is
+  correctly blocked by `model-quality-proof-missing`. A 156-call live rerun and owner acceptance
+  remain before #34 can close.
 
 ```mermaid
 flowchart LR

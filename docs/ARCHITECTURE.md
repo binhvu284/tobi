@@ -1,15 +1,14 @@
 # TOBI Architecture
 
-> Current architecture snapshot: 2026-08-25. Code and tests remain authoritative. Configuration-dependent external services were not called during this update.
+> Current architecture snapshot: 2026-08-28. Code and tests remain authoritative. Configuration-dependent external services were not called during this update.
 
-## TM01 Refresh Snapshot - 2026-08-25
+## TM01 Refresh Snapshot - 2026-08-28
 
 The committed Runtime V2 foundation ends at the passive surface-adapter boundary: Chat has the
 gated canonical path, while Projects, Office, CLI, Telegram, and schedulers keep their existing
-owners and can mirror bounded evidence. The current checkout also contains an uncommitted T15
-package for a Health Infrastructure self-check, shared hidden-window process options, expanded
-architecture diagrams, and loading-state checks. These local files are not treated as released
-architecture until the active package gate and commit complete.
+owners and can mirror bounded evidence. #34/T08 adds a canonical Eval executor and a narrow
+production route for safe supported requests with no required fields. It does not activate broad
+Runtime V2 execution or move every supported workflow into normal Chat/Agent execution.
 
 ## System Context
 
@@ -94,7 +93,7 @@ The scheduler currently registers daily reports, six-hour execution, two-minute 
 | External/legacy API | `api/server.py` | Small API-key-protected project/task/revenue API | Separate contract and default-key risk |
 | Conductor | `core/conductor.py` | Conversation routing, grounded tool loop, permissions, confirmations, action log | Shared by MC Chat and significant Telegram paths; now exposes direct project-resource inventory/read/search and safe-read route widening |
 | Chat mode/runtime | `core/chat_modes.py`, `chat_runtime.py`, `chat_runtime_contracts.py`, `tool_registry.py` | Normalization, capability boundaries, intent routing, typed tools, telemetry, recovery contracts | Runtime v2 is flag-controlled; route scopes focus tool choice, while mode denial and risk policy remain authoritative |
-| TOBIval operational layer | `tobival/acceptance.py`, `core/runtime/eval_dataset.py`, `eval_scorers.py`, `eval_runner.py`, `eval_metrics.py`, `eval_live.py`, `eval_view.py`, `workflows.py`, `typed_resolution.py`, `grounded_outcomes.py` | Hash-locked cases, executable scoring, immutable result evidence, explicit bounded suites, scoped freshness gates, deterministic workflows, typed arguments, grounded no-model outcomes, bounded model recovery, final lane/holdout proof, and a private owner projection | T02-T07 expose additive adapters, server-side rollout checks, a vault-protected API, the Runs -> Evaluations view, and a bounded final artifact; release remains blocked for owner acceptance and production `route_turn` is unchanged |
+| TOBIval operational layer | `tobival/acceptance.py`, `core/runtime/eval_dataset.py`, `eval_scorers.py`, `eval_runner.py`, `eval_executor.py`, `eval_metrics.py`, `eval_live.py`, `eval_view.py`, `workflows.py`, `typed_resolution.py`, `grounded_outcomes.py` | Hash-locked cases, canonical Runtime execution, executable scoring, immutable result evidence, five-stage decision provenance, scoped freshness gates, deterministic workflows, typed arguments, grounded no-model outcomes, bounded model recovery, final lane/holdout proof, and a private owner projection | T08 quarantines legacy v1 synthetic proof, separates raw model response from deterministic recovery, and keeps release blocked by `model-quality-proof-missing` when no live model response exists. Production `route_turn` uses only the narrow safe, no-required-field boundary; broader typed workflow execution is not claimed |
 | MC Runtime V2 foundation | `core/runtime/contracts.py`, `event_store.py`, `projections.py`, `rebuild.py`, `repository.py`, `control.py`, `budget.py`, `loop_controller.py`, `actions.py`, `policy.py`, `policy_facts.py`, `approval.py`, `tool_registry.py`, `tool_adapters.py`, `gateway.py`, `state.py` | Shared validated contracts, append-only ordered events/checkpoints, redaction, deterministic rebuilds, canonical run/plan persistence, exclusive step leases, bounded retries, persisted recovery control, hard budgets, durable loop decisions, action idempotency, dormant central policy and approval decisions, metadata-only credential readiness, legacy-mode compatibility, a dormant canonical tool registry and catalog adapters, direct-Chat execution, Chat/Agent shadow acceptance, and cursor replay | Tool Registry V1 validates versioned MCP-compatible identities and strict JSON Schema 2020-12 input/output contracts, blocks remote references, fails closed on unknown availability, and returns deterministic bounded results only from an explicit allowlist. Pure adapters map current Conductor/Chat, inbound FastMCP, and persisted outbound MCP metadata into isolated snapshots without callables or live registration. Outbound snapshots use stable connection ids, content-derived versions, conservative external risk, and exclude endpoints and credential references. `runtime.v2_tools` remains off and existing Chat, Conductor, MCP server, and terminal callers do not import the adapters. Policy V1 deterministically evaluates typed authority facts and stores engine-verified redacted decisions. Durable approvals atomically pause planned runs, accept one owner decision, expire or reject closed, and bind evidence to the exact policy action without executing it. Credential readiness reads only Vault status and secret metadata; it never retrieves a value or tests an integration. Legacy Chat/Terminal mode facts can only preserve or tighten central policy. `runtime.v2_policy` remains off and no live caller delegates to these services. Plain-text direct Chat is canonical only behind all default-off activation gates; attachments, read/tool Chat, and Agent remain shadow/legacy. `/api/runtime/runs/{run_id}/events` replays redacted events for the matching session in bounded pages and tails by sequence |
 | Agent runs/artifacts | `core/agent_runs.py`, `core/chat_store.py` | Persisted runs, checkpoints, recovery commands, action links, artifacts, message metadata | Exact action checkpoints and elapsed time survive reload; run commands resume the original run |
 | Coding Agent control plane | `core/coding_agent.py`, `coding_loop.py`, `coding_contracts.py`, `coding_assessment.py`, `coding_quality.py`, `coding_learning.py` | Goal assessment, bounded sprints, worktree workflow, checkpoints, quality gates, independent review, and evidence-backed learning | Explicit worker/reviewer profiles; high-risk scopes require owner approval; worker changes occur only at checkpoints |
@@ -223,6 +222,11 @@ seven consecutive comparisons plus evaluation gates, and one master rollback ret
 shadow behavior. Projects, Office, CLI, Telegram, and scheduler adapters remain passive: existing
 owners execute the work while Runtime records only operation, outcome, and evidence references.
 
+#34/T08 Eval fixtures enter a real Runtime lifecycle and store bounded run/trace IDs plus route,
+context, validation, execution, and final-outcome decision ownership. The current offline artifact
+proves deterministic coverage and recovery, but it cannot prove live model quality because all 156
+model attempts failed before a response. The release gate therefore remains closed.
+
 See [`RUNTIME_V2.md`](RUNTIME_V2.md) for the operational contract and verification commands.
 
 Tables are created across the central schema and feature-local additive initializers. They fall into these ownership families:
@@ -302,6 +306,6 @@ Material limitations:
 6. Hermes integration is distributed across startup, Brain, and model routing.
 7. The dashboard and external API have different security models and overlapping concepts.
 8. Fifteen focused scripts now cover critical Chat, security, Awakening, project-resource, Office, terminal, storage, readers, and performance paths, but broad browser/integration coverage remains limited.
-9. The generated Graphify index is 85 commits behind this snapshot and must be refreshed before using exact graph claims.
+9. The generated Graphify index predates this snapshot and must be refreshed before using exact graph claims.
 
 These are current facts, not instructions to refactor them during unrelated feature work. Preserve endpoint and data compatibility unless a dedicated migration plan explicitly owns the change.
