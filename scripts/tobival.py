@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import sqlite3
+import subprocess
 import sys
 from pathlib import Path
 
@@ -10,8 +13,27 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+
+def _source_revision() -> str:
+    try:
+        revision = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=ROOT,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except (OSError, subprocess.SubprocessError):
+        return "working-tree"
+    return revision[:12] if len(revision) == 40 else "working-tree"
+
+
+DEFAULT_ACCEPTANCE_DB_PATH = (
+    ROOT / ".tobi" / "tobival" / f"acceptance-{_source_revision()}.db"
+)
+os.environ.setdefault("DB_PATH", str(DEFAULT_ACCEPTANCE_DB_PATH))
+
 from tobival.baseline import build_unchanged_baseline  # noqa: E402
-from tobival.acceptance import run_final_acceptance  # noqa: E402
+from tobival.acceptance import FINAL_ACCEPTANCE_PATH, run_final_acceptance  # noqa: E402
 from tobival.dataset import (  # noqa: E402
     DATASET_VERSION,
     build_dataset_lock,
@@ -50,7 +72,12 @@ def _parser() -> argparse.ArgumentParser:
     acceptance = subcommands.add_parser(
         "acceptance", help="run all frozen cases and guarded holdouts"
     )
-    acceptance.add_argument("--output", type=Path)
+    acceptance.add_argument(
+        "--output",
+        type=Path,
+        default=FINAL_ACCEPTANCE_PATH,
+        help="write the bounded report (default: canonical final-acceptance artifact)",
+    )
     return parser
 
 
@@ -104,19 +131,49 @@ def main() -> int:
         return 0
 
     if args.command == "acceptance":
-        report = run_final_acceptance(args.version)
-        if args.output:
-            _write_json(args.output, report)
+        benchmark = load_benchmark_contract(args.version)
+        cases = load_cases(
+            args.version, include_holdouts=True, purpose="final_acceptance",
+        )
+        planned_calls = (
+            sum(bool(case["model_dependent"]) for case in cases)
+            * int(benchmark["model_repetitions"])
+            * 2
+        )
+        print(
+            f"Running final acceptance with {planned_calls} approved model calls. "
+            f"Database: {os.environ['DB_PATH']}",
+            file=sys.stderr,
+            flush=True,
+        )
+        try:
+            report = run_final_acceptance(args.version)
+        except sqlite3.Error as exc:
+            print(
+                f"Acceptance database could not be opened at {os.environ['DB_PATH']}: {exc}",
+                file=sys.stderr,
+            )
+            return 2
+        except ModelLaneError as exc:
+            print(f"Final acceptance blocked: {exc}", file=sys.stderr)
+            return 2
+        _write_json(args.output, report)
+        quality = report["model_quality"]
         print(json.dumps({
             "case_count": report["case_count"],
             "holdout_passed": report["holdouts"]["passed"],
             "ecr": report["metrics"]["ecr"]["overall"],
             "ldr": report["metrics"]["ldr"],
+            "model_responses": quality["model_responses"],
+            "provider_failures": quality["provider_failures"],
+            "raw_model_pass_rate": quality["raw_pass_rate"],
+            "recovery_rate": quality["recovery_rate"],
             "cost_usd": report["cost_usd"],
             "duration_seconds": report["duration_seconds"],
             "release_ready": report["release_ready"],
             "blockers": report["blockers"],
-            "output": str(args.output) if args.output else None,
+            "database": os.environ["DB_PATH"],
+            "output": str(args.output),
         }, indent=2, sort_keys=True))
         return 0 if report["release_ready"] else 1
 

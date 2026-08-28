@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -173,5 +174,35 @@ ok("persisted v1 proof is quarantined until canonical provider rerun", (
         )
     )
 ))
+
+cli_env = os.environ.copy()
+cli_env.pop("DB_PATH", None)
+cli_probe = subprocess.run(
+    [
+        sys.executable,
+        "-c",
+        (
+            "import json; "
+            "from scripts.tobival import DEFAULT_ACCEPTANCE_DB_PATH, _parser; "
+            "args = _parser().parse_args(['acceptance']); "
+            "print(json.dumps({'database': str(DEFAULT_ACCEPTANCE_DB_PATH), "
+            "'output': str(args.output)}))"
+        ),
+    ],
+    cwd=ROOT,
+    env=cli_env,
+    capture_output=True,
+    text=True,
+    timeout=30,
+)
+cli_defaults = json.loads(cli_probe.stdout) if cli_probe.returncode == 0 else {}
+ok("owner-facing acceptance CLI has local database and artifact defaults", (
+    cli_probe.returncode == 0
+    and Path(cli_defaults["database"]).parent == ROOT / ".tobi" / "tobival"
+    and Path(cli_defaults["database"]).name.startswith("acceptance-")
+    and Path(cli_defaults["database"]).suffix == ".db"
+    and Path(cli_defaults["output"])
+        == ROOT / "tests" / "evals" / "acceptance" / "final-acceptance.json"
+), cli_probe.stderr)
 
 print(f"PASS: {PASS} TOBIval T07 final-acceptance checks")
