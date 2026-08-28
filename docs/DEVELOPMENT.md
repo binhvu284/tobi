@@ -4,8 +4,8 @@ This guide describes the current repository commands. It does not replace the ar
 
 ## TM01 Refresh Snapshot - 2026-08-28
 
-The verified implementation base is commit `685a1a8`, which matches `origin/main`. #34/T08 is
-committed and its bounded artifact is checked in. The checkout also contains unrelated existing
+The live acceptance artifact is bound to source commit `d1a3448`. #34/T08 now has canonical live
+model proof and a self-contained owner CLI. The checkout also contains unrelated existing
 changes; do not use `git status` alone as delivery proof.
 
 Graphify is available only as the checked-in navigation output for this checkout; the generated
@@ -60,26 +60,30 @@ This is separate from `venv\Scripts\python.exe`; use the interpreter named by th
 
 The T08 Gate runs the complete shared `29`-suite Infrastructure registry, including canonical
 acceptance, model-dependency, API, workflow, and production-route checks. It does not make live model
-calls. The committed offline artifact is intentionally blocked by `model-quality-proof-missing`:
-all 156 model attempts failed before a response, while deterministic recovery completed the cases.
+calls. The checked-in live artifact records 156/156 model responses, raw pass `32.0513%`, recovery
+`67.9487%`, ECR `100`, scoped LDR `8.8021`, and no final-acceptance blocker.
 
-The live final-acceptance command below makes 156 bounded calls to the accepted strong and weak Codex
-subscription models. Run it only after explicit owner approval for those calls:
+The final-acceptance command below makes 156 bounded calls to the accepted strong and weak Codex
+subscription models. Run it again only after explicit owner approval for those calls:
 
 ```powershell
-& "D:\[PERSONAL PROJECT FILES]\TOBI\.python\venv\Scripts\python.exe" scripts/tobival.py acceptance --output tests/evals/acceptance/final-acceptance.json
+& "D:\[PERSONAL PROJECT FILES]\TOBI\.python\venv\Scripts\python.exe" scripts/tobival.py acceptance
 ```
 
-The artifact stores scores, hashes, usage, recovery counts, cost, and timing rather than prompt or
-response bodies. A valid live result must show nonzero `model_responses`; deterministic recovery
-cannot substitute for raw model quality. Dashboard verification also requires:
+The command defaults to a revision-bound database under `.tobi/tobival/` and writes
+`tests/evals/acceptance/final-acceptance.json`; `DB_PATH` and `--output` can still override those
+paths. The artifact stores scores, hashes, usage, recovery counts, cost, and timing rather than
+prompt or response bodies. A valid live result must show nonzero `model_responses`; deterministic
+recovery cannot substitute for raw model quality. Automated dashboard verification uses the exact
+checked-in artifact:
 
 ```powershell
 npm.cmd --prefix dashboard run build
-node tests/ui/tobival_eval_control.mjs http://127.0.0.1:8080
+npm.cmd --prefix dashboard run preview -- --host 127.0.0.1 --port 4174
+node tests/ui/tobival_eval_control.mjs
 ```
 
-The Playwright command above expects the main MC server to be running on port 8080.
+For owner acceptance, start `main.py api`, unlock MC, then open Runs -> Evaluations on port 8080.
 
 The local TOBIval baseline commands are:
 

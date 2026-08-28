@@ -400,6 +400,14 @@ state.
 strong/weak-model rerun, followed by owner review of the corrected Evaluations page. No fixture,
 threshold, formula, model ID, or holdout was changed by T08.
 
+### T08 Live Closure Evidence - 2026-08-28
+
+The owner-approved rerun completed against source `d1a3448` without changing the frozen baseline.
+All 156 calls returned, raw model pass was `32.0513%`, deterministic recovery was `67.9487%`, final
+ECR was `100`, scoped LDR was `8.8021`, and all 14 holdouts passed. The v2 artifact has no blocker
+and reports `release_ready=true`. The default acceptance CLI and owner-readable Eval banner were
+repaired and verified. #34 remains In progress only until owner dashboard acceptance.
+
 ## Definition Of Done
 
 #34 is Done only when all are true:

@@ -8,7 +8,9 @@ The current MC shell has Overview, Work, Process, Agents, History, and System vi
 Developer area, shared Runtime V2 Runs projections, and a persistent workspace-tab shell. The
 committed runtime keeps rollout controls off and uses passive adapters for non-Chat surfaces.
 #34/T08 makes the Evaluations view distinguish canonical evidence, raw model quality, deterministic
-recovery, and the exact release blocker. Health and the release gate now use the same 29-suite list.
+recovery, and the exact release blocker. Its live proof banner reports calls returned, model-alone
+pass rate, recovery rate, and direct spend in plain language. Health and the release gate use the
+same 29-suite list.
 
 ## Purpose
 
@@ -149,8 +151,9 @@ the rollback owner.
 The Runs -> Evaluations tab reads the bounded final-acceptance artifact. Canonical v2 artifacts show
 category, workflow, lane, case, ECR, LDR, model-response, raw-pass, recovery, and blocker evidence.
 Legacy v1 synthetic artifacts are quarantined rather than presented as release proof. The current
-artifact shows all deterministic cases passing but release blocked by `model-quality-proof-missing`
-because no live model response was recorded.
+canonical artifact records 156/156 live model responses, raw model pass `32.0513%`, deterministic
+recovery `67.9487%`, ECR `100`, scoped LDR `8.8021`, and `release_ready=true` with no artifact
+blocker. Mission Control still shows `owner-acceptance-required` until the owner accepts the view.
 
 Runtime route scopes narrow the usual tool set for speed. They are not permission grants: a known read-only tool can be admitted if the classifier routed too narrowly, while unknown or acting tools remain route-denied and mode/risk/approval policy stays server-authoritative. A direct-route prediction no longer creates an explicit empty allowlist at the Chat gateway.
 

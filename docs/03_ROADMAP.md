@@ -32,10 +32,9 @@ The main danger now is confusing **having tools** with **being a capable agent**
 - #22 Coding Agent V2 is qualified for the Codex-only path. That proves bounded coding-agent
   operation, not unlimited autonomous development or readiness for every large task.
 - #33 Infrastructure self-check is committed and green in `a317604`.
-- #34/T08 is committed and pushed through `685a1a8`. Canonical deterministic evidence reports
-  ECR `100` and scoped LDR `8.8021`, but the current artifact has no live model response and is
-  correctly blocked by `model-quality-proof-missing`. A 156-call live rerun and owner acceptance
-  remain before #34 can close.
+- #34/T08 live proof is complete against source `d1a3448`. The current artifact records 156/156
+  model responses, ECR `100`, scoped LDR `8.8021`, raw model pass `32.0513%`, recovery `67.9487%`,
+  and no artifact blocker. Owner dashboard acceptance remains before #34 can close.
 
 ```mermaid
 flowchart LR

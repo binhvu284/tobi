@@ -1,6 +1,6 @@
 # Mission Control Runtime V2
 
-> Verified 2026-08-28 against committed Runtime V2 and #34/T08 source through `685a1a8`. No
+> Verified 2026-08-28 against committed Runtime V2 and #34/T08 source through `d1a3448`. No
 > rollout activation, deployment, Supabase action, or Vercel action was performed.
 
 ## Current Status
@@ -32,8 +32,9 @@ bounded route, context, validation, execution, and final-outcome decision owners
 report separates live model responses and raw pass rate from deterministic recovery, quarantines
 legacy v1 synthetic artifacts, and blocks release with `model-quality-proof-missing` when no live
 response exists. A narrow production `route_turn` boundary handles safe supported workflows with no
-required fields; broader typed workflows remain outside normal Chat/Agent execution. No rollout flag
-was activated.
+required fields; broader typed workflows remain outside normal Chat/Agent execution. The approved
+live rerun recorded 156/156 responses, raw pass `32.0513%`, recovery `67.9487%`, ECR `100`, scoped
+LDR `8.8021`, and no artifact blocker. No rollout flag was activated.
 
 ## Request Flow
 

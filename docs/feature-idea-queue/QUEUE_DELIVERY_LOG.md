@@ -133,6 +133,16 @@ boundary only for narrow safe routes with no required fields; broader typed reso
 outcomes are not claimed as active in normal Chat/Agent execution. The remaining work is an
 explicitly approved 156-call live rerun followed by owner dashboard acceptance.
 
+The owner approved that rerun on 2026-08-28. Against source `d1a3448`, all 156 approved Codex
+subscription calls returned: 78 strong and 78 weak. Raw model output passed `32.0513%`; bounded
+deterministic recovery handled `67.9487%`, producing final ECR `100`, scoped LDR `8.8021`, and
+14/14 holdouts passed. There were no provider failures, no artifact blocker, no direct spend, and
+`release_ready=true`. The owner CLI now defaults to a revision-bound D-drive database and the final
+artifact path, avoiding the earlier home-directory SQLite failure. Mission Control shows the live
+proof in plain language and Playwright passes on desktop/mobile with no overflow, console error, or
+failed request. #34 remains In progress only for owner dashboard acceptance; production routing is
+still intentionally narrow.
+
 
 <a id="item-32"></a>
 

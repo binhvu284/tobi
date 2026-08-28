@@ -2,15 +2,15 @@
 
 > Verified from the D-drive repository through 2026-08-28. Queue #21 Runtime V2 is complete in committed source. No production activation, deployment, Supabase action, or Vercel action was performed.
 >
-> TM01 full refresh at `685a1a8`: active docs were compared with current code, tests, the bounded
-> acceptance artifact, queue, and Git history. #34/T08 is committed and pushed. Unrelated existing
+> TM01 follow-up at source revision `d1a3448`: active docs were compared with current code, tests,
+> the live acceptance artifact, queue, and Git history. #34/T08 live proof is complete. Unrelated existing
 > worktree changes were preserved and are not treated as #34 evidence. See `DOCUMENTATION_AUDIT.md`.
 
 ## TM01 Refresh Snapshot - 2026-08-28
 
 | State | Meaning |
 |---|---|
-| Committed | #21 Runtime V2, #33 Infrastructure self-check, and the #34/T08 repair are present through `685a1a8`. The repair replaces synthetic final proof with canonical Runtime evidence and blocks missing model-quality proof. |
+| Verified source | #21 Runtime V2, #33 Infrastructure self-check, and the #34/T08 repair are present through `d1a3448`. The self-contained acceptance CLI now uses a revision-bound D-drive database by default. |
 | Local only | Existing changes in `AGENTS.md`, `CLAUDE.md`, `docs/OUTPUT_STYLE_ADHD.md`, `artifacts/`, and `%SystemDrive%/` are unrelated to this refresh and are not delivery evidence. |
 | Not verified here | Live integrations, VPS behavior, public deployment, and owner rollout activation. No external service was contacted by this refresh. |
 | Freshness | Claims in this file use the 2026-08-28 refresh unless a row explicitly names an older evidence date. |
@@ -65,7 +65,7 @@ The largest truth gaps are no longer "nothing is built." Chat/Agent mode policy,
 | Integration status | Code paths or credentials alone are not proof of access. Awakening requires adapter readiness plus fresh successful-test metadata; other surfaces must still use current MC status and an explicit test before claiming availability |
 | Personal computer control | Terminal execution is real. Browser automation, screen understanding, GUI control, and a hardened personal-PC service are not implemented |
 | Proactivity | Scheduler and Telegram push are real. General event-driven observation and context-aware interruption are not |
-| Tests | Focused tracked suites cover the established runtime, security, UI, and compatibility paths. #34/T00 preserves the accepted unchanged-code baseline: ECR `50` and LLM Dependency `85.5769`. T08 now executes all 72 cases, including 14 holdouts, through canonical Runtime runs and independently records five decision stages. The bounded offline artifact reports ECR `100` and scoped LDR `8.8021`, but it received `0` live model responses and `156` provider failures; deterministic recovery reached `100%`, so release correctly remains blocked by `model-quality-proof-missing`. The shared Health/release gate passes 29/29 and the dashboard production build passes. These values prove deterministic coverage, not live model quality. |
+| Tests | Focused tracked suites cover the established runtime, security, UI, and compatibility paths. #34/T00 preserves the accepted unchanged-code baseline: ECR `50` and LLM Dependency `85.5769`. The approved T08 rerun executed all 72 cases, including 14 holdouts, through canonical Runtime runs and made 156 bounded Codex subscription calls. All 156 returned; raw model output passed `32.0513%`, deterministic recovery handled `67.9487%`, final ECR is `100`, and scoped LDR is `8.8021`. The artifact has no blocker and reports `release_ready=true`; the shared product gate still requires owner dashboard acceptance. The 29-suite gate, dashboard build, and desktop/mobile Playwright checks pass. |
 
 ## Runtime and Persistence
 
@@ -84,15 +84,16 @@ The largest truth gaps are no longer "nothing is built." Chat/Agent mode policy,
 - #14 Premium Ability is delivered at v1, including the follow-up vision-model borrowing and Ability reorganization.
 - #16 Chat Mode Backend Upgrade is delivered. #17 Awakening Tier 1 Completion reached owner-runtime acceptance at 9/9 on 2026-07-14 through a successful GitHub read verification, advancing Evolution to the Agent tier; connector health still follows the 24-hour evidence-freshness rule. #19 Performance "System Doctor" is delivered (v1).
 - #15 Office V3 is delivered at v1 with owner visual acceptance still open.
-- #18 TOBI Coding Agent v1 remains the base continuous goal/lease/worktree/review/deployment system. #22 Coding Agent V2 is qualified for the Codex-only path; its target-VPS soak remains a deployment gate. #21 Mission Control Infrastructure V2 and #33 Infrastructure self-check are complete. #34 remains in progress: T08 repaired the evidence path, but an explicitly approved 156-call live rerun and owner dashboard acceptance are still required before Done. Legacy deletion is explicitly deferred to a separate owner-approved exit review.
+- #18 TOBI Coding Agent v1 remains the base continuous goal/lease/worktree/review/deployment system. #22 Coding Agent V2 is qualified for the Codex-only path; its target-VPS soak remains a deployment gate. #21 Mission Control Infrastructure V2 and #33 Infrastructure self-check are complete. #34 remains in progress: T08 repaired the evidence path and completed the approved 156-call live rerun; owner dashboard acceptance is the only #34 closure gate left. Legacy deletion is explicitly deferred to a separate owner-approved exit review.
 - Original plans remain under `feature-idea-queue/`; they are requirements history, not proof of current behavior.
 
 ## Highest-Risk Gaps
 
 1. Secure or constrain the port-8080 dashboard before treating it as safely internet-accessible.
-2. #34 has canonical deterministic proof but no current live model-quality proof. Its `8.8021` LDR
-   is scoped to recorded decision ownership and cannot establish the original live dependency target
-   until the approved strong/weak model rerun succeeds.
+2. #34 now has canonical live proof and a scoped LDR of `8.8021`. The model alone passed `32.0513%`
+   of attempts and deterministic recovery completed the rest. The remaining #34 decision is owner
+   acceptance of the Runs -> Evaluations presentation; broad typed Chat/Agent workflow activation is
+   still outside this package.
 3. Complete the typed/checkpointed Chat Runtime v2 rollout and keep provider, tool, recovery, and context contracts measurable.
 4. Extend evidence-based Evolution beyond Awakening without weakening the Tier-1 evidence gates.
 5. Reconcile curated Ability tables, repository skill metadata, runtime Hermes state, and future Agent-tier capabilities into one explicit ownership model.

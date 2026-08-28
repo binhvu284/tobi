@@ -4,63 +4,66 @@ import { chromium } from '../../../.agents/skills/playwright-ui-test/node_module
 const liveBaseUrl = process.argv[2] || null
 const baseUrl = liveBaseUrl || 'http://127.0.0.1:4174'
 const screenshotPrefix = liveBaseUrl ? 'tobival-eval-live' : 'tobival-eval'
+const acceptanceArtifact = JSON.parse(fs.readFileSync('tests/evals/acceptance/final-acceptance.json', 'utf8'))
+const manifest = JSON.parse(fs.readFileSync('tests/evals/v1/case_manifest.json', 'utf8'))
+const resultRows = new Map(acceptanceArtifact.results.map(row => [`${row.case_id}:${row.lane}`, row]))
+const artifactCases = manifest.cases.map(item => {
+  const rows = ['strong', 'weak', 'no_model'].map(lane => resultRows.get(`${item.id}:${lane}`))
+  if (rows.some(row => !row)) throw new Error(`Final acceptance result missing for ${item.id}`)
+  return {
+    eval_case_id: `tobival.${acceptanceArtifact.dataset_version}.${item.id}`,
+    version: rows[0].version,
+    category: item.group,
+    workflow_id: item.workflow,
+    status: rows.every(row => row.status === 'passed') ? 'passed' : 'failed',
+    score: Math.min(...rows.map(row => row.score)),
+    threshold: rows[0].threshold,
+    completed_at: acceptanceArtifact.generated_at,
+    release_gate: true,
+    autonomy_gate: item.safety_critical,
+  }
+})
 
-const categoryCounts = {
-  final_answer_grounded_claims: 8,
-  route_tool_typed_arguments: 10,
-  policy_approval_security: 10,
-  recovery_idempotency_concurrency: 10,
-  brain_context_relevance: 8,
-  connector_freshness: 6,
-  coding_workflow_qualification: 6,
-  cost_budget: 4,
-  compatibility_surfaces_model_failure: 10,
+function progress(key) {
+  const groups = new Map()
+  for (const item of artifactCases) {
+    const name = item[key]
+    const values = groups.get(name) || []
+    values.push(item)
+    groups.set(name, values)
+  }
+  return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([name, items]) => {
+    const passed = items.filter(item => item.status === 'passed').length
+    return { [key]: name, case_count: items.length, passed, pass_rate: 100 * passed / items.length }
+  })
 }
-const workflowCounts = {
-  'approval.evaluate': 2, 'brain.recall': 8, 'budget.evaluate': 4,
-  'coding.qualify': 6, 'connector.status': 7, 'file.read': 2,
-  'policy.evaluate': 7, 'project.list': 3, 'provider.recover': 4,
-  'run.recover': 10, 'surface.compatibility': 8, 'system.status.read': 4,
-  'task.create': 4, 'terminal.status': 1, 'terminal.typed_command': 2,
-}
-const artifactCases = Array.from({ length: 72 }, (_, index) => ({
-  eval_case_id: index === 0 ? 'tobival.v1.final.status_grounded' : `tobival.v1.case.${index + 1}`,
-  version: '1',
-  category: index === 0 ? 'final_answer_grounded_claims' : 'route_tool_typed_arguments',
-  workflow_id: index === 0 ? 'system.status.read' : 'task.create',
-  status: 'passed', score: 1, threshold: 0.9,
-  completed_at: '2026-08-26T05:00:00Z', release_gate: true, autonomy_gate: false,
-}))
 
 const overview = {
   metrics: {
-    ecr: { overall: 100, categories: { policy: 100, routing: 100 }, case_count: 72, source: 'frozen_final_acceptance' },
-    ldr: { value: 2.0312, status: 'available', formula: '0.75 * U + 0.25 * Q', unguarded_decision_share: 2.7083, quality_loss: 0, missing: [] },
+    ecr: { ...acceptanceArtifact.metrics.ecr, source: 'canonical_final_acceptance' },
+    ldr: { value: acceptanceArtifact.metrics.ldr, status: 'available', formula: acceptanceArtifact.metrics.formula, unguarded_decision_share: acceptanceArtifact.metrics.unguarded_decision_share, quality_loss: acceptanceArtifact.metrics.quality_loss, missing: [] },
   },
-  freshness: { latest_suite_at: '2026-08-26T05:00:00Z', latest_suite_id: 'suite-release-1' },
-  lanes: {
-    strong: { status: 'available', case_count: 72, passed: 72, completion_rate: 100 },
-    weak: { status: 'available', case_count: 72, passed: 72, completion_rate: 100 },
-    no_model: { status: 'available', case_count: 72, passed: 72, completion_rate: 100 },
-  },
-  categories: Object.entries(categoryCounts).map(([category, case_count]) => ({ category, case_count, passed: case_count, pass_rate: 100 })),
-  workflows: Object.entries(workflowCounts).map(([workflow_id, case_count]) => ({ workflow_id, case_count, passed: case_count, pass_rate: 100 })),
+  freshness: { latest_suite_at: acceptanceArtifact.generated_at, latest_suite_id: acceptanceArtifact.schema_version },
+  lanes: Object.fromEntries(Object.entries(acceptanceArtifact.lanes).map(([lane, row]) => [lane, { status: 'available', case_count: row.case_count, passed: row.passed, completion_rate: row.completion_rate }])),
+  categories: progress('category'),
+  workflows: progress('workflow_id'),
   gates: {
     release: { scope: 'release', allowed: false, required_cases: [], passed_cases: [], blockers: ['owner-acceptance-required'] },
     autonomy: { scope: 'autonomy', allowed: true, required_cases: [], passed_cases: [], blockers: [] },
   },
   regressions: [],
   findings: [],
-  suites: [{ suite_run_id: 'suite-release-1', trigger: 'manual', lane: 'strong', status: 'passed', case_count: 72, capability_refs: ['release'], started_at: '2026-08-26T04:55:00Z', completed_at: '2026-08-26T05:00:00Z' }],
+  suites: [],
   cases: artifactCases,
-  acceptance: { status: 'ready_for_owner', release_ready: true, case_count: 72, holdout_count: 14, holdout_passed: 14, model_calls: 156, approved_model_call_ceiling: 168, cost_usd: 0, duration_seconds: 484.594 },
+  acceptance: { status: 'ready_for_owner', release_ready: acceptanceArtifact.release_ready, evidence_scope: acceptanceArtifact.evidence_scope, generated_at: acceptanceArtifact.generated_at, source_commit: acceptanceArtifact.source_commit, blockers: acceptanceArtifact.blockers, case_count: acceptanceArtifact.case_count, holdout_count: acceptanceArtifact.holdouts.case_count, holdout_passed: acceptanceArtifact.holdouts.passed, model_calls: acceptanceArtifact.model_calls, approved_model_call_ceiling: acceptanceArtifact.approved_model_call_ceiling, cost_usd: acceptanceArtifact.cost_usd, duration_seconds: acceptanceArtifact.duration_seconds, model_quality: acceptanceArtifact.model_quality },
   next_action: 'owner-acceptance-required',
 }
 
+const detailCase = manifest.cases.find(item => item.id === 'final.status_grounded')
 const detail = {
-  case: { eval_case_id: 'tobival.v1.final.status_grounded', version: '1', category: 'final_answer_grounded_claims', workflow_id: 'system.status.read', objective: 'Execute frozen TOBIval case final.status_grounded', scorer: 'structured_evidence', threshold: 0.9, required_evidence: ['projection_ref', 'freshness'], release_gate: true, autonomy_gate: false, created_at: '2026-08-26T04:00:00Z' },
+  case: { eval_case_id: 'tobival.v1.final.status_grounded', version: '1', category: detailCase.group, workflow_id: detailCase.workflow, objective: 'Execute frozen TOBIval case final.status_grounded', scorer: 'structured_evidence', threshold: resultRows.get('final.status_grounded:strong').threshold, required_evidence: detailCase.evidence, release_gate: true, autonomy_gate: detailCase.safety_critical, created_at: acceptanceArtifact.generated_at },
   control: { capability_refs: ['workflow:system.status.read', 'surface:chat'], freshness_seconds: 0, sample_eligible: false, created_at: '2026-08-26T04:00:00Z' },
-  runs: ['strong', 'weak', 'no_model'].map(lane => ({ eval_run_id: `eval-status-${lane}`, lane, status: 'passed', score: 1, threshold: 0.9, run_id: null, trace_id: `trace:tobival:v1:${lane}:final.status_grounded`, completed_at: '2026-08-26T05:00:00Z', evidence_refs: ['projection_ref:final.status_grounded', 'freshness:final.status_grounded'] })),
+  runs: ['strong', 'weak', 'no_model'].map(lane => { const row = resultRows.get(`final.status_grounded:${lane}`); return { eval_run_id: `${row.run_id}:${lane}`, lane, status: row.status, score: row.score, threshold: row.threshold, run_id: row.run_id, trace_id: row.trace_ref, completed_at: acceptanceArtifact.generated_at, evidence_refs: row.evidence_refs } }),
   findings: overview.findings,
 }
 
@@ -88,8 +91,15 @@ await page.goto(`${baseUrl}/runs`, { waitUntil: 'networkidle' })
 await page.getByRole('tab', { name: 'Evaluations' }).click()
 await page.getByText('Eval Control Center').waitFor()
 await page.getByText('100%').first().waitFor()
-await page.getByText('2.0%').first().waitFor()
+await page.getByText('8.8%').first().waitFor()
+await page.getByText('Live model proof complete', { exact: true }).waitFor()
+await page.getByText('72/72 cases passed', { exact: false }).waitFor()
+await page.getByText('156/156 model calls returned', { exact: false }).waitFor()
+await page.getByText('model alone passed 32.1%', { exact: false }).waitFor()
+await page.getByText('TOBI recovery handled 67.9%', { exact: false }).waitFor()
 await page.getByText('Owner acceptance required', { exact: true }).waitFor()
+await page.getByText('Categories', { exact: true }).waitFor()
+await page.getByText('Workflows', { exact: true }).waitFor()
 await page.getByText('Cases 72', { exact: true }).waitFor()
 await page.getByRole('button', { name: /tobival.v1.final.status_grounded/ }).click()
 await page.getByText('Execute frozen TOBIval case final.status_grounded').waitFor()

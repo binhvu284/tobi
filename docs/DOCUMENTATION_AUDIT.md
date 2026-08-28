@@ -1,5 +1,31 @@
 # Documentation Audit
 
+## Refresh - 2026-08-28 (#34 live-proof follow-up)
+
+Protocol: [`UPDATE_DOCS_TM01.md`](UPDATE_DOCS_TM01.md). Agent: Codex. The approved 156-call rerun was
+verified against source `d1a3448` and the schema-v2 final artifact. Frozen cases, holdouts, formulas,
+thresholds, and model IDs were unchanged.
+
+### Active documents updated
+
+- Current state, Runtime, Mission Control, Development, and Roadmap now report the live result rather
+  than the superseded `0/156` offline blocker.
+- Queue, delivery log, and the #34 implementation addendum now keep #34 In progress only for owner
+  dashboard acceptance.
+- The owner command now documents its revision-bound D-drive database and default artifact path.
+
+### Archived or removed
+
+None.
+
+### Verification
+
+- Live artifact: 72 cases, 14/14 holdouts, 156/156 model responses, ECR `100`, scoped LDR `8.8021`,
+  raw pass `32.0513%`, recovery `67.9487%`, no provider failures, no blocker, direct spend `$0`.
+- Owner UI: desktop/mobile Playwright passed with no overflow, console error, or failed request.
+- Project gate and final Git/push state are recorded in the delivery commit and owner report.
+- No rollout activation, connector, deployment, Supabase, or Vercel action was performed.
+
 ## Refresh - 2026-08-28 (TM01, full checkout)
 
 Protocol: [`UPDATE_DOCS_TM01.md`](UPDATE_DOCS_TM01.md). Agent: Codex. Implementation revision
