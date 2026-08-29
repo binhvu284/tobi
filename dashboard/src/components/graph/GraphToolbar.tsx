@@ -1,13 +1,21 @@
 import { useState } from 'react'
 import {
   Search, RefreshCw, Sparkles, Link2, Zap, ZapOff, Plus, X, SlidersHorizontal,
+  CircleDot, Orbit, Columns, Waypoints, Maximize,
 } from 'lucide-react'
-import { searchGraph, type GraphSource, type GraphSearchResult } from '../../api.graph'
+import { searchGraph, type GraphSearchResult } from '../../api.graph'
+import { LAYOUTS, domainColor, orderDomains, type LayoutMode } from './layouts'
 
 type Props = {
-  sources: GraphSource[]
+  /** Node count per domain, taken from the graph itself — never a hardcoded list, which is
+   *  how five dead filter chips (notion/github/gdrive/local/manual) and one missing one
+   *  (resource, 14% of all nodes) survived here unnoticed. */
+  domainCounts: Record<string, number>
   domain: string
   onDomain: (d: string) => void
+  layout: LayoutMode
+  onLayout: (m: LayoutMode) => void
+  onFit: () => void
   performance: boolean
   onTogglePerformance: () => void
   connectMode: boolean
@@ -22,10 +30,13 @@ type Props = {
   onFocusResult: (id: number) => void
 }
 
-const DOMAIN_ORDER = ['all', 'memory', 'task', 'project', 'notion', 'github', 'gdrive', 'local', 'manual']
 const DOMAIN_LABEL: Record<string, string> = {
-  all: 'All', memory: 'Memory', task: 'Tasks', project: 'Projects', notion: 'Notion',
-  github: 'GitHub', gdrive: 'Drive', local: 'Local', manual: 'Notes',
+  memory: 'Memories', task: 'Tasks', project: 'Projects', resource: 'Resources',
+  manual: 'Notes', local: 'Local', notion: 'Notion', github: 'GitHub', gdrive: 'Drive',
+}
+
+const LAYOUT_ICON: Record<LayoutMode, typeof CircleDot> = {
+  orbit: CircleDot, radial: Orbit, lanes: Columns, force: Waypoints,
 }
 
 export default function GraphToolbar(p: Props) {
@@ -34,12 +45,9 @@ export default function GraphToolbar(p: Props) {
   const [searching, setSearching] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
 
-  const countFor = (d: string) => {
-    if (d === 'all') return p.sources.reduce((a, s) => a + (s.nodes || 0), 0)
-    const map: Record<string, string> = { gdrive: 'gdrive' }
-    const src = p.sources.find(s => s.domain === (map[d] || d))
-    return src?.nodes ?? undefined
-  }
+  const domains = orderDomains(Object.keys(p.domainCounts), d => p.domainCounts[d] || 0)
+  const total = Object.values(p.domainCounts).reduce((a, b) => a + b, 0)
+  const activeLayout = LAYOUTS.find(l => l.id === p.layout) ?? LAYOUTS[0]
 
   const runSearch = async (text: string) => {
     setQ(text)
@@ -48,22 +56,30 @@ export default function GraphToolbar(p: Props) {
     try { setResults((await searchGraph(text)).results) } catch { setResults([]) } finally { setSearching(false) }
   }
 
+  const label = (d: string) => DOMAIN_LABEL[d] || d.charAt(0).toUpperCase() + d.slice(1)
+
   return (
     <div className="absolute left-3 right-3 top-3 z-10 flex flex-col gap-2 rounded-2xl border border-accent/15 bg-[#07101d]/82 px-3 py-2 shadow-[0_18px_70px_rgb(0_0_0/0.28),0_0_36px_rgb(var(--accent)/0.08)] backdrop-blur-xl">
       <div className="flex flex-wrap items-center gap-2">
-        {/* domain switcher */}
-        <div className="flex flex-wrap items-center gap-1">
-          {DOMAIN_ORDER.map(d => {
-            const c = countFor(d)
-            const active = p.domain === d
+        {/* how the map is arranged — the primary control on this page */}
+        <div className="flex items-center gap-0.5 rounded-xl border border-accent/20 bg-bg/50 p-0.5">
+          {LAYOUTS.map(mode => {
+            const Icon = LAYOUT_ICON[mode.id]
+            const active = p.layout === mode.id
             return (
-              <button key={d} onClick={() => p.onDomain(d)}
-                className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${active ? 'border-accent/50 bg-accent/15 text-accent shadow-[0_0_18px_rgb(var(--accent)/0.12)]' : 'border-transparent text-muted hover:border-border hover:bg-bg/45 hover:text-text'}`}>
-                {DOMAIN_LABEL[d]}{c != null && c > 0 ? <span className="ml-1 opacity-60">{c}</span> : null}
+              <button key={mode.id} onClick={() => p.onLayout(mode.id)} title={mode.hint}
+                aria-pressed={active}
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${active ? 'bg-accent/18 text-accent shadow-[0_0_18px_rgb(var(--accent)/0.14)]' : 'text-muted hover:bg-bg/60 hover:text-text'}`}>
+                <Icon size={13} /> {mode.label}
               </button>
             )
           })}
         </div>
+
+        <button onClick={p.onFit} title="Fit the whole map on screen"
+          className="rounded-lg border border-border p-1.5 text-muted hover:bg-bg/45 hover:text-text">
+          <Maximize size={14} />
+        </button>
 
         <div className="ml-auto flex items-center gap-1.5">
           {/* search */}
@@ -96,7 +112,7 @@ export default function GraphToolbar(p: Props) {
           </button>
           <button onClick={p.onAddNode} title="Add node"
             className="rounded-lg border border-border p-1.5 text-muted hover:bg-bg/45 hover:text-text"><Plus size={14} /></button>
-          <button onClick={p.onTogglePerformance} title={p.performance ? 'Performance mode ON' : 'Full neuron FX'}
+          <button onClick={p.onTogglePerformance} title={p.performance ? 'Effects off — faster on big graphs' : 'Full effects: halos, cluster shapes, link flow'}
             className={`rounded-lg border p-1.5 ${p.performance ? 'border-warning/50 bg-warning/10 text-warning' : 'border-border text-muted hover:bg-bg/45 hover:text-text'}`}>
             {p.performance ? <ZapOff size={14} /> : <Zap size={14} />}
           </button>
@@ -104,6 +120,26 @@ export default function GraphToolbar(p: Props) {
             className="flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-2.5 py-1.5 text-xs font-semibold text-accent shadow-[0_0_18px_rgb(var(--accent)/0.10)] hover:bg-accent/20 disabled:opacity-50">
             <RefreshCw size={13} className={p.syncing ? 'animate-spin' : ''} /> Sync
           </button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-accent/12 pt-2">
+        <p className="text-[11px] text-muted">{activeLayout.hint}</p>
+        <div className="ml-auto flex flex-wrap items-center gap-1">
+          <button onClick={() => p.onDomain('all')}
+            className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${p.domain === 'all' ? 'border-accent/50 bg-accent/15 text-accent' : 'border-transparent text-muted hover:border-border hover:bg-bg/45 hover:text-text'}`}>
+            All{total > 0 ? <span className="ml-1 opacity-60">{total}</span> : null}
+          </button>
+          {domains.map(d => {
+            const active = p.domain === d
+            return (
+              <button key={d} onClick={() => p.onDomain(d)}
+                className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${active ? 'border-accent/50 bg-accent/15 text-accent' : 'border-transparent text-muted hover:border-border hover:bg-bg/45 hover:text-text'}`}>
+                <span className="h-2 w-2 rounded-full" style={{ background: domainColor(d) }} />
+                {label(d)}<span className="opacity-60">{p.domainCounts[d]}</span>
+              </button>
+            )
+          })}
         </div>
       </div>
 
