@@ -36,7 +36,7 @@ const DOMAIN_LABEL: Record<string, string> = {
 }
 
 const LAYOUT_ICON: Record<LayoutMode, typeof CircleDot> = {
-  orbit: CircleDot, radial: Orbit, lanes: Columns, force: Waypoints,
+  clusters: CircleDot, orbit: Orbit, columns: Columns, free: Waypoints,
 }
 
 export default function GraphToolbar(p: Props) {

@@ -173,7 +173,7 @@ const ForceGraphCanvas = forwardRef<CanvasHandle, Props>(function ForceGraphCanv
    *  until you zoom in, which was the old behaviour and the reason nothing could be found.
    *  Columns are the exception: the grid is one node wide, so a caption cannot fit beside its
    *  node and the panel headers name the group instead. */
-  const alwaysLabelled = useMemo(() => layout === 'lanes' ? new Set<number>() : new Set(
+  const alwaysLabelled = useMemo(() => layout === 'columns' ? new Set<number>() : new Set(
     [...data.nodes].sort((a, b) => (b.degree || 0) - (a.degree || 0) || a.id - b.id)
       .slice(0, ALWAYS_LABELLED).map(n => n.id)), [data.nodes, layout])
 
@@ -224,7 +224,7 @@ const ForceGraphCanvas = forwardRef<CanvasHandle, Props>(function ForceGraphCanv
   // springConstant 0.08, avoidOverlap 0.8, stabilise then fit).
   useEffect(() => {
     const fg = fgRef.current
-    if (!fg || layout !== 'force') return
+    if (!fg || layout !== 'free') return
     fg.d3Force('center', null)
     fg.d3Force('charge')?.strength(performance ? -150 : -250).distanceMax(700)
     const link = fg.d3Force('link')
@@ -239,12 +239,12 @@ const ForceGraphCanvas = forwardRef<CanvasHandle, Props>(function ForceGraphCanv
   // Frame the new arrangement whenever the layout or the data changes. A computed layout has
   // nothing to settle, so waiting for the engine to stop would leave it off-screen.
   useEffect(() => {
-    const timer = setTimeout(() => fitView(), layout === 'force' ? 900 : 60)
+    const timer = setTimeout(() => fitView(), layout === 'free' ? 900 : 60)
     return () => clearTimeout(timer)
   }, [graphData, layout, fitView])
 
   const onEngineStop = useCallback(() => {
-    if (layout === 'force') fitView(600)
+    if (layout === 'free') fitView(600)
   }, [layout, fitView])
 
   const setHover = useCallback((node: any) => {
@@ -420,7 +420,7 @@ const ForceGraphCanvas = forwardRef<CanvasHandle, Props>(function ForceGraphCanv
     }
 
     // Free mode has no computed shape, so the communities get hulls instead.
-    if (placement.mode === 'force' && !performance) {
+    if (placement.mode === 'free' && !performance) {
       const groups = new Map<string, any[]>()
       for (const node of graphData.nodes as any[]) {
         if (node.x == null || node.community == null) continue
@@ -492,7 +492,7 @@ const ForceGraphCanvas = forwardRef<CanvasHandle, Props>(function ForceGraphCanv
       onRenderFramePre={onRenderFramePre}
       linkColor={linkColor}
       linkWidth={(l: any) => Math.max(0.4, (l.weight || 1) * 1.2)}
-      linkCurvature={layout === 'force' ? 0.12 : 0.06}
+      linkCurvature={layout === 'free' ? 0.12 : 0.06}
       linkDirectionalParticles={linkParticles}
       linkDirectionalParticleWidth={(l: any) => (l.type === 'semantic' ? 1.6 : 1.2)}
       linkDirectionalParticleSpeed={0.006}
@@ -500,12 +500,12 @@ const ForceGraphCanvas = forwardRef<CanvasHandle, Props>(function ForceGraphCanv
       onNodeClick={handleClick}
       onNodeRightClick={(n: any) => onNodeDoubleClick(n)}
       onBackgroundClick={onBackgroundClick}
-      enableNodeDrag={layout === 'force'}
+      enableNodeDrag={layout === 'free'}
       onNodeDragEnd={(node: any) => { node.fx = node.x; node.fy = node.y; onPin(node) }}
       onEngineStop={onEngineStop}
       d3VelocityDecay={0.35}
-      cooldownTicks={layout === 'force' ? (performance ? 200 : 420) : 0}
-      warmupTicks={layout === 'force' ? 40 : 0}
+      cooldownTicks={layout === 'free' ? (performance ? 200 : 420) : 0}
+      warmupTicks={layout === 'free' ? 40 : 0}
     />
   )
 })

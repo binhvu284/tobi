@@ -15,9 +15,11 @@
 import { packSiblings } from 'd3-hierarchy'
 import type { GraphData, GraphNode } from '../../api.graph'
 
-export type LayoutMode = 'orbit' | 'radial' | 'lanes' | 'force'
+/** Ids match the labels the reader sees, so "the orbit layout" means the same thing in the
+ *  UI, in this file, and in anything that embeds a layout (see GraphSigil). */
+export type LayoutMode = 'clusters' | 'orbit' | 'columns' | 'free'
 
-export const DEFAULT_LAYOUT: LayoutMode = 'orbit'
+export const DEFAULT_LAYOUT: LayoutMode = 'clusters'
 
 export type LayoutMeta = {
   id: LayoutMode
@@ -29,13 +31,13 @@ export type LayoutMeta = {
 }
 
 export const LAYOUTS: LayoutMeta[] = [
-  { id: 'orbit', label: 'Clusters', draggable: false,
+  { id: 'clusters', label: 'Clusters', draggable: false,
     hint: 'Each group of related nodes gets its own circle, sized by how many nodes are in it.' },
-  { id: 'radial', label: 'Orbit', draggable: false,
+  { id: 'orbit', label: 'Orbit', draggable: false,
     hint: 'Your most connected node sits in the middle; each ring is one step further away from it.' },
-  { id: 'lanes', label: 'Columns', draggable: false,
+  { id: 'columns', label: 'Columns', draggable: false,
     hint: 'One column per kind of thing — memories, tasks, projects, resources — most connected at the top.' },
-  { id: 'force', label: 'Free', draggable: true,
+  { id: 'free', label: 'Free', draggable: true,
     hint: 'Physics arranges it and you can drag nodes anywhere; where you drop them is remembered.' },
 ]
 
@@ -103,10 +105,10 @@ const EMPTY_RESULT = (mode: LayoutMode): LayoutResult =>
 
 // ── entry point ───────────────────────────────────────────────────────────────
 export function computeLayout(mode: LayoutMode, data: GraphData): LayoutResult {
-  if (mode === 'force' || data.nodes.length === 0) return EMPTY_RESULT(mode)
+  if (mode === 'free' || data.nodes.length === 0) return EMPTY_RESULT(mode)
+  if (mode === 'clusters') return layoutClusters(data)
   if (mode === 'orbit') return layoutOrbit(data)
-  if (mode === 'radial') return layoutRadial(data)
-  return layoutLanes(data)
+  return layoutColumns(data)
 }
 
 // ── 1. Cluster orbit ──────────────────────────────────────────────────────────
@@ -136,7 +138,7 @@ function packDisc(members: GraphNode[], step: number): { local: Map<number, Plac
   return { local, r: (ring - 1) * step + step * 0.8 }
 }
 
-function layoutOrbit(data: GraphData): LayoutResult {
+function layoutClusters(data: GraphData): LayoutResult {
   const byCommunity = new Map<number, GraphNode[]>()
   for (const node of data.nodes) {
     const key = node.community ?? -1
@@ -173,7 +175,7 @@ function layoutOrbit(data: GraphData): LayoutResult {
 
   const shift = recentre(positions)
   for (const cluster of clusters) { cluster.x += shift.x; cluster.y += shift.y }
-  return { mode: 'orbit', positions, clusters, lanes: [], rings: [], hubId: groups[0]?.hub.id ?? null }
+  return { mode: 'clusters', positions, clusters, lanes: [], rings: [], hubId: groups[0]?.hub.id ?? null }
 }
 
 // ── 2. Radial hub ─────────────────────────────────────────────────────────────
@@ -181,7 +183,7 @@ const RING_MIN_GAP = 115
 /** Arc length each node needs on its ring, so a crowded ring pushes itself outward. */
 const RING_ARC_PER_NODE = 6
 
-function layoutRadial(data: GraphData): LayoutResult {
+function layoutOrbit(data: GraphData): LayoutResult {
   const adjacency = new Map<number, number[]>()
   for (const node of data.nodes) adjacency.set(node.id, [])
   for (const edge of data.edges) {
@@ -234,7 +236,7 @@ function layoutRadial(data: GraphData): LayoutResult {
     rings.push({ r: radius, label: depth === orphanLevel && depth > reachedMax ? 'unconnected' : `${depth} step${depth > 1 ? 's' : ''}` })
   }
 
-  return { mode: 'radial', positions, clusters: [], lanes: [], rings, hubId: hub.id }
+  return { mode: 'orbit', positions, clusters: [], lanes: [], rings, hubId: hub.id }
 }
 
 // ── 3. Domain columns ─────────────────────────────────────────────────────────
@@ -243,7 +245,7 @@ const LANE_ROW_GAP = 30
 const LANE_COL_GAP = 44
 const LANE_GAP = 120
 
-function layoutLanes(data: GraphData): LayoutResult {
+function layoutColumns(data: GraphData): LayoutResult {
   const byDomain = new Map<string, GraphNode[]>()
   for (const node of data.nodes) {
     const key = node.domain || 'other'
@@ -284,7 +286,7 @@ function layoutLanes(data: GraphData): LayoutResult {
 
   const shift = recentre(positions)
   for (const lane of lanes) { lane.x += shift.x; lane.y += shift.y }
-  return { mode: 'lanes', positions, clusters: [], lanes, rings: [], hubId: null }
+  return { mode: 'columns', positions, clusters: [], lanes, rings: [], hubId: null }
 }
 
 // ── shared ────────────────────────────────────────────────────────────────────

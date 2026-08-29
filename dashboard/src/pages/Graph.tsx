@@ -9,15 +9,24 @@ import GraphToolbar from '../components/graph/GraphToolbar'
 import GraphLegend from '../components/graph/GraphLegend'
 import TimelineScrubber from '../components/graph/TimelineScrubber'
 import { DEFAULT_LAYOUT, LAYOUTS, type LayoutMode } from '../components/graph/layouts'
+import { publishGraphSnapshot, refreshGraphSnapshot } from '../components/graph/graphSnapshot'
 
 const EMPTY: GraphData = { nodes: [], edges: [] }
-const LAYOUT_KEY = 'tobi.graph.layout'
+const LAYOUT_KEY = 'tobi.graph.layout.v2'
+/** The first release used ids that did not match their labels; `orbit` then meant Clusters.
+ *  A separate key means the migration is unambiguous instead of guessing at a shared name. */
+const LEGACY_KEY = 'tobi.graph.layout'
+const LEGACY_IDS: Record<string, LayoutMode> = {
+  orbit: 'clusters', radial: 'orbit', lanes: 'columns', force: 'free',
+}
 
 /** Remember how the owner likes to see the map, so the page opens the way he left it. */
 function storedLayout(): LayoutMode {
   try {
     const saved = localStorage.getItem(LAYOUT_KEY)
     if (saved && LAYOUTS.some(l => l.id === saved)) return saved as LayoutMode
+    const legacy = localStorage.getItem(LEGACY_KEY)
+    if (legacy && LEGACY_IDS[legacy]) return LEGACY_IDS[legacy]
   } catch { /* private mode / storage disabled — the default is fine */ }
   return DEFAULT_LAYOUT
 }
@@ -80,6 +89,9 @@ export default function Graph() {
         const counts: Record<string, number> = {}
         for (const node of g.nodes) counts[node.domain] = (counts[node.domain] || 0) + 1
         setDomainCounts(counts)
+        // hand the full graph to the shared store, so every embedded sigil elsewhere in the
+        // app is already current the moment the owner navigates away from this page
+        publishGraphSnapshot(g)
       }
     } catch (e) {
       toast({ kind: 'error', title: 'Could not load graph', detail: (e as Error).message })
@@ -93,6 +105,8 @@ export default function Graph() {
     try {
       const res = await syncGraph('all') as Record<string, unknown>
       await load()
+      // a sync can add nodes the current filter hides, so make the shared copy re-read too
+      void refreshGraphSnapshot(true)
       toast({ kind: 'success', title: 'Graph synced', detail: summarize(res) })
     } catch (e) {
       toast({ kind: 'error', title: 'Sync failed', detail: (e as Error).message })

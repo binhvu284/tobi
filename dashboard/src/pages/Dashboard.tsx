@@ -7,6 +7,7 @@ import {
   Loader2, GripVertical, Eye, EyeOff, SlidersHorizontal, Play, FolderKanban,
 } from 'lucide-react'
 import HealthBar from '../components/HealthBar'
+import WelcomeCard from '../components/WelcomeCard'
 import Loader from '../components/Loader'
 import PageLoader from '../components/PageLoader'
 import { AmbientField, CountUp, SpotlightCard, TraceButton } from '../components/motion'
@@ -64,13 +65,21 @@ const PM_STATUS_COLOR: Record<string, string> = {
 }
 const LESSON_EMOJI: Record<string, string> = { success: '✅', failure: '❌', insight: '💡', warning: '⚠️' }
 
-const DEFAULT_ORDER = ['launchpad', 'health', 'storage', 'kpis', 'pm_projects', 'activity', 'todos']
+const DEFAULT_ORDER = ['welcome', 'launchpad', 'health', 'storage', 'kpis', 'pm_projects', 'activity', 'todos']
+/** New widgets normally append at the end, which is wrong for a greeting — it would land under
+ *  the todos for anyone who has ever saved a layout. These join at the top instead, once. */
+const NEW_AT_TOP = ['welcome']
 type DashCfg = { order: string[]; hidden: string[] }
 const loadCfg = (): DashCfg => {
   try {
     const cfg = { order: DEFAULT_ORDER, hidden: [], ...JSON.parse(localStorage.getItem('tobi.dash') || '{}') }
-    // widgets shipped after the user saved a layout still appear (appended at the end)
-    cfg.order = [...cfg.order, ...DEFAULT_ORDER.filter((id: string) => !cfg.order.includes(id))]
+    const has = (id: string) => cfg.order.includes(id)
+    cfg.order = [
+      ...NEW_AT_TOP.filter((id: string) => !has(id)),
+      ...cfg.order,
+      // widgets shipped after the user saved a layout still appear (appended at the end)
+      ...DEFAULT_ORDER.filter((id: string) => !has(id) && !NEW_AT_TOP.includes(id)),
+    ]
     return cfg
   } catch { return { order: DEFAULT_ORDER, hidden: [] } }
 }
@@ -131,6 +140,7 @@ export default function Dashboard() {
 
   // ── Widgets ──
   const W: Record<string, { title: string; node: React.ReactNode }> = {
+    welcome: { title: 'Welcome', node: <WelcomeCard /> },
     launchpad: {
       title: 'Launchpad', node: (
         <div className="rounded-xl border border-border bg-surface p-4">

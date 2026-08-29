@@ -208,6 +208,31 @@ The UI also has Full/Reduced/Off motion modes. MotionProvider combines the owner
 
 Theme #13 remains in owner-review state. Do not call it complete until the queue status changes.
 
+## Knowledge Graph Surface
+
+The Graph page offers four arrangements, one at a time, chosen by the reader and frozen once computed. Only `free` runs physics; the other three place every node up front and pin it, so the picture is identical on every load.
+
+| Mode | Arrangement | Node dragging |
+|---|---|---|
+| `clusters` (default) | One circle per community, sized by member count, circles packed with `d3-hierarchy` `packSiblings` | No |
+| `orbit` | Highest-degree node centred, one labelled ring per hop out to an "unconnected" ring | No |
+| `columns` | One panel per domain, members ordered by degree | No |
+| `free` | Single force system: charge, springs, collision, weak centre pull, mild community nudge | Yes, and drops persist |
+
+`dashboard/src/components/graph/layouts.ts` owns all four as pure functions of `{nodes, edges}`. Nothing else may compute node positions; the page renderer and every embed call `computeLayout`.
+
+### Embedding the graph elsewhere
+
+`GraphSigil` renders the graph as a square canvas asset at any size, for avatars, badges, and cards.
+
+- It reuses `computeLayout`, so an embed can never drift from the page.
+- It thins itself to the space it is given: below roughly 200px it keeps only the best-connected nodes, and the count scales with the pixel size. Dot radius has a floor so a 28px sigil still reads.
+- Data comes from `graphSnapshot.ts`, a shared store that polls only while something is watching. Every sigil on a page costs one request, not one each.
+- The Graph page publishes each unfiltered load into that store, so embeds are current the moment the owner navigates away from it.
+- Motion is gated on the app motion setting and pauses when the sigil scrolls out of view.
+
+`WelcomeCard` on the Dashboard is the reference use: the TOBI avatar is a live `orbit` sigil, and the node/link/group counts beside it read the same snapshot.
+
 ## Frontend State Ownership
 
 | State | Owner |
@@ -224,6 +249,8 @@ Theme #13 remains in owner-review state. Do not call it complete until the queue
 | Terminal mode/kill-switch/jobs | SQLite/terminal process state through Terminal APIs |
 | Developer goals/workflows/workers | SQLite development ledger, Git worktrees, Coding Agent runtime, and optional supervised runner service |
 | Runtime Runs/trace/eval/loop state | Shared reconnectable runtime store backed by bounded `/api/runtime` projections |
+| Graph layout choice | Graph page + localStorage (`tobi.graph.layout.v2`) |
+| Graph data for embedded sigils | `graphSnapshot.ts` shared store, polled while watched and published by the Graph page |
 
 ## Backend API Domains
 
