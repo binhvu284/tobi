@@ -8,70 +8,34 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 
 ---
 
-**Item:** #34 TOBIval Operational Intelligence and Model Independence
-**Package:** T08 - Truth Repair And Canonical Production Proof
-**Status:** Done. Owner accepted the revision-bound live proof on 2026-08-30; #35 is unblocked but not started.
+**Item:** Quick task - Keep Awakening complete across MC restarts
+**Package:** Automatic GitHub proof refresh at startup
+**Status:** Done. Both MC startup paths auto-refresh stale GitHub proof; focused gate green on 2026-08-30. #35 remains unstarted.
 
 **Purpose (one sentence, plain words):**
-Replace the synthetic final claim with canonical MC execution evidence, measure model dependence from
-recorded decision ownership, and keep the result blocked unless that production-linked proof passes.
+Keep the owner's completed Awakening tier complete after MC restarts by automatically refreshing stale
+GitHub read proof from the already-saved credential, without requiring another manual Integrations test.
 
 **Not doing:**
-- No fixture, threshold, formula, model ID, or holdout changes.
-- No tuning after holdout results are visible.
-- No full Eval suite execution inside an owner turn.
-- No paid API model calls; lane compatibility must stay inside the approved Codex subscription contract.
-- No public or unauthenticated Eval data route.
-- No broad Runtime V2 activation, connector writes, deployment, Supabase, or Vercel interaction.
+- No #35 implementation or Agent-tier behavior changes.
+- No credential changes, secret exposure, or manual GitHub test.
+- No weakening of the 24-hour connector-proof freshness rule.
+- No Notion, Google, Supabase, Vercel, or deployment interaction.
 
 **Files expected:**
 - `.claude/CURRENT_WORK.md`
-- `core/runtime/eval_executor.py`
-- `core/runtime/eval_metrics.py`
-- `core/chat_runtime.py`
-- `tobival/acceptance.py`
-- `scripts/tobival.py`
-- `core/runtime/eval_view.py`
-- `dashboard/src/api.runtime.ts`
-- `dashboard/src/components/runtime/EvalControlCenter.tsx`
-- `tests/test_tobival_acceptance.py`
-- `tests/test_tobival_model_dependency.py`
-- final bounded acceptance artifact under `tests/evals/acceptance/`
-- inherited #21 release gate, TOBIval, API/redaction, dashboard build, and Playwright checks
-- queue, delivery-log, and development docs
+- `core/awakening.py`
+- `main.py`
+- `api/dashboard.py`
+- `tests/test_awakening.py`
+- Awakening owner and delivery documentation
 
 **Gate: green**
 
 ```gate
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_contracts.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_event_store.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_repository.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_gateway_live_chat.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_policy.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_tool_catalog.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_project_tools.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_file_tools.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_terminal_jobs.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_conductor_facade.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_owner_intelligence.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_coding_adapter.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_evals.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_system_model.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_security.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_runs_view.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_runs_ui.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_rollout.py
-../.python/venv/Scripts/python.exe tests/test_mc_runtime_surface_adapters.py
-../.python/venv/Scripts/python.exe tests/test_model_unreachable_message.py
-../.python/venv/Scripts/python.exe tests/test_runtime_schema_ledger.py
-../.python/venv/Scripts/python.exe tests/test_infrastructure_self_check.py
-../.python/venv/Scripts/python.exe tests/test_no_console_windows.py
-../.python/venv/Scripts/python.exe tests/test_ui_loading_states.py
-../.python/venv/Scripts/python.exe tests/test_tobival_acceptance.py
-../.python/venv/Scripts/python.exe tests/test_tobival_model_dependency.py
-../.python/venv/Scripts/python.exe tests/test_tobival_api.py
-../.python/venv/Scripts/python.exe tests/test_tobival_workflows.py
-../.python/venv/Scripts/python.exe tests/test_chat_runtime.py
+../.python/venv/Scripts/python.exe tests/test_awakening.py
+../.python/venv/Scripts/python.exe tests/test_awakening_route.py
+../.python/venv/Scripts/python.exe tests/test_integration_test_reasons.py
 ```
 
 ---

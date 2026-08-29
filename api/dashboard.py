@@ -326,6 +326,12 @@ async def startup():
                 import logging
                 logging.getLogger("tobi.dashboard").info(
                     "Vault auto-unlocked on startup; injected %d secret(s).", n)
+            # GitHub may already be live from .env even if vault auto-unlock failed.
+            from core import awakening
+            proof = awakening.refresh_connector_evidence_on_startup(conn)
+            import logging
+            logging.getLogger("tobi.dashboard").info(
+                "Awakening GitHub proof at startup: %s.", proof.get("github"))
         finally:
             conn.close()
     except Exception as e:  # never let this block server startup

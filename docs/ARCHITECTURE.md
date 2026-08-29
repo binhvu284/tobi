@@ -207,7 +207,7 @@ Runtime route scopes are optimization hints, not security permissions. A known r
 2. Secrets are encrypted at rest by `core/vault.py` and selected values are injected into process environment memory.
 3. `integrations_registry` maps credentials to adapters and distinguishes setup success from verified read access.
 4. Explicit connection tests write `test_status` and `last_tested_at`; credential rotation or import resets stale proof to `untested`.
-5. Awakening counts External Read only when the adapter is ready and the successful-test evidence is fresh (24-hour default). Google also requires completed OAuth.
+5. Awakening counts External Read only when the adapter is ready and the successful-test evidence is fresh (24-hour default). MC startup automatically renews stale GitHub proof from the saved vault credential before serving the dashboard; fresh proof skips the network check. Google also requires completed OAuth.
 6. List/status APIs return metadata, not secret values. Reveal requires the stronger vault flow.
 
 ## Persistence Model

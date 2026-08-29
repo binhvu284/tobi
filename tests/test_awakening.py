@@ -160,6 +160,50 @@ conn.close()
 ok("external_read_access active only with a ready connector and fresh successful test",
    _statuses()["external_read_access"] == "active")
 
+# A normal MC restart must renew stale GitHub evidence itself. The saved credential
+# remains the source of truth; no owner visit to Integrations -> GitHub -> Test is needed.
+_registry_test = integration_registry.test_integration
+_registry_confirms = integration_registry.test_confirms_read_access
+_startup_calls = []
+try:
+    integration_registry.test_integration = lambda iid: (
+        _startup_calls.append(iid) or (True, "GitHub token valid."))
+    integration_registry.test_confirms_read_access = lambda iid: iid == "github"
+    conn = get_connection()
+    conn.execute("UPDATE vault_secrets SET last_tested_at=datetime('now','-2 days') "
+                 "WHERE integration_id='github'")
+    conn.commit()
+    startup_refresh = A.refresh_connector_evidence_on_startup(conn)
+    refreshed = conn.execute(
+        "SELECT test_status,last_tested_at FROM vault_secrets "
+        "WHERE integration_id='github'"
+    ).fetchone()
+    conn.close()
+finally:
+    integration_registry.test_integration = _registry_test
+    integration_registry.test_confirms_read_access = _registry_confirms
+ok("MC startup automatically verifies stale GitHub proof",
+   startup_refresh.get("github") == "verified" and _startup_calls == ["github"],
+   str(startup_refresh))
+ok("automatic GitHub verification persists fresh proof",
+   refreshed[0] == "ok" and A._connector_test_fresh(refreshed[1]), str(tuple(refreshed)))
+ok("Awakening stays active after automatic startup verification",
+   _statuses()["external_read_access"] == "active")
+conn = get_connection()
+second_startup = A.refresh_connector_evidence_on_startup(conn)
+conn.close()
+ok("later restarts reuse fresh GitHub proof without another network test",
+   second_startup.get("github") == "fresh" and _startup_calls == ["github"],
+   str(second_startup))
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+with open(os.path.join(_root, "main.py"), encoding="utf-8") as _f:
+    _main_source = _f.read()
+with open(os.path.join(_root, "api", "dashboard.py"), encoding="utf-8") as _f:
+    _dashboard_source = _f.read()
+ok("full and API-only MC startup paths both refresh connector evidence",
+   "refresh_connector_evidence_on_startup(conn)" in _main_source
+   and "refresh_connector_evidence_on_startup(conn)" in _dashboard_source)
+
 # Changing a secret invalidates its old successful-test evidence until it is tested again.
 _vault_key, _vault_encrypt = vault._key, vault._encrypt
 vault._key = b"test-key"
@@ -324,7 +368,7 @@ ok("three provider failures remain recoverable instead of skipping owner memory"
 # Once the extractor recovers, the stored payload is retried and resolved.
 def _recover_alpha(messages):
     if any("alpha" in (m.get("content") or "") for m in messages):
-        return [{"content": "Owner recovery sentinel is alpha.", "category": "preferences", "confidence": 0.95}]
+        return [{"content": "ZXQ-471 deferred recovery marker.", "category": "goals", "confidence": 0.95}]
     return []
 brain.extract_from_messages = _recover_alpha
 try:
@@ -340,7 +384,7 @@ failure_done = conn.execute(
     "SELECT status,payload_json FROM brain_sweep_failures WHERE id=?", (failure[0],)
 ).fetchone()
 recovered_memory = conn.execute(
-    "SELECT COUNT(*) FROM brain_memories WHERE content='Owner recovery sentinel is alpha.' AND status='active'"
+    "SELECT COUNT(*) FROM brain_memories WHERE content='ZXQ-471 deferred recovery marker.' AND status='active'"
 ).fetchone()[0]
 conn.close()
 ok("recovered extractor resolves the deferred batch and creates its memory",

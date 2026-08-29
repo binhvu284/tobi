@@ -178,7 +178,7 @@ This UI setting does not bypass terminal hard-deny rules or the terminal kill-sw
 
 ### Awakening evidence and Brain sweeps
 
-- External Read is `active` only when GitHub, Notion, or Google is adapter-ready and has fresh successful-test metadata. The default evidence lifetime is 24 hours (`AWAKENING_CONNECTOR_TTL_HOURS`).
+- External Read is `active` only when GitHub, Notion, or Google is adapter-ready and has fresh successful-test metadata. The default evidence lifetime is 24 hours (`AWAKENING_CONNECTOR_TTL_HOURS`). On MC startup, a saved GitHub credential with stale proof is verified automatically before the UI opens; fresh proof is reused without a network call, so an ordinary restart does not require another manual GitHub test.
 - Google client credentials are setup only; Google remains partial until OAuth succeeds and a read test verifies access.
 - Saving, rotating, or importing a credential resets stale test evidence unless that same flow verifies the connector.
 - Brain conversation sweeps use fair per-chat cursors and an owner-token database lease so Chat, Brain, Conductor, scheduler, and manual triggers cannot double-process one sweep.

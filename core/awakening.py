@@ -217,6 +217,48 @@ def _connector_test_fresh(value: object) -> bool:
         return False
 
 
+def refresh_connector_evidence_on_startup(conn) -> dict[str, str]:
+    """Renew stale GitHub read proof from the saved credential during MC startup.
+
+    Evaluation itself remains read-only and never performs network work. This explicit
+    startup path tests only GitHub, only when its persisted successful proof is stale or
+    missing, and records the result through the same vault metadata as the owner-facing
+    Integrations Test button. Fresh proof is reused without another network call.
+    """
+    integration_id = "github"
+    try:
+        from core import integrations_registry as registry
+        from core import vault
+
+        item = registry.get(integration_id) or {}
+        field_names = {
+            str(field.get("name") or "")
+            for field in item.get("fields", [])
+            if field.get("name")
+        }
+        secrets = [
+            secret for secret in vault.list_secrets(conn)
+            if (str(secret.get("integration_id") or "").lower() == integration_id
+                or str(secret.get("name") or "") in field_names)
+        ]
+        if not secrets:
+            return {integration_id: "not_configured"}
+        if any(secret.get("test_status") == "ok"
+               and _connector_test_fresh(secret.get("last_tested_at"))
+               for secret in secrets):
+            return {integration_id: "fresh"}
+
+        ok, _message = registry.test_integration(integration_id)
+        verified = bool(ok and registry.test_confirms_read_access(integration_id))
+        status = "ok" if verified else ("failed" if not ok else "untested")
+        for secret in secrets:
+            vault.mark_test_status(conn, str(secret["name"]), status)
+        return {integration_id: "verified" if verified else status}
+    except Exception:
+        # Startup must remain available even if GitHub or the vault is temporarily down.
+        return {integration_id: "error"}
+
+
 def _connector_states(conn) -> tuple[list[str], list[str]]:
     """(verified, configured) read-safe connectors.
 

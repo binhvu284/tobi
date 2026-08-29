@@ -283,13 +283,16 @@ def _autounlock_vault():
     try:
         from core import vault
         from core.database import get_connection
-        if not vault.CRYPTO_AVAILABLE:
-            return
         conn = get_connection()
         try:
-            if vault.is_setup(conn) and vault.try_autounlock(conn):
+            if vault.CRYPTO_AVAILABLE and vault.is_setup(conn) and vault.try_autounlock(conn):
                 n = vault.inject_env(conn)
                 logger.info(f"🔐 Vault auto-unlocked; {n} integration secret(s) live.")
+            # safe_load_dotenv() may already have made GitHub available even when a
+            # DPAPI-wrapped vault key cannot be unwrapped by this process.
+            from core import awakening
+            proof = awakening.refresh_connector_evidence_on_startup(conn)
+            logger.info(f"🔐 Awakening GitHub proof at startup: {proof.get('github')}.")
         finally:
             conn.close()
     except Exception as e:
