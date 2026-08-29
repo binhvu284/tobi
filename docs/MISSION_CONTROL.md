@@ -153,7 +153,8 @@ category, workflow, lane, case, ECR, LDR, model-response, raw-pass, recovery, an
 Legacy v1 synthetic artifacts are quarantined rather than presented as release proof. The current
 canonical artifact records 156/156 live model responses, raw model pass `32.0513%`, deterministic
 recovery `67.9487%`, ECR `100`, scoped LDR `8.8021`, and `release_ready=true` with no artifact
-blocker. Mission Control still shows `owner-acceptance-required` until the owner accepts the view.
+blocker. The owner accepted the exact artifact on 2026-08-30, so Mission Control shows the release
+gate open; any later artifact change invalidates that acceptance and closes the gate again.
 
 Runtime route scopes narrow the usual tool set for speed. They are not permission grants: a known read-only tool can be admitted if the classifier routed too narrowly, while unknown or acting tools remain route-denied and mode/risk/approval policy stays server-authoritative. A direct-route prediction no longer creates an explicit empty allowlist at the Chat gateway.
 

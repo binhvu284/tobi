@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import subprocess
@@ -19,6 +20,7 @@ os.environ["DB_PATH"] = os.path.join(TMP, "agent.db")
 from tobival.acceptance import (  # noqa: E402
     evaluate_case,
     load_final_acceptance_report,
+    load_owner_acceptance,
     run_final_acceptance,
 )
 from tobival.dataset import load_cases  # noqa: E402
@@ -174,6 +176,26 @@ ok("persisted v1 proof is quarantined until canonical provider rerun", (
         )
     )
 ))
+
+with tempfile.TemporaryDirectory(prefix="tobival_owner_acceptance_") as owner_tmp:
+    owner_tmp_path = Path(owner_tmp)
+    report_path = owner_tmp_path / "final-acceptance.json"
+    owner_path = owner_tmp_path / "owner-acceptance.json"
+    report_path.write_bytes((ROOT / "tests/evals/acceptance/final-acceptance.json").read_bytes())
+    owner_path.write_text(json.dumps({
+        "schema_version": "tobival.owner-acceptance.v1",
+        "item_id": "UPG-CORE-2D12H-011",
+        "accepted": True,
+        "accepted_at": "2026-08-30T00:56:18+07:00",
+        "artifact_sha256": hashlib.sha256(report_path.read_bytes()).hexdigest(),
+    }), encoding="utf-8")
+    ok("owner acceptance is bound to the exact final artifact", (
+        load_owner_acceptance(report_path, owner_path) is not None
+    ))
+    report_path.write_bytes(report_path.read_bytes() + b"\n")
+    ok("changed final evidence invalidates owner acceptance", (
+        load_owner_acceptance(report_path, owner_path) is None
+    ))
 
 cli_env = os.environ.copy()
 cli_env.pop("DB_PATH", None)

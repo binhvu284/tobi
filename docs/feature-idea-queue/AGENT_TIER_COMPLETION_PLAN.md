@@ -1,6 +1,6 @@
 # TOBI Agent Tier Completion
 
-`UPG-CORE-8D32H-012` | Queue item #35 | Owner-approved plan | Ready after #34
+`UPG-CORE-8D32H-012` | Queue item #35 | Owner-approved plan | Ready and unblocked
 
 ## The One Outcome
 
@@ -41,7 +41,7 @@ After #35:
 | Developer handoff | Developer has queue, preflight, workflows, approvals, live events, changes, and artifacts | Chat can describe Developer work but cannot propose, confirm, start, or follow it |
 | Durability | Runs, events, leases, checkpoints, retry, resume, revise, cancel, and artifacts | Broader real workflows have not been qualified through the same path |
 | Safety | Typed contracts, policy, approval, redaction, budgets, kill switch, and receipts | Browser and external actions do not yet have one qualified bounded contract |
-| Quality proof | TOBIval canonical offline cases and owner-facing Eval view | #34 remains blocked until live model-quality proof and owner acceptance exist |
+| Quality proof | #34 canonical live proof is owner-accepted and Done | #35 must preserve the inherited Eval gate while qualifying broader Agent workflows |
 | Evolution | Tier I has evidence-based status | Tier II still uses legacy static detection and can misrepresent current ability |
 
 The planning estimate is approximately 55% Agent-tier complete today. This is not a stored product
@@ -61,7 +61,7 @@ changes.
 | Monitoring | Qualify one GitHub-to-Telegram path with deduplication and truthful setup state |
 | Completion | Evidence-gated; no hardcoded 100% and no code-exists-equals-active claim |
 | Developer dispatch | Chat proposes work with no side effect; explicit owner confirmation starts one durable Developer workflow |
-| Start gate | #34 must be Done with live model-quality evidence and owner acceptance |
+| Start gate | Satisfied 2026-08-30: #34 is Done with live model-quality evidence and owner acceptance |
 | Operator | Keep opportunity scoring, ROI selection, and autonomous initiative out of #35 |
 
 ## Agent Ability Registry
@@ -341,8 +341,9 @@ must not invent a passing command in the plan and assume it exists.
 
 ## Queue And Parallel-Work Rules
 
-1. #34 must reach Done before #35 T00 starts. Both own Runtime workflows, TOBIval, Chat routing, and
-   Evolution evidence; parallel implementation would invalidate the baseline.
+1. #34 reached Done on 2026-08-30, so #35 T00 may start. T00 must freeze its baseline before any
+   production behavior changes because later packages own Runtime workflows, TOBIval, Chat routing,
+   and Evolution evidence.
 2. #13 and #23 owner review may continue, but implementation touching the shared app shell, Chat,
    Evolution, Runs, model routing, or common API clients must not run in parallel with #35.
 3. #27 may continue only under its existing Coding Agent qualification boundary. It is supporting
@@ -386,6 +387,5 @@ must not invent a passing command in the plan and assume it exists.
 
 ## Worker Start Rule
 
-Do not make #35 current while #34 is still In progress. After #34 is Done, start only T00, set the
-current-work gate to red for the frozen baseline target, and do not change production behavior until
-the owner accepts the measured baseline.
+#34 is Done. Start only T00, set the current-work gate to red for the frozen baseline target, and do
+not change production behavior until the owner accepts the measured baseline.

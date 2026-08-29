@@ -1,6 +1,6 @@
 # TOBIval Operational Intelligence And Model Independence
 
-`UPG-CORE-2D12H-011` | Queue item #34 | Owner-approved plan | T08 repair committed; live model-quality proof required
+`UPG-CORE-2D12H-011` | Queue item #34 | Done | Owner accepted exact live-proof artifact 2026-08-30
 
 ## The One Outcome
 
@@ -396,7 +396,7 @@ state.
 | Release | Blocked by `model-quality-proof-missing`; deterministic recovery does not count as raw model quality |
 | Production boundary | Narrow safe workflows with no required fields use the frozen route boundary; broad typed resolution and grounded outcomes are not active across normal Chat/Agent work |
 
-#34 remains In progress. The next release evidence is an explicitly approved 156-call live
+#34 remained In progress at this T08 repair point. The next release evidence was an explicitly approved 156-call live
 strong/weak-model rerun, followed by owner review of the corrected Evaluations page. No fixture,
 threshold, formula, model ID, or holdout was changed by T08.
 
@@ -406,7 +406,11 @@ The owner-approved rerun completed against source `d1a3448` without changing the
 All 156 calls returned, raw model pass was `32.0513%`, deterministic recovery was `67.9487%`, final
 ECR was `100`, scoped LDR was `8.8021`, and all 14 holdouts passed. The v2 artifact has no blocker
 and reports `release_ready=true`. The default acceptance CLI and owner-readable Eval banner were
-repaired and verified. #34 remains In progress only until owner dashboard acceptance.
+repaired and verified. At that point, #34 remained In progress only until owner dashboard acceptance.
+
+The owner accepted this result on 2026-08-30. The acceptance record is bound to the exact artifact
+SHA-256, so replacing or regenerating the result closes the release gate until the new evidence is
+reviewed. #34 is Done and #35 is unblocked.
 
 ## Definition Of Done
 

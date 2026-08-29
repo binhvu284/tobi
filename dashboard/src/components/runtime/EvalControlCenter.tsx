@@ -73,7 +73,8 @@ export default function EvalControlCenter() {
   if (!data) return null
 
   const release = data.gates.release
-  const acceptanceReady = data.acceptance?.status === 'ready_for_owner'
+  const acceptanceAccepted = data.acceptance?.status === 'accepted'
+  const acceptanceReady = acceptanceAccepted || data.acceptance?.status === 'ready_for_owner'
   const acceptanceBlocked = data.acceptance?.status === 'blocked'
   const acceptanceSummary = data.acceptance && (acceptanceReady
     ? `${data.acceptance.case_count}/${data.acceptance.case_count} cases passed - ${data.acceptance.model_quality.model_responses ?? 0}/${data.acceptance.model_quality.attempts} model calls returned - model alone passed ${pct(data.acceptance.model_quality.raw_pass_rate)} - TOBI recovery handled ${pct(data.acceptance.model_quality.recovery_rate)} - US$${data.acceptance.cost_usd.toFixed(2)} direct spend`
@@ -85,8 +86,8 @@ export default function EvalControlCenter() {
     </div>
 
     {data.acceptance && <div className={`grid border-b sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center ${acceptanceReady ? 'border-success/40 bg-success/5' : 'border-warning/40 bg-warning/5'}`}>
-      <div className="px-4 py-3 sm:px-6"><div className={`flex items-center gap-2 text-xs font-semibold ${acceptanceReady ? 'text-success' : 'text-warning'}`}>{acceptanceReady ? <ShieldCheck size={15} /> : <AlertTriangle size={15} />}{acceptanceReady ? 'Live model proof complete' : acceptanceBlocked ? 'Canonical acceptance blocked' : 'Synthetic benchmark quarantined'}</div><div className="mt-1 text-[10px] text-muted">{acceptanceSummary}</div></div>
-      <div className="border-t border-current/10 px-4 py-3 text-[10px] font-semibold uppercase text-warning sm:border-l sm:border-t-0 sm:px-6">{acceptanceReady ? 'Owner acceptance required' : acceptanceBlocked ? data.acceptance.blockers[0]?.replace(/-/g, ' ') || 'Live model proof required' : 'Canonical rerun required'}</div>
+      <div className="px-4 py-3 sm:px-6"><div className={`flex items-center gap-2 text-xs font-semibold ${acceptanceReady ? 'text-success' : 'text-warning'}`}>{acceptanceReady ? <ShieldCheck size={15} /> : <AlertTriangle size={15} />}{acceptanceAccepted ? 'Live model proof accepted' : acceptanceReady ? 'Live model proof complete' : acceptanceBlocked ? 'Canonical acceptance blocked' : 'Synthetic benchmark quarantined'}</div><div className="mt-1 text-[10px] text-muted">{acceptanceSummary}</div></div>
+      <div className={`border-t border-current/10 px-4 py-3 text-[10px] font-semibold uppercase sm:border-l sm:border-t-0 sm:px-6 ${acceptanceAccepted ? 'text-success' : 'text-warning'}`}>{acceptanceAccepted ? 'Owner accepted' : acceptanceReady ? 'Owner acceptance required' : acceptanceBlocked ? data.acceptance.blockers[0]?.replace(/-/g, ' ') || 'Live model proof required' : 'Canonical rerun required'}</div>
     </div>}
 
     <div className="grid border-b border-border sm:grid-cols-4">

@@ -56,18 +56,16 @@ through T07 evidence remains useful provenance and is explicitly corrected by th
 
 ### Queue and current-work finding
 
-#34 remains In progress. T08 is committed and pushed, all 72 cases and 14 holdouts now use canonical
-Runtime evidence, and the shared gate is green. The current artifact has `0` live model responses
-and `156` provider failures, so release is correctly blocked by
-`model-quality-proof-missing`. A 156-call live rerun and owner dashboard acceptance remain.
+#34 is Done. The corrected live rerun returned all 156 model calls, passed all 72 cases and 14
+holdouts through canonical Runtime evidence, and left no artifact blocker. The owner accepted the
+exact artifact on 2026-08-30; #35 is unblocked and ready for T00.
 
 ### Unresolved code/docs gaps
 
-1. Live strong/weak model quality and the original model-independence outcome are not yet proven.
-2. Production routing uses only narrow safe workflows with no required fields; broad typed workflow
+1. Production routing uses only narrow safe workflows with no required fields; broad typed workflow
    execution and grounded outcomes remain outside normal Chat/Agent paths.
-3. The port-8080 dashboard still assumes a trusted single-owner boundary.
-4. Graphify is stale and should not be used for exact current graph claims until refreshed.
+2. The port-8080 dashboard still assumes a trusted single-owner boundary.
+3. Graphify is stale and should not be used for exact current graph claims until refreshed.
 
 ### Verification
 

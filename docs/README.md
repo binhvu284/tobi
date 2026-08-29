@@ -2,9 +2,8 @@
 
 This directory separates current system truth from implementation plans and historical design records.
 
-> TM01 full refresh: 2026-08-28. #34/T08 repair is committed and pushed through `685a1a8`.
-> The canonical offline proof passes its deterministic cases but correctly keeps release blocked
-> until live model-quality evidence exists and the owner accepts the result.
+> Status follow-up: 2026-08-30. #34/T08 has canonical live proof, owner acceptance bound to the
+> exact artifact, and Done status. #35 Agent Tier Completion is unblocked and ready for T00.
 
 ## Read Order
 

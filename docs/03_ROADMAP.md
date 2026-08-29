@@ -34,9 +34,9 @@ The main danger now is confusing **having tools** with **being a capable agent**
 - #33 Infrastructure self-check is committed and green in `a317604`.
 - #34/T08 live proof is complete against source `d1a3448`. The current artifact records 156/156
   model responses, ECR `100`, scoped LDR `8.8021`, raw model pass `32.0513%`, recovery `67.9487%`,
-  and no artifact blocker. Owner dashboard acceptance remains before #34 can close.
-- #35 Agent Tier Completion is owner-approved and queued. It starts only after #34 reaches Done and
-  must prove five bounded workflow families before Operator implementation begins.
+  and no artifact blocker. The owner accepted the exact artifact on 2026-08-30; #34 is Done.
+- #35 Agent Tier Completion is owner-approved, unblocked, and ready for T00. It must prove five
+  bounded workflow families before Operator implementation begins.
 
 ```mermaid
 flowchart LR
@@ -121,8 +121,8 @@ flowchart LR
 
 ### #35 - Agent Tier Completion
 
-**Current status:** Owner-approved and queued. It remains blocked until #34 has live model-quality
-proof, owner acceptance, and Done status. #22 already qualifies Codex-only bounded coding work, but
+**Current status:** Owner-approved, unblocked, and ready for T00 after #34 reached Done on
+2026-08-30. #22 already qualifies Codex-only bounded coding work, but
 full Agent completion still needs broader workflows, browser actions, external writes, monitoring,
 and longer reliability evidence.
 

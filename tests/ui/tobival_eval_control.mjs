@@ -48,15 +48,15 @@ const overview = {
   categories: progress('category'),
   workflows: progress('workflow_id'),
   gates: {
-    release: { scope: 'release', allowed: false, required_cases: [], passed_cases: [], blockers: ['owner-acceptance-required'] },
+    release: { scope: 'release', allowed: true, required_cases: artifactCases.map(item => `${item.eval_case_id}@${item.version}`), passed_cases: artifactCases.map(item => `${item.eval_case_id}@${item.version}`), blockers: [] },
     autonomy: { scope: 'autonomy', allowed: true, required_cases: [], passed_cases: [], blockers: [] },
   },
   regressions: [],
   findings: [],
   suites: [],
   cases: artifactCases,
-  acceptance: { status: 'ready_for_owner', release_ready: acceptanceArtifact.release_ready, evidence_scope: acceptanceArtifact.evidence_scope, generated_at: acceptanceArtifact.generated_at, source_commit: acceptanceArtifact.source_commit, blockers: acceptanceArtifact.blockers, case_count: acceptanceArtifact.case_count, holdout_count: acceptanceArtifact.holdouts.case_count, holdout_passed: acceptanceArtifact.holdouts.passed, model_calls: acceptanceArtifact.model_calls, approved_model_call_ceiling: acceptanceArtifact.approved_model_call_ceiling, cost_usd: acceptanceArtifact.cost_usd, duration_seconds: acceptanceArtifact.duration_seconds, model_quality: acceptanceArtifact.model_quality },
-  next_action: 'owner-acceptance-required',
+  acceptance: { status: 'accepted', release_ready: acceptanceArtifact.release_ready, evidence_scope: acceptanceArtifact.evidence_scope, generated_at: acceptanceArtifact.generated_at, source_commit: acceptanceArtifact.source_commit, blockers: acceptanceArtifact.blockers, case_count: acceptanceArtifact.case_count, holdout_count: acceptanceArtifact.holdouts.case_count, holdout_passed: acceptanceArtifact.holdouts.passed, model_calls: acceptanceArtifact.model_calls, approved_model_call_ceiling: acceptanceArtifact.approved_model_call_ceiling, cost_usd: acceptanceArtifact.cost_usd, duration_seconds: acceptanceArtifact.duration_seconds, owner_accepted: true, owner_accepted_at: '2026-08-30T00:56:18+07:00', model_quality: acceptanceArtifact.model_quality },
+  next_action: 'owner-accepted',
 }
 
 const detailCase = manifest.cases.find(item => item.id === 'final.status_grounded')
@@ -92,12 +92,13 @@ await page.getByRole('tab', { name: 'Evaluations' }).click()
 await page.getByText('Eval Control Center').waitFor()
 await page.getByText('100%').first().waitFor()
 await page.getByText('8.8%').first().waitFor()
-await page.getByText('Live model proof complete', { exact: true }).waitFor()
+await page.getByText('Live model proof accepted', { exact: true }).waitFor()
 await page.getByText('72/72 cases passed', { exact: false }).waitFor()
 await page.getByText('156/156 model calls returned', { exact: false }).waitFor()
 await page.getByText('model alone passed 32.1%', { exact: false }).waitFor()
 await page.getByText('TOBI recovery handled 67.9%', { exact: false }).waitFor()
-await page.getByText('Owner acceptance required', { exact: true }).waitFor()
+await page.getByText('Owner accepted', { exact: true }).waitFor()
+await page.getByText('Open', { exact: true }).waitFor()
 await page.getByText('Categories', { exact: true }).waitFor()
 await page.getByText('Workflows', { exact: true }).waitFor()
 await page.getByText('Cases 72', { exact: true }).waitFor()

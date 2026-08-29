@@ -30,8 +30,9 @@ the reply, and expose generated files, images, plans, diffs, and test reports th
 artifact menu. T02A reuses the current Developer control plane and remains inside the existing six
 Coding maintenance cases and four real qualification runs.
 
-#35 is Ready but blocked by #34. It must not become current until #34 has live model-quality proof,
-owner acceptance, and Done status. The item reuses Brain V2, Runtime V2, Coding Agent V2, TOBIval,
+#35 is Ready and unblocked after #34 reached owner-accepted Done status on 2026-08-30. T00 may start;
+later packages remain gated by the plan's baseline and owner decisions. The item reuses Brain V2,
+Runtime V2, Coding Agent V2, TOBIval,
 Projects, Terminal, existing integrations, Telegram, Evolution, Agent timeline, and Runs. It does
 not authorize Operator work, unrestricted browser/desktop control, autonomous publishing, spending,
 deployment, merge, deletion, parallel multi-agent orchestration, Supabase, or Vercel interaction.
@@ -146,7 +147,8 @@ rates reached `100%`. ECR is `100`, LDR is `2.0312`, all `14/14` holdouts pass, 
 fabricated-success, and duplicate-mutation failures remain zero. The private Evaluations page loads
 this bounded artifact, shows the result on desktop/mobile, and blocks release only with
 `owner-acceptance-required`. The inherited gate passes `25/25`; production build and Playwright pass
-with no overflow, console error, or failed request. #34 is not Done until the owner accepts this view.
+with no overflow, console error, or failed request. At that stage, #34 was not Done until the owner
+accepted the corrected view.
 
 T08 truth repair is committed and pushed in `d426619` and `685a1a8` on 2026-08-28 after owner
 review found that T07's synthetic compatibility harness did not prove canonical production execution
@@ -172,8 +174,14 @@ deterministic recovery handled `67.9487%`, producing final ECR `100`, scoped LDR
 `release_ready=true`. The owner CLI now defaults to a revision-bound D-drive database and the final
 artifact path, avoiding the earlier home-directory SQLite failure. Mission Control shows the live
 proof in plain language and Playwright passes on desktop/mobile with no overflow, console error, or
-failed request. #34 remains In progress only for owner dashboard acceptance; production routing is
-still intentionally narrow.
+failed request. At that stage, #34 remained In progress only for owner dashboard acceptance;
+production routing was still intentionally narrow.
+
+The owner accepted the corrected Evaluations result on 2026-08-30. Acceptance is bound to SHA-256
+`c9ecf8d93bfa460df562f51b2f3bd12f582d799fb917200379868bc43f097810`, the exact canonical
+final-acceptance artifact reviewed by the owner. Mission Control opens the release gate only while
+that artifact remains unchanged. #34 is Done and #35 is unblocked; production routing remains
+intentionally narrow as recorded above.
 
 
 <a id="item-32"></a>

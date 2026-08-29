@@ -8,7 +8,11 @@ from typing import Any
 from core.runtime.eval_dataset import FrozenEvalCase, load_frozen_cases
 from core.runtime.eval_metrics import compute_eval_completion
 from core.runtime.evals import EvalGateDecision, EvalRepository
-from tobival.acceptance import FINAL_ACCEPTANCE_PATH, load_final_acceptance_report
+from tobival.acceptance import (
+    FINAL_ACCEPTANCE_PATH,
+    load_final_acceptance_report,
+    load_owner_acceptance,
+)
 
 
 _LANES = ("strong", "weak", "no_model")
@@ -206,6 +210,9 @@ class EvalControlView:
             _acceptance_projection(acceptance_report)
             if acceptance_report is not None else None
         )
+        owner_acceptance = (
+            load_owner_acceptance() if acceptance_report is not None else None
+        )
 
         if cases:
             ecr = compute_eval_completion(self._repository, owner_visible=True)
@@ -299,9 +306,14 @@ class EvalControlView:
                     "recoveries": recoveries,
                     "recovery_rate": _rate(recoveries, attempts),
                 }
+            owner_accepted = bool(
+                canonical_acceptance
+                and acceptance_report["release_ready"]
+                and owner_acceptance is not None
+            )
             acceptance = {
                 "status": (
-                    "ready_for_owner"
+                    ("accepted" if owner_accepted else "ready_for_owner")
                     if canonical_acceptance and acceptance_report["release_ready"]
                     else ("blocked" if canonical_acceptance else "synthetic_only")
                 ),
@@ -318,6 +330,10 @@ class EvalControlView:
                 "cost_usd": acceptance_report["cost_usd"],
                 "duration_seconds": acceptance_report["duration_seconds"],
                 "model_quality": quality,
+                "owner_accepted": owner_accepted,
+                "owner_accepted_at": (
+                    owner_acceptance.get("accepted_at") if owner_accepted else None
+                ),
             }
 
         category_rows: dict[str, list[dict[str, Any] | None]] = defaultdict(list)
@@ -395,12 +411,20 @@ class EvalControlView:
                 "blockers": acceptance["blockers"],
             }
         elif acceptance is not None and acceptance["release_ready"]:
+            accepted_case_refs = [
+                f"{item['eval_case_id']}@{item['version']}"
+                for item in (acceptance_projection or {}).get("cases", [])
+                if item["release_gate"]
+            ]
             release_payload = {
                 "scope": "release",
-                "allowed": False,
-                "required_cases": [],
-                "passed_cases": [],
-                "blockers": ["owner-acceptance-required"],
+                "allowed": acceptance["owner_accepted"],
+                "required_cases": accepted_case_refs,
+                "passed_cases": accepted_case_refs if acceptance["owner_accepted"] else [],
+                "blockers": (
+                    [] if acceptance["owner_accepted"]
+                    else ["owner-acceptance-required"]
+                ),
             }
         next_action = (
             "run-canonical-final-acceptance"
@@ -408,7 +432,7 @@ class EvalControlView:
             acceptance["blockers"][0]
             if acceptance is not None and acceptance["status"] == "blocked"
             and acceptance["blockers"] else (
-            "owner-acceptance-required"
+            ("owner-accepted" if acceptance["owner_accepted"] else "owner-acceptance-required")
             if acceptance is not None and acceptance["release_ready"] else (
             release.blockers[0]
             if release.blockers else (

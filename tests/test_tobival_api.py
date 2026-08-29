@@ -188,6 +188,24 @@ elif final_overview["acceptance"]["status"] == "blocked":
         and len(final_overview["workflows"]) == 15
         and len(final_overview["cases"]) == 72
     ))
+elif final_overview["acceptance"]["status"] == "accepted":
+    ok("owner acceptance opens the canonical release gate", (
+        final_overview["metrics"]["ecr"]["overall"] == 100.0
+        and final_overview["metrics"]["ldr"]["value"] <= 50
+        and final_overview["acceptance"]["holdout_passed"] == 14
+        and final_overview["acceptance"]["owner_accepted"] is True
+        and final_overview["gates"]["release"]["allowed"] is True
+        and final_overview["gates"]["release"]["blockers"] == []
+        and final_overview["next_action"] == "owner-accepted"
+    ))
+    ok("accepted proof projects every frozen category workflow and case", (
+        len(final_overview["categories"]) == 9
+        and all(row["pass_rate"] == 100.0 for row in final_overview["categories"])
+        and len(final_overview["workflows"]) == 15
+        and all(row["pass_rate"] == 100.0 for row in final_overview["workflows"])
+        and len(final_overview["cases"]) == 72
+        and all(row["status"] == "passed" for row in final_overview["cases"])
+    ))
 else:
     ok("canonical final acceptance overrides metrics but waits for owner", (
         final_overview["metrics"]["ecr"]["overall"] == 100.0

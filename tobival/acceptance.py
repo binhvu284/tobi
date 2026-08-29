@@ -43,6 +43,7 @@ from tobival.model_lane import (
 
 _LANES = ("strong", "weak", "no_model")
 FINAL_ACCEPTANCE_PATH = ROOT / "tests" / "evals" / "acceptance" / "final-acceptance.json"
+OWNER_ACCEPTANCE_PATH = ROOT / "tests" / "evals" / "acceptance" / "owner-acceptance.json"
 
 
 def _digest(value: Any) -> str:
@@ -283,6 +284,31 @@ def load_final_acceptance_report(path: Path | None = None) -> dict[str, Any] | N
         ))
         report.setdefault("metrics", {})["ldr_source"] = "synthetic_fixture_assumption"
     return report
+
+
+def load_owner_acceptance(
+    report_path: Path | None = None,
+    acceptance_path: Path | None = None,
+) -> dict[str, Any] | None:
+    """Load owner acceptance only when it matches the exact final artifact bytes."""
+    final_path = report_path or FINAL_ACCEPTANCE_PATH
+    owner_path = acceptance_path or OWNER_ACCEPTANCE_PATH
+    if not final_path.is_file() or not owner_path.is_file():
+        return None
+    try:
+        owner = json.loads(owner_path.read_text(encoding="utf-8"))
+        artifact_sha256 = hashlib.sha256(final_path.read_bytes()).hexdigest()
+    except (OSError, json.JSONDecodeError):
+        return None
+    if (
+        owner.get("schema_version") != "tobival.owner-acceptance.v1"
+        or owner.get("item_id") != "UPG-CORE-2D12H-011"
+        or owner.get("accepted") is not True
+        or owner.get("artifact_sha256") != artifact_sha256
+        or not owner.get("accepted_at")
+    ):
+        return None
+    return owner
 
 
 def run_final_acceptance(
