@@ -35,12 +35,16 @@ The main danger now is confusing **having tools** with **being a capable agent**
 - #34/T08 live proof is complete against source `d1a3448`. The current artifact records 156/156
   model responses, ECR `100`, scoped LDR `8.8021`, raw model pass `32.0513%`, recovery `67.9487%`,
   and no artifact blocker. Owner dashboard acceptance remains before #34 can close.
+- #35 Agent Tier Completion is owner-approved and queued. It starts only after #34 reaches Done and
+  must prove five bounded workflow families before Operator implementation begins.
 
 ```mermaid
 flowchart LR
   A["Current state\nAwakening accepted"] --> B["Agent foundation\n#18 #20 #21"]
-  B --> C["Agent closure\n#22 qualification"]
-  C --> D["Operator"]
+  B --> C["Coding qualification\n#22"]
+  C --> D["Eval truth\n#34"]
+  D --> E["Agent completion\n#35"]
+  E --> F["Operator"]
 ```
 
 ## Tier 0 - Genesis
@@ -110,29 +114,32 @@ These must stay sequential:
 flowchart LR
   A["#18 Coding Agent"] --> B["#20 Brain Context and Architecture V2"]
   B --> C["#21 Mission Control Infrastructure V2"]
-  C --> D["#22 Agent Tier Closure"]
+  C --> D["#22 Coding Agent V2 Qualification"]
+  D --> E["#34 TOBIval Evidence"]
+  E --> F["#35 Agent Tier Completion"]
 ```
 
-### #22 - Agent Tier Closure
+### #35 - Agent Tier Completion
 
-**Current status:** Coding Agent V2 is qualified for Codex-only bounded work. Full Agent-tier
-closure remains open because broader workflows, browser actions, external writes, monitoring, and
-longer reliability evidence still need separate proof.
+**Current status:** Owner-approved and queued. It remains blocked until #34 has live model-quality
+proof, owner acceptance, and Done status. #22 already qualifies Codex-only bounded coding work, but
+full Agent completion still needs broader workflows, browser actions, external writes, monitoring,
+and longer reliability evidence.
 
-After #18, #20, and #21, add:
+Detailed worker plan:
 
-**#22 Agent Tier Closure / Evidence Qualification**
+[`feature-idea-queue/AGENT_TIER_COMPLETION_PLAN.md`](feature-idea-queue/AGENT_TIER_COMPLETION_PLAN.md)
 
 Purpose: prove Agent tier, not just build the infrastructure for it.
 
 Required proof:
 
 1. **Evidence-based Agent registry:** every Agent-tier ability returns `active`, `partial`, `setup_needed`, or `inactive` from real evidence.
-2. **Supported workflow suite:** at least 3-5 valuable workflows complete with durable run history, receipts, artifacts, traces, and recovery.
-3. **Browser action qualification:** deterministic Playwright-first workflows for web inspection, form interaction, screenshots, downloads, and safe publishing where configured.
+2. **Supported workflow suite:** five valuable workflow families complete with durable run history, receipts, artifacts, traces, and recovery.
+3. **Browser action qualification:** deterministic Playwright-first workflows for bounded web inspection, guarded form interaction, screenshots, and downloads.
 4. **External action qualification:** connector-backed work proves current authorization and writes receipts for side effects.
 5. **Monitoring and multi-channel qualification:** TOBI observes useful signals and reaches the owner through the right configured channel.
-6. **Private TOBIval evals:** golden cases for coding, research, project work, browser work, connector reads, recovery, and hallucination resistance.
+6. **Private TOBIval evals:** golden cases for project work, local diagnosis, coding, browser work, external action, monitoring, recovery, and hallucination resistance.
 7. **Reliability gate:** supported workflows complete or reach structured recovery; retry/reconnect must not duplicate side effects.
 
 **Agent is complete only when TOBI can repeatedly do bounded real work with visible evidence.**
@@ -141,7 +148,7 @@ Required proof:
 
 **Meaning:** TOBI chooses the right work, not only executes assigned work.
 
-**Do not enter until:** Agent Closure is complete.
+**Do not enter until:** #35 Agent Tier Completion is Done.
 
 Operator must answer:
 

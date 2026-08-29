@@ -5,6 +5,31 @@ readable. Nothing was shortened or removed here — each section is the note tha
 verbatim. `QUEUE.md` links to these sections; this file is the evidence behind them.
 
 
+<a id="item-35"></a>
+
+## 35. TOBI Agent Tier Completion
+
+`UPG-CORE-8D32H-012`
+
+Owner approved the direction and requested the implementation plan on 2026-08-28. #35 completes
+Tier II - Agent before TOBI begins Tier III - Operator. Agent means TOBI can repeatedly complete a
+bounded task assigned by the owner; Operator later means TOBI can decide which work is worth doing.
+
+The plan replaces the outdated static Tier II checklist with seven evidence-gated abilities and
+qualifies five workflow families: Project execution, local file/Terminal diagnosis, Coding
+maintenance, bounded Playwright browser work, and GitHub monitoring/action with Telegram delivery.
+T00 freezes 30 cases including five holdouts and records an unchanged-code baseline before production
+behavior changes. Final qualification requires at least 18/20 real Mission Control runs to complete
+or recover as expected, evidence for every success claim, and zero critical safety, fabricated
+success, secret-leak, or duplicate-external-effect failures.
+
+#35 is Ready but blocked by #34. It must not become current until #34 has live model-quality proof,
+owner acceptance, and Done status. The item reuses Brain V2, Runtime V2, Coding Agent V2, TOBIval,
+Projects, Terminal, existing integrations, Telegram, Evolution, Agent timeline, and Runs. It does
+not authorize Operator work, unrestricted browser/desktop control, autonomous publishing, spending,
+deployment, merge, deletion, parallel multi-agent orchestration, Supabase, or Vercel interaction.
+
+
 <a id="item-34"></a>
 
 ## 34. TOBIval Operational Intelligence and Model Independence
