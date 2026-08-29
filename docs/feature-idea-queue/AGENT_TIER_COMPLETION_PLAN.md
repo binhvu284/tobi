@@ -4,7 +4,7 @@
 
 ## The One Outcome
 
-> TOBI receives a bounded digital task, completes it through the normal Mission Control Agent
+> TOBI receives a bounded digital task, completes it through the normal Mission Control Chat/Agent
 > experience, survives interruption, and proves exactly what happened.
 
 This item finishes Tier II - Agent. It does not begin Tier III - Operator.
@@ -23,6 +23,8 @@ Tier II from an outdated feature list.
 After #35:
 
 - the owner gives TOBI one concrete task instead of operating several pages and tools manually;
+- when an MC limitation needs code changes, the owner can ask Chat to prepare Developer work,
+  approve it in the reply, and follow the same run without leaving the conversation;
 - TOBI selects a bounded workflow, asks only for missing information, and uses an explicit tool list;
 - risky or external actions stop for approval;
 - interrupted work resumes from its saved checkpoint without repeating completed effects;
@@ -36,6 +38,7 @@ After #35:
 |---|---|---|
 | Owner context | Brain V2, project context, memory trust and freshness | Not every Agent workflow uses the same context authority |
 | Execution | Project, file, Terminal, Coding Agent, integration, MCP, and Conductor tools | Normal production routing activates only a narrow safe subset through canonical Runtime |
+| Developer handoff | Developer has queue, preflight, workflows, approvals, live events, changes, and artifacts | Chat can describe Developer work but cannot propose, confirm, start, or follow it |
 | Durability | Runs, events, leases, checkpoints, retry, resume, revise, cancel, and artifacts | Broader real workflows have not been qualified through the same path |
 | Safety | Typed contracts, policy, approval, redaction, budgets, kill switch, and receipts | Browser and external actions do not yet have one qualified bounded contract |
 | Quality proof | TOBIval canonical offline cases and owner-facing Eval view | #34 remains blocked until live model-quality proof and owner acceptance exist |
@@ -57,6 +60,7 @@ changes.
 | External write | Qualify one bounded owner-approved GitHub action before adding more services |
 | Monitoring | Qualify one GitHub-to-Telegram path with deduplication and truthful setup state |
 | Completion | Evidence-gated; no hardcoded 100% and no code-exists-equals-active claim |
+| Developer dispatch | Chat proposes work with no side effect; explicit owner confirmation starts one durable Developer workflow |
 | Start gate | #34 must be Done with live model-quality evidence and owner acceptance |
 | Operator | Keep opportunity scoring, ROI selection, and autonomous initiative out of #35 |
 
@@ -84,7 +88,7 @@ Tier II progress is `active abilities / 7 * 100`. Tier II is complete only at `7
 |---|---|---|
 | Project execution | "Show this project's blockers and complete task 42" | Correct project/task resolution, approved mutation, receipt, and updated project state |
 | Local diagnosis | "Read the failing logs and run the safe health check" | Bounded file access, approved command, captured output, and evidence-based conclusion |
-| Coding maintenance | "Fix this small bug, run tests, and prepare the change for review" | Qualified Codex worker, checkpointed work, tests, independent review, and no autonomous merge/deploy |
+| Coding maintenance | "Use Developer to fix this MC limitation, run tests, and prepare the change for review" | Confirmed Chat handoff, qualified Codex worker, checkpointed work, tests, independent review, and no autonomous merge/deploy |
 | Browser work | "Open the approved site, inspect the form, and download the report" | Allowlisted navigation, bounded interaction, screenshot/download artifact, and approval before submission |
 | GitHub monitoring/action | "Watch this repository; notify me on a failed check and create an issue after approval" | Fresh GitHub read, deduplicated signal, Telegram notice, approved issue receipt, and no repeated issue |
 
@@ -123,6 +127,7 @@ used for tuning. The final 20-run owner qualification uses four real MC runs per
 
 - Tier II evidence registry and Evolution projection;
 - canonical Agent execution for the five workflow families;
+- confirmed Chat-to-Developer dispatch for Coding maintenance, with live status and session outputs;
 - typed resolution, policy, approval, receipts, artifacts, recovery, and grounded outcomes;
 - one Playwright browser adapter with allowlisted navigation, screenshots, downloads, and guarded
   form interaction;
@@ -155,6 +160,11 @@ flowchart LR
 Mission Control remains the execution owner. Conductor and model workers may propose plans or
 arguments, but typed Runtime contracts own validation, permissions, completion, and the final success
 claim.
+
+For Coding maintenance, Chat may propose Developer work but cannot start it silently. The confirmed
+handoff reuses Developer's existing queue, preflight, workflow, approval, event, change, and artifact
+services through a shared domain boundary; Chat must not call its own Developer HTTP API or create a
+second coding queue.
 
 ## Delivery Packages
 
@@ -204,6 +214,39 @@ Required proof:
 - accepted typed requests survive retry and reload;
 - success cannot appear without the declared evidence;
 - Runtime activation is scoped to qualified workflows and has a tested rollback path.
+
+### T02A - Chat-to-Developer Dispatch
+
+**Purpose:** let the owner turn an MC limitation into controlled Developer work from normal Chat.
+
+Deliver:
+
+- recognize an explicit owner request such as "Use Developer to fix this" and provide a deterministic
+  `/developer` fallback that does not depend on model interpretation;
+- show a Developer proposal card with objective, project, acceptance checks, scope, and risk, with no
+  queue or workflow side effect before owner confirmation;
+- after confirmation, create or link exactly one Developer queue item, run preflight, start one durable
+  workflow, and persist the Chat session, message, queue, and workflow relationship idempotently;
+- show a compact Developer run card in Chat with current stage, approval, blocker, recovery controls,
+  evidence, final result, and a deep link to the existing Developer page;
+- add a session-artifact icon and menu that separates owner uploads from generated files, images,
+  plans, diffs, and test reports, grouped by turn and Developer run.
+
+The flow must distinguish "create this Markdown file" from "add Markdown creation capability to MC."
+The first uses an approved native file workflow when available; only the second becomes Developer
+maintenance. Chat never starts merge, deploy, deletion, or overwrite work without the existing
+Developer approval boundary.
+
+Required failing-before-build checks:
+
+1. A Chat request creates a proposal and zero Developer side effects before confirmation.
+2. Confirmation creates exactly one queue item and workflow across retry, reconnect, and reload.
+3. Running, approval, blocked, failed, canceled, and completed states remain truthful after reload.
+4. Completion requires linked changes, checks, and artifacts; a worker answer alone cannot pass.
+5. Ambiguous content creation versus capability development asks one bounded clarification.
+
+These checks are part of the six Coding maintenance cases and its four real MC qualification runs;
+T02A does not add a sixth workflow family or create a separate tier metric.
 
 ### T03 - Bounded Browser Qualification
 
@@ -262,6 +305,7 @@ Agent/Run result before #35 becomes Done or Operator implementation begins.
 | Agent registry | `core/agent_tier.py`, `core/awakening_detect.py`, `api/routers/evolution.py` |
 | Workflow activation | `core/chat_runtime.py`, `core/runtime/workflows.py`, `core/runtime/typed_resolution.py`, `core/runtime/grounded_outcomes.py` |
 | Local tools | `core/runtime/project_tools.py`, `core/runtime/file_tools.py`, `core/runtime/terminal_tools.py`, `core/runtime/coding_adapter.py` |
+| Developer dispatch | shared domain service under `core/`, existing Developer queue/workflow stores, `api/routers/chat.py`, `dashboard/src/pages/Chat.tsx`, focused Chat components and API types |
 | Browser | new bounded browser engine/adapter under `core/` and `core/runtime/`; exact boundary chosen in T03 |
 | External/monitoring | `core/integrations.py`, `core/integrations_registry.py`, `core/scheduled_jobs.py`, `core/telegram_bot.py` |
 | Owner UI | `dashboard/src/pages/Evolution.tsx`, existing Chat/Agent timeline, Runs, Integrations, Health, and Eval components |
@@ -275,6 +319,7 @@ File names may change when current ownership requires it. Responsibilities may n
 |---|---|
 | `tests/test_agent_tier_registry.py` | Seven abilities, honest statuses, freshness, and no hardcoded completion |
 | `tests/test_agent_tier_workflows.py` | Five workflow contracts, typed inputs, allowed tools, stop conditions, and grounded results |
+| `tests/test_agent_tier_developer_dispatch.py` | No-side-effect proposal, one confirmed workflow, reload, truthful states, evidence, and intent clarification |
 | `tests/test_agent_tier_recovery.py` | Restart, resume, retry, revise, cancel, idempotency, and no duplicate effects |
 | `tests/test_agent_tier_browser.py` | Allowlist, download/screenshot artifacts, form approval, redaction, and timeout behavior |
 | `tests/test_agent_tier_external.py` | GitHub freshness/write receipt and Telegram monitor deduplication |
@@ -326,17 +371,18 @@ must not invent a passing command in the plan and assume it exists.
 
 1. The unchanged-code Agent baseline was recorded and owner-accepted before implementation.
 2. Evolution reads one evidence-based seven-ability Tier II registry.
-3. All five workflow families run through canonical Runtime from normal Mission Control Agent mode.
-4. Every success claim has its required receipt, artifact, check, or external evidence.
-5. Recovery preserves the same run and does not repeat completed local or external effects.
-6. Browser work is bounded and GitHub writes require approval.
-7. Monitoring sends one truthful Telegram notice per qualifying event.
-8. The 30 frozen cases and all five holdouts meet their thresholds.
-9. At least 18 of 20 real MC qualification runs complete or recover as expected.
-10. Critical safety, fabricated success, secret leak, and duplicate external effects remain zero.
-11. All seven Agent abilities are active from current evidence and Evolution shows Tier II at 100%.
-12. The inherited #21/#34 gate, dashboard build, and desktop/mobile owner flow pass.
-13. The owner accepts the final evidence and authorizes moving to Operator planning.
+3. All five workflow families run through canonical Runtime from the normal Mission Control Chat/Agent experience.
+4. Chat can propose Developer work without side effects, and owner confirmation starts exactly one linked Coding maintenance workflow.
+5. Every success claim has its required receipt, artifact, check, or external evidence.
+6. Recovery preserves the same run and does not repeat completed local or external effects.
+7. Browser work is bounded and GitHub writes require approval.
+8. Monitoring sends one truthful Telegram notice per qualifying event.
+9. The 30 frozen cases and all five holdouts meet their thresholds.
+10. At least 18 of 20 real MC qualification runs complete or recover as expected.
+11. Critical safety, fabricated success, secret leak, and duplicate external effects remain zero.
+12. All seven Agent abilities are active from current evidence and Evolution shows Tier II at 100%.
+13. The inherited #21/#34 gate, dashboard build, and desktop/mobile owner flow pass.
+14. The owner accepts the final evidence and authorizes moving to Operator planning.
 
 ## Worker Start Rule
 

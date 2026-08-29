@@ -23,6 +23,13 @@ behavior changes. Final qualification requires at least 18/20 real Mission Contr
 or recover as expected, evidence for every success claim, and zero critical safety, fabricated
 success, secret-leak, or duplicate-external-effect failures.
 
+On 2026-08-30, the owner approved T02A - Chat-to-Developer Dispatch as part of #35 Coding
+maintenance. Normal Chat must be able to prepare a no-side-effect Developer proposal, request owner
+confirmation, create exactly one durable queue item and workflow, show live status and approvals in
+the reply, and expose generated files, images, plans, diffs, and test reports through a session
+artifact menu. T02A reuses the current Developer control plane and remains inside the existing six
+Coding maintenance cases and four real qualification runs.
+
 #35 is Ready but blocked by #34. It must not become current until #34 has live model-quality proof,
 owner acceptance, and Done status. The item reuses Brain V2, Runtime V2, Coding Agent V2, TOBIval,
 Projects, Terminal, existing integrations, Telegram, Evolution, Agent timeline, and Runs. It does
