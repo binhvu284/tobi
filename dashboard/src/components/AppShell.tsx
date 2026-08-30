@@ -667,6 +667,12 @@ function StatusIndicator({ stats }: { stats: OfficeStats | null }) {
   )
 }
 
+// h-9 and -mb-px are the workspace tab's own height and overhang: sharing both puts the
+// menu icon exactly on the tab's centre line, since the row is bottom-aligned. Without the
+// -mb-px the icon rides one pixel high. Keep these in step if the tab metrics change.
+const MENU_BUTTON_BOX = '-mb-px h-9 pl-2 pr-0.5'
+const MENU_BUTTON = 'rounded-lg p-1.5 text-muted transition-colors hover:bg-overlay/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60'
+
 function TopBar({ onMenu, stats, onHide, sidebarClosed, onOpenSidebar, onPeekEnter, onPeekLeave }: {
   onMenu: () => void; stats: OfficeStats | null; onHide: () => void
   sidebarClosed: boolean; onOpenSidebar: () => void
@@ -675,20 +681,26 @@ function TopBar({ onMenu, stats, onHide, sidebarClosed, onOpenSidebar, onPeekEnt
   return (
     <header className="relative z-40 flex h-11 shrink-0 items-stretch justify-between bg-strip">
       <div className="flex min-w-0 flex-1 items-end">
+        {/* Both menu buttons sit in an h-9 box, the same height as a workspace tab, so the
+            row's items-end lands the icon on the tab's own centre line instead of the
+            header's. pl-2 matches the tablist's inset and keeps the icon off the edge. */}
         {/* Desktop: the closed sidebar's only handle. Click reopens it for good;
             hovering slides it in temporarily over the page. */}
         {sidebarClosed && (
-          <button onClick={onOpenSidebar} onMouseEnter={onPeekEnter} onMouseLeave={onPeekLeave}
-            onFocus={onPeekEnter} onBlur={onPeekLeave}
-            aria-label="Open sidebar" title="Open sidebar — hover to preview"
-            className="hidden self-center shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-overlay/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 md:inline-flex">
+          <div className={`hidden shrink-0 items-center md:flex ${MENU_BUTTON_BOX}`}>
+            <button onClick={onOpenSidebar} onMouseEnter={onPeekEnter} onMouseLeave={onPeekLeave}
+              onFocus={onPeekEnter} onBlur={onPeekLeave}
+              aria-label="Open sidebar" title="Open sidebar — hover to preview"
+              className={MENU_BUTTON}>
+              <Menu size={18} />
+            </button>
+          </div>
+        )}
+        <div className={`flex shrink-0 items-center md:hidden ${MENU_BUTTON_BOX}`}>
+          <button onClick={onMenu} aria-label="Open menu" className={MENU_BUTTON}>
             <Menu size={18} />
           </button>
-        )}
-        <button onClick={onMenu} aria-label="Open menu"
-          className="self-center shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-overlay/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 md:hidden">
-          <Menu size={18} />
-        </button>
+        </div>
         <WorkspaceTabsBar />
       </div>
       <div className="flex shrink-0 items-center gap-1.5 pl-2 pr-2.5">
