@@ -186,6 +186,37 @@ Deliver:
 Do not change `core/`, `api/`, or dashboard behavior in T00. The owner accepts the baseline before
 T01 starts.
 
+#### T00 Worker Contract
+
+T00 uses a separate Agent-tier dataset namespace while reusing TOBIval's canonical JSON hashing,
+forbidden-field checks, holdout isolation, structural scoring, and revision-bound artifact patterns.
+It does not modify or reinterpret the frozen #34 dataset, formulas, model IDs, or acceptance result.
+
+Expected files:
+
+- `tests/evals/agent_tier/v1/ability_contracts.json` - the seven ability contracts and required proof;
+- `tests/evals/agent_tier/v1/workflow_families.json` - the five family manifests and boundaries;
+- `tests/evals/agent_tier/v1/case_manifest.json` - 30 synthetic/redacted cases, six per family, with
+  exactly five sealed holdouts;
+- `tests/evals/agent_tier/v1/baseline_observations.json` and `manifest.lock.json` - unchanged-code
+  observations, source hashes, and aggregate dataset hash;
+- `tobival/agent_tier_dataset.py`, `tobival/agent_tier_metrics.py`, and
+  `tobival/agent_tier_baseline.py` - loading, validation, metric calculation, and truthful blockers;
+- `tests/test_agent_tier_baseline.py` - the single red-first T00 target; and
+- `tests/evals/agent_tier/baselines/<production-commit>/unchanged-baseline.json` - the owner-review
+  artifact, generated only from a stable production source snapshot.
+
+The first implementation action is to create `tests/test_agent_tier_baseline.py`, list it as the new
+gate command, set `.claude/CURRENT_WORK.md` to `Gate: red`, and prove it fails because the frozen T00
+contracts and artifact do not yet exist. After the Eval-only implementation, the same target plus the
+inherited #21/#34 commands must pass with `Gate: green`. The baseline may remain below the final Agent
+thresholds; it must report every missing ability, workflow proof, live qualification, and release
+blocker honestly. T01 remains blocked until the owner accepts that exact hash-bound artifact.
+
+Baseline capture requires a stable production snapshot. Dirty tracked production files inside the
+source lock must be completed or removed before hashes and the baseline artifact are generated;
+unrelated documentation changes do not invalidate the production snapshot.
+
 ### T01 - Evidence-Based Agent Registry And Evolution Truth
 
 **Purpose:** make Tier II progress honest.

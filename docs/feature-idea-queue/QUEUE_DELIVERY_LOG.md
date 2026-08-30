@@ -37,6 +37,15 @@ Projects, Terminal, existing integrations, Telegram, Evolution, Agent timeline, 
 not authorize Operator work, unrestricted browser/desktop control, autonomous publishing, spending,
 deployment, merge, deletion, parallel multi-agent orchestration, Supabase, or Vercel interaction.
 
+On 2026-08-30, the owner asked to start #35 by reading the approved spec and preparing its first
+package. T00 remains Ready at the preparation boundary. The plan names the exact Agent-tier
+dataset, metric, baseline, artifact, and red-first test files while keeping `core/`, `api/`, and
+dashboard behavior unchanged. Baseline capture has not started because a separate Developer/worker
+change set is actively modifying tracked production files; freezing before that work settles would
+bind the baseline to a moving source snapshot. Current work remains on the existing package until the
+failing T00 target exists; that red-first change switches current work to T00, sets `Gate: red`, and
+moves the queue item to In progress in one update.
+
 
 <a id="item-34"></a>
 
