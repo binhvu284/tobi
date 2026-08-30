@@ -78,7 +78,7 @@ def _policy(root: Path, **capabilities: bool) -> CodingPolicy:
     data["repository"]["allowed_repository"] = ""
     data["repository"]["allowed_remote_suffix"] = ""
     data["commands"]["mandatory_checks"] = [["python", "-m", "compileall", "-q", "core"]]
-    data["workers"]["qualified_implementer_adapters"] = ["native", "codex", "opencode"]
+    data["workers"]["qualified_implementer_adapters"] = ["native", "deepseek", "codex", "opencode"]
     data["capabilities"] = {**data["capabilities"],
                             "github": False, "merge": False, "deploy": False, **capabilities}
     return CodingPolicy(data, repo_root=root)
@@ -186,7 +186,7 @@ def test_a_disabled_agent_creates_no_run_and_offers_a_healthy_alternative(
     store = DevelopmentStore(tmp_path / "developer.db")
     task = _task(store, tmp_path)
     with store.connect() as conn:
-        conn.execute("UPDATE coding_worker_profiles SET enabled=0 WHERE slug='mc-native'")
+        conn.execute("UPDATE coding_worker_profiles SET enabled=0 WHERE slug='deepseek-harness'")
         conn.commit()
     monkeypatch.setattr(coding_completion, "REPO_ROOT", tmp_path)
     service = _service(store, tmp_path)
@@ -202,7 +202,7 @@ def test_a_disabled_agent_creates_no_run_and_offers_a_healthy_alternative(
     # up editing the database by hand -- which the #22 closure rule forbids as a pass.
     alternatives = report["alternatives"]
     assert alternatives, "a blocked run must name an agent that would work"
-    assert all(item["slug"] != "mc-native" for item in alternatives)
+    assert all(item["slug"] != "deepseek-harness" for item in alternatives)
     assert all(item["adapter"] != "model_review" for item in alternatives), \
         "a reviewer is not an implementer and must never be offered as one"
     assert all(item.get("slug") and item.get("name") for item in alternatives)
@@ -215,7 +215,7 @@ def test_an_unhealthy_agent_is_refused_with_the_reason_the_probe_gave(
     store = DevelopmentStore(tmp_path / "developer.db")
     task = _task(store, tmp_path)
     monkeypatch.setattr(coding_completion, "REPO_ROOT", tmp_path)
-    service = _service(store, tmp_path, worker=_Worker(unhealthy={"mc-native"}))
+    service = _service(store, tmp_path, worker=_Worker(unhealthy={"deepseek-harness"}))
 
     report = service.preflight(int(task["queue_id"]))
 

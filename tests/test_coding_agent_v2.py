@@ -87,37 +87,49 @@ ok(
     str(versions),
 )
 
+# A database created before DeepSeek Harness still carries the retired Mission Control and
+# OpenCode agents. Migration 10 hides them without deleting them: coding_worker_sessions has a
+# foreign key onto this table, so past runs must keep an agent row to point at.
 legacy_store = DevelopmentStore(TMP / "legacy_profile.db")
 with legacy_store.connect() as conn:
-    conn.execute(
-        "UPDATE coding_worker_profiles SET model=? WHERE slug='opencode-glm'",
-        ("zai-coding-plan/glm-4.6",),
+    conn.execute("DELETE FROM developer_schema_migrations WHERE version=10")
+    conn.executemany(
+        """INSERT OR REPLACE INTO coding_worker_profiles
+           (slug,name,adapter,model,auth_mode,credential_env,reviewer_profile,enabled,
+            config_json,hidden,created_at,updated_at)
+           VALUES (?,?,?,?,?,?,'reviewer-default',1,'{}',0,'2026-01-01','2026-01-01')""",
+        [
+            ("mc-native", "TOBI coding", "native", "", "inherited", ""),
+            ("opencode-glm", "OpenCode + GLM", "opencode", "zai-coding-plan/glm-5.2",
+             "vault_env", "ZAI_API_KEY"),
+        ],
     )
-    conn.execute("DELETE FROM developer_schema_migrations WHERE version=5")
     conn.commit()
 legacy_store = DevelopmentStore(TMP / "legacy_profile.db")
+listed = {item["slug"] for item in legacy_store.list_worker_profiles()}
 ok(
-    "legacy OpenCode default migrates to a live model",
-    legacy_store.get_worker_profile("opencode-glm")["model"] == "zai-coding-plan/glm-5.2",
+    "retired agents leave the Agents list",
+    not ({"mc-native", "opencode-glm"} & listed),
+    str(sorted(listed)),
 )
-
-custom_store = DevelopmentStore(TMP / "custom_profile.db")
-with custom_store.connect() as conn:
-    conn.execute(
-        "UPDATE coding_worker_profiles SET model=? WHERE slug='opencode-glm'",
-        ("zai-coding-plan/glm-5.1",),
-    )
-    conn.execute("DELETE FROM developer_schema_migrations WHERE version=5")
-    conn.commit()
-custom_store = DevelopmentStore(TMP / "custom_profile.db")
 ok(
-    "OpenCode migration preserves owner model choices",
-    custom_store.get_worker_profile("opencode-glm")["model"] == "zai-coding-plan/glm-5.1",
+    "retired agent rows survive so run history still resolves",
+    all(
+        bool((legacy_store.get_worker_profile(slug) or {}).get("hidden"))
+        for slug in ("mc-native", "opencode-glm")
+    ),
+)
+ok(
+    "DeepSeek Harness is seeded when an existing database upgrades",
+    (legacy_store.get_worker_profile("deepseek-harness") or {}).get("adapter") == "deepseek",
 )
 profiles = {item["slug"]: item for item in store.list_worker_profiles()}
 ok("default coding worker profiles are seeded", {
-    "mc-native", "codex-chatgpt", "opencode-glm", "reviewer-default"
+    "deepseek-harness", "codex-chatgpt", "reviewer-default"
 }.issubset(profiles))
+ok("retired agents are not seeded into a new database", not (
+    {"mc-native", "opencode-glm"} & set(profiles)
+))
 external_disabled = json.loads(json.dumps(data))
 external_disabled["capabilities"]["external_workers"] = False
 disabled_router = CodingWorkerRouter(CodingPolicy(external_disabled, repo_root=repo), store)
@@ -155,7 +167,7 @@ goal = agent.create_goal(
     title="Refactor authentication architecture",
     objective="Refactor authentication and database schema across frontend and backend safely.",
     acceptance_criteria=["migration is additive", "auth remains secure", "tests pass", "UI reports state"],
-    worker_profile_slug="mc-native",
+    worker_profile_slug="deepseek-harness",
 )
 ok("goal is a non-executable outcome record", goal["status"] == "active", goal["status"])
 ok("goal does not create coding sprints", len(store.list_sprints(int(goal["id"]))) == 0)
@@ -177,7 +189,7 @@ evaluated = agent.evaluate_goal(int(goal["id"]))
 ok("goal qualification requires criterion evidence", evaluated["qualification_percent"] == 0)
 session = store.create_session(
     int(task["id"]), policy.hash, "v2-checkpoint-session",
-    goal_id=int(goal["id"]), worker_profile_slug="mc-native",
+    goal_id=int(goal["id"]), worker_profile_slug="deepseek-harness",
     reviewer_profile_slug="reviewer-default", sprint_budget=SprintBudget().to_dict(),
 )
 store.add_stages(int(session["id"]), [])
@@ -195,7 +207,10 @@ switched = agent.switch_worker(int(session["id"]), "codex-chatgpt")
 ok("worker switching updates the same workflow", switched["worker_profile_slug"] == "codex-chatgpt")
 ok("worker switch creates a checkpoint boundary", len(store.list_checkpoints(int(session["id"]))) >= 2)
 codex_profile = WorkerProfile.from_row(store.get_worker_profile("codex-chatgpt"))
-opencode_profile = WorkerProfile.from_row(store.get_worker_profile("opencode-glm"))
+opencode_profile = WorkerProfile(
+    slug="opencode-probe", name="OpenCode probe", adapter="opencode",
+    model="zai-coding-plan/glm-5.2", auth_mode="vault_env", credential_env="ZAI_API_KEY",
+)
 codex_command = CodexCLIWorker(policy, IsolatedProcessRunner()).command(
     codex_profile, "continue", Path(prepared["worktree"]), "thread-123"
 )
@@ -399,7 +414,7 @@ learning = CodingLearningService(store)
 for _ in range(3):
     learning.record(
         session_id=int(session["id"]), outcome="paused", stage="code",
-        error_code="malformed_worker_action", worker_profile="mc-native",
+        error_code="malformed_worker_action", worker_profile="deepseek-harness",
         evidence={"checkpoint": checkpoint["id"]},
     )
 playbooks = store.list_playbooks()
@@ -409,12 +424,32 @@ ok("unproven playbook does not auto-promote", replay["results"][0]["qualified"] 
 for _ in range(3):
     learning.record(
         session_id=int(session["id"]), outcome="qualified_local", stage="review",
-        worker_profile="mc-native", evidence={"quality": "passed"},
+        worker_profile="deepseek-harness", evidence={"quality": "passed"},
     )
 replay = learning.replay()
 routing = next(item for item in replay["results"] if item["slug"].startswith("route-"))
 ok("successful replay evidence auto-promotes a safe routing playbook", routing["qualified"])
-ok("native worker profile reports ready", agent.worker.probe("mc-native")["health_status"] == "ready")
+from core import model_router  # noqa: E402
+
+_real_available_models = model_router.available_models
+try:
+    model_router.available_models = lambda: []
+    missing_key = agent.worker.probe("deepseek-harness")
+    ok(
+        "DeepSeek Harness names the missing key instead of reporting a vague failure",
+        missing_key["health_status"] == "needs_auth" and "Models page" in missing_key["health_detail"],
+        str(missing_key),
+    )
+    model_router.available_models = lambda: [{
+        "id": "deepseek:deepseek-v4-pro", "provider": "deepseek", "model": "deepseek-v4-pro",
+        "label": "DeepSeek - deepseek-v4-pro", "context": 1_000_000,
+    }]
+    ok(
+        "DeepSeek Harness reports ready once a DeepSeek model is usable",
+        agent.worker.probe("deepseek-harness")["health_status"] == "ready",
+    )
+finally:
+    model_router.available_models = _real_available_models
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

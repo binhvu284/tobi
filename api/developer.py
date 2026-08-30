@@ -122,7 +122,7 @@ class GoalCreate(BaseModel):
     autonomy: Literal["sandbox", "pr", "merge_deploy"] = "sandbox"
     preferred_models: list[str] = Field(default_factory=list, max_length=10)
     max_iterations: int | None = Field(default=None, ge=1, le=100)
-    worker_profile_slug: str = Field(default="mc-native", min_length=2, max_length=80)
+    worker_profile_slug: str = Field(default="deepseek-harness", min_length=2, max_length=80)
     reviewer_profile_slug: str = Field(default="reviewer-default", min_length=2, max_length=80)
 
 
@@ -140,7 +140,7 @@ class GoalAssessmentRequest(BaseModel):
 
 class WorkerProfileRequest(BaseModel):
     name: str = Field(min_length=2, max_length=120)
-    adapter: Literal["native", "codex", "opencode", "hermes", "model_review"]
+    adapter: Literal["native", "deepseek", "codex", "opencode", "hermes", "model_review"]
     model: str = Field(default="", max_length=240)
     auth_mode: Literal["inherited", "native_login", "vault_env"] = "inherited"
     credential_env: str = Field(default="", max_length=120)
@@ -614,6 +614,18 @@ def save_worker(slug: str, body: WorkerProfileRequest) -> dict[str, Any]:
                 raise ValueError(
                     "Selected model is not available from an enabled Models provider."
                 )
+        if body.enabled and body.adapter == "deepseek" and body.model:
+            from core import model_router
+
+            deepseek_models = {
+                str(item["id"]) for item in model_router.available_models()
+                if str(item.get("provider") or "") == "deepseek"
+            }
+            if body.model not in deepseek_models:
+                raise ValueError(
+                    "DeepSeek Harness runs on DeepSeek models only. Pick a DeepSeek model, or "
+                    "clear the model so it uses the DeepSeek default."
+                )
         if body.enabled and body.adapter != "model_review":
             reviewer = agent.store.get_worker_profile(body.reviewer_profile)
             if not reviewer or reviewer["adapter"] != "model_review" or not reviewer["enabled"]:
@@ -653,6 +665,14 @@ def worker_login(slug: str) -> dict[str, Any]:
         "opencode": ["opencode", "auth", "login"],
         "hermes": ["hermes", "login"],
     }
+    if adapter == "deepseek":
+        return {
+            "interactive_required": False,
+            "detail": (
+                "DeepSeek Harness signs in with the DeepSeek API key held on the Models page. "
+                "There is no separate login to run."
+            ),
+        }
     if adapter not in commands:
         return {"interactive_required": False, "detail": "This worker uses Models or Vault configuration."}
     return {
@@ -685,6 +705,20 @@ def worker_models(slug: str, refresh: bool = Query(False)) -> dict[str, Any]:
             "source": "models_page",
             "detail": "Available from enabled providers on the Models page.",
         }
+    if adapter == "deepseek":
+        from core import model_router
+
+        models = [
+            item for item in model_router.available_models()
+            if str(item.get("provider") or "") == "deepseek"
+        ]
+        detail = (
+            f"{len(models)} DeepSeek models available from the Models page."
+            if models else
+            "No DeepSeek model is usable yet. Open the Models page, add the DeepSeek API key, "
+            "and turn the DeepSeek provider on."
+        )
+        return {"models": models, "source": "deepseek", "detail": detail}
     cached = _CLI_MODEL_CACHE.get(slug)
     if cached and not refresh and time.monotonic() - cached[0] < 300:
         return {"models": cached[1], "source": cached[2], "detail": cached[3]}

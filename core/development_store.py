@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS development_tasks (
     queue_status TEXT,
     queue_effort TEXT,
     validation_commands_json TEXT NOT NULL DEFAULT '[]',
-    worker_profile_slug TEXT NOT NULL DEFAULT 'mc-native',
+    worker_profile_slug TEXT NOT NULL DEFAULT 'deepseek-harness',
     reviewer_profile_slug TEXT NOT NULL DEFAULT 'reviewer-default',
     fallback_profiles_json TEXT NOT NULL DEFAULT '[]',
     owner_state TEXT NOT NULL DEFAULT 'Draft',
@@ -243,6 +243,7 @@ CREATE TABLE IF NOT EXISTS coding_worker_profiles (
     health_status TEXT NOT NULL DEFAULT 'unknown',
     health_detail TEXT,
     last_probed_at TEXT,
+    hidden INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -487,7 +488,7 @@ class DevelopmentStore:
                     conn.execute(f"ALTER TABLE coding_sessions ADD COLUMN {name} {declaration}")
             conn.execute("INSERT OR IGNORE INTO developer_schema_migrations(version,applied_at) VALUES (2,?)", (utc_now(),))
             session_additions = {
-                "worker_profile_slug": "TEXT NOT NULL DEFAULT 'mc-native'",
+                "worker_profile_slug": "TEXT NOT NULL DEFAULT 'deepseek-harness'",
                 "reviewer_profile_slug": "TEXT NOT NULL DEFAULT 'reviewer-default'",
                 "active_worker_session_id": "INTEGER",
                 "assessment_id": "INTEGER",
@@ -501,7 +502,7 @@ class DevelopmentStore:
                 if name not in existing:
                     conn.execute(f"ALTER TABLE coding_sessions ADD COLUMN {name} {declaration}")
             goal_additions = {
-                "worker_profile_slug": "TEXT NOT NULL DEFAULT 'mc-native'",
+                "worker_profile_slug": "TEXT NOT NULL DEFAULT 'deepseek-harness'",
                 "reviewer_profile_slug": "TEXT NOT NULL DEFAULT 'reviewer-default'",
                 "assessment_id": "INTEGER",
                 "assessment_json": "TEXT NOT NULL DEFAULT '{}'",
@@ -520,12 +521,11 @@ class DevelopmentStore:
                 )
             now = utc_now()
             defaults = [
-                ("mc-native", "MC Native", "native", "", "inherited", "", "reviewer-default", 1,
-                 _json({"description": "Typed Mission Control tool worker"})),
+                ("deepseek-harness", "DeepSeek Harness", "deepseek", "deepseek:deepseek-v4-pro",
+                 "inherited", "", "reviewer-default", 1,
+                 _json({"avatar": "DS", "description": "Typed tool worker driven by the DeepSeek API"})),
                 ("codex-chatgpt", "Codex (ChatGPT)", "codex", "", "native_login", "", "reviewer-default", 1,
                  _json({"sandbox": "workspace-write"})),
-                ("opencode-glm", "OpenCode + GLM", "opencode", "zai-coding-plan/glm-5.2",
-                  "vault_env", "ZAI_API_KEY", "reviewer-default", 1, _json({})),
                 ("hermes-legacy", "Hermes (Legacy)", "hermes", "", "inherited", "",
                  "reviewer-default", 0, _json({"description": "Optional legacy CLI worker"})),
                 ("reviewer-default", "Independent Reviewer", "model_review", "", "inherited", "",
@@ -561,7 +561,7 @@ class DevelopmentStore:
             if not migration_6:
                 task_additions = {
                     "validation_commands_json": "TEXT NOT NULL DEFAULT '[]'",
-                    "worker_profile_slug": "TEXT NOT NULL DEFAULT 'mc-native'",
+                    "worker_profile_slug": "TEXT NOT NULL DEFAULT 'deepseek-harness'",
                     "reviewer_profile_slug": "TEXT NOT NULL DEFAULT 'reviewer-default'",
                     "fallback_profiles_json": "TEXT NOT NULL DEFAULT '[]'",
                     "owner_state": "TEXT NOT NULL DEFAULT 'Draft'",
@@ -667,6 +667,56 @@ class DevelopmentStore:
                     "INSERT INTO developer_schema_migrations(version,applied_at) VALUES (9,?)",
                     (now,),
                 )
+            migration_10 = conn.execute(
+                "SELECT 1 FROM developer_schema_migrations WHERE version=10"
+            ).fetchone()
+            if not migration_10:
+                profile_columns = {
+                    str(row[1]) for row in conn.execute("PRAGMA table_info(coding_worker_profiles)")
+                }
+                if "hidden" not in profile_columns:
+                    conn.execute(
+                        "ALTER TABLE coding_worker_profiles "
+                        "ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0"
+                    )
+                # Mission Control's built-in worker and the OpenCode + GLM agent are retired in
+                # favour of DeepSeek Harness. Their rows stay put -- coding_worker_sessions has a
+                # foreign key onto this table, so deleting them would break the run history that
+                # names them -- but they are hidden from the Agents page and can no longer be
+                # selected or enabled.
+                conn.execute(
+                    """INSERT OR IGNORE INTO coding_worker_profiles
+                       (slug,name,adapter,model,auth_mode,credential_env,reviewer_profile,
+                        enabled,config_json,created_at,updated_at)
+                       VALUES ('deepseek-harness','DeepSeek Harness','deepseek',
+                               'deepseek:deepseek-v4-pro','inherited','','reviewer-default',1,
+                               ?,?,?)""",
+                    (
+                        _json({
+                            "avatar": "DS",
+                            "description": "Typed tool worker driven by the DeepSeek API",
+                        }),
+                        now,
+                        now,
+                    ),
+                )
+                conn.execute(
+                    """UPDATE coding_worker_profiles
+                       SET hidden=1,enabled=0,updated_at=?
+                       WHERE slug IN ('mc-native','opencode-glm')""",
+                    (now,),
+                )
+                # Queue items and goals still pointing at a retired agent would otherwise fail
+                # preflight with "agent unavailable" instead of simply running.
+                for table in ("development_tasks", "development_goals"):
+                    conn.execute(
+                        f"""UPDATE {table} SET worker_profile_slug='deepseek-harness'
+                            WHERE worker_profile_slug IN ('mc-native','opencode-glm')"""
+                    )
+                conn.execute(
+                    "INSERT INTO developer_schema_migrations(version,applied_at) VALUES (10,?)",
+                    (now,),
+                )
             conn.commit()
         finally:
             conn.close()
@@ -715,7 +765,7 @@ class DevelopmentStore:
                     status, item.get("risk", "medium"), item.get("target_version"),
                     item.get("queue_status"), item.get("queue_effort"),
                     _json(item.get("validation_commands", [])),
-                    item.get("worker_profile_slug", "mc-native"),
+                    item.get("worker_profile_slug", "deepseek-harness"),
                     item.get("reviewer_profile_slug", "reviewer-default"),
                     _json(item.get("fallback_profiles", [])), owner_state,
                     int(bool(item.get("legacy_hidden", False))),
@@ -885,7 +935,7 @@ class DevelopmentStore:
         plan_hash_snapshot: str | None = None,
         criteria_snapshot: Iterable[str] = (),
         validation_commands: Iterable[Iterable[str]] = (),
-        worker_profile_slug: str = "mc-native",
+        worker_profile_slug: str = "deepseek-harness",
         reviewer_profile_slug: str = "reviewer-default",
         assessment_id: int | None = None,
         current_sprint_id: int | None = None,
@@ -1367,7 +1417,7 @@ class DevelopmentStore:
         autonomy: str = "sandbox",
         preferred_models: Iterable[str] = (),
         max_iterations: int = 12,
-        worker_profile_slug: str = "mc-native",
+        worker_profile_slug: str = "deepseek-harness",
         reviewer_profile_slug: str = "reviewer-default",
         assessment_id: int | None = None,
         assessment: dict[str, Any] | None = None,
@@ -1937,9 +1987,11 @@ class DevelopmentStore:
             conn.close()
 
     def list_worker_profiles(self, *, enabled_only: bool = False) -> list[dict[str, Any]]:
+        """Selectable agents only. Retired agents keep their row so run history still
+        resolves, but they never reappear on the Agents page or in a worker choice."""
         conn = self.connect()
         try:
-            where = " WHERE enabled=1" if enabled_only else ""
+            where = " WHERE hidden=0" + (" AND enabled=1" if enabled_only else "")
             return [dict(row) for row in conn.execute(
                 f"SELECT * FROM coding_worker_profiles{where} ORDER BY adapter,name"
             )]

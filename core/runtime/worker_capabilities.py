@@ -18,7 +18,7 @@ AUTHORITY = "mission_control"
 CONTRACT_VERSION = "1"
 CODING_SOURCE_VERSION = "2"
 HERMES_SOURCE_VERSION = "1"
-_CODING_ADAPTERS = frozenset({"native", "codex", "opencode", "hermes"})
+_CODING_ADAPTERS = frozenset({"native", "deepseek", "codex", "opencode", "hermes"})
 _CODING_CAPABILITIES = (
     "bounded_coding",
     "checkpoint_resume",

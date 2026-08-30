@@ -49,7 +49,7 @@ session = {
     "title": "Autonomous coding system",
     "state": "approved",
     "stage": "approved",
-    "worker_profile_slug": "mc-native",
+    "worker_profile_slug": "deepseek-harness",
 }
 approved = {
     "sequence": 1,

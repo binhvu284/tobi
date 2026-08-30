@@ -71,7 +71,7 @@ def _policy(root: Path) -> CodingPolicy:
     data["repository"]["allowed_repository"] = ""
     data["repository"]["allowed_remote_suffix"] = ""
     data["commands"]["mandatory_checks"] = [["python", "tests/test_coding_agent.py"]]
-    data["workers"]["qualified_implementer_adapters"] = ["native", "codex", "opencode"]
+    data["workers"]["qualified_implementer_adapters"] = ["native", "deepseek", "codex", "opencode"]
     data["capabilities"] = {
         **data["capabilities"],
         "github": False,
@@ -107,7 +107,7 @@ def _session(store: DevelopmentStore, task: dict, suffix: str = "one") -> dict:
         f"stability-{suffix}",
         plan_hash_snapshot=task["plan_hash"],
         criteria_snapshot=["retain deterministic evidence"],
-        worker_profile_slug="mc-native",
+        worker_profile_slug="deepseek-harness",
         reviewer_profile_slug="reviewer-default",
     )
     store.add_stages(int(session["id"]), STAGES)
@@ -156,7 +156,7 @@ def test_learning_deduplicates_one_attempt_and_applies_resolved_playbook(
         outcome="paused",
         stage="validate",
         error_code="validation_failed",
-        worker_profile="mc-native",
+        worker_profile="deepseek-harness",
         evidence={"attempt": 1, "blocker": "same failed check"},
     )
     duplicate = learning.record(
@@ -164,7 +164,7 @@ def test_learning_deduplicates_one_attempt_and_applies_resolved_playbook(
         outcome="paused",
         stage="validate",
         error_code="validation_failed",
-        worker_profile="mc-native",
+        worker_profile="deepseek-harness",
         evidence={"attempt": 1, "blocker": "same failed check"},
     )
     assert int(duplicate["id"]) == int(first["id"])
@@ -176,14 +176,14 @@ def test_learning_deduplicates_one_attempt_and_applies_resolved_playbook(
             outcome="paused",
             stage="validate",
             error_code="validation_failed",
-            worker_profile="mc-native",
+            worker_profile="deepseek-harness",
             evidence={"attempt": attempt, "blocker": "same failed check"},
         )
     learning.record(
         session_id=int(session["id"]),
         outcome="merged",
         stage="merge_deploy",
-        worker_profile="mc-native",
+        worker_profile="deepseek-harness",
         evidence={"attempt": 1, "sha": "c" * 40},
     )
 
@@ -198,7 +198,7 @@ def test_learning_deduplicates_one_attempt_and_applies_resolved_playbook(
     )
     future_session = _session(store, task, "future")
     applied = learning.applicable(
-        worker_profile="mc-native",
+        worker_profile="deepseek-harness",
         session_id=int(future_session["id"]),
     )
     assert applied

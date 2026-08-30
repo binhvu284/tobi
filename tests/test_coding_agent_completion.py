@@ -31,7 +31,7 @@ class _Worker:
             "name": slug,
             "adapter": (
                 "model_review" if slug == "reviewer-default"
-                else "opencode" if slug == "opencode-glm"
+                else "deepseek" if slug == "deepseek-harness"
                 else "codex" if slug == "codex-chatgpt"
                 else "native"
             ),
@@ -56,7 +56,7 @@ def _policy(
     data["capabilities"] = {**data["capabilities"],
                             "github": False, "merge": False, "deploy": False}
     data["workers"]["qualified_implementer_adapters"] = (
-        qualified_adapters or ["native", "codex", "opencode"]
+        qualified_adapters or ["native", "deepseek", "codex", "opencode"]
     )
     return CodingPolicy(data, repo_root=root)
 
@@ -83,7 +83,7 @@ def test_preflight_blocks_disabled_agent_before_run_creation(tmp_path: Path, mon
     store = DevelopmentStore(tmp_path / "developer.db")
     task = _task(store, tmp_path)
     with store.connect() as conn:
-        conn.execute("UPDATE coding_worker_profiles SET enabled=0 WHERE slug='mc-native'")
+        conn.execute("UPDATE coding_worker_profiles SET enabled=0 WHERE slug='deepseek-harness'")
         conn.commit()
     monkeypatch.setattr(coding_completion, "REPO_ROOT", tmp_path)
     service = CodingCompletionService(
@@ -101,12 +101,7 @@ def test_preflight_blocks_disabled_agent_before_run_creation(tmp_path: Path, mon
 def test_preflight_locks_future_agent_and_offers_codex(tmp_path: Path, monkeypatch) -> None:
     store = DevelopmentStore(tmp_path / "developer.db")
     task = _task(store, tmp_path)
-    with store.connect() as conn:
-        conn.execute(
-            "UPDATE development_tasks SET worker_profile_slug='opencode-glm' WHERE id=?",
-            (int(task["id"]),),
-        )
-        conn.commit()
+    # The task's agent is DeepSeek Harness, which this policy does not qualify.
     monkeypatch.setattr(coding_completion, "REPO_ROOT", tmp_path)
     service = CodingCompletionService(
         store=store,

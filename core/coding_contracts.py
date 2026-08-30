@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
-ADAPTERS = {"native", "codex", "opencode", "hermes", "model_review"}
+ADAPTERS = {"native", "deepseek", "codex", "opencode", "hermes", "model_review"}
 AUTH_MODES = {"inherited", "native_login", "vault_env"}
 SECRET_ENV_SUFFIXES = ("_KEY", "_TOKEN", "_SECRET", "_PASSWORD", "_CREDENTIAL")
 OWNER_STATES = {

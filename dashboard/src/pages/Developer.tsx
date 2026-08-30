@@ -273,7 +273,7 @@ export default function Developer() {
   const goalCommand = (id: number, cmd: GoalCommand) => act(() => commandDeveloperGoal(id, cmd), `Goal ${label(cmd)} accepted`)
   const switchWorker = (slug: string) => active && act(() => switchDeveloperWorker(active.id, slug), `Worker switched to ${slug}`)
   const saveWorker = (slug: string, profile: DeveloperWorkerProfile, success = 'Agent profile saved') => {
-    const modelsManaged = profile.adapter === 'native' || profile.adapter === 'model_review'
+    const modelsManaged = profile.adapter === 'deepseek' || profile.adapter === 'native' || profile.adapter === 'model_review'
     return workerAction(() => saveDeveloperWorker(slug, {
       name: profile.name, adapter: profile.adapter, model: profile.model,
       auth_mode: modelsManaged ? 'inherited' : profile.auth_mode,

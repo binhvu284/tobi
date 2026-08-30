@@ -75,7 +75,7 @@ class CodingPolicy:
 
     def qualified_implementer_adapters(self) -> set[str]:
         configured = self.data.get("workers", {}).get(
-            "qualified_implementer_adapters", ["native", "codex", "opencode"]
+            "qualified_implementer_adapters", ["native", "deepseek", "codex", "opencode"]
         )
         return {str(value) for value in configured}
 
@@ -96,8 +96,8 @@ class CodingPolicy:
             "status": "future",
             "configuration_locked": True,
             "detail": (
-                "Reserved for future development. Codex is the only implementation "
-                "agent qualified for the current rollout."
+                "Reserved for future development. Codex CLI and DeepSeek Harness are the "
+                "implementation agents qualified for the current rollout."
             ),
         }
 

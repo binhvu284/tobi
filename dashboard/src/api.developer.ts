@@ -72,7 +72,7 @@ export type DeveloperAssessment = {
   owner_review_required: boolean
 }
 export type DeveloperWorkerProfile = {
-  slug: string; name: string; adapter: 'native' | 'codex' | 'opencode' | 'hermes' | 'model_review'
+  slug: string; name: string; adapter: 'deepseek' | 'native' | 'codex' | 'opencode' | 'hermes' | 'model_review'
   model: string; auth_mode: 'inherited' | 'native_login' | 'vault_env'; credential_env: string
   reviewer_profile: string; enabled: boolean; config: Record<string, unknown>
   health_status: string; health_detail?: string | null; last_probed_at?: string | null

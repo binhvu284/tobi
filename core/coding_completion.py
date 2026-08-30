@@ -104,7 +104,7 @@ class CodingCompletionService:
         task = self.store.get_task(queue_id=queue_id)
         if not task or bool(task.get("legacy_hidden")):
             raise KeyError(f"Queue item #{queue_id} was not found.")
-        selected = str(selected_agent or task.get("worker_profile_slug") or "mc-native")
+        selected = str(selected_agent or task.get("worker_profile_slug") or "deepseek-harness")
         review_slug = str(reviewer or task.get("reviewer_profile_slug") or "reviewer-default")
         fallbacks = list(fallback_agents if fallback_agents is not None else _json(
             task.get("fallback_profiles_json"), []
@@ -258,7 +258,16 @@ class CodingCompletionService:
                 })
 
         selected_row = self.store.get_worker_profile(selected)
-        if not selected_row or not bool(selected_row.get("enabled")) or selected_row.get("adapter") == "model_review":
+        if selected_row and bool(selected_row.get("hidden")):
+            blockers.append(ReadinessIssue(
+                "agent_retired",
+                (
+                    f"{selected_row.get('name') or selected} has been retired. Pick DeepSeek "
+                    "Harness or Codex on the Agents tab for this run."
+                ),
+                "selected_agent",
+            ))
+        elif not selected_row or not bool(selected_row.get("enabled")) or selected_row.get("adapter") == "model_review":
             blockers.append(ReadinessIssue(
                 "agent_disabled", f"Selected agent {selected} is disabled or not an implementer.", "selected_agent"
             ))
@@ -267,7 +276,7 @@ class CodingCompletionService:
                 "agent_future_locked",
                 (
                     f"{selected_row.get('name') or selected} is reserved for future development. "
-                    "Select the qualified Codex agent for this run."
+                    "Select DeepSeek Harness or Codex for this run."
                 ),
                 "selected_agent",
             ))

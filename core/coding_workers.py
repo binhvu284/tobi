@@ -33,6 +33,17 @@ WORKER_ACTIONS = {
     "run_check", "run_command", "inspect_performance", "complete", "blocker",
 }
 
+#: Default implementation agent. The slug is stored on queue items, goals and runs, so the
+#: fallbacks below keep resolving when nothing was chosen explicitly.
+DEFAULT_WORKER_SLUG = "deepseek-harness"
+DEFAULT_WORKER_NAME = "DeepSeek Harness"
+#: DeepSeek is a first-class Models-page provider (`DEEPSEEK_API_KEY`), so the DeepSeek
+#: Harness agent drives the same typed-tool loop as the built-in worker on DeepSeek's API.
+DEEPSEEK_PROVIDER = "deepseek"
+DEEPSEEK_DEFAULT_MODEL = "deepseek:deepseek-v4-pro"
+#: Adapters that run through the in-process typed-tool loop rather than an external CLI.
+BROKERED_ADAPTERS = frozenset({"native", "deepseek"})
+
 
 def _json_object(value: str) -> dict[str, Any]:
     text = str(value or "").strip()
@@ -743,9 +754,9 @@ class CodingWorkerRouter:
         workflow_id = int(args[0] if args else kwargs.get("workflow_id"))
         stage_id = str(args[1] if len(args) > 1 else kwargs.get("stage_id") or "code")
         brief = args[3] if len(args) > 3 else kwargs.get("brief") or {}
-        requested_slug = str(brief.get("worker_profile_slug") or "mc-native")
+        requested_slug = str(brief.get("worker_profile_slug") or DEFAULT_WORKER_SLUG)
         legacy = [item.strip().lower() for item in os.getenv("TOBI_CODING_WORKERS", "").split(",") if item.strip()]
-        if requested_slug == "mc-native" and legacy and legacy[0] == "hermes":
+        if requested_slug == DEFAULT_WORKER_SLUG and legacy and legacy[0] == "hermes":
             profile = WorkerProfile(slug="hermes-legacy", name="Hermes", adapter="hermes")
         else:
             profile = self._profile(requested_slug)
@@ -757,7 +768,7 @@ class CodingWorkerRouter:
             raise CodingWorkerUnavailable("External coding workers are disabled by reviewed policy.")
         allowed_adapters = {
             str(item) for item in self.policy.data.get("workers", {}).get(
-                "allowed_adapters", ["native"]
+                "allowed_adapters", ["native", "deepseek"]
             )
         }
         if profile.adapter not in allowed_adapters and profile.adapter != "hermes":
@@ -770,6 +781,11 @@ class CodingWorkerRouter:
                 raise CodingWorkerUnavailable(detail)
             if selected_model:
                 brief["preferred_models"] = [selected_model]
+        elif profile.adapter == "deepseek":
+            status, detail, selected_model = self._deepseek_route(profile)
+            if status != "ready":
+                raise CodingWorkerUnavailable(detail)
+            brief["preferred_models"] = [selected_model]
         checkpoint = self.store.latest_checkpoint(workflow_id) if self.store else None
         if checkpoint:
             brief["checkpoint_handoff"] = _actionable_handoff(checkpoint.get("handoff") or {})
@@ -799,7 +815,7 @@ class CodingWorkerRouter:
 
         kwargs["on_event"] = on_event
         try:
-            if profile.adapter == "native":
+            if profile.adapter in BROKERED_ADAPTERS:
                 result = self.llm.run(*args, **kwargs)
             elif profile.adapter == "codex":
                 result = self.codex.run(
@@ -843,8 +859,10 @@ class CodingWorkerRouter:
             row = self.store.get_worker_profile(slug)
             if row:
                 return WorkerProfile.from_row(row)
-        if slug == "mc-native":
-            return WorkerProfile(slug="mc-native", name="MC Native", adapter="native")
+        if slug == DEFAULT_WORKER_SLUG:
+            return WorkerProfile(
+                slug=DEFAULT_WORKER_SLUG, name=DEFAULT_WORKER_NAME, adapter="deepseek",
+            )
         configured = os.getenv("TOBI_CODING_WORKERS", "")
         order = [item.strip().lower() for item in configured.split(",") if item.strip()]
         if not order:
@@ -869,7 +887,7 @@ class CodingWorkerRouter:
             }
         allowed_adapters = {
             str(item) for item in self.policy.data.get("workers", {}).get(
-                "allowed_adapters", ["native"]
+                "allowed_adapters", ["native", "deepseek"]
             )
         }
         if profile.adapter not in allowed_adapters and profile.adapter not in {"hermes", "model_review"}:
@@ -926,7 +944,13 @@ class CodingWorkerRouter:
                 "runner_mode": self.runner_mode,
                 "runner": runner_health,
             }
-        if profile.adapter in {"native", "model_review"}:
+        if profile.adapter == "deepseek":
+            status, detail, selected_model = self._deepseek_route(profile)
+            if active and status == "ready":
+                probe_status, probe_detail = self._active_model_probe(selected_model)
+                status = probe_status
+                detail = probe_detail if probe_status != "ready" else f"{detail} {probe_detail}"
+        elif profile.adapter in {"native", "model_review"}:
             status, detail, selected_model = self._models_route(profile)
             if active and profile.adapter == "native" and status == "ready":
                 status, detail = self._active_model_probe(selected_model)
@@ -986,6 +1010,54 @@ class CodingWorkerRouter:
             return "ready", f"Structured coding handshake passed with {label}."
         except Exception as exc:
             return "unavailable", f"Structured coding handshake failed: {_failure_detail(exc)}"
+
+    @staticmethod
+    def _deepseek_route(profile: WorkerProfile) -> tuple[str, str, str]:
+        """Resolve the DeepSeek model this agent runs on, without owner configuration.
+
+        An agent saved with no model still works: it falls back to a DeepSeek model the
+        Models page reports as usable right now, so DeepSeek Harness is never a silently
+        empty setting.
+        """
+        from core import model_router
+
+        available = {
+            str(item["id"]): str(item["label"])
+            for item in model_router.available_models()
+            if str(item.get("provider") or "") == DEEPSEEK_PROVIDER
+        }
+        if not available:
+            # Say which of the three things is actually missing. "DeepSeek is unavailable"
+            # would send the owner to the wrong page.
+            entry = next(
+                (item for item in model_router.provider_catalog()
+                 if str(item.get("id")) == DEEPSEEK_PROVIDER),
+                {},
+            )
+            if not entry.get("enabled", True):
+                detail = "The DeepSeek provider is switched off on the Models page. Turn it on."
+            elif not entry.get("key_present"):
+                detail = (
+                    "No DeepSeek API key is loaded. Add it on the Models page, or unlock the "
+                    "vault if the key is already saved there."
+                )
+            else:
+                detail = "The DeepSeek provider has no models enabled on the Models page."
+            return "needs_auth", detail, ""
+        selected = str(profile.model or "")
+        if selected and selected not in available:
+            return (
+                "unavailable",
+                f"Model {selected} is disabled, missing credentials, or no longer listed as a "
+                "DeepSeek model on the Models page.",
+                selected,
+            )
+        if not selected:
+            selected = (
+                DEEPSEEK_DEFAULT_MODEL if DEEPSEEK_DEFAULT_MODEL in available
+                else sorted(available)[0]
+            )
+        return "ready", f"Uses DeepSeek model: {available[selected]}.", selected
 
     @staticmethod
     def _models_route(profile: WorkerProfile) -> tuple[str, str, str]:

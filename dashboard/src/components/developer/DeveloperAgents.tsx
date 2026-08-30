@@ -31,8 +31,13 @@ function avatarText(profile: DeveloperWorkerProfile) {
   return profile.name.split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase()
 }
 
+// DeepSeek Harness never ships an empty model: with nothing saved it runs on DeepSeek's
+// default, which is what the agent's probe reports back.
+const DEEPSEEK_DEFAULT_MODEL = 'deepseek:deepseek-v4-pro'
+
 function routeModel(profile: DeveloperWorkerProfile, routing: Routing) {
   if (profile.model) return profile.model
+  if (profile.adapter === 'deepseek') return DEEPSEEK_DEFAULT_MODEL
   return profile.adapter === 'model_review'
     ? routing.coding_review || routing.default_model
     : profile.adapter === 'native' ? routing.coding || routing.default_model : ''
@@ -92,13 +97,16 @@ function AgentRow({ profile, models, providers, routing, busy, onSave, onProbe, 
     name: profile.name, adapter: profile.adapter, model: profile.model, auth_mode: profile.auth_mode,
     credential_env: profile.credential_env, enabled: profile.enabled, config: profile.config,
   })
-  const sharedManaged = draft.adapter === 'native' || draft.adapter === 'model_review'
-  const currentCatalog = sharedManaged ? models : cliCatalog?.models ?? []
+  const deepseek = draft.adapter === 'deepseek'
+  const sharedManaged = deepseek || draft.adapter === 'native' || draft.adapter === 'model_review'
+  const deepseekModels = useMemo(() => models.filter(item => item.provider === 'deepseek'), [models])
+  const currentCatalog = deepseek ? deepseekModels : sharedManaged ? models : cliCatalog?.models ?? []
   const effectiveModel = routeModel(draft, routing)
   const modelRow = [...models, ...(cliCatalog?.models ?? [])].find(item => item.id === effectiveModel)
   const providerId = draft.adapter === 'codex' ? 'codex'
-    : draft.adapter === 'opencode' ? (modelRow?.provider || effectiveModel.split('/')[0] || 'opencode')
-      : modelRow?.provider || effectiveModel.split(':')[0] || ''
+    : deepseek ? 'deepseek'
+      : draft.adapter === 'opencode' ? (modelRow?.provider || effectiveModel.split('/')[0] || 'opencode')
+        : modelRow?.provider || effectiveModel.split(':')[0] || ''
   const provider = providers.find(item => item.id === providerId)
   const providerName = provider?.label || BRAND_META[brandForProvider(providerId)].name || label(providerId)
   const modelName = modelRow?.label || modelRow?.model || effectiveModel || (sharedManaged ? 'Shared route' : 'CLI default')
@@ -107,14 +115,14 @@ function AgentRow({ profile, models, providers, routing, busy, onSave, onProbe, 
   const toolOptions: Array<{ id: DeveloperTool; detail: string; future?: boolean }> = reviewer
     ? [{ id: 'model_review', detail: 'Independent quality gate' }]
     : [
-      { id: 'native', detail: 'Models-page providers', future: true },
+      { id: 'deepseek', detail: 'DeepSeek API, already connected' },
       { id: 'codex', detail: 'OpenAI coding CLI' },
       { id: 'opencode', detail: 'Multi-provider coding CLI', future: true },
       { id: 'claude', detail: 'Coming soon', future: true },
     ]
 
   const changeTool = (tool: DeveloperTool) => {
-    const supported = reviewer ? tool === 'model_review' : tool === 'codex'
+    const supported = reviewer ? tool === 'model_review' : tool === 'codex' || tool === 'deepseek'
     if (locked || !supported) return
     setAuth(null); setCliCatalog(null)
     setDraft(current => ({
@@ -227,7 +235,7 @@ function AgentRow({ profile, models, providers, routing, busy, onSave, onProbe, 
 
               <div className="space-y-4 border-t border-border/60 pt-5 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
                 <div className="flex items-center justify-between gap-3"><div><div className="text-[11px] font-medium text-muted">Model fuel</div><div className="mt-1 flex items-center gap-2 text-xs text-text"><DeveloperToolLogo tool={toolFor(draft)} size={13} /> {developerToolName(toolFor(draft))}</div></div>{['codex', 'opencode'].includes(draft.adapter) && <span className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] ${authorized ? 'border-success/30 bg-success/10 text-success' : 'border-warning/30 bg-warning/10 text-warning'}`}>{authorized ? <CheckCircle2 size={12} /> : <TerminalSquare size={12} />}{authorized ? 'Authorized' : 'Authorization needed'}</span>}</div>
-                {sharedManaged ? <><ModelMenu models={models} value={draft.model || null} onChange={model => update('model', model)} autoLabel={`Shared route - ${modelName}`} align="left" wide /><p className="text-[10px] leading-4 text-muted">Uses the same enabled providers and models as Chat.</p><a href="/models" className="inline-flex items-center gap-1 text-[10px] text-accent hover:underline">Manage Models page <ExternalLink size={10} /></a></> : authorized ? <><ModelMenu models={currentCatalog} value={draft.model || null} onChange={model => update('model', model)} autoLabel={`${developerToolName(toolFor(draft))} default`} align="left" wide /><div className="flex items-start justify-between gap-3 text-[10px] leading-4 text-muted"><span>{cliCatalog?.detail || 'Loading models from the authorized CLI.'}</span><button title="Refresh model catalog" onClick={() => void loadModels(true)} disabled={working} className="shrink-0 text-accent"><RefreshCw size={12} className={localBusy === 'models' ? 'animate-spin' : ''} /></button></div></> : <button type="button" onClick={() => void authorize()} disabled={working} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-warning/40 bg-warning/5 text-xs font-medium text-warning hover:bg-warning/10 disabled:opacity-40">{localBusy === 'auth' ? <Loader2 size={14} className="animate-spin" /> : <TerminalSquare size={14} />} Authorize {developerToolName(toolFor(draft))}</button>}
+                {sharedManaged ? <><ModelMenu models={currentCatalog} value={draft.model || null} onChange={model => update('model', model)} autoLabel={deepseek ? `DeepSeek default - ${modelName}` : `Shared route - ${modelName}`} align="left" wide /><p className="text-[10px] leading-4 text-muted">{deepseek ? (deepseekModels.length ? 'Runs on the DeepSeek API key you already saved on the Models page.' : 'No DeepSeek model is usable yet. Add the DeepSeek API key on the Models page and turn the provider on.') : 'Uses the same enabled providers and models as Chat.'}</p><a href="/models" className="inline-flex items-center gap-1 text-[10px] text-accent hover:underline">Manage Models page <ExternalLink size={10} /></a></> : authorized ? <><ModelMenu models={currentCatalog} value={draft.model || null} onChange={model => update('model', model)} autoLabel={`${developerToolName(toolFor(draft))} default`} align="left" wide /><div className="flex items-start justify-between gap-3 text-[10px] leading-4 text-muted"><span>{cliCatalog?.detail || 'Loading models from the authorized CLI.'}</span><button title="Refresh model catalog" onClick={() => void loadModels(true)} disabled={working} className="shrink-0 text-accent"><RefreshCw size={12} className={localBusy === 'models' ? 'animate-spin' : ''} /></button></div></> : <button type="button" onClick={() => void authorize()} disabled={working} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-warning/40 bg-warning/5 text-xs font-medium text-warning hover:bg-warning/10 disabled:opacity-40">{localBusy === 'auth' ? <Loader2 size={14} className="animate-spin" /> : <TerminalSquare size={14} />} Authorize {developerToolName(toolFor(draft))}</button>}
                 <label className="flex cursor-pointer items-center justify-between gap-3 border-t border-border/60 pt-3 text-xs text-muted"><span>Available for new goals</span><input disabled={locked} type="checkbox" checked={operational && draft.enabled} onChange={event => update('enabled', event.target.checked)} className="h-4 w-4 accent-[rgb(var(--accent))] disabled:cursor-not-allowed" /></label>
               </div>
             </div>
@@ -260,13 +268,13 @@ export default function DeveloperAgents({ workers, models, providers, routing, b
   onModels: (slug: string, refresh?: boolean) => Promise<DeveloperWorkerModels | null>
 }) {
   const agents = useMemo(() => workers.filter(item => item.adapter !== 'hermes').sort((a, b) => {
-    const order: Record<string, number> = { native: 0, codex: 1, opencode: 2, model_review: 3 }
+    const order: Record<string, number> = { deepseek: 0, codex: 1, opencode: 2, native: 3, model_review: 4 }
     return (order[a.adapter] ?? 9) - (order[b.adapter] ?? 9) || a.name.localeCompare(b.name)
   }), [workers])
   const ready = agents.filter(item => item.enabled && item.health_status === 'ready' && !item.qualification?.configuration_locked).length
   return (
     <div className="mx-auto max-w-6xl pb-8">
-      <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-base font-semibold text-text">Development agents</h2><p className="mt-1 text-xs text-muted">Codex implements current work; Independent Reviewer verifies it. Other tools remain visible for future qualification.</p></div><div className="inline-flex w-fit items-center gap-2 rounded-md border border-border/70 bg-surface/50 px-2.5 py-1.5 text-[11px] text-muted"><span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-40" /><span className="relative inline-flex h-2 w-2 rounded-full bg-success" /></span>{ready} operational</div></header>
+      <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-base font-semibold text-text">Development agents</h2><p className="mt-1 text-xs text-muted">DeepSeek Harness and Codex implement current work; Independent Reviewer verifies it. Other tools remain visible for future qualification.</p></div><div className="inline-flex w-fit items-center gap-2 rounded-md border border-border/70 bg-surface/50 px-2.5 py-1.5 text-[11px] text-muted"><span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-40" /><span className="relative inline-flex h-2 w-2 rounded-full bg-success" /></span>{ready} operational</div></header>
       <div className="space-y-2">{agents.map(agent => <AgentRow key={agent.slug} profile={agent} models={models} providers={providers} routing={routing} busy={busy} onSave={onSave} onProbe={onProbe} onLogin={onLogin} onModels={onModels} />)}</div>
     </div>
   )

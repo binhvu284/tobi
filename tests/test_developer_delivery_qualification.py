@@ -77,7 +77,7 @@ def test_stage_attempt_and_acceptance_fault_reconciliation(tmp_path: Path) -> No
     session_id = int(session["id"])
     store.add_stages(session_id, STAGES)
     store.update_stage(session_id, "prepare", status="completed")
-    store.start_stage_attempt(session_id, "prepare", 1, "mc-native")
+    store.start_stage_attempt(session_id, "prepare", 1, "deepseek-harness")
 
     assert store.reconcile_stage_attempts(session_id) == 1
     with store.connect() as conn:

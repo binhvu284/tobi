@@ -131,7 +131,7 @@ test_task = store.upsert_task({
 })
 readiness_payload = {
     "ready": True,
-    "selected_agent": "mc-native",
+    "selected_agent": "deepseek-harness",
     "reviewer": "reviewer-default",
     "fallback_agents": [],
     "validation_commands": policy.mandatory_checks(),
@@ -289,12 +289,13 @@ delete_response = client.post(f"/api/developer/goals/{goal_id}/commands", json={
 ok("goal delete is a recoverable soft delete", delete_response.status_code == 200 and delete_response.json()["status"] == "deleted")
 visible_goal_ids = {int(item["id"]) for item in client.get("/api/developer/goals").json()["goals"]}
 ok("soft-deleted goal is hidden from owner goal list", goal_id not in visible_goal_ids)
-native_models = client.get("/api/developer/workers/mc-native/models")
-ok("Mission Control agent uses the shared Models-page catalog", (
-    native_models.status_code == 200
-    and native_models.json()["source"] == "models_page"
-    and isinstance(native_models.json()["models"], list)
-), native_models.text[:200])
+deepseek_models = client.get("/api/developer/workers/deepseek-harness/models")
+ok("DeepSeek Harness offers DeepSeek models only", (
+    deepseek_models.status_code == 200
+    and deepseek_models.json()["source"] == "deepseek"
+    and isinstance(deepseek_models.json()["models"], list)
+    and all(item["provider"] == "deepseek" for item in deepseek_models.json()["models"])
+), deepseek_models.text[:200])
 from api import dashboard  # noqa: E402
 ok("dashboard registers Developer router", any(getattr(route, "path", "") == "/api/developer/overview" for route in dashboard.app.routes))
 

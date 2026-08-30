@@ -232,7 +232,7 @@ class CodingAgent:
         )):
             self.store.configure_task(
                 queue_id,
-                worker_profile_slug=str(selected_agent or task.get("worker_profile_slug") or "mc-native"),
+                worker_profile_slug=str(selected_agent or task.get("worker_profile_slug") or "deepseek-harness"),
                 reviewer_profile_slug=str(reviewer or task.get("reviewer_profile_slug") or "reviewer-default"),
                 fallback_profiles=(
                     fallback_agents if fallback_agents is not None
@@ -306,7 +306,7 @@ class CodingAgent:
             plan_hash_snapshot=task["plan_hash"],
             criteria_snapshot=json.loads(task.get("acceptance_criteria_json") or "[]"),
             validation_commands=payload.get("validation_commands") or self.policy.mandatory_checks(),
-            worker_profile_slug=str(payload.get("selected_agent") or task.get("worker_profile_slug") or "mc-native"),
+            worker_profile_slug=str(payload.get("selected_agent") or task.get("worker_profile_slug") or "deepseek-harness"),
             reviewer_profile_slug=str(payload.get("reviewer") or task.get("reviewer_profile_slug") or "reviewer-default"),
             sprint_budget=self.assessor._budget(str(task.get("risk") or "medium")).to_dict(),
             readiness_snapshot_id=readiness_id,
@@ -330,7 +330,7 @@ class CodingAgent:
         autonomy: str = "sandbox",
         preferred_models: list[str] | None = None,
         max_iterations: int | None = None,
-        worker_profile_slug: str = "mc-native",
+        worker_profile_slug: str = "deepseek-harness",
         reviewer_profile_slug: str = "reviewer-default",
     ) -> dict[str, Any]:
         goal = self.store.create_goal(
@@ -371,7 +371,7 @@ class CodingAgent:
         prior_payload = prior_readiness.get("payload") or {}
         readiness = self.preflight(
             int(task["queue_id"]),
-            selected_agent=str(session.get("worker_profile_slug") or "mc-native"),
+            selected_agent=str(session.get("worker_profile_slug") or "deepseek-harness"),
             reviewer=str(session.get("reviewer_profile_slug") or "reviewer-default"),
             fallback_agents=json.loads(task.get("fallback_profiles_json") or "[]"),
             validation_commands=json.loads(task.get("validation_commands_json") or "[]"),
@@ -525,11 +525,12 @@ class CodingAgent:
         if session["state"] not in {"paused", "blocked", "failed", "approved"}:
             raise RuntimeError("A worker can only be switched at a paused checkpoint.")
         row = self.store.get_worker_profile(profile_slug)
-        if not row or not bool(row["enabled"]) or row["adapter"] == "model_review":
+        if not row or bool(row.get("hidden")) or not bool(row["enabled"]) or row["adapter"] == "model_review":
             raise ValueError("Selected coding worker profile is unavailable.")
         if row["adapter"] not in self.policy.qualified_implementer_adapters():
             raise ValueError(
-                "Selected coding worker is reserved for future development. Use Codex."
+                "Selected coding worker is reserved for future development. "
+                "Use DeepSeek Harness or Codex."
             )
         self._checkpoint(
             session_id,
@@ -931,7 +932,7 @@ class CodingAgent:
         handoff = build_handoff(
             workflow_id=session_id,
             stage=str(session.get("stage") or "approved"),
-            worker_profile=str(session.get("worker_profile_slug") or "mc-native"),
+            worker_profile=str(session.get("worker_profile_slug") or "deepseek-harness"),
             worktree=str(session["worktree"]),
             head_sha=head_sha,
             changed_files=changed,
@@ -1304,10 +1305,10 @@ class CodingAgent:
                     "allowed_commands": self.policy.mandatory_checks(),
                     "validation_commands": validation_commands,
                     "preferred_models": json.loads(goal["preferred_models_json"] or "[]") if goal else [],
-                    "worker_profile_slug": str(session.get("worker_profile_slug") or "mc-native"),
+                    "worker_profile_slug": str(session.get("worker_profile_slug") or "deepseek-harness"),
                     "reviewer_profile_slug": str(session.get("reviewer_profile_slug") or "reviewer-default"),
                     "learned_playbooks": self.learning.applicable(
-                        worker_profile=str(session.get("worker_profile_slug") or "mc-native"),
+                        worker_profile=str(session.get("worker_profile_slug") or "deepseek-harness"),
                         session_id=session_id,
                     ),
                     "sprint_budget": sprint_budget.to_dict(),

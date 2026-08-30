@@ -2,15 +2,19 @@ import { Code2, ShieldCheck } from 'lucide-react'
 import codexSvg from '@lobehub/icons-static-svg/icons/codex-color.svg?raw'
 import openCodeSvg from '@lobehub/icons-static-svg/icons/opencode.svg?raw'
 import claudeCodeSvg from '@lobehub/icons-static-svg/icons/claudecode-color.svg?raw'
+import deepseekSvg from '@lobehub/icons-static-svg/icons/deepseek-color.svg?raw'
 
-export type DeveloperTool = 'native' | 'codex' | 'opencode' | 'model_review' | 'claude'
+export type DeveloperTool = 'deepseek' | 'native' | 'codex' | 'opencode' | 'model_review' | 'claude'
 
 const TOOL_META: Record<DeveloperTool, { name: string; color: string; svg?: string }> = {
-  native: { name: 'Mission Control', color: '#38BDF8' },
+  deepseek: { name: 'DeepSeek Harness', color: '#4D6BFE', svg: deepseekSvg },
   codex: { name: 'Codex CLI', color: '#10A37F', svg: codexSvg },
   opencode: { name: 'OpenCode CLI', color: '#F4F4F5', svg: openCodeSvg },
   model_review: { name: 'Independent review', color: '#A78BFA' },
   claude: { name: 'Claude Code', color: '#D97757', svg: claudeCodeSvg },
+  // Retired: the old Mission Control worker. Kept only so a retired agent still renders in
+  // run history; it is no longer offered as a choice.
+  native: { name: 'Built-in worker (retired)', color: '#38BDF8' },
 }
 
 export function developerToolName(tool: DeveloperTool) {
