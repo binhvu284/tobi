@@ -329,10 +329,11 @@ function BottomMenu({ collapsed, evo, onNavigate }: {
   )
 }
 
-function SidebarContent({ onNavigate, collapsed = false, onToggleCollapse, openSections, toggleSection, evo, idScope = 'sidebar' }: {
+function SidebarContent({ onNavigate, collapsed = false, onToggleCollapse, onClose, openSections, toggleSection, evo, idScope = 'sidebar' }: {
   onNavigate?: () => void
   collapsed?: boolean
   onToggleCollapse?: () => void
+  onClose?: () => void
   openSections: Record<string, boolean>
   toggleSection: (group: string) => void
   evo: EvolutionReport | null
@@ -340,7 +341,8 @@ function SidebarContent({ onNavigate, collapsed = false, onToggleCollapse, openS
 }) {
   return (
     <div className="flex h-full flex-col">
-      {/* Header — logo + collapse/expand toggle on top */}
+      {/* Header — logo, then the two width controls: « switches full <-> icons,
+          X closes the sidebar entirely (the hamburger in the header brings it back). */}
       <div className={`flex shrink-0 items-center py-1 ${collapsed ? 'flex-col gap-2' : 'justify-between'}`}>
         <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-2 px-1'}`}>
           <Zap size={18} className="shrink-0 text-accent" />
@@ -351,11 +353,23 @@ function SidebarContent({ onNavigate, collapsed = false, onToggleCollapse, openS
             </div>
           )}
         </div>
-        {onToggleCollapse && (
-          <button onClick={onToggleCollapse} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className="rounded-md p-1.5 text-muted transition-colors hover:bg-overlay/5 hover:text-text">
-            {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
-          </button>
+        {(onToggleCollapse || onClose) && (
+          <div className={`flex ${collapsed ? 'flex-col gap-1' : 'items-center gap-0.5'}`}>
+            {onToggleCollapse && (
+              <button onClick={onToggleCollapse} aria-label={collapsed ? 'Widen sidebar' : 'Narrow sidebar to icons'}
+                title={collapsed ? 'Widen sidebar' : 'Narrow to icons'}
+                className="rounded-md p-1.5 text-muted transition-colors hover:bg-overlay/5 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
+                {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
+              </button>
+            )}
+            {onClose && (
+              <button onClick={onClose} aria-label="Close sidebar"
+                title="Close sidebar — the menu button in the header brings it back"
+                className="rounded-md p-1.5 text-muted transition-colors hover:bg-overlay/5 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
+                <X size={16} />
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -653,10 +667,24 @@ function StatusIndicator({ stats }: { stats: OfficeStats | null }) {
   )
 }
 
-function TopBar({ onMenu, stats, onHide }: { onMenu: () => void; stats: OfficeStats | null; onHide: () => void }) {
+function TopBar({ onMenu, stats, onHide, sidebarClosed, onOpenSidebar, onPeekEnter, onPeekLeave }: {
+  onMenu: () => void; stats: OfficeStats | null; onHide: () => void
+  sidebarClosed: boolean; onOpenSidebar: () => void
+  onPeekEnter: () => void; onPeekLeave: () => void
+}) {
   return (
     <header className="relative z-40 flex h-11 shrink-0 items-stretch justify-between bg-strip">
       <div className="flex min-w-0 flex-1 items-end">
+        {/* Desktop: the closed sidebar's only handle. Click reopens it for good;
+            hovering slides it in temporarily over the page. */}
+        {sidebarClosed && (
+          <button onClick={onOpenSidebar} onMouseEnter={onPeekEnter} onMouseLeave={onPeekLeave}
+            onFocus={onPeekEnter} onBlur={onPeekLeave}
+            aria-label="Open sidebar" title="Open sidebar — hover to preview"
+            className="hidden self-center shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-overlay/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 md:inline-flex">
+            <Menu size={18} />
+          </button>
+        )}
         <button onClick={onMenu} aria-label="Open menu"
           className="self-center shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-overlay/[0.06] hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 md:hidden">
           <Menu size={18} />
@@ -679,11 +707,29 @@ function TopBar({ onMenu, stats, onHide }: { onMenu: () => void; stats: OfficeSt
 
 const SB_MIN = 176; const SB_MAX = 320; const SB_DEFAULT = 224
 
+// Three widths, not two. `icons` is the old collapsed rail; `closed` removes the sidebar
+// entirely and leaves only the header hamburger, which hover-previews it.
+type SidebarMode = 'full' | 'icons' | 'closed'
+const SB_MODES: readonly string[] = ['full', 'icons', 'closed']
+//: How long the peek survives after the pointer leaves, so crossing the few pixels between
+//: the hamburger and the panel does not snap it shut mid-move.
+const PEEK_GRACE_MS = 200
+
+function readSidebarMode(): SidebarMode {
+  try {
+    const raw = localStorage.getItem('tobi.sidebar')
+    // Migrate the old boolean flag: '1' was the icon rail, '0' or absent was full width.
+    if (raw === '1') return 'icons'
+    if (raw === null || raw === '0') return 'full'
+    return SB_MODES.includes(raw) ? raw as SidebarMode : 'full'
+  } catch { return 'full' }
+}
+
 export default function AppShell({ children }: { children: ReactNode }) {
   const [drawer, setDrawer] = useState(false)
-  const [collapsed, setCollapsed] = useState(() => {
-    try { return localStorage.getItem('tobi.sidebar') === '1' } catch { return false }
-  })
+  const [sbMode, setSbMode] = useState<SidebarMode>(readSidebarMode)
+  const collapsed = sbMode === 'icons'
+  const sidebarClosed = sbMode === 'closed'
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
     try { return JSON.parse(localStorage.getItem('tobi.sidebar.sections') || '{}') } catch { return {} }
   })
@@ -713,9 +759,26 @@ export default function AppShell({ children }: { children: ReactNode }) {
     }
   }, [dragging])
   useEffect(() => { if (!dragging) try { localStorage.setItem('tobi.sidebar.w', String(sbWidth)) } catch { /* ignore */ } }, [dragging, sbWidth])
+  // Temporary hover preview of a closed sidebar. Never becomes the stored mode — only
+  // clicking the hamburger does that.
+  const [peek, setPeek] = useState(false)
+  const peekTimer = useRef<number | null>(null)
+  const cancelPeekClose = () => {
+    if (peekTimer.current !== null) { window.clearTimeout(peekTimer.current); peekTimer.current = null }
+  }
+  const openPeek = () => { cancelPeekClose(); setPeek(true) }
+  const closePeekNow = () => { cancelPeekClose(); setPeek(false) }
+  const schedulePeekClose = () => {
+    cancelPeekClose()
+    peekTimer.current = window.setTimeout(() => { peekTimer.current = null; setPeek(false) }, PEEK_GRACE_MS)
+  }
+  useEffect(() => cancelPeekClose, [])
+  // A preview of something that is no longer closed would hang over the real sidebar.
+  useEffect(() => { if (!sidebarClosed) closePeekNow() }, [sidebarClosed])
+
   const loc = useLocation()
-  useEffect(() => { setDrawer(false) }, [loc.pathname])
-  useEffect(() => { try { localStorage.setItem('tobi.sidebar', collapsed ? '1' : '0') } catch { /* ignore */ } }, [collapsed])
+  useEffect(() => { setDrawer(false); closePeekNow() }, [loc.pathname])
+  useEffect(() => { try { localStorage.setItem('tobi.sidebar', sbMode) } catch { /* ignore */ } }, [sbMode])
 
   const toggleSection = (group: string) => setOpenSections(prev => {
     const next = { ...prev, [group]: !(prev[group] ?? true) }
@@ -734,12 +797,23 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-bg text-text">
-      {/* desktop sidebar — drag the right edge to resize */}
-      <aside style={{ width: collapsed ? 64 : sbWidth }}
-        className={`relative hidden shrink-0 flex-col border-r border-border bg-surface px-3 py-4 md:flex ${dragging ? '' : 'transition-[width] duration-200'}`}>
-        <SidebarContent collapsed={collapsed} onToggleCollapse={() => setCollapsed(c => !c)}
-          openSections={openSections} toggleSection={toggleSection} evo={evo} idScope="desktop" />
-        {!collapsed && (
+      {/* desktop sidebar — drag the right edge to resize.
+          Closing animates the width to 0 while the inner wrapper keeps its own width, so the
+          nav clips away instead of reflowing. `invisible` (not unmount) keeps the section
+          state and takes the buttons out of the tab order while it is shut. */}
+      <aside
+        aria-hidden={sidebarClosed}
+        style={{ width: sidebarClosed ? 0 : collapsed ? 64 : sbWidth }}
+        className={`relative hidden shrink-0 flex-col overflow-hidden bg-surface md:flex ${
+          sidebarClosed ? '' : 'border-r border-border'} ${dragging ? '' : 'transition-[width] duration-200'}`}>
+        <div style={{ width: collapsed ? 64 : sbWidth }}
+          className={`flex h-full flex-col px-3 py-4 ${sidebarClosed ? 'invisible' : ''}`}>
+          <SidebarContent collapsed={collapsed} idScope="desktop"
+            onToggleCollapse={() => setSbMode(m => m === 'icons' ? 'full' : 'icons')}
+            onClose={() => setSbMode('closed')}
+            openSections={openSections} toggleSection={toggleSection} evo={evo} />
+        </div>
+        {sbMode === 'full' && (
           <div onMouseDown={e => { e.preventDefault(); setDragging(true) }} title="Drag to resize"
             className={`absolute inset-y-0 -right-0.5 z-10 w-1.5 cursor-col-resize transition-colors ${dragging ? 'bg-accent/50' : 'hover:bg-accent/30'}`} />
         )}
@@ -760,7 +834,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </AnimatePresence>
 
       <div className="relative flex min-w-0 flex-1 flex-col">
-        {!headerHidden && <TopBar onMenu={() => setDrawer(true)} stats={stats} onHide={() => setHeaderHidden(true)} />}
+        {!headerHidden && (
+          <TopBar onMenu={() => setDrawer(true)} stats={stats} onHide={() => setHeaderHidden(true)}
+            sidebarClosed={sidebarClosed} onOpenSidebar={() => setSbMode('full')}
+            onPeekEnter={openPeek} onPeekLeave={schedulePeekClose} />
+        )}
         {/* floating restore chip — the only trace of the hidden header */}
         {headerHidden && (
           <button onClick={() => setHeaderHidden(false)} title="Show header"
@@ -773,6 +851,35 @@ export default function AppShell({ children }: { children: ReactNode }) {
               Keyed by path with no AnimatePresence exit gating — the incoming page
               always mounts immediately, so navigation can never leave a blank view. */}
           {children}
+
+          {/* Left-edge hover strip. Armed ONLY when the header is hidden: with the header
+              up, the hamburger is the single trigger, so reaching toward the left of the
+              page never conjures a sidebar. With the header gone the hamburger goes with
+              it, and this strip is the only thing left to hover. */}
+          {sidebarClosed && headerHidden && (
+            <div onMouseEnter={openPeek} aria-hidden
+              className="absolute inset-y-0 left-0 z-[45] hidden w-2 md:block" />
+          )}
+
+          {/* Hover preview — floats over the page, which never moves or reflows. */}
+          <AnimatePresence>
+            {sidebarClosed && peek && (
+              <motion.div key="sidebar-peek" className="hidden md:block"
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                transition={{ duration: DUR.sm, ease: EASE.out }}>
+                <div aria-hidden className="pointer-events-none absolute inset-0 z-[46] bg-black/25" />
+                <motion.div
+                  initial={{ x: -28 }} animate={{ x: 0 }} exit={{ x: -28 }}
+                  transition={SPRING.snappy}
+                  onMouseEnter={cancelPeekClose} onMouseLeave={schedulePeekClose}
+                  style={{ width: sbWidth }}
+                  className="absolute inset-y-0 left-0 z-[47] flex flex-col border-r border-border bg-surface px-3 py-4 shadow-[0_0_60px_-12px_rgba(0,0,0,0.7)]">
+                  <SidebarContent onNavigate={closePeekNow} openSections={openSections}
+                    toggleSection={toggleSection} evo={evo} idScope="peek" />
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </main>
       </div>
 
