@@ -1,0 +1,68 @@
+{
+  "schema_version": "agent-tier.ability-contracts.v1",
+  "abilities": [
+    {
+      "ability_id": "grounded_task_intake",
+      "name": "Grounded task intake",
+      "active_when": "Goal, scope, constraints, target, and missing fields are resolved or explicitly clarified.",
+      "required_evidence": ["typed_request", "resolution_record", "clarification_record"],
+      "required_families": ["project_execution", "local_diagnosis", "coding_maintenance", "browser_work", "github_monitoring_action"],
+      "freshness": "current_release",
+      "owner_next_action": "Provide the one missing field shown by Mission Control."
+    },
+    {
+      "ability_id": "bounded_workflow_planning",
+      "name": "Bounded workflow planning",
+      "active_when": "A versioned workflow records allowed tools, stop condition, budget, and approval boundary.",
+      "required_evidence": ["workflow_selection", "tool_allowlist", "stop_condition", "policy_decision"],
+      "required_families": ["project_execution", "local_diagnosis", "coding_maintenance", "browser_work", "github_monitoring_action"],
+      "freshness": "current_release",
+      "owner_next_action": "Review the selected workflow and approve only the declared external effect."
+    },
+    {
+      "ability_id": "local_work_execution",
+      "name": "Local work execution",
+      "active_when": "Project, local diagnosis, and Coding maintenance complete through canonical Runtime.",
+      "required_evidence": ["runtime_run", "typed_tool_result", "local_action_receipt", "coding_check"],
+      "required_families": ["project_execution", "local_diagnosis", "coding_maintenance"],
+      "freshness": "current_release",
+      "owner_next_action": "Run one bounded local workflow from normal Chat or Agent mode."
+    },
+    {
+      "ability_id": "browser_external_action",
+      "name": "Browser and external action",
+      "active_when": "A bounded browser flow and an approved GitHub write have current successful evidence.",
+      "required_evidence": ["browser_artifact", "navigation_allowlist", "external_approval", "external_receipt"],
+      "required_families": ["browser_work", "github_monitoring_action"],
+      "freshness": "24_hours",
+      "owner_next_action": "Approve the bounded browser or GitHub target shown in Mission Control."
+    },
+    {
+      "ability_id": "durable_recovery",
+      "name": "Durable recovery",
+      "active_when": "Restart, retry, resume, revise, and cancel preserve history without repeating completed effects.",
+      "required_evidence": ["checkpoint", "recovery_event", "idempotency_key", "effect_receipt"],
+      "required_families": ["project_execution", "local_diagnosis", "coding_maintenance", "browser_work", "github_monitoring_action"],
+      "freshness": "current_release",
+      "owner_next_action": "Use the displayed resume, retry, revise, or cancel action on the same run."
+    },
+    {
+      "ability_id": "verified_delivery",
+      "name": "Verified delivery",
+      "active_when": "Every success claim links to its required receipt, artifact, check, or external evidence.",
+      "required_evidence": ["grounded_outcome", "receipt_or_artifact", "verification_check", "trace_link"],
+      "required_families": ["project_execution", "local_diagnosis", "coding_maintenance", "browser_work", "github_monitoring_action"],
+      "freshness": "current_release",
+      "owner_next_action": "Open the evidence link beside the final result."
+    },
+    {
+      "ability_id": "proactive_delivery",
+      "name": "Proactive delivery",
+      "active_when": "One fresh scheduled GitHub signal reaches Telegram exactly once and links to its source event.",
+      "required_evidence": ["fresh_monitor_signal", "notification_receipt", "deduplication_record", "source_event_link"],
+      "required_families": ["github_monitoring_action"],
+      "freshness": "24_hours",
+      "owner_next_action": "Connect GitHub and Telegram when Mission Control reports setup needed."
+    }
+  ]
+}

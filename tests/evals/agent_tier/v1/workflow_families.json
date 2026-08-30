@@ -1,0 +1,65 @@
+{
+  "schema_version": "agent-tier.workflow-families.v1",
+  "families": [
+    {
+      "family_id": "project_execution",
+      "name": "Project execution",
+      "owner_example": "Show this project's blockers and complete task 42.",
+      "required_result": "Resolve the exact project and task, approve the mutation, record a receipt, and show updated state.",
+      "required_abilities": ["grounded_task_intake", "bounded_workflow_planning", "local_work_execution", "durable_recovery", "verified_delivery"],
+      "workflow_ids": ["project.list", "task.list", "task.create", "task.complete", "run.recover"],
+      "allowed_effects": ["project_read", "task_read", "task_create", "task_complete"],
+      "approval_boundary": "Task creation and completion require the current policy decision and owner approval when requested.",
+      "stop_condition": "The requested project state is verified or a bounded recovery is returned.",
+      "required_evidence": ["project_resolution", "policy_decision", "task_receipt", "project_state"]
+    },
+    {
+      "family_id": "local_diagnosis",
+      "name": "Local diagnosis",
+      "owner_example": "Read the failing logs and run the safe health check.",
+      "required_result": "Stay inside the file fence, run only the approved command, capture output, and ground the conclusion.",
+      "required_abilities": ["grounded_task_intake", "bounded_workflow_planning", "local_work_execution", "durable_recovery", "verified_delivery"],
+      "workflow_ids": ["file.inventory", "file.read", "file.search", "terminal.status", "terminal.typed_command", "system.status.read", "run.recover"],
+      "allowed_effects": ["bounded_file_read", "bounded_file_search", "approved_terminal_command"],
+      "approval_boundary": "Commands outside the safe policy require owner approval and file access never escapes its declared fence.",
+      "stop_condition": "The diagnostic check finishes with captured evidence or a bounded failure and recovery choice.",
+      "required_evidence": ["resolved_path", "command_policy", "terminal_receipt", "diagnostic_output"]
+    },
+    {
+      "family_id": "coding_maintenance",
+      "name": "Coding maintenance",
+      "owner_example": "Use Developer to fix this MC limitation, run tests, and prepare the change for review.",
+      "required_result": "Confirm one Developer handoff, run one qualified durable workflow, record checks and artifacts, and never merge or deploy silently.",
+      "required_abilities": ["grounded_task_intake", "bounded_workflow_planning", "local_work_execution", "durable_recovery", "verified_delivery"],
+      "workflow_ids": ["coding.qualify", "developer.dispatch", "run.recover"],
+      "allowed_effects": ["developer_proposal", "confirmed_queue_item", "qualified_worker_run", "local_change_artifact"],
+      "approval_boundary": "Proposal has no side effect; owner confirmation creates one workflow; merge and deploy retain existing approvals.",
+      "stop_condition": "One linked Developer run reaches a truthful terminal state with changes, checks, and artifacts.",
+      "required_evidence": ["chat_proposal", "owner_confirmation", "developer_workflow", "change_artifact", "test_report"]
+    },
+    {
+      "family_id": "browser_work",
+      "name": "Browser work",
+      "owner_example": "Open the approved site, inspect the form, and download the report.",
+      "required_result": "Use allowlisted navigation, bounded interaction, screenshot or download evidence, and approval before submission.",
+      "required_abilities": ["grounded_task_intake", "bounded_workflow_planning", "browser_external_action", "durable_recovery", "verified_delivery"],
+      "workflow_ids": ["browser.navigate_inspect", "browser.download", "browser.form.submit", "run.recover"],
+      "allowed_effects": ["allowlisted_navigation", "page_inspection", "screenshot", "download", "approved_form_submission"],
+      "approval_boundary": "Form submission is an external action and always requires the policy and owner approval boundary.",
+      "stop_condition": "The approved artifact is captured or the run returns a truthful browser recovery state.",
+      "required_evidence": ["navigation_record", "allowlist_decision", "browser_artifact", "submission_receipt"]
+    },
+    {
+      "family_id": "github_monitoring_action",
+      "name": "GitHub monitoring and action",
+      "owner_example": "Watch this repository, notify me on a failed check, and create an issue after approval.",
+      "required_result": "Read fresh GitHub state, send one deduplicated Telegram notice, and create at most one approved issue with a receipt.",
+      "required_abilities": ["grounded_task_intake", "bounded_workflow_planning", "browser_external_action", "durable_recovery", "verified_delivery", "proactive_delivery"],
+      "workflow_ids": ["connector.status", "github.status.read", "github.issue.create", "github.monitor.telegram", "run.recover"],
+      "allowed_effects": ["github_read", "telegram_notification", "approved_github_issue"],
+      "approval_boundary": "GitHub writes require owner approval; reads and monitoring require fresh connector proof.",
+      "stop_condition": "The source event, notification, and optional issue each have one matching receipt or a truthful setup state.",
+      "required_evidence": ["connector_freshness", "github_event", "notification_receipt", "issue_receipt", "deduplication_record"]
+    }
+  ]
+}

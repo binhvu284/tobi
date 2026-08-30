@@ -3,7 +3,7 @@
 This directory separates current system truth from implementation plans and historical design records.
 
 > Status follow-up: 2026-08-30. #34/T08 has canonical live proof, owner acceptance bound to the
-> exact artifact, and Done status. #35 Agent Tier Completion is unblocked and ready for T00.
+> exact artifact, and Done status. #35/T00 has a green frozen baseline and is awaiting owner acceptance before T01.
 
 ## Read Order
 

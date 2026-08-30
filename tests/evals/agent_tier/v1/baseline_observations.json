@@ -1,0 +1,104 @@
+{
+  "schema_version": "agent-tier.baseline-observations.v1",
+  "production_commit": "fc4d6d798aa2af3fe0c59a1467bd1297a73884ff",
+  "source_scope": {
+    "mode": "committed_revision_only",
+    "worktree_changes_included": false,
+    "reason": "Only the exact committed production revision is included; all uncommitted worktree changes are excluded."
+  },
+  "source_sha256": {
+    "api/developer.py": "519e7972c447276a4a5627cb88c0e5a5cbb9a66d795cf962a4d970c82050c726",
+    "api/routers/evolution.py": "a81a53dc1dd80701c6c104ec2fe3eeabc01465510103347e756697d9a2e5eff8",
+    "config/coding_policy.v1.json": "8783b28bd28969b0ba0d21a723ac16e8bafc3c7ceaffc2669258dac3c054c8b6",
+    "core/awakening_detect.py": "2b43c26dcffdc4722f1a620905bc61c226225cb6e8e23244d3e559350ebff0ea",
+    "core/chat_runtime.py": "1ae5a38e0c45fca01101035fa40a2f361c0ac646c6fae2e249ada6df73b145cb",
+    "core/coding_agent.py": "c4923faea779e1bc4d7215e81b688ce1c344510ae2c3e58fab4643ec29a9f1e7",
+    "core/coding_completion.py": "1877d068ee9637ed74061505b75abbea748590fd119479cfb6447481c8c3ba1e",
+    "core/coding_contracts.py": "7356addc7ac34138d364d4f390ee6f56831c0a17403a7b56d2c8626b18edd299",
+    "core/coding_policy.py": "24f5e27ce3aa2e8969652d0768dc9a4aed93838aa8429f8acd50a5a41af578e2",
+    "core/coding_workers.py": "3358e66117453df2166c71786d7251e05de48a58511fbbd5ef5a780b8b5ed3fa",
+    "core/development_store.py": "110b5ec548719f27b80f48604115ecb01b194000809b69827a9224cf78fbdcd7",
+    "core/integrations.py": "3552c29dc842b311c0d04abf5c20b98e3ce3e56716c0ab5bcef665ccbe91f3b8",
+    "core/integrations_registry.py": "7c1c47abce80f11904956e87e7a60ef659088ff9ce8d10e4deb0dc04f49f4636",
+    "core/runtime/coding_adapter.py": "cf48779b3c9b49c7315fa49b5d18805f6776cb4923b33b03a919c6d7257eb8e7",
+    "core/runtime/contracts.py": "52157728cee9b7ea0149fa14a63e92e22159ab87154e7773f7f168e5b6f058c9",
+    "core/runtime/event_store.py": "1626015a0bec90fab0f90f813ccfb857e8e5d35cd2b6a458175cdbdc33d70ed5",
+    "core/runtime/file_tools.py": "cba303a8d48d913753963a88f840c500b4e730bc1a6f9f860c71be0d1f79c01e",
+    "core/runtime/grounded_outcomes.py": "d1173615f70ab8fdb70e495f778590674e995f6dda305eb6812a1a6a6901b6b1",
+    "core/runtime/project_tools.py": "de120415556a7a0e5d14a0745a4953c3e1a23ef3ba229c4b4c41377c45aa897f",
+    "core/runtime/repository.py": "f34c5a776957e6436dcde026e3c62e54ff2d7a5434849a78592b41d12c7da115",
+    "core/runtime/terminal_tools.py": "88dfcff562107aa82f1466544d2d350c22e4ef40cd5e43bc263b00afa7ca7acc",
+    "core/runtime/trace.py": "4914b9d6e9767a495a3a3c440804dfbf8ce6f71c217a7b1f6bcb729942dbe6c4",
+    "core/runtime/typed_resolution.py": "8e04b0933b5053ef887958b2bc5f2a64e12c94d1a5ea3f5e6171e425750d8808",
+    "core/runtime/worker_capabilities.py": "67d7f5cc90e9ba214d0f04d1aa4f2858d8758740bd9b3fb3a4e947827228e473",
+    "core/runtime/workflows.py": "0aacaedebeaf2810f62e4da00d0db9244729136ad16c58297d72e698f9f8b8dd",
+    "core/scheduled_jobs.py": "d622c4b5fb0e2d5ce67042ca61bf64dbeb3fdd5c5011021c1b4733bc94f3a089",
+    "core/telegram_bot.py": "f1ae09e545db90603790034a57ee2b0cda08768ce303850126f531d0a295cc96",
+    "dashboard/src/api.developer.ts": "5baf09a3b345166ade9b983574e14d9cba4d2af9101bd8fcf0c9e928ecf51378",
+    "dashboard/src/api.runtime.ts": "897d30689655c13355af60c867e4352ad9f35b8d8501ed0e73e7e1488a88e9cc",
+    "dashboard/src/components/developer/DeveloperAgents.tsx": "e3c4ae0e8995b1e3c7addbbd07f5652b8696200e61e9c5840fdb68a84ecc44f9",
+    "dashboard/src/components/developer/DeveloperProcess.tsx": "581214277a6f8398701b22f69e278b6c002673f780c49e691274d00d8d512fdb",
+    "dashboard/src/components/developer/DeveloperToolLogo.tsx": "8dbb1b192cdd156660b5cc9cea9781be7ae0a2c4adb87d1f33c11e09bc0916ba",
+    "dashboard/src/pages/Chat.tsx": "e9a3ef244a59a64d9200f8dc6b68616441f289e50713754cea45b78e8b688fd5",
+    "dashboard/src/pages/Developer.tsx": "11be8cb855ec6180b638223601ffd692da059415fd3ca3bcf4d9fbfb38e4eb99",
+    "dashboard/src/pages/Evolution.tsx": "339b24a24d290326296039e0c6a72c510d2aed804dc86fb9f834bca6477d0878"
+  },
+  "ability_observations": {
+    "grounded_task_intake": {
+      "status": "partial",
+      "evidence_refs": ["source:core/runtime/typed_resolution.py", "source:core/runtime/workflows.py"],
+      "missing_proof": ["five-family-intake-qualification"]
+    },
+    "bounded_workflow_planning": {
+      "status": "partial",
+      "evidence_refs": ["source:core/runtime/workflows.py", "source:core/runtime/contracts.py"],
+      "missing_proof": ["browser-workflow-contract", "github-action-workflow-contract"]
+    },
+    "local_work_execution": {
+      "status": "partial",
+      "evidence_refs": ["source:core/runtime/project_tools.py", "source:core/runtime/file_tools.py", "source:core/runtime/terminal_tools.py", "source:core/runtime/coding_adapter.py"],
+      "missing_proof": ["normal-agent-five-family-routing", "coding-maintenance-owner-qualification"]
+    },
+    "browser_external_action": {
+      "status": "inactive",
+      "evidence_refs": [],
+      "missing_proof": ["bounded-playwright-adapter", "approved-github-write-receipt"]
+    },
+    "durable_recovery": {
+      "status": "partial",
+      "evidence_refs": ["source:core/runtime/repository.py", "source:core/runtime/event_store.py"],
+      "missing_proof": ["five-family-restart-resume-proof", "external-effect-deduplication-proof"]
+    },
+    "verified_delivery": {
+      "status": "partial",
+      "evidence_refs": ["source:core/runtime/grounded_outcomes.py", "source:core/runtime/trace.py"],
+      "missing_proof": ["five-family-evidence-integrity-proof"]
+    },
+    "proactive_delivery": {
+      "status": "inactive",
+      "evidence_refs": [],
+      "missing_proof": ["fresh-github-monitor-signal", "single-telegram-delivery-receipt"]
+    }
+  },
+  "runnable_case_ids": [],
+  "completed_case_ids": [],
+  "recovered_case_ids": [],
+  "case_evidence": {},
+  "real_mc_qualification": {"passed": 0, "attempted": 0},
+  "safety_failures": {
+    "critical_safety": 0,
+    "fabricated_success": 0,
+    "secret_leak": 0,
+    "duplicate_external_effect": 0
+  },
+  "owner_acceptance": {"status": "pending", "reviewed_by": null, "reviewed_at": null},
+  "evidence_refs": [
+    "source:core/runtime/workflows.py",
+    "source:core/runtime/typed_resolution.py",
+    "source:core/runtime/grounded_outcomes.py",
+    "source:core/awakening_detect.py",
+    "source:api/routers/evolution.py"
+  ],
+  "cost_usd": 0.0,
+  "duration_seconds": 0.0
+}

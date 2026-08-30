@@ -155,6 +155,10 @@ SUITES: tuple[SuiteSpec, ...] = (
     SuiteSpec("ui_loading", "Every button shows it is working", "UI",
               "tests/test_ui_loading_states.py",
               "No control in the app can be pressed twice or appear frozen while it works."),
+    SuiteSpec("agent_tier_baseline", "Agent Tier starts from frozen evidence", "#35 T00",
+              "tests/test_agent_tier_baseline.py",
+              "Seven abilities, five workflow families, thirty cases, five sealed holdouts, and "
+              "the unchanged-code result are hash-locked before Agent behavior changes."),
     SuiteSpec("tobival_workflows", "Supported work follows one workflow", "#34 T02",
               "tests/test_tobival_workflows.py",
               "Known Mission Control requests select one frozen workflow and cannot escape its "

@@ -1,0 +1,11 @@
+{
+  "aggregate_sha256": "17dda4f32ee99105e9423df4895d075e4daff1dab50c18b02dbf915d7c6cf19c",
+  "dataset_version": "v1",
+  "files": {
+    "ability_contracts.json": "eb9c1b59d84bb4d13e45769f981fe259f2d78194f8ed25f8bcafd9128d8ff7a4",
+    "baseline_observations.json": "958c20a51996f0c75a8dcae2b15205244c9b4464daa1d80c53506716c7b45e48",
+    "case_manifest.json": "5305e95e2b961a3ea64f1b419709140080f75afce2aa5df84541a93a82f0156f",
+    "workflow_families.json": "e8046215a80189fad693735c9a1c43bfb38e775f5182813976cae01362c9a0ff"
+  },
+  "schema_version": "agent-tier.dataset-lock.v1"
+}

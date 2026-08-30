@@ -8,34 +8,71 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 
 ---
 
-**Item:** Quick task - Keep Awakening complete across MC restarts
-**Package:** Automatic GitHub proof refresh at startup
-**Status:** Done. Both MC startup paths auto-refresh stale GitHub proof; focused gate green on 2026-08-30. #35 remains unstarted.
+**Item:** #35 TOBI Agent Tier Completion
+**Package:** T00 - Agent Contract, Frozen Cases, And Baseline
+**Status:** T00 implementation and artifact complete. Green verification is active; owner baseline acceptance remains pending.
 
 **Purpose (one sentence, plain words):**
-Keep the owner's completed Awakening tier complete after MC restarts by automatically refreshing stale
-GitHub read proof from the already-saved credential, without requiring another manual Integrations test.
+Replace the planning-only Agent estimate with frozen contracts, cases, metrics, and an unchanged-code
+baseline before any Agent production behavior changes.
 
 **Not doing:**
-- No #35 implementation or Agent-tier behavior changes.
-- No credential changes, secret exposure, or manual GitHub test.
-- No weakening of the 24-hour connector-proof freshness rule.
-- No Notion, Google, Supabase, Vercel, or deployment interaction.
+- No changes to `core/`, `api/`, or dashboard behavior in T00.
+- No T01-T06 implementation before the owner accepts the measured T00 baseline.
+- No live model calls, browser submissions, GitHub writes, Telegram delivery, Supabase, Vercel, merge,
+  deployment, deletion, spending, or credential changes.
+- No changes to frozen #34 cases, formulas, model IDs, holdouts, or acceptance artifacts.
+- No Operator opportunity selection, prioritization, ROI scoring, or autonomous business experiments.
 
 **Files expected:**
 - `.claude/CURRENT_WORK.md`
-- `core/awakening.py`
-- `main.py`
-- `api/dashboard.py`
-- `tests/test_awakening.py`
-- Awakening owner and delivery documentation
+- `.claude/CURRENT_WORK.md`
+- `tests/evals/agent_tier/v1/ability_contracts.json`
+- `tests/evals/agent_tier/v1/workflow_families.json`
+- `tests/evals/agent_tier/v1/case_manifest.json`
+- `tests/evals/agent_tier/v1/baseline_observations.json`
+- `tests/evals/agent_tier/v1/manifest.lock.json`
+- `tobival/agent_tier_dataset.py`
+- `tobival/agent_tier_metrics.py`
+- `tobival/agent_tier_baseline.py`
+- `core/runtime/self_check.py` verification-suite registration
+- `tests/test_agent_tier_baseline.py`
+- unchanged-code artifact under `tests/evals/agent_tier/baselines/<production-commit>/`
+- inherited #21/#34 release gate and queue/current-state documentation
 
 **Gate: green**
 
 ```gate
-../.python/venv/Scripts/python.exe tests/test_awakening.py
-../.python/venv/Scripts/python.exe tests/test_awakening_route.py
-../.python/venv/Scripts/python.exe tests/test_integration_test_reasons.py
+../.python/venv/Scripts/python.exe tests/test_agent_tier_baseline.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_contracts.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_event_store.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_repository.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_gateway_live_chat.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_policy.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_tool_catalog.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_project_tools.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_file_tools.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_terminal_jobs.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_conductor_facade.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_owner_intelligence.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_coding_adapter.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_evals.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_system_model.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_security.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_runs_view.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_runs_ui.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_rollout.py
+../.python/venv/Scripts/python.exe tests/test_mc_runtime_surface_adapters.py
+../.python/venv/Scripts/python.exe tests/test_model_unreachable_message.py
+../.python/venv/Scripts/python.exe tests/test_runtime_schema_ledger.py
+../.python/venv/Scripts/python.exe tests/test_infrastructure_self_check.py
+../.python/venv/Scripts/python.exe tests/test_no_console_windows.py
+../.python/venv/Scripts/python.exe tests/test_ui_loading_states.py
+../.python/venv/Scripts/python.exe tests/test_tobival_acceptance.py
+../.python/venv/Scripts/python.exe tests/test_tobival_model_dependency.py
+../.python/venv/Scripts/python.exe tests/test_tobival_api.py
+../.python/venv/Scripts/python.exe tests/test_tobival_workflows.py
+../.python/venv/Scripts/python.exe tests/test_chat_runtime.py
 ```
 
 ---

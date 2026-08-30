@@ -37,14 +37,26 @@ Projects, Terminal, existing integrations, Telegram, Evolution, Agent timeline, 
 not authorize Operator work, unrestricted browser/desktop control, autonomous publishing, spending,
 deployment, merge, deletion, parallel multi-agent orchestration, Supabase, or Vercel interaction.
 
-On 2026-08-30, the owner asked to start #35 by reading the approved spec and preparing its first
-package. T00 remains Ready at the preparation boundary. The plan names the exact Agent-tier
-dataset, metric, baseline, artifact, and red-first test files while keeping `core/`, `api/`, and
-dashboard behavior unchanged. Baseline capture has not started because a separate Developer/worker
-change set is actively modifying tracked production files; freezing before that work settles would
-bind the baseline to a moving source snapshot. Current work remains on the existing package until the
-failing T00 target exists; that red-first change switches current work to T00, sets `Gate: red`, and
-moves the queue item to In progress in one update.
+On 2026-08-30, the owner started T00 and clarified that the concurrent Developer changes belong to
+the separate DeepSeek Harness agent package. T00 did not modify, stage, or test-fix that work. After
+the separate agent committed and pushed it, T00 rebound its read-only source proof to the current
+production revision `fc4d6d7`. Its baseline scope remains `committed_revision_only`, so no
+uncommitted worktree content is included.
+
+T00 now freezes seven ability contracts, five workflow-family manifests, 30 synthetic/redacted cases,
+and five sealed holdouts. Dataset hash
+`17dda4f32ee99105e9423df4895d075e4daff1dab50c18b02dbf915d7c6cf19c` and artifact SHA-256
+`9cddb15ae19ce9cefddfcc8c2afefadc79986004e1553313493c92f3986d460d` bind the exact review
+evidence. The unchanged-code qualification result is 0/7 active abilities, 0% frozen-case completion
+or recovery, 0% interruption recovery, 0% evidence integrity, 0/20 real MC qualification, 17 explicit
+blockers, and `release_ready=false`. The zero scores mean no #35 qualification run exists yet; they do
+not erase the Runtime, tool, Developer, integration, or UI components already present.
+
+The red-first target failed before implementation as required. After implementation,
+`tests/test_agent_tier_baseline.py` passes 26/26 and the inherited #21/#34 gate passes 30/30. Health's
+existing Infrastructure registry now includes the T00 proof so the owner button and release gate run
+the same suites. Production Agent execution, Runtime routing, APIs, and dashboard behavior remain
+unchanged. T01 is blocked until the owner accepts this exact baseline artifact.
 
 
 <a id="item-34"></a>
