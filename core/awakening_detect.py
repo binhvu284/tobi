@@ -316,6 +316,10 @@ _TIER_DEFINITIONS: list[dict] = [
     },
 ]
 
+# Tier II is projected from the #35 evidence registry. Its legacy definition remains
+# display metadata only and can never decide Agent completion.
+_AGENT_EVIDENCE_TIER_ID = 2
+
 
 def _detect_abilities(conn: sqlite3.Connection) -> dict[str, bool]:
     repo_root = Path(__file__).parent.parent

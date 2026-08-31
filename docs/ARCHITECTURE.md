@@ -1,14 +1,18 @@
 # TOBI Architecture
 
-> Current architecture snapshot: 2026-08-28. Code and tests remain authoritative. Configuration-dependent external services were not called during this update.
+> Current architecture snapshot: 2026-08-31. Code and tests remain authoritative. Configuration-dependent external services were not called during this update.
 
-## TM01 Refresh Snapshot - 2026-08-28
+## TM01 Refresh Snapshot - 2026-08-31
 
 The committed Runtime V2 foundation ends at the passive surface-adapter boundary: Chat has the
 gated canonical path, while Projects, Office, CLI, Telegram, and schedulers keep their existing
 owners and can mirror bounded evidence. #34/T08 adds a canonical Eval executor and a narrow
 production route for safe supported requests with no required fields. It does not activate broad
 Runtime V2 execution or move every supported workflow into normal Chat/Agent execution.
+
+#35/T01 adds a separate seven-ability Agent evidence registry. Evolution Tier II reads only this
+registry; legacy static ability definitions remain display metadata and cannot mark an Agent ability
+complete. The registry starts at 0/7 until later #35 packages record current bounded evidence.
 
 ## System Context
 
@@ -104,6 +108,7 @@ The scheduler currently registers daily reports, six-hour execution, two-minute 
 | Attachments/readers | `core/attachments.py`, `premium_readers.py`, `youtube_reader.py`, `model_capabilities.py` | Text/PDF extraction, YouTube transcript context, image routing, capability checks | Context caps, up to four images, two YouTube URLs, optional transcript dependency, rollback flag |
 | Brain | `core/brain.py`, `core/embeddings.py` | Durable owner memory, retrieval, review, conflict/version handling | Fastembed optional; keyword fallback; sweeps use per-chat cursors, an owner-bound DB lease, and durable deferred retries |
 | Awakening | `core/awakening.py` | Nine evidence-gated Tier-1 abilities and setup/evidence output | Uses active Brain memories, fresh connector-test evidence, tool contracts, and successful workflow receipts |
+| Agent tier evidence | `core/agent_tier.py`, `core/schema/agent_tier.py`, `api/routers/evolution.py` | Seven evidence-gated Tier-II abilities, five workflow-family pillars, 24-hour freshness, revocation, and owner-readable missing-proof/next-action output | T01 is the sole Tier-II completion authority. It stores bounded evidence references rather than raw outputs or secrets and fails closed at 0/7 until T02-T06 produce qualifying evidence |
 | Knowledge graph | `core/graph_engine.py` | Graph sync, edges, search, retrieval, communities, layout | Includes internal records and supported external mirrors |
 | Project management | `core/database.py`, `core/pm_resources.py`, `core/pm_reminders.py` | Project v2 data, files/links, extraction/RAG, reminders | Coexists with legacy business project tables; resource inventory/read/search is available to Conductor |
 | Terminal | `core/terminal_engine.py` | Risk classification, approval modes, command execution, jobs, package/tool registry | Full-machine shell with hard denylist and kill-switch |

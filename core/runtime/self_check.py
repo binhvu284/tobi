@@ -159,6 +159,10 @@ SUITES: tuple[SuiteSpec, ...] = (
               "tests/test_agent_tier_baseline.py",
               "Seven abilities, five workflow families, thirty cases, five sealed holdouts, and "
               "the unchanged-code result are hash-locked before Agent behavior changes."),
+    SuiteSpec("agent_tier_registry", "Agent progress comes from current proof", "#35 T01",
+              "tests/test_agent_tier_registry.py",
+              "Tier II uses seven evidence-backed abilities, rejects raw or stale proof, and "
+              "shows the owner what is missing and what to do next."),
     SuiteSpec("tobival_workflows", "Supported work follows one workflow", "#34 T02",
               "tests/test_tobival_workflows.py",
               "Known Mission Control requests select one frozen workflow and cannot escape its "

@@ -9,16 +9,16 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #35 TOBI Agent Tier Completion
-**Package:** T00 - Agent Contract, Frozen Cases, And Baseline
-**Status:** T00 implementation and artifact complete. Green verification is active; owner baseline acceptance remains pending.
+**Package:** T01 - Evidence-Based Agent Registry And Evolution Truth
+**Status:** T00 baseline accepted. T01 complete under green verification; T02 has not started.
 
 **Purpose (one sentence, plain words):**
-Replace the planning-only Agent estimate with frozen contracts, cases, metrics, and an unchanged-code
-baseline before any Agent production behavior changes.
+Make Tier II progress come only from current, bounded evidence and show the owner exactly what proof
+exists, what is missing, whether it is fresh, and what to do next.
 
 **Not doing:**
-- No changes to `core/`, `api/`, or dashboard behavior in T00.
-- No T01-T06 implementation before the owner accepts the measured T00 baseline.
+- No Agent execution, Chat routing, Developer dispatch, browser automation, or external action in T01.
+- No changes to DeepSeek Harness or another agent's Developer-worker implementation.
 - No live model calls, browser submissions, GitHub writes, Telegram delivery, Supabase, Vercel, merge,
   deployment, deletion, spending, or credential changes.
 - No changes to frozen #34 cases, formulas, model IDs, holdouts, or acceptance artifacts.
@@ -26,23 +26,23 @@ baseline before any Agent production behavior changes.
 
 **Files expected:**
 - `.claude/CURRENT_WORK.md`
-- `.claude/CURRENT_WORK.md`
-- `tests/evals/agent_tier/v1/ability_contracts.json`
-- `tests/evals/agent_tier/v1/workflow_families.json`
-- `tests/evals/agent_tier/v1/case_manifest.json`
-- `tests/evals/agent_tier/v1/baseline_observations.json`
-- `tests/evals/agent_tier/v1/manifest.lock.json`
-- `tobival/agent_tier_dataset.py`
-- `tobival/agent_tier_metrics.py`
+- `tests/evals/agent_tier/baselines/<production-commit>/owner-acceptance.json`
 - `tobival/agent_tier_baseline.py`
-- `core/runtime/self_check.py` verification-suite registration
-- `tests/test_agent_tier_baseline.py`
-- unchanged-code artifact under `tests/evals/agent_tier/baselines/<production-commit>/`
-- inherited #21/#34 release gate and queue/current-state documentation
+- `core/schema/agent_tier.py`
+- `core/database.py`
+- `core/agent_tier.py`
+- `core/awakening_detect.py`
+- `api/routers/evolution.py`
+- `dashboard/src/api.abilities.ts`
+- `dashboard/src/pages/Evolution.tsx`
+- `core/runtime/self_check.py`
+- `tests/test_agent_tier_registry.py`
+- focused #35 documentation plus the inherited #21/#34/T00 gate
 
 **Gate: green**
 
 ```gate
+../.python/venv/Scripts/python.exe tests/test_agent_tier_registry.py
 ../.python/venv/Scripts/python.exe tests/test_agent_tier_baseline.py
 ../.python/venv/Scripts/python.exe tests/test_mc_runtime_contracts.py
 ../.python/venv/Scripts/python.exe tests/test_mc_runtime_event_store.py

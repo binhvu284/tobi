@@ -55,8 +55,21 @@ not erase the Runtime, tool, Developer, integration, or UI components already pr
 The red-first target failed before implementation as required. After implementation,
 `tests/test_agent_tier_baseline.py` passes 26/26 and the inherited #21/#34 gate passes 30/30. Health's
 existing Infrastructure registry now includes the T00 proof so the owner button and release gate run
-the same suites. Production Agent execution, Runtime routing, APIs, and dashboard behavior remain
-unchanged. T01 is blocked until the owner accepts this exact baseline artifact.
+the same suites. Production Agent execution, Runtime routing, APIs, and dashboard behavior remained
+unchanged during T00.
+
+The owner accepted that exact T00 baseline on 2026-08-30. The separate acceptance record is bound to
+production commit `fc4d6d7`, dataset hash `17dda4f3...`, and artifact SHA-256 `9cddb15a...`; changing
+any of them invalidates acceptance instead of silently reusing it.
+
+T01 is complete on 2026-08-31. A persisted Agent evidence registry now owns all seven Tier II ability
+statuses across five workflow-family pillars. Evidence must be current, bounded, and tied to the
+current release; missing, stale, revoked, malformed, or secret-like references fail closed. Evolution
+reads that registry instead of the legacy static checklist and shows the evidence, freshness, missing
+proof, and next action. The correct starting result is 0/7 until later #35 packages qualify real
+workflows. The red-first target failed for the missing registry; afterward its 17 checks, the 31-suite
+shared gate, dashboard build, and desktop/mobile owner flow pass. No external service, model call,
+DeepSeek Harness file, or production workflow was used or changed in T01. T02 is next.
 
 
 <a id="item-34"></a>

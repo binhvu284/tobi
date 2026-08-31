@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import subprocess
 from collections.abc import Mapping
 from pathlib import Path
@@ -41,6 +42,40 @@ _ABILITY_OBSERVATION_FIELDS = {"status", "evidence_refs", "missing_proof"}
 
 def baseline_artifact_path(production_commit: str) -> Path:
     return DATASET_ROOT / "baselines" / production_commit / "unchanged-baseline.json"
+
+
+def baseline_acceptance_path(production_commit: str) -> Path:
+    return DATASET_ROOT / "baselines" / production_commit / "owner-acceptance.json"
+
+
+def load_baseline_acceptance(
+    artifact_path: Path | None = None,
+    acceptance_path: Path | None = None,
+) -> dict[str, Any] | None:
+    """Load T00 owner acceptance only when it matches the exact baseline bytes."""
+    try:
+        if artifact_path is None or acceptance_path is None:
+            observations = load_baseline_observations(DATASET_VERSION)
+            production_commit = str(observations["production_commit"])
+            artifact_path = artifact_path or baseline_artifact_path(production_commit)
+            acceptance_path = acceptance_path or baseline_acceptance_path(production_commit)
+        artifact_bytes = artifact_path.read_bytes()
+        artifact = json.loads(artifact_bytes)
+        acceptance = json.loads(acceptance_path.read_text(encoding="utf-8"))
+    except (OSError, KeyError, json.JSONDecodeError):
+        return None
+    if (
+        acceptance.get("schema_version") != "agent-tier.owner-acceptance.v1"
+        or acceptance.get("item_id") != "UPG-CORE-8D32H-012"
+        or acceptance.get("package") != "T00"
+        or acceptance.get("accepted") is not True
+        or not acceptance.get("accepted_at")
+        or acceptance.get("artifact_sha256") != _sha256(artifact_bytes)
+        or acceptance.get("production_commit") != artifact.get("production_commit")
+        or acceptance.get("dataset_hash") != artifact.get("dataset_hash")
+    ):
+        return None
+    return acceptance
 
 
 def _sha256(value: bytes) -> str:

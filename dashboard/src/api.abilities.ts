@@ -285,6 +285,12 @@ export type AbilityStatus = 'active' | 'partial' | 'setup_needed' | 'inactive'
 
 export type AbilitySetupAction = { label: string; route: string }
 
+export type AbilityFreshness = {
+  policy: 'current_release' | '24_hours'
+  state: 'current' | 'stale' | 'missing'
+  last_verified_at: string | null
+}
+
 export type TierAbility = {
   id: string
   name: string
@@ -300,6 +306,8 @@ export type TierAbility = {
   evidence?: string[]
   missing?: string[]
   setup_actions?: AbilitySetupAction[]
+  freshness?: AbilityFreshness
+  next_action?: string
   risk?: 'low' | 'medium' | 'high'
 }
 

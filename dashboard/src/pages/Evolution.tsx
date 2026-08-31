@@ -111,7 +111,7 @@ const AWK_STATUS: Record<string, { label: string; text: string; chip: string; Ic
   setup_needed: { label: 'Setup needed', text: 'text-sky-400',   chip: 'bg-sky-500/15 text-sky-400',     Icon: Wrench },
   inactive:     { label: 'Inactive',     text: 'text-muted',     chip: 'bg-muted/10 text-muted',         Icon: MinusCircle },
 }
-const isAwakeningAbility = (ab: TierAbility) => !!ab.category
+const isEvidenceAbility = (ab: TierAbility) => !!ab.category
 
 const EFFORT_STYLE: Record<string, string> = {
   done:    'bg-green-500/15 text-green-400',
@@ -147,24 +147,24 @@ function ProgressRing({ pct, size = 90, stroke = 6, color = 'rgb(var(--accent))'
 
 function AbilityRow({ ab, locked, onClick }: { ab: TierAbility; locked: boolean; onClick: () => void }) {
   const isActive = ab.status === 'active'
-  const awk = isAwakeningAbility(ab)
+  const evidenceBased = isEvidenceAbility(ab)
   const st = AWK_STATUS[ab.status] ?? AWK_STATUS.inactive
   return (
     <button onClick={onClick}
       className="flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-overlay/5 active:bg-overlay/10">
       <span className="mt-0.5 shrink-0">
         {locked   ? <Lock size={14} className="text-muted/40" /> :
-         awk      ? <st.Icon size={14} className={st.text} /> :
+         evidenceBased ? <st.Icon size={14} className={st.text} /> :
          isActive ? <CheckCircle2 size={14} className="text-green-400" /> :
                     <XCircle size={14} className="text-red-400/60" />}
       </span>
       <span className={`flex-1 text-xs leading-snug ${locked ? 'text-muted/40' : isActive ? 'text-text' : 'text-muted'}`}>
         {ab.name}
       </span>
-      {awk && !isActive && (
+      {evidenceBased && !isActive && (
         <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${st.chip}`}>{st.label}</span>
       )}
-      {!awk && !isActive && ab.effort && ab.effort !== 'done' && (
+      {!evidenceBased && !isActive && ab.effort && ab.effort !== 'done' && (
         <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${EFFORT_STYLE[ab.effort] ?? 'bg-muted/10 text-muted'}`}>
           {ab.effort}
         </span>
@@ -286,7 +286,7 @@ function AbilityDrawer({ ab, tier, onClose, onReflected }: {
 }) {
   const c = TIER_COLORS[tier.color_key] ?? TIER_COLORS.gray
   const isActive = ab.status === 'active'
-  const awk = isAwakeningAbility(ab)
+  const evidenceBased = isEvidenceAbility(ab)
   const st = AWK_STATUS[ab.status] ?? AWK_STATUS.inactive
   const nav = useNavigate()
   const [reflecting, setReflecting] = useState(false)
@@ -324,7 +324,7 @@ function AbilityDrawer({ ab, tier, onClose, onReflected }: {
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
         {/* Status badge */}
         <div className="flex items-center gap-2">
-          {awk ? (
+          {evidenceBased ? (
             <span className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${st.chip}`}>
               <st.Icon size={12} /> {st.label.toUpperCase()}
             </span>
@@ -332,7 +332,7 @@ function AbilityDrawer({ ab, tier, onClose, onReflected }: {
             ? <span className="flex items-center gap-1.5 rounded-full bg-green-500/15 px-3 py-1 text-xs font-semibold text-green-400"><CheckCircle2 size={12} /> ACTIVE</span>
             : <span className="flex items-center gap-1.5 rounded-full bg-red-500/15 px-3 py-1 text-xs font-semibold text-red-400"><XCircle size={12} /> INACTIVE</span>
           }
-          {!awk && ab.effort && ab.effort !== 'done' && (
+          {!evidenceBased && ab.effort && ab.effort !== 'done' && (
             <span className={`flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium ${EFFORT_STYLE[ab.effort] ?? ''}`}>
               <Clock size={11} /> {ab.effort}
             </span>
@@ -345,8 +345,8 @@ function AbilityDrawer({ ab, tier, onClose, onReflected }: {
         {/* Description */}
         <p className="text-sm text-muted leading-relaxed">{ab.description}</p>
 
-        {/* Awakening (#17): live evidence / what's missing / setup deep-links */}
-        {awk && ab.evidence && ab.evidence.length > 0 && (
+        {/* Evidence registries: live proof, freshness, missing proof, and owner action. */}
+        {evidenceBased && ab.evidence && ab.evidence.length > 0 && (
           <div className="rounded-lg border border-green-500/25 bg-green-500/5 p-3 space-y-1.5">
             <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-green-400">
               <CheckCircle2 size={11} /> Evidence
@@ -356,7 +356,21 @@ function AbilityDrawer({ ab, tier, onClose, onReflected }: {
             </ul>
           </div>
         )}
-        {awk && !isActive && ab.missing && ab.missing.length > 0 && (
+        {evidenceBased && ab.freshness && (
+          <div className="rounded-lg border border-border bg-bg/50 p-3 space-y-1.5">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">
+              <Clock size={11} /> Freshness
+            </div>
+            <p className="text-xs text-muted">
+              {ab.freshness.state === 'current' ? 'Current proof' : ab.freshness.state === 'stale' ? 'Proof expired' : 'No proof recorded'}
+              {' · '}{ab.freshness.policy === '24_hours' ? 'valid for 24 hours' : 'valid for this release'}
+            </p>
+            {ab.freshness.last_verified_at && (
+              <p className="text-[11px] text-muted">Last verified: {new Date(ab.freshness.last_verified_at).toLocaleString()}</p>
+            )}
+          </div>
+        )}
+        {evidenceBased && !isActive && ab.missing && ab.missing.length > 0 && (
           <div className="rounded-lg border border-border bg-bg/50 p-3 space-y-1.5">
             <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-400">
               <Zap size={11} /> What's missing
@@ -366,7 +380,15 @@ function AbilityDrawer({ ab, tier, onClose, onReflected }: {
             </ul>
           </div>
         )}
-        {awk && !isActive && ab.setup_actions && ab.setup_actions.length > 0 && (
+        {evidenceBased && !isActive && ab.next_action && (
+          <div className="rounded-lg border border-accent/25 bg-accent/5 p-3 space-y-1.5">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-accent">
+              <ArrowRight size={11} /> Next action
+            </div>
+            <p className="text-xs text-muted leading-relaxed">{ab.next_action}</p>
+          </div>
+        )}
+        {evidenceBased && !isActive && ab.setup_actions && ab.setup_actions.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {ab.setup_actions.map((s, i) => (
               <button key={i} onClick={() => { onClose(); nav(s.route) }}
@@ -379,7 +401,7 @@ function AbilityDrawer({ ab, tier, onClose, onReflected }: {
         )}
 
         {/* How to unlock (if inactive) */}
-        {!isActive && ab.how_to_unlock && (
+        {!evidenceBased && !isActive && ab.how_to_unlock && (
           <div className="rounded-lg border border-border bg-bg/50 p-3 space-y-1.5">
             <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-accent">
               <Zap size={11} /> How to unlock
@@ -388,7 +410,7 @@ function AbilityDrawer({ ab, tier, onClose, onReflected }: {
           </div>
         )}
 
-        {!awk && !isActive && !ab.how_to_unlock && (
+        {!evidenceBased && !isActive && !ab.how_to_unlock && (
           <div className="rounded-lg border border-border bg-bg/50 p-3">
             <p className="text-xs text-muted italic">This capability unlocks as the cumulative result of earlier tiers. Build the prerequisite tiers first.</p>
           </div>
@@ -426,7 +448,7 @@ function AbilityDrawer({ ab, tier, onClose, onReflected }: {
             const Icon = meta.icon
             return (
               <div key={key} className="flex items-center gap-1.5 text-xs text-muted">
-                <Icon size={12} /> {meta.label}
+                <Icon size={12} /> {tier.pillar_labels?.[key] ?? meta.label}
               </div>
             )
           })}

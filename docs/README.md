@@ -2,8 +2,9 @@
 
 This directory separates current system truth from implementation plans and historical design records.
 
-> Status follow-up: 2026-08-30. #34/T08 has canonical live proof, owner acceptance bound to the
-> exact artifact, and Done status. #35/T00 has a green frozen baseline and is awaiting owner acceptance before T01.
+> Status follow-up: 2026-08-31. #34/T08 has canonical live proof, owner acceptance bound to the
+> exact artifact, and Done status. The owner accepted #35/T00's exact frozen baseline; #35/T01 now
+> makes Tier II progress evidence-based, with T02 local workflow qualification next.
 
 ## Read Order
 

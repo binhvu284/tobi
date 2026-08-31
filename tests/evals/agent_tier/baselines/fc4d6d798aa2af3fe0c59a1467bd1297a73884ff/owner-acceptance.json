@@ -1,0 +1,10 @@
+{
+  "schema_version": "agent-tier.owner-acceptance.v1",
+  "item_id": "UPG-CORE-8D32H-012",
+  "package": "T00",
+  "accepted": true,
+  "accepted_at": "2026-08-30T15:37:30+07:00",
+  "production_commit": "fc4d6d798aa2af3fe0c59a1467bd1297a73884ff",
+  "dataset_hash": "17dda4f32ee99105e9423df4895d075e4daff1dab50c18b02dbf915d7c6cf19c",
+  "artifact_sha256": "9cddb15ae19ce9cefddfcc8c2afefadc79986004e1553313493c92f3986d460d"
+}

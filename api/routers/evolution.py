@@ -14,7 +14,8 @@ from datetime import datetime, timezone  # noqa: F401 - used by some handlers
 from fastapi import APIRouter
 
 from api.deps import _count, _get_conn
-from core.awakening_detect import _TIER_DEFINITIONS, _detect_abilities
+from core import agent_tier
+from core.awakening_detect import _AGENT_EVIDENCE_TIER_ID, _TIER_DEFINITIONS, _detect_abilities
 from core.release_manager import current_developer_version
 
 router = APIRouter(tags=["evolution"])
@@ -59,7 +60,12 @@ def _save_evo_snapshot(conn: sqlite3.Connection, statuses: dict) -> None:
     conn.commit()
 
 
-def _build_evo_response(statuses: dict[str, bool], prev: dict[str, str], conn=None):
+def _build_evo_response(
+    statuses: dict[str, bool],
+    prev: dict[str, str],
+    conn=None,
+    current_release: str | None = None,
+):
     just_unlocked: list[int] = []
     tiers_out = []
 
@@ -68,6 +74,8 @@ def _build_evo_response(statuses: dict[str, bool], prev: dict[str, str], conn=No
     # inactive) + evidence/missing/setup_actions, and only 'active' counts toward progress.
     awakening_pillars = None
     awakening_labels = None
+    agent_pillars = agent_tier.unavailable_pillars("Agent evidence registry is unavailable.")
+    agent_labels = agent_tier.pillar_labels()
     if conn is not None:
         try:
             from core import awakening as _awk
@@ -75,10 +83,22 @@ def _build_evo_response(statuses: dict[str, bool], prev: dict[str, str], conn=No
             awakening_labels = _awk.pillar_labels()
         except Exception:
             awakening_pillars = None
+        try:
+            agent_pillars = agent_tier.tier2_pillars(
+                conn, current_release=current_release or current_developer_version(conn)
+            )
+        except Exception:
+            pass
 
     for tier in _TIER_DEFINITIONS:
         use_awakening = tier["id"] == 1 and awakening_pillars is not None
-        pillars_src = awakening_pillars if use_awakening else tier["pillars"]
+        use_agent = tier["id"] == _AGENT_EVIDENCE_TIER_ID
+        if use_awakening:
+            pillars_src = awakening_pillars
+        elif use_agent:
+            pillars_src = agent_pillars
+        else:
+            pillars_src = tier["pillars"]
 
         all_ids: list[str] = []
         active_count = 0
@@ -118,6 +138,8 @@ def _build_evo_response(statuses: dict[str, bool], prev: dict[str, str], conn=No
         }
         if use_awakening and awakening_labels:
             tier_obj["pillar_labels"] = awakening_labels
+        elif use_agent:
+            tier_obj["pillar_labels"] = agent_labels
         tiers_out.append(tier_obj)
 
     return tiers_out, just_unlocked
@@ -128,15 +150,23 @@ async def get_evolution():
     conn = _get_conn()
     statuses = _detect_abilities(conn)
     prev = _load_evo_snapshot(conn)
-    tiers, just_unlocked = _build_evo_response(statuses, prev, conn)
+    app_version = current_developer_version(conn)
+    tiers, just_unlocked = _build_evo_response(
+        statuses, prev, conn, current_release=app_version
+    )
     # persist the Awakening 4-valued statuses too so just-activated survives reloads (#17)
     try:
         from core import awakening as _awk
         awk_status = _awk.status_map(conn)
     except Exception:
         awk_status = {}
-    _save_evo_snapshot(conn, {**statuses, **awk_status})
-    app_version = current_developer_version(conn)
+    agent_status = {
+        ability["id"]: ability["status"]
+        for tier in tiers if tier["id"] == 2
+        for pillar in tier["pillars"].values()
+        for ability in pillar
+    }
+    _save_evo_snapshot(conn, {**statuses, **awk_status, **agent_status})
     conn.close()
 
     total_abilities = sum(t["total_count"] for t in tiers)
@@ -144,7 +174,7 @@ async def get_evolution():
     jarvis_pct = round(total_active / total_abilities * 100) if total_abilities else 0
 
     current_tier = next((t["id"] for t in tiers if not t["complete"]), tiers[-1]["id"])
-    current_tier_data = tiers[current_tier]
+    current_tier_data = next(tier for tier in tiers if tier["id"] == current_tier)
     missing = [
         ab for pillar in current_tier_data["pillars"].values()
         for ab in pillar if ab["status"] != "active"

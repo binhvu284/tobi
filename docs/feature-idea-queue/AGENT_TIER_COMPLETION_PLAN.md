@@ -1,6 +1,19 @@
 # TOBI Agent Tier Completion
 
-`UPG-CORE-8D32H-012` | Queue item #35 | Owner-approved plan | Ready and unblocked
+`UPG-CORE-8D32H-012` | Queue item #35 | Owner-approved plan | In progress - T01 complete
+
+## Delivery Status
+
+- T00: owner accepted the exact production-revision baseline on 2026-08-30. Acceptance is stored
+  separately and is valid only while the baseline artifact hash, dataset hash, and production commit match.
+- T01: delivered on 2026-08-31. One persisted seven-ability registry now owns Tier II completion;
+  Evolution shows its bounded evidence, freshness, missing proof, and next action.
+- Current Tier II result: 0/7 by design because no T02-T06 production workflow has recorded qualifying
+  evidence yet. Existing components do not become proof merely because their code exists.
+- Verification: T01 focused checks pass 17/17, the shared gate passes 31/31, the dashboard production
+  build passes, and desktop/mobile Evolution checks pass without overflow or browser errors.
+- Next package: T02 local assigned-work workflows. T02A Developer dispatch remains a later, separate
+  Coding maintenance subpackage; DeepSeek Harness work remains outside #35.
 
 ## The One Outcome
 
@@ -418,5 +431,6 @@ must not invent a passing command in the plan and assume it exists.
 
 ## Worker Start Rule
 
-#34 is Done. Start only T00, set the current-work gate to red for the frozen baseline target, and do
-not change production behavior until the owner accepts the measured baseline.
+T00 is owner-accepted and T01 is complete. Start only T02, set the current-work gate to red for its
+focused workflow target, and keep T02A Developer dispatch plus external/browser action packages out of
+that local-work boundary.

@@ -17,6 +17,7 @@ from typing import Optional
 # source of truth: the schema functions are imported back and init_database() calls
 # them in the same order, so no CREATE TABLE is scattered across features.
 from core.schema.base import _ensure_column, _table_columns  # noqa: F401 - used by helpers below
+from core.schema.agent_tier import _ensure_agent_tier_schema
 from core.schema.brain import _ensure_brain_schema
 from core.schema.chat import _ensure_chat_schema
 from core.schema.graph import _ensure_graph_schema
@@ -207,6 +208,7 @@ def init_database() -> None:
     _ensure_mcp_schema(conn)
     _ensure_chat_schema(conn)
     _ensure_runtime_schema(conn)
+    _ensure_agent_tier_schema(conn)
     try:
         from core import explore
         explore.ensure_schema(conn)
