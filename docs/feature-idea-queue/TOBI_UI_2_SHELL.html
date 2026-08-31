@@ -1,0 +1,2872 @@
+<title>TOBI UI 2.0 Design</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+
+<style>
+/* ══════════════════════════════════════════════════════════════════════════════
+   TOBI UI 2.0 — Live Screen
+   Production design. Tokens are Mission Control's Theme v2 "Dark Default",
+   taken verbatim from dashboard/src/index.css so what is drawn here is what the
+   app already renders. Deliberately single-theme: this IS the dark theme.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root{
+  /* surfaces, ground up */
+  --ground:#0d1117;
+  --panel:#10151c;
+  --surface:#161b22;
+  --raised:#1b222c;
+  --line:#30363d;
+  --line-soft:#232a33;
+
+  /* ink */
+  --heading:#f0f6fc;
+  --text:#c9d1d9;
+  --muted:#8b949e;
+  --faint:#6e7681;
+
+  /* one accent, three semantics, one provider mark */
+  --accent:#58a6ff;
+  --accent-dim:rgba(88,166,255,.14);
+  --ok:#3fb950;
+  --warn:#d29922;
+  --bad:#f85149;
+  --provider:#d97757;      /* Anthropic clay — the mark carries the vendor, not the accent */
+
+  /* files are told apart by kind before they are read by name */
+  --f-doc:#58a6ff;         /* plans and notes */
+  --f-img:#a371f7;         /* pictures and charts */
+  --f-sheet:#3fb950;       /* tables */
+  --f-log:#d97757;         /* the running record */
+
+  /* micro-states, named so a build has nothing to guess at */
+  --line-hover:#3d444d;
+  --track:#262d36;
+  --track-hover:#39414c;
+  --strike:#414a55;
+  --accent-deep:#1f6feb;
+  --accent-lift:#7cbaff;   /* the lit top edge of a filled control */
+  --accent-flare:#bfe0ff;  /* the shoulder of the shimmer */
+  --accent-peak:#f4faff;   /* its crest, which is what makes the wave read */
+  --on-accent:#06121f;
+  --bad-lift:#ff7a72;    /* the lit top edge of the one filled red control */
+  --on-bad:#2b0806;      /* ink for the one filled red control */
+
+  /* the viewer band above the shell — chrome, not product */
+  --viewer:#080b11;
+
+  /* four radii, nothing between them: 6 chips · 8 nav and tabs · 11 controls · 12 surfaces */
+  --r-chip:6px;
+  --r-nav:8px;
+  --r-ctrl:11px;
+  --r-card:12px;
+
+  --shadow-card:0 1px 2px rgba(0,0,0,.35), 0 12px 30px -14px rgba(0,0,0,.75);
+  --shadow-pop:0 1px 2px rgba(0,0,0,.4), 0 20px 48px -16px rgba(0,0,0,.8);
+  --inner-lift:inset 0 1px 0 rgba(255,255,255,.045);
+
+  /* Premium archetype: 260-420ms, no overshoot. Entrances longer than exits. */
+  --t-fast:150ms;
+  --t-base:260ms;
+  --t-slow:420ms;
+  --e-out:cubic-bezier(.05,.7,.1,1);    /* arriving, decelerate */
+  --e-in:cubic-bezier(.3,0,1,1);        /* leaving, accelerate */
+  --e-move:cubic-bezier(.4,0,.2,1);     /* changing while on screen */
+
+  /* Type: seven sizes, and nothing between them.
+     10 meta and mono · 11.5 badges · 12.5 UI · 13.5 body · 14.5 reading · 16.5 titles · 21 display */
+  --fs-micro:10px;
+  --fs-small:11.5px;
+  --fs-ui:12.5px;
+  --fs-body:13.5px;
+  --fs-lede:14.5px;
+  --fs-title:16.5px;
+  --fs-display:21px;
+
+  /* Space: five steps. Anything under 4px is optical, inside a glyph, and stays raw. */
+  --sp-1:4px;
+  --sp-2:8px;
+  --sp-3:12px;
+  --sp-4:16px;
+  --sp-5:22px;
+
+  /* Depth: five layers, so nothing has to guess a number */
+  --z-base:1;
+  --z-chrome:5;
+  --z-pop:20;
+  --z-modal:30;
+  --z-full:60;
+
+  --ui:"Geist","Geist Variable",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:"Geist Mono",ui-monospace,"Cascadia Mono","SF Mono",Consolas,monospace;
+}
+
+*{box-sizing:border-box}
+html{height:100%}
+body{
+  margin:0;background:var(--ground);color:var(--text);
+  font-family:var(--ui);font-size:var(--fs-body);line-height:1.55;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+  overflow-x:hidden;
+}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:var(--r-chip)}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+.lab{font-family:var(--mono);font-size:var(--fs-micro);font-weight:500;letter-spacing:.15em;text-transform:uppercase}
+.ic{width:16px;height:16px;flex:none;stroke-width:1.6;stroke:currentColor;fill:none;
+    stroke-linecap:round;stroke-linejoin:round}
+
+/* ── App frame ─────────────────────────────────────────────────────────────── */
+.app{display:grid;grid-template-columns:232px 1fr;height:100%;min-height:0;position:relative}
+
+/* the room the neuron sits in — a single soft bloom, nothing more */
+.app::before{
+  content:"";position:absolute;left:232px;right:0;top:0;height:62%;pointer-events:none;z-index:0;
+  background:radial-gradient(58% 78% at 26% 8%,rgba(88,166,255,.055),transparent 70%);
+}
+/* fine grain so the flat fields do not band on a large screen */
+.app::after{
+  content:"";position:absolute;inset:0;pointer-events:none;z-index:0;opacity:.5;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.035'/%3E%3C/svg%3E");
+}
+
+/* ── Navigation rail ───────────────────────────────────────────────────────── */
+.rail{
+  background:var(--panel);border-right:1px solid var(--line-soft);
+  display:flex;flex-direction:column;min-height:0;position:relative;z-index:var(--z-base);
+}
+.brand{display:flex;align-items:center;gap:var(--sp-3);padding:16px 16px 14px}
+.mark{width:26px;height:26px;border-radius:var(--r-nav);flex:none;display:grid;place-items:center;
+  background:linear-gradient(150deg,var(--accent-deep),var(--accent));box-shadow:0 2px 10px -2px rgba(88,166,255,.55),var(--inner-lift)}
+.mark svg{width:15px;height:15px;stroke:var(--on-accent);stroke-width:1.9;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.brand .name{font-weight:600;font-size:var(--fs-lede);color:var(--heading);letter-spacing:-.01em}
+.brand .ver{font-family:var(--mono);font-size:var(--fs-micro);color:var(--faint);margin-top:1px}
+
+.navscroll{flex:1;overflow-y:auto;padding:10px 10px 12px}
+.group{margin-top:16px}
+.group:first-child{margin-top:2px}
+.group > .lab{color:var(--faint);padding:0 8px 7px}
+.nav{display:flex;align-items:center;gap:var(--sp-3);padding:7px 8px;border-radius:var(--r-nav);
+  color:var(--muted);font-size:var(--fs-body);position:relative;transition:background var(--t-fast) ease,color var(--t-fast) ease}
+.nav:hover{background:rgba(255,255,255,.035);color:var(--text)}
+.nav .ic{color:var(--faint);transition:color var(--t-fast) ease}
+.nav:hover .ic{color:var(--muted)}
+.nav.on{color:var(--heading);font-weight:500;
+  background:linear-gradient(90deg,rgba(88,166,255,.16),rgba(88,166,255,.05));
+  box-shadow:inset 0 0 0 1px rgba(88,166,255,.14)}
+.nav.on .ic{color:var(--accent)}
+.nav.on::before{content:"";position:absolute;left:-10px;top:7px;bottom:7px;width:2px;border-radius:0 2px 2px 0;
+  background:var(--accent);box-shadow:0 0 8px rgba(88,166,255,.7)}
+.nav .count{margin-left:auto;font-family:var(--mono);font-size:var(--fs-micro);color:var(--faint)}
+
+.railfoot{border-top:1px solid var(--line-soft);padding:10px;display:flex;align-items:center;gap:var(--sp-3)}
+.avatar{width:28px;height:28px;border-radius:var(--r-nav);flex:none;display:grid;place-items:center;
+  background:linear-gradient(150deg,var(--line),var(--raised));box-shadow:var(--inner-lift);
+  font-size:var(--fs-small);font-weight:600;color:var(--text);letter-spacing:.02em}
+.who{min-width:0;line-height:1.25}
+.who b{display:block;font-size:var(--fs-ui);font-weight:500;color:var(--text)}
+.who span{font-family:var(--mono);font-size:var(--fs-micro);color:var(--faint)}
+.iconbtn{width:28px;height:28px;border-radius:var(--r-nav);display:grid;place-items:center;color:var(--faint);
+  transition:background var(--t-fast) ease,color var(--t-fast) ease}
+.iconbtn:hover{background:rgba(255,255,255,.05);color:var(--text)}
+.railfoot .iconbtn{margin-left:auto}
+
+/* ── App column ────────────────────────────────────────────────────────────── */
+.col{display:grid;grid-template-rows:40px 1fr;min-width:0;min-height:0;position:relative;z-index:var(--z-base)}
+
+.strip{display:flex;align-items:flex-end;gap:var(--sp-1);padding:0 12px;background:var(--panel);
+  border-bottom:1px solid var(--line-soft)}
+.wtab{display:flex;align-items:center;gap:var(--sp-2);height:32px;padding:0 14px;border-radius:var(--r-nav) var(--r-nav) 0 0;
+  font-size:var(--fs-ui);color:var(--muted);position:relative;top:1px;border:1px solid transparent;border-bottom:none}
+.wtab:hover{color:var(--text)}
+.wtab.on{color:var(--heading);background:var(--ground);border-color:var(--line-soft);
+  border-bottom:1px solid var(--ground);font-weight:500}
+.wtab .x{color:var(--faint);font-size:var(--fs-body);line-height:1}
+.strip .spacer{flex:1}
+.livepill{display:flex;align-items:center;gap:var(--sp-2);height:24px;padding:0 11px;align-self:center;
+  border-radius:999px;border:1px solid rgba(88,166,255,.3);background:rgba(88,166,255,.08);
+  font-family:var(--mono);font-size:var(--fs-micro);font-weight:500;letter-spacing:.1em;color:var(--accent)}
+.livedot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px rgba(88,166,255,.9)}
+
+/* the live page: console + canvas, each with its own bar on one line */
+.page{display:grid;grid-template-columns:1fr 54%;gap:var(--sp-3);padding:12px;min-height:0;min-width:0}
+
+/* ── Console column ────────────────────────────────────────────────────────── */
+.console{display:flex;flex-direction:column;min-width:0;min-height:0}
+
+.statusbar{height:44px;display:flex;align-items:center;gap:var(--sp-4);padding:0 14px;align-self:center;
+  border:1px solid var(--line);border-radius:var(--r-ctrl);background:var(--surface);box-shadow:var(--shadow-card),var(--inner-lift)}
+.statusbar .rule{width:1px;height:18px;background:var(--line);flex:none}
+.model{display:flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-ui);color:var(--text);white-space:nowrap}
+.provider{width:16px;height:16px;flex:none;color:var(--provider);filter:drop-shadow(0 0 6px rgba(217,119,87,.45))}
+.model .chev{color:var(--faint)}
+.ctx{display:flex;align-items:center;gap:var(--sp-2);white-space:nowrap}
+.donut{width:20px;height:20px;flex:none}
+.ctx .pct{font-family:var(--mono);font-size:var(--fs-ui);font-weight:500;color:var(--text);font-variant-numeric:tabular-nums}
+.ctx .of{font-family:var(--mono);font-size:var(--fs-small);color:var(--faint);font-variant-numeric:tabular-nums}
+.clock{font-family:var(--mono);font-size:var(--fs-body);font-weight:600;color:var(--heading);letter-spacing:.02em;
+  font-variant-numeric:tabular-nums}
+.health{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none;
+  box-shadow:0 0 0 3px rgba(63,185,80,.14),0 0 10px rgba(63,185,80,.5)}
+
+/* ── Three parts, and only the middle one moves ───────────────────────────
+   Head: the graph and what it is doing, fixed, never scrolls away.
+   Body: this exchange, and only this one. It scrolls when it is too tall.
+   Dock: always where you left it.
+   The old layout centred everything in one flex column with no overflow, so
+   a long answer pushed itself under the dock instead of scrolling. ─────── */
+.stage{flex:none;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
+  gap:0;padding:6px 0 0}
+/* the strip has a slot of its own so its going gives the height back rather
+   than snapping the layout: 338px with a status, 294px without one */
+.statusslot{height:30px;margin-top:14px;overflow:hidden;display:flex;align-items:center;
+  transition:height var(--t-slow) var(--e-move),margin-top var(--t-slow) var(--e-move),
+             opacity var(--t-base) var(--e-move)}
+.statusslot.gone{height:0;margin-top:0;opacity:0}
+.convowrap{flex:1;min-height:0;position:relative;display:flex;flex-direction:column}
+.convo{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:14px 4px 16px}
+.convo::-webkit-scrollbar{width:10px}
+.convo::-webkit-scrollbar-thumb{background:var(--track);border-radius:999px;border:3px solid var(--ground)}
+.convo::-webkit-scrollbar-thumb:hover{background:var(--track-hover)}
+.convo .script{margin:0 auto}
+.neuron{position:relative;width:288px;height:288px;flex:none}
+/* a slow sweep through the outer band — the only thing in the design that turns */
+/* the well the graph sits in — lit from the upper left, painted under the canvas */
+.disc{position:absolute;inset:9%;border-radius:50%;pointer-events:none;
+  background:radial-gradient(at 46% 34%,rgba(29,58,92,.5),rgba(15,24,38,.42) 70%,rgba(13,17,23,.18))}
+
+/* TOBI's memory graph, drawn from the real thing — it thickens as he learns,
+   and the circle is the one thing that never changes */
+.brain{position:absolute;inset:0;width:100%;height:100%;border-radius:50%;
+  mix-blend-mode:screen;pointer-events:none}
+.sweep{position:absolute;inset:8px;border-radius:50%;pointer-events:none;
+  background:conic-gradient(from 0deg,transparent 0 70%,rgba(88,166,255,.10) 88%,rgba(88,166,255,.22) 96%,transparent 100%);
+  -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 30px),#000 calc(100% - 29px));
+  mask:radial-gradient(farthest-side,transparent calc(100% - 30px),#000 calc(100% - 29px))}
+.neuron svg{width:100%;height:100%;display:block}
+.n-glow{transform-origin:144px 144px;transform-box:view-box}
+.state{font-family:var(--mono);font-size:var(--fs-micro);font-weight:500;letter-spacing:.22em;text-transform:uppercase;
+  color:var(--accent);text-shadow:0 0 18px rgba(88,166,255,.45)}
+/* ── What TOBI is doing, in one line that is never generic ────────────────
+   Research is consistent on this: a spinner with no subject is the thing
+   that makes people think a system has hung. So the strip always carries a
+   specific label, and anything that can run long carries elapsed time next
+   to it, which is what tells a slow step from a stuck one. ─────────────── */
+.status{display:inline-flex;align-items:center;gap:var(--sp-3);height:30px;padding:0 14px;border-radius:999px;
+  color:var(--faint);border:1px solid var(--line-soft);
+  background:linear-gradient(180deg,var(--raised),var(--surface));
+  box-shadow:var(--inner-lift),0 1px 2px rgba(0,0,0,.3);
+  transition:color var(--t-slow) var(--e-move),border-color var(--t-slow) var(--e-move),
+             background var(--t-slow) var(--e-move),box-shadow var(--t-slow) var(--e-move)}
+.status:not([data-state="idle"]){color:var(--accent);border-color:rgba(88,166,255,.32);
+  background:linear-gradient(180deg,rgba(88,166,255,.15),rgba(88,166,255,.05));
+  box-shadow:0 8px 20px -11px rgba(88,166,255,.9),var(--inner-lift)}
+.slabel{font-size:var(--fs-ui);font-weight:500;letter-spacing:-.004em;white-space:nowrap}
+/* while he works there is no chrome at all: the words are the indicator */
+.status[data-state="thinking"],.status[data-state="working"]{
+  height:auto;padding:0;border-color:transparent;background:none;box-shadow:none}
+.status[data-state="thinking"] .sglyph,.status[data-state="working"] .sglyph{display:none}
+.slabel.in{animation:sayin var(--t-base) var(--e-out) both}
+.shimmer,
+.act.running .nm,
+.check.now .nm,
+.status[data-state="thinking"] .slabel,
+.status[data-state="working"] .slabel{
+  text-shadow:none;
+  background:linear-gradient(100deg,
+    rgba(88,166,255,.38) 0%,rgba(88,166,255,.38) 30%,
+    var(--accent-flare) 43%,var(--accent-peak) 50%,var(--accent-flare) 57%,
+    rgba(88,166,255,.38) 70%,rgba(88,166,255,.38) 100%);
+  background-size:300% 100%;background-position:150% 0;
+  -webkit-background-clip:text;background-clip:text;
+  color:transparent;-webkit-text-fill-color:transparent;
+  filter:drop-shadow(0 0 13px rgba(88,166,255,.6))}
+.status[data-state="thinking"] .slabel,
+.status[data-state="working"] .slabel{font-size:var(--fs-body);font-weight:600;letter-spacing:-.008em}
+.srun{display:flex;align-items:center;gap:var(--sp-2);padding-left:11px;border-left:1px solid var(--line);
+  opacity:0;transition:opacity var(--t-base) var(--e-move)}
+.status.timing .srun{opacity:1}
+.selapsed,.stokens{font-family:var(--mono);font-size:var(--fs-micro);font-weight:500;
+  font-variant-numeric:tabular-nums;color:var(--faint)}
+.stokens::before{content:"·";margin-right:8px;color:var(--strike)}
+
+/* three glyphs, and each one means a kind of work: taking in, computing, giving out */
+.sglyph{width:15px;height:15px;flex:none;display:grid;place-items:center}
+.sglyph .g{display:none;grid-area:1/1}
+.status[data-state="idle"] .g-dot{display:block}
+.status[data-state="listening"] .g-bars,.status[data-state="speaking"] .g-bars{display:flex}
+.status[data-state="thinking"] .g-arc,.status[data-state="working"] .g-arc{display:block}
+.g-dot{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.65}
+.g-bars{align-items:center;justify-content:center;gap:2.5px;height:14px;width:15px}
+.g-bars i{display:block;width:2px;height:3px;border-radius:2px;background:currentColor}
+.g-arc{width:15px;height:15px}
+.g-arc circle{fill:none;stroke-width:2.4;stroke-linecap:round}
+.g-arc .track{stroke:currentColor;opacity:.22}
+.g-arc .run{stroke:currentColor;stroke-dasharray:13 40;transform-origin:12px 12px;transform-box:view-box}
+
+/* A message is a message wherever it is shown: the same head, the same body,
+   the same evidence blocks under it. The console shows the last few live; the
+   script panel shows all of them. Nothing is rendered twice, two ways. */
+.script{width:min(100%,560px);display:flex;flex-direction:column;gap:var(--sp-5)}
+.thread{display:flex;flex-direction:column;gap:var(--sp-5);margin-top:22px}
+
+.msg{display:flex;gap:var(--sp-3);align-items:flex-start}
+.msg .who-av{width:26px;height:26px;border-radius:var(--r-nav);flex:none;display:grid;place-items:center;
+  font-family:var(--ui);font-size:var(--fs-micro);font-weight:600;letter-spacing:.02em;color:var(--text);
+  background:linear-gradient(150deg,var(--line),var(--raised));box-shadow:var(--inner-lift)}
+.msg.tobi .who-av{background:linear-gradient(150deg,var(--accent-deep),var(--accent));
+  box-shadow:0 2px 10px -2px rgba(88,166,255,.55),var(--inner-lift)}
+.msg.tobi .who-av svg{width:16px;height:16px;stroke:var(--on-accent);stroke-width:1.75;fill:none;
+  stroke-linecap:round;stroke-linejoin:round}
+.msg .body{flex:1;min-width:0}
+.msg .head{display:flex;align-items:center;gap:var(--sp-2);height:26px;margin-bottom:2px}
+.msg .head b{font-size:var(--fs-ui);font-weight:600;color:var(--heading)}
+.msg.tobi .head b{color:var(--accent)}
+.msg .head time{font-family:var(--mono);font-size:var(--fs-micro);color:var(--faint);font-variant-numeric:tabular-nums}
+.msg .say p{margin:0;font-size:var(--fs-lede);line-height:1.62;color:var(--text)}
+.msg .say p + p{margin-top:10px}
+/* mine sit on the right, in a tinted bubble with the corner nearest me clipped */
+.msg.you{flex-direction:row-reverse}
+.msg.you .body{display:flex;flex-direction:column;align-items:flex-end}
+.msg.you .head{flex-direction:row-reverse}
+.msg.you .say{max-width:86%;padding:10px 14px;
+  border-radius:var(--r-card) var(--r-chip) var(--r-card) var(--r-card);
+  border:1px solid rgba(88,166,255,.24);
+  background:linear-gradient(180deg,rgba(88,166,255,.13),rgba(88,166,255,.05));
+  box-shadow:var(--inner-lift)}
+.msg.you .say p{color:var(--heading)}
+/* your prompt is a title over the answer: two lines, then it folds */
+.msg.you .say p{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}
+.msg.you.open .say p{-webkit-line-clamp:unset;line-clamp:unset;overflow:visible}
+.pmore{display:none;align-items:center;gap:var(--sp-2);margin-top:7px;height:24px;padding:0 10px;border-radius:999px;
+  font-size:var(--fs-small);font-weight:500;color:var(--muted);border:1px solid var(--line-soft);background:var(--panel);
+  transition:color var(--t-fast) var(--e-move),border-color var(--t-fast) var(--e-move)}
+.pmore:hover{color:var(--text);border-color:var(--line-hover)}
+.pmore .chev{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;
+  stroke-linecap:round;stroke-linejoin:round;transition:transform var(--t-base) var(--e-move)}
+.msg.clamped .pmore{display:inline-flex}
+.msg.open .pmore .chev{transform:rotate(180deg)}
+
+/* once the work is done, the rows it took fold into one line */
+.acts{display:flex;flex-direction:column;gap:var(--sp-2);margin-top:10px}
+.actlist{display:none;flex-direction:column;gap:var(--sp-2)}
+.acts.open .actlist{display:flex}
+.acts.open .actsum .chev{transform:rotate(180deg)}
+.actsum{display:flex;align-items:center;gap:var(--sp-3);width:100%;padding:8px 11px;border-radius:var(--r-ctrl);
+  border:1px solid var(--line-soft);background:var(--panel);text-align:left;
+  transition:border-color var(--t-fast) var(--e-move),background var(--t-fast) var(--e-move)}
+.actsum:hover{border-color:var(--line-hover);background:var(--raised)}
+.actsum > .ic{width:15px;height:15px;flex:none;color:var(--accent)}
+.actsum .nm{font-size:var(--fs-ui);color:var(--text)}
+.actsum .nm .n{font-family:var(--mono);font-weight:600;color:var(--heading)}
+.actsum .stat{margin-left:auto;display:flex;align-items:center;gap:var(--sp-2);
+  font-family:var(--mono);font-size:var(--fs-micro);color:var(--faint);font-variant-numeric:tabular-nums}
+.actsum .chev{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;
+  stroke-linecap:round;stroke-linejoin:round;transition:transform var(--t-base) var(--e-move)}
+.acts .act{margin-top:0}
+
+/* A step that failed says so, says whose fault it was, and offers the one
+   thing worth offering: doing it again. The answer keeps everything that did
+   land, because a partial answer is still an answer. */
+.act.failed{flex-wrap:wrap;border-color:rgba(248,81,73,.32);
+  background:linear-gradient(180deg,rgba(248,81,73,.10),rgba(248,81,73,.03))}
+.act.failed > .ic{color:var(--bad)}
+.act.failed .stat{color:var(--bad)}
+.act .bad{width:13px;height:13px;flex:none;color:var(--bad);stroke:currentColor;fill:none;
+  stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.act .why{flex-basis:100%;margin:9px 0 0;font-size:var(--fs-ui);line-height:1.5;color:var(--muted)}
+.act .retry{display:inline-flex;align-items:center;gap:var(--sp-2);height:26px;padding:0 11px;margin-left:10px;
+  border-radius:999px;font-size:var(--fs-small);font-weight:500;color:var(--text);
+  border:1px solid var(--line);background:var(--raised);
+  transition:border-color var(--t-fast) var(--e-move),color var(--t-fast) var(--e-move)}
+.act .retry:hover{border-color:var(--line-hover);color:var(--heading)}
+.act .retry .ic{width:12px;height:12px}
+.act.stopped{border-style:dashed}
+.act.stopped .stat{color:var(--faint)}
+.stopnote{display:flex;align-items:center;gap:var(--sp-2);margin-top:11px;font-size:var(--fs-ui);color:var(--muted)}
+.stopnote .ic{width:14px;height:14px;flex:none;color:var(--faint)}
+
+/* the one control over a run, where the run is being reported */
+/* the one control that is only ever a sentence: no box, no colour, no weight */
+.sstop{display:none;margin-left:var(--sp-3);padding:0;border:0;background:none;box-shadow:none;
+  font-family:var(--ui);font-size:var(--fs-small);font-weight:500;letter-spacing:-.004em;color:var(--faint);
+  transition:color var(--t-fast) var(--e-move)}
+.sstop:hover{color:var(--text);text-decoration:underline;text-underline-offset:3px;
+  text-decoration-color:var(--line-hover)}
+.status:not([data-state="idle"]) .sstop{display:inline-flex}
+
+/* the way back down, once you have read your way up */
+.jump{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:var(--z-chrome);
+  display:inline-flex;align-items:center;gap:var(--sp-2);height:32px;padding:0 15px;border-radius:999px;
+  font-size:var(--fs-ui);font-weight:500;color:var(--accent);
+  border:1px solid rgba(88,166,255,.34);background:rgba(22,27,34,.94);
+  backdrop-filter:blur(16px) saturate(1.3);-webkit-backdrop-filter:blur(16px) saturate(1.3);
+  box-shadow:0 10px 26px -12px rgba(0,0,0,.9),var(--inner-lift);
+  transition:border-color var(--t-fast) var(--e-move),filter var(--t-fast) var(--e-move)}
+.jump:hover{filter:brightness(1.12);border-color:rgba(88,166,255,.55)}
+.jump[hidden]{display:none}
+@media (prefers-reduced-motion:no-preference){.jump{animation:jumpin var(--t-base) var(--e-out) both}}
+@keyframes jumpin{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+.jump .ic{width:14px;height:14px;flex:none}
+.jump .unread{display:none;min-width:17px;height:17px;padding:0 5px;border-radius:999px;
+  align-items:center;justify-content:center;background:var(--accent);color:var(--on-accent);
+  font-family:var(--mono);font-size:var(--fs-micro);font-weight:600;line-height:1}
+.jump.new .unread{display:inline-flex}
+.jump.new{border-color:rgba(88,166,255,.6);box-shadow:0 10px 26px -12px rgba(88,166,255,.9),var(--inner-lift)}
+
+/* what he did, before what he said about it */
+.act{display:flex;align-items:center;gap:var(--sp-3);margin-top:10px;padding:8px 11px;border-radius:var(--r-ctrl);
+  border:1px solid var(--line-soft);background:var(--panel)}
+.act > .ic{width:15px;height:15px;flex:none;color:var(--accent)}
+.act .nm{font-size:var(--fs-ui);color:var(--text);min-width:0}
+.act .stat{margin-left:auto;display:flex;align-items:center;gap:var(--sp-2);white-space:nowrap;
+  font-family:var(--mono);font-size:var(--fs-micro);color:var(--faint);font-variant-numeric:tabular-nums}
+.act .ok{width:13px;height:13px;flex:none;color:var(--ok);stroke:currentColor;fill:none;
+  stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+
+/* a measured result, read the same way the Runs page reads one */
+.res{display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:1px;margin-top:10px;
+  border:1px solid var(--line-soft);border-radius:var(--r-ctrl);background:var(--line-soft);overflow:hidden}
+.res > div{padding:10px 12px;background:var(--panel)}
+.res .k{font-family:var(--mono);font-size:var(--fs-micro);font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+.res .v{margin-top:3px;font-size:var(--fs-title);font-weight:600;letter-spacing:-.01em;color:var(--heading);
+  font-variant-numeric:tabular-nums}
+.res .v.warn{color:var(--warn)}
+.res .v.ok{color:var(--ok)}
+.res .s{margin-top:2px;font-size:var(--fs-micro);color:var(--faint)}
+
+/* anything he made is a thing you can open from here */
+.fileref{display:inline-flex;align-items:center;gap:var(--sp-2);margin-top:10px;height:30px;padding:0 11px;
+  border-radius:var(--r-nav);border:1px solid var(--line);background:var(--surface);box-shadow:var(--inner-lift);
+  font-size:var(--fs-ui);color:var(--text);transition:border-color var(--t-fast) ease,background var(--t-fast) ease,color var(--t-fast) ease}
+.fileref:hover{border-color:rgba(88,166,255,.5);background:var(--accent-dim);color:var(--heading)}
+.fileref .ic{width:14px;height:14px;flex:none;color:var(--faint)}
+.fileref:hover .ic{color:var(--accent)}
+
+.msg pre{margin:10px 0 0;padding:11px 13px;border-radius:var(--r-ctrl);background:var(--panel);
+  border:1px solid var(--line-soft);overflow-x:auto;font-family:var(--mono);font-size:var(--fs-small);
+  line-height:1.62;color:var(--muted)}
+.msg pre .c{color:var(--faint)}
+.msg pre .k{color:var(--accent)}
+.caret{display:inline-block;width:1.5px;height:1.05em;background:var(--accent);vertical-align:-2px;margin-left:2px}
+
+/* input dock — the only element that floats */
+.dock{align-self:center;width:min(100%,600px);display:flex;align-items:center;gap:var(--sp-2);padding:8px;
+  border:1px solid var(--line);border-radius:var(--r-card);background:rgba(22,27,34,.86);
+  backdrop-filter:blur(20px) saturate(1.35);-webkit-backdrop-filter:blur(20px) saturate(1.35);
+  box-shadow:var(--shadow-pop),var(--inner-lift)}
+/* Neutral things stay quiet. The three that carry state — send, voice, end —
+   are each filled in their own colour, sized to be hit without looking. */
+.sq{width:38px;height:38px;border-radius:var(--r-ctrl);flex:none;display:grid;place-items:center;
+  color:var(--muted);transition:background var(--t-fast) ease,color var(--t-fast) ease}
+.sq:hover{background:rgba(255,255,255,.06);color:var(--text)}
+.sq .ic{width:18px;height:18px}
+.dock .rule{width:1px;height:22px;background:var(--line);flex:none;margin:0 3px}
+
+.ctrl{height:38px;border-radius:var(--r-ctrl);flex:none;position:relative;display:flex;align-items:center;
+  border:1px solid;transition:filter var(--t-fast) ease,transform var(--t-fast) ease}
+.ctrl.mic:hover{filter:brightness(1.14)}
+.ctrl:active{transform:translateY(.5px)}
+.ctrl .ic{width:20px;height:20px;stroke-width:1.7}
+
+/* voice — amber while it is locked, and the padlock is a badge on the glyph */
+.ctrl.mic{gap:var(--sp-2);padding:0 9px 0 10px;color:var(--warn);border-color:rgba(210,153,34,.5);
+  background:linear-gradient(180deg,rgba(210,153,34,.20),rgba(210,153,34,.09));
+  box-shadow:0 8px 18px -10px rgba(210,153,34,.75),var(--inner-lift)}
+.ctrl.mic .div{width:1px;height:19px;background:rgba(210,153,34,.34)}
+.ctrl.mic .chev{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;
+  stroke-linecap:round;stroke-linejoin:round;opacity:.85}
+
+/* end — the only red thing on the page, and it always asks first */
+.ctrl.end{width:38px;justify-content:center;color:var(--bad);border-color:rgba(248,81,73,.5);
+  background:linear-gradient(180deg,rgba(248,81,73,.20),rgba(248,81,73,.08));
+  box-shadow:0 8px 18px -10px rgba(248,81,73,.7),var(--inner-lift);
+  transition:color var(--t-fast) ease,background var(--t-fast) ease,border-color var(--t-fast) ease,box-shadow var(--t-fast) ease,transform var(--t-fast) ease}
+.ctrl.end:hover{color:var(--on-bad);border-color:var(--bad);
+  background:linear-gradient(180deg,var(--bad-lift),var(--bad));
+  box-shadow:0 12px 26px -8px rgba(248,81,73,.95),var(--inner-lift);transform:translateY(-1px)}
+.ctrl.end:active{transform:translateY(0);filter:brightness(.94)}
+
+.field{flex:1;min-width:0;display:flex;align-items:center;gap:var(--sp-2);height:38px;padding:0 7px 0 13px;
+  border-radius:var(--r-ctrl);background:var(--ground);border:1px solid var(--line-soft)}
+.field input{flex:1;min-width:0;border:0;background:none;outline:none;color:var(--text);font:inherit;font-size:var(--fs-body)}
+.field input::placeholder{color:var(--faint)}
+.send{width:28px;height:28px;border-radius:var(--r-nav);flex:none;display:grid;place-items:center;
+  background:linear-gradient(180deg,rgba(88,166,255,.26),rgba(88,166,255,.14));
+  border:1px solid rgba(88,166,255,.5);color:var(--accent);
+  box-shadow:0 6px 14px -8px rgba(88,166,255,.8),var(--inner-lift)}
+.send .ic{width:14px;height:14px;stroke-width:2.1}
+
+/* his voice is the owner's to set: off, or how loud */
+.sq .g{display:none}
+.sq.speak .g-loud{display:block}
+.sq.speak.muted{color:var(--faint)}
+.sq.speak.muted .g-loud{display:none}
+.sq.speak.muted .g-off{display:block}
+.volmenu{right:96px;bottom:calc(100% + 10px);min-width:250px}
+.vol{display:flex;align-items:center;gap:var(--sp-3);padding:9px 9px 4px}
+.vol > .ic{width:15px;height:15px;flex:none;color:var(--faint)}
+.vol .pctv{min-width:32px;text-align:right;font-family:var(--mono);font-size:var(--fs-micro);
+  font-weight:500;color:var(--muted);font-variant-numeric:tabular-nums}
+.vol input{-webkit-appearance:none;appearance:none;flex:1;min-width:0;height:4px;border-radius:999px;
+  outline:none;cursor:pointer;
+  background:linear-gradient(90deg,var(--accent) 0 var(--fill),var(--track) var(--fill) 100%)}
+.vol input::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;border:0;
+  background:var(--accent-lift);cursor:pointer;
+  box-shadow:0 2px 9px -2px rgba(88,166,255,.95),var(--inner-lift)}
+.vol input::-moz-range-thumb{width:14px;height:14px;border-radius:50%;border:0;background:var(--accent-lift);
+  box-shadow:0 2px 9px -2px rgba(88,166,255,.95)}
+.vol input:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+.volmenu.off .vol{opacity:.4;pointer-events:none}
+
+/* ── Standby ─────────────────────────────────────────────────────────────── */
+.page.solo{grid-template-columns:1fr}
+.corner{position:absolute;top:12px;right:12px;display:flex;align-items:center;gap:var(--sp-2);z-index:var(--z-chrome)}
+.pill{height:34px;padding:0 13px;border-radius:var(--r-ctrl);display:flex;align-items:center;gap:var(--sp-2);
+  border:1px solid var(--line);background:var(--surface);font-size:var(--fs-ui);color:var(--text);
+  box-shadow:var(--shadow-card),var(--inner-lift);transition:border-color var(--t-fast) ease}
+.pill:hover{border-color:var(--line-hover)}
+.pill .chev{color:var(--faint)}
+.start{height:42px;padding:0 24px;border-radius:var(--r-card);font-size:var(--fs-lede);font-weight:600;letter-spacing:-.005em;
+  color:var(--on-accent);background:linear-gradient(180deg,var(--accent-lift),var(--accent));
+  box-shadow:0 12px 26px -12px rgba(88,166,255,.95),var(--inner-lift);
+  transition:filter var(--t-fast) ease,transform var(--t-fast) ease}
+.start:hover{filter:brightness(1.08)}
+.start:active{transform:translateY(1px)}
+.lastrun{font-size:var(--fs-ui);color:var(--faint)}
+.lastrun b{color:var(--muted);font-weight:500}
+
+/* ── Boot ────────────────────────────────────────────────────────────────── */
+.checks{width:min(100%,368px);display:flex;flex-direction:column}
+.check{display:flex;align-items:center;gap:var(--sp-3);height:34px;font-size:var(--fs-body);color:var(--muted)}
+.check .st{width:17px;height:17px;flex:none;border-radius:var(--r-chip);display:grid;place-items:center;
+  border:1px solid var(--line);background:var(--panel)}
+.check .st .ic{width:11px;height:11px;stroke-width:2.4}
+.check.done .st{border-color:rgba(63,185,80,.45);background:rgba(63,185,80,.14);color:var(--ok)}
+.check.done .nm{color:var(--text)}
+.check.now .st{border-color:rgba(88,166,255,.5);background:rgba(88,166,255,.16);color:var(--accent)}
+.check.now .nm{color:var(--accent)}
+.check.wait{opacity:.42}
+.check .val{margin-left:auto;font-family:var(--mono);font-size:var(--fs-small);color:var(--faint);
+  font-variant-numeric:tabular-nums}
+.check.wait{opacity:.42}
+.spin{width:9px;height:9px;border-radius:50%;border:1.5px solid currentColor;border-top-color:transparent}
+@media (prefers-reduced-motion:no-preference){.spin{animation:turn .85s linear infinite}}
+.bootbar{width:min(100%,368px);display:flex;align-items:center;gap:var(--sp-3);margin-top:6px}
+.track{flex:1;height:3px;border-radius:999px;background:var(--track);overflow:hidden}
+.track i{display:block;height:100%;border-radius:999px;background:var(--accent);position:relative;
+  overflow:hidden;box-shadow:0 0 12px rgba(88,166,255,.75);
+  transition:width var(--t-slow) var(--e-move)}
+.track i::after{content:"";position:absolute;inset:0;transform:translateX(-100%);
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent)}
+@media (prefers-reduced-motion:no-preference){.track i::after{animation:sweep 1.4s ease-in-out infinite}}
+.bootbar .num{font-size:var(--fs-small);color:var(--faint);white-space:nowrap}
+.boothint{font-size:var(--fs-ui);color:var(--faint)}
+
+/* dormant and waking neurons drop what they do not need */
+.neuron.asleep .sweep,.neuron.booting .sweep{display:none}
+.neuron.asleep .n-glow{display:none}
+.neuron.asleep .n-bezel{animation:none;stroke:var(--muted);stroke-opacity:.13}
+.neuron.booting .n-glow{animation-duration:1.6s}
+
+/* ── Canvas ────────────────────────────────────────────────────────────────── */
+.canvas{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;
+  border:1px solid var(--line);border-radius:var(--r-card);background:var(--surface);
+  box-shadow:var(--shadow-card),var(--inner-lift);position:relative}
+/* the target is the full edge; the bar is only what you see of it */
+.grip{position:absolute;left:0;top:0;bottom:0;width:11px;z-index:var(--z-chrome);cursor:col-resize;
+  display:flex;align-items:center;justify-content:center;background:none}
+.grip::after{content:"";width:3px;height:46px;border-radius:999px;background:var(--line);
+  transition:background var(--t-fast) var(--e-move),height var(--t-base) var(--e-move),
+             box-shadow var(--t-fast) var(--e-move)}
+.grip:hover::after{background:var(--accent);height:72px}
+.grip.snapped::after{background:var(--accent);height:88px;box-shadow:0 0 12px rgba(88,166,255,.85)}
+
+.cbar{height:44px;display:flex;align-items:center;gap:var(--sp-1);padding:0 12px;border-bottom:1px solid var(--line-soft);
+  background:rgba(13,17,23,.45)}
+.cbar .spacer{flex:1}
+.cbtn{width:32px;height:32px;border-radius:var(--r-nav);display:grid;place-items:center;color:var(--text);
+  transition:background var(--t-fast) ease,color var(--t-fast) ease}
+.cbtn .ic{width:18px;height:18px;stroke-width:1.65}
+.cbtn:hover{background:rgba(255,255,255,.07)}
+.cbtn.on{color:var(--accent);background:var(--accent-dim);box-shadow:inset 0 0 0 1px rgba(88,166,255,.2)}
+/* the four panels read as one instrument, not four loose glyphs */
+.cgroup{display:flex;align-items:center;gap:3px;padding:4px;border-radius:var(--r-card);
+  background:var(--panel);border:1px solid var(--line-soft);box-shadow:var(--inner-lift)}
+.cgroup .cbtn{width:30px;height:30px}
+.cbar .sep{width:1px;height:18px;background:var(--line);margin:0 7px;flex:none}
+
+.ctabs{display:flex;align-items:flex-end;gap:var(--sp-1);padding:0 12px;background:rgba(13,17,23,.45);
+  border-bottom:1px solid var(--line-soft)}
+.ctab{display:flex;align-items:center;gap:var(--sp-2);height:34px;padding:0 13px;border-radius:var(--r-nav) var(--r-nav) 0 0;
+  font-size:var(--fs-ui);color:var(--muted);position:relative;top:1px;border:1px solid transparent;border-bottom:none;white-space:nowrap}
+.ctab:hover{color:var(--text)}
+.ctab.on{color:var(--heading);font-weight:500;background:var(--ground);border-color:var(--line-soft);
+  border-bottom:1px solid var(--ground)}
+.ctab .ic{width:13px;height:13px;color:var(--faint)}
+.ctab.on .ic{color:var(--accent)}
+.ctab .x{color:var(--faint);font-size:var(--fs-ui);line-height:1;opacity:.75}
+.ctab .x:hover{color:var(--text);opacity:1}
+
+.doc{flex:1;overflow-y:auto;background:var(--ground);padding:28px 32px 44px}
+.doc::-webkit-scrollbar{width:10px}
+.doc::-webkit-scrollbar-thumb{background:var(--track);border-radius:999px;border:3px solid var(--ground)}
+.doc::-webkit-scrollbar-thumb:hover{background:var(--track-hover)}
+.doc-inner{max-width:64ch;margin:0 auto}
+.doc h1{margin:0;font-size:var(--fs-display);line-height:1.28;font-weight:600;color:var(--heading);letter-spacing:-.015em;text-wrap:balance}
+.doc .lede{margin:9px 0 0;font-size:var(--fs-lede);line-height:1.65;color:var(--muted)}
+.doc .meta{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2);margin-top:18px;padding-bottom:20px;
+  border-bottom:1px solid var(--line-soft)}
+.chip{display:inline-flex;align-items:center;gap:var(--sp-2);height:26px;padding:0 12px;border-radius:999px;
+  font-family:var(--ui);font-size:var(--fs-small);font-weight:500;letter-spacing:-.004em;white-space:nowrap;
+  color:var(--muted);background:linear-gradient(180deg,var(--raised),var(--surface));
+  border:1px solid var(--line-soft);box-shadow:var(--inner-lift),0 1px 2px rgba(0,0,0,.3)}
+/* the number is the thing being read, so it is the thing that is set in weight */
+.chip .n{font-family:var(--mono);font-size:var(--fs-small);font-weight:600;color:var(--heading);
+  font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+/* a dot only where there is a state; a plain measurement does not get one */
+.chip.ok,.chip.warn,.chip.info,.chip.live{padding-left:10px}
+.chip.ok::before,.chip.warn::before,.chip.info::before,.chip.live::before{
+  content:"";width:5px;height:5px;border-radius:50%;flex:none}
+.chip.ok{color:var(--ok);border-color:rgba(63,185,80,.3);
+  background:linear-gradient(180deg,rgba(63,185,80,.14),rgba(63,185,80,.05))}
+.chip.ok::before{background:var(--ok);box-shadow:0 0 7px rgba(63,185,80,.8)}
+.chip.ok .n{color:var(--ok)}
+.chip.warn{color:var(--warn);border-color:rgba(210,153,34,.32);
+  background:linear-gradient(180deg,rgba(210,153,34,.15),rgba(210,153,34,.05))}
+.chip.warn::before{background:var(--warn);box-shadow:0 0 7px rgba(210,153,34,.8)}
+.chip.warn .n{color:var(--warn)}
+.chip.info{color:var(--accent);border-color:rgba(88,166,255,.32);
+  background:linear-gradient(180deg,rgba(88,166,255,.15),rgba(88,166,255,.05))}
+.chip.info::before{background:var(--accent);box-shadow:0 0 7px rgba(88,166,255,.85)}
+.chip.info .n{color:var(--accent)}
+.chip.live{color:var(--accent);border-color:rgba(88,166,255,.32);
+  background:linear-gradient(180deg,rgba(88,166,255,.15),rgba(88,166,255,.05))}
+.chip.live::before{background:var(--accent);box-shadow:0 0 8px rgba(88,166,255,.9)}
+@media (prefers-reduced-motion:no-preference){.chip.live::before{animation:beat 2.4s ease-in-out infinite}}
+.doc h2{margin:28px 0 0;font-size:var(--fs-lede);font-weight:600;color:var(--heading);letter-spacing:-.005em}
+.doc h2 + p{margin-top:8px}
+.doc p{margin:14px 0 0;font-size:var(--fs-lede);line-height:1.72}
+.doc ul{margin:12px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:var(--sp-2)}
+.doc li{display:flex;gap:var(--sp-3);font-size:var(--fs-lede);line-height:1.6}
+.doc li .tick{width:16px;height:16px;flex:none;margin-top:3px;border-radius:var(--r-chip);display:grid;place-items:center;
+  border:1px solid var(--line);background:var(--panel)}
+.doc li.done .tick{border-color:rgba(63,185,80,.45);background:rgba(63,185,80,.13)}
+.doc li.done .tick .ic{width:10px;height:10px;color:var(--ok);stroke-width:2.4}
+.doc li.done span{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--strike)}
+.doc pre{margin:16px 0 0;padding:13px 15px;border-radius:var(--r-ctrl);background:var(--panel);border:1px solid var(--line-soft);
+  overflow-x:auto;font-family:var(--mono);font-size:var(--fs-ui);line-height:1.65;color:var(--muted)}
+.doc pre .c{color:var(--faint)}
+.doc pre .k{color:var(--accent)}
+.doc code{font-family:var(--mono);font-size:var(--fs-ui);padding:1px 5px;border-radius:var(--r-chip);
+  background:var(--panel);border:1px solid var(--line-soft);color:var(--text)}
+.doc blockquote{margin:18px 0 0;padding:12px 16px;border-left:2px solid var(--warn);border-radius:0 var(--r-nav) var(--r-nav) 0;
+  background:rgba(210,153,34,.06)}
+.doc blockquote p{margin:0;font-size:var(--fs-body);color:var(--text)}
+
+/* ── Motion — tied to what is happening, never ambient ─────────────────────── */
+@media (prefers-reduced-motion:no-preference){
+  .livedot{animation:beat 2.4s ease-in-out infinite}
+  .status[data-state="listening"] .g-bars i{animation:bar .82s ease-in-out infinite}
+  .status[data-state="speaking"] .g-bars i{animation:bar 1.45s ease-in-out infinite}
+  .g-bars i:nth-child(2){animation-delay:.13s}
+  .g-bars i:nth-child(3){animation-delay:.27s}
+  .status[data-state="thinking"] .slabel,
+  .status[data-state="working"] .slabel,
+  .act.running .nm,
+  .check.now .nm,
+  .shimmer{animation:shimmer 1.9s linear infinite}
+  .status[data-state="thinking"] .g-arc .run{animation:turn .95s linear infinite}
+  .status[data-state="working"] .g-arc .run{animation:turn 1.7s linear infinite}
+  .caret{animation:blink 1.1s step-end infinite}
+  .n-node{animation:node 3.6s ease-in-out infinite}
+  .n-glow{animation:bloom 3.6s ease-in-out infinite}
+  .n-bezel{animation:turn 30s linear infinite}
+  .sweep{animation:turn 9s linear infinite}
+}
+@keyframes beat{0%,100%{opacity:1}50%{opacity:.45}}
+@keyframes bar{0%,100%{height:3px;opacity:.5}50%{height:12px;opacity:1}}
+@keyframes shimmer{from{background-position:150% 0}to{background-position:-50% 0}}
+/* painting into glyphs needs the text itself to be transparent, so where that
+   is not supported the label would render as nothing at all. It falls back to
+   a solid lit accent instead: less alive, still readable. */
+@supports not ((background-clip:text) or (-webkit-background-clip:text)){
+  .shimmer,.act.running .nm,.check.now .nm,
+  .status[data-state="thinking"] .slabel,.status[data-state="working"] .slabel{
+    background:none;color:var(--accent-lift);-webkit-text-fill-color:var(--accent-lift);
+    filter:drop-shadow(0 0 9px rgba(88,166,255,.45))}
+}
+@keyframes sayin{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes actin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes tickin{from{opacity:0;transform:scale(.55)}to{opacity:1;transform:none}}
+@keyframes blink{50%{opacity:0}}
+@keyframes node{0%,100%{opacity:.55}50%{opacity:1}}
+@keyframes bloom{0%,100%{opacity:.34;transform:scale(1)}50%{opacity:.48;transform:scale(1.09)}}
+@keyframes turn{to{transform:rotate(360deg)}}
+/* == Interaction ===========================================================
+   The states these controls actually reach. Nothing here is decoration: every
+   rule below is a state some button in the page can put the shell into.
+   ======================================================================== */
+
+/* a page arriving is a page arriving, not a page appearing */
+@media (prefers-reduced-motion:no-preference){
+  .page{animation:enter .3s cubic-bezier(.2,.72,.28,1) both}
+}
+@keyframes enter{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+
+/* -- Voice, by mode -- */
+.ctrl.mic{padding:0;gap:0;overflow:hidden}
+.ctrl.mic > button{display:flex;align-items:center;justify-content:center;align-self:stretch;color:inherit}
+.ctrl.mic .glyph{padding:0 8px 0 11px}
+.ctrl.mic .drop{padding:0 9px 0 8px}
+.ctrl.mic .g{display:none}
+.ctrl.mic.m-locked .g-lock{display:block}
+.ctrl.mic.m-onoff  .g-mute{display:block}
+.ctrl.mic.m-ptt    .g-mic{display:block}
+.ctrl.mic.live .g-mute,.ctrl.mic.live .g-lock{display:none}
+.ctrl.mic.live .g-mic{display:block}
+.ctrl.mic.m-onoff,.ctrl.mic.m-ptt{color:var(--muted);border-color:var(--line);
+  background:linear-gradient(180deg,var(--raised),var(--surface));box-shadow:var(--inner-lift)}
+.ctrl.mic.m-onoff .div,.ctrl.mic.m-ptt .div{background:var(--line)}
+.ctrl.mic.live{color:var(--accent);border-color:rgba(88,166,255,.55);
+  background:linear-gradient(180deg,rgba(88,166,255,.24),rgba(88,166,255,.10));
+  box-shadow:0 8px 18px -10px rgba(88,166,255,.9),var(--inner-lift)}
+.ctrl.mic.live .div{background:rgba(88,166,255,.4)}
+/* the graph answers to the same state the strip does: still when nothing is
+   happening, and the plate turns the other way while he is taking sound in */
+.neuron .sweep{transition:opacity var(--t-slow) var(--e-move)}
+.neuron.s-idle .sweep{opacity:0}
+.neuron.s-idle .n-glow{animation:none;opacity:.15}
+/* the tick wheel turns whatever he is doing: it is the sign he is switched on */
+.n-ring-lit{opacity:0;transition:opacity var(--t-slow) var(--e-move)}
+.neuron:not(.s-idle) .n-ring-lit{opacity:.5}
+.neuron.s-listening .sweep{animation-duration:6s;animation-direction:reverse}
+.neuron.s-thinking .sweep{animation-duration:4.2s}
+.neuron.s-thinking .n-glow{animation-duration:1.9s}
+.neuron.s-working .sweep{animation-duration:6.5s}
+@media (prefers-reduced-motion:no-preference){
+  .neuron:not(.s-idle) .n-ring-lit{animation:ringlit 2.6s ease-in-out infinite}
+}
+@keyframes ringlit{0%,100%{opacity:.3}50%{opacity:.68}}
+
+/* an action while it runs, and the same row once it has a result */
+@media (prefers-reduced-motion:no-preference){.act{animation:actin .34s var(--e-out) both}}
+.act.running{border-color:rgba(88,166,255,.3);
+  background:linear-gradient(180deg,rgba(88,166,255,.11),rgba(88,166,255,.03))}
+.act.running .nm{color:var(--heading)}
+.act .spin{width:13px;height:13px;flex:none;border-radius:50%;color:var(--accent);
+  border:1.7px solid currentColor;border-top-color:transparent}
+
+@keyframes sweep{to{transform:translateX(100%)}}
+@media (prefers-reduced-motion:no-preference){.act.done .ok{animation:tickin var(--t-fast) var(--e-out) both}}
+
+/* what he is hearing, before it is a message */
+.msg.ghost .say{border-style:dashed;border-color:rgba(88,166,255,.4);
+  background:linear-gradient(180deg,rgba(88,166,255,.09),rgba(88,166,255,.03))}
+.msg.ghost .say p{color:var(--muted)}
+
+/* -- Menus -- */
+.dock{position:relative}
+.menu{position:absolute;z-index:var(--z-pop);min-width:238px;padding:6px;
+  border:1px solid var(--line);border-radius:var(--r-card);background:rgba(22,27,34,.97);
+  backdrop-filter:blur(22px) saturate(1.3);-webkit-backdrop-filter:blur(22px) saturate(1.3);
+  box-shadow:var(--shadow-pop),var(--inner-lift)}
+.menu[hidden]{display:none}
+.menu button{display:flex;align-items:center;gap:var(--sp-3);width:100%;height:34px;padding:0 9px;
+  border-radius:var(--r-nav);font-size:var(--fs-body);color:var(--text);text-align:left;
+  transition:background var(--t-fast) ease,color var(--t-fast) ease}
+.menu button:hover{background:rgba(255,255,255,.055);color:var(--heading)}
+.menu .tick{width:14px;height:14px;flex:none;color:var(--accent);opacity:0;stroke-width:2.4}
+.menu button.on .tick{opacity:1}
+.menu button.on{color:var(--heading);font-weight:500}
+.menu .k,.opt .k{margin-left:auto;font-family:var(--ui);font-size:var(--fs-small);font-weight:500;
+  letter-spacing:-.003em;color:var(--faint);border:0;background:none;padding:0}
+.keys{margin-left:auto;display:flex;align-items:center;gap:6px;
+  font-family:var(--ui);font-size:var(--fs-small);font-weight:500;color:var(--faint)}
+kbd{font-family:var(--ui);font-size:var(--fs-micro);font-weight:600;line-height:1;letter-spacing:.01em;
+  padding:4px 7px;border-radius:var(--r-chip);color:var(--text);
+  background:linear-gradient(180deg,var(--raised),var(--surface));
+  border:1px solid var(--line);border-bottom-color:var(--line-hover);border-bottom-width:2px;
+  box-shadow:var(--inner-lift)}
+.menu .foot{margin:7px 3px 2px;padding-top:8px;font-size:var(--fs-small);line-height:1.5;color:var(--faint);
+  border-top:1px solid var(--line-soft)}
+.menu .provider{width:15px;height:15px}
+.micmenu{right:50px;bottom:calc(100% + 10px)}
+.addmenu{left:4px;bottom:calc(100% + 10px)}
+.modelmenu{top:calc(100% + 8px);left:0}
+.statusbar{position:relative}
+.corner .pill{position:relative}
+.cornermenu{top:calc(100% + 8px);right:0}
+
+/* -- Confirming, and the sheets that open over the shell -- */
+.scrim{position:absolute;inset:0;z-index:var(--z-modal);display:grid;place-items:center;padding:24px;
+  background:rgba(5,8,12,.66);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+.scrim[hidden]{display:none}
+@media (prefers-reduced-motion:no-preference){
+  .scrim{animation:fade .16s ease both}
+  .scrim > *{animation:pop .22s cubic-bezier(.2,.8,.3,1) both}
+}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes pop{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
+.modal{width:min(430px,100%);padding:22px;border-radius:var(--r-card);
+  border:1px solid var(--line);background:var(--surface);box-shadow:var(--shadow-pop),var(--inner-lift)}
+.modal h3{margin:0;font-size:var(--fs-title);font-weight:600;color:var(--heading);letter-spacing:-.012em}
+.modal p{margin:9px 0 0;font-size:var(--fs-body);line-height:1.62;color:var(--muted)}
+.modal .row{display:flex;flex-wrap:wrap;gap:var(--sp-2);margin-top:16px}
+.modal .acts{display:flex;justify-content:flex-end;gap:var(--sp-2);margin-top:20px}
+.btn{height:36px;padding:0 16px;border-radius:var(--r-ctrl);font-size:var(--fs-body);font-weight:500;
+  border:1px solid var(--line);color:var(--text);background:var(--raised);box-shadow:var(--inner-lift);
+  transition:filter var(--t-fast) ease,border-color var(--t-fast) ease,transform var(--t-fast) ease}
+.btn:hover{border-color:var(--line-hover);filter:brightness(1.09)}
+.btn:active{transform:translateY(1px)}
+.btn.danger{color:var(--on-bad);border-color:rgba(248,81,73,.6);
+  background:linear-gradient(180deg,var(--bad-lift),var(--bad));box-shadow:0 10px 22px -12px rgba(248,81,73,.9),var(--inner-lift)}
+
+.sheet{width:min(520px,100%);max-height:min(560px,100%);display:flex;flex-direction:column;
+  border-radius:var(--r-card);border:1px solid var(--line);background:var(--surface);
+  box-shadow:var(--shadow-pop),var(--inner-lift);overflow:hidden}
+.sheet header{display:flex;align-items:center;gap:var(--sp-3);padding:15px 16px;border-bottom:1px solid var(--line-soft)}
+.sheet header h3{margin:0;font-size:var(--fs-lede);font-weight:600;color:var(--heading)}
+.sheet header .iconbtn{margin-left:auto}
+.sheet .body{overflow-y:auto;padding:8px}
+
+/* -- Files carry a tile, tinted by what they are -- */
+.ftile{width:32px;height:32px;flex:none;border-radius:var(--r-nav);display:grid;place-items:center;
+  border:1px solid;box-shadow:var(--inner-lift);transition:filter var(--t-fast) ease,transform var(--t-fast) ease}
+.ftile .ic{width:17px;height:17px;stroke-width:1.65}
+.rowitem:hover .ftile{filter:brightness(1.14);transform:translateY(-1px)}
+.ftile.f-doc{color:var(--f-doc);border-color:rgba(88,166,255,.36);
+  background:linear-gradient(150deg,rgba(88,166,255,.24),rgba(88,166,255,.06));
+  box-shadow:0 6px 16px -9px rgba(88,166,255,.95),var(--inner-lift)}
+.ftile.f-img{color:var(--f-img);border-color:rgba(163,113,247,.36);
+  background:linear-gradient(150deg,rgba(163,113,247,.24),rgba(163,113,247,.06));
+  box-shadow:0 6px 16px -9px rgba(163,113,247,.95),var(--inner-lift)}
+.ftile.f-sheet{color:var(--f-sheet);border-color:rgba(63,185,80,.36);
+  background:linear-gradient(150deg,rgba(63,185,80,.24),rgba(63,185,80,.06));
+  box-shadow:0 6px 16px -9px rgba(63,185,80,.9),var(--inner-lift)}
+.ftile.f-log{color:var(--f-log);border-color:rgba(217,119,87,.36);
+  background:linear-gradient(150deg,rgba(217,119,87,.24),rgba(217,119,87,.06));
+  box-shadow:0 6px 16px -9px rgba(217,119,87,.95),var(--inner-lift)}
+.ftile.f-time{color:var(--muted);border-color:var(--line);
+  background:linear-gradient(150deg,var(--raised),var(--surface))}
+
+/* -- The list every panel is built from -- */
+.rows{display:flex;flex-direction:column}
+.rowitem{display:flex;align-items:center;gap:var(--sp-3);padding:10px 11px;border-radius:var(--r-nav);
+  text-align:left;width:100%;transition:background var(--t-fast) ease}
+.rowitem:hover{background:rgba(255,255,255,.04)}
+.rowitem + .rowitem{box-shadow:inset 0 1px 0 var(--line-soft)}
+.rowitem > .ic{color:var(--faint)}
+.rowitem .t{min-width:0;line-height:1.35}
+.rowitem .t b{display:block;font-size:var(--fs-body);font-weight:500;color:var(--text)}
+.rowitem .t span{font-size:var(--fs-small);color:var(--faint)}
+.rowitem .r{margin-left:auto;font-family:var(--mono);font-size:var(--fs-micro);color:var(--faint);white-space:nowrap}
+
+/* -- Canvas layouts the buttons reach -- */
+.page{position:relative}
+.page.min{grid-template-columns:1fr}
+.canvas.min{position:absolute;top:0;right:0;width:auto;height:auto;z-index:var(--z-chrome);overflow:visible;
+  background:none;border-color:transparent;box-shadow:none}
+.canvas.min .ctabs,.canvas.min .doc,.canvas.min .grip{display:none}
+.canvas.min .cbar{height:44px;padding:0 12px;border-bottom:0;background:none}
+.canvas.min .cbar .spacer,.canvas.min .cbar .sep,
+.canvas.min [data-act="collapse"],.canvas.min [data-act="full"]{display:none}
+
+/* full screen fills the browser tab: the page goes, the machine keeps its desktop */
+.canvas.bleed{position:fixed;inset:0;z-index:var(--z-full);border-radius:0;border:0}
+
+.field .chip{flex:none;height:24px;padding-right:9px}
+.field .chip button{color:var(--faint);font-size:var(--fs-small);line-height:1}
+.field .chip button:hover{color:var(--text)}
+.ctabs[hidden]{display:none}
+.ctab[hidden]{display:none}
+.cbtn{position:relative}
+.badge{position:absolute;top:1px;right:1px;min-width:14px;height:14px;padding:0 3.5px;border-radius:999px;
+  display:grid;place-items:center;background:var(--accent);color:var(--on-accent);
+  font-family:var(--mono);font-size:var(--fs-micro);font-weight:600;line-height:1;
+  box-shadow:0 0 0 2px var(--panel),0 1px 3px rgba(0,0,0,.5)}
+.canvas.min .badge{box-shadow:0 0 0 2px var(--panel),0 1px 3px rgba(0,0,0,.5)}
+.pane{display:none}
+.pane.on{display:block}
+
+/* -- Documents -- */
+.doc table{width:100%;border-collapse:collapse;margin-top:18px;font-size:var(--fs-body)}
+.doc th{text-align:left;font-family:var(--mono);font-size:var(--fs-micro);font-weight:500;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--faint);padding:0 12px 9px 0;border-bottom:1px solid var(--line)}
+.doc td{padding:11px 12px 11px 0;border-bottom:1px solid var(--line-soft);color:var(--text);vertical-align:middle}
+.doc td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap}
+.doc tr:last-child td{border-bottom:0}
+.chart{margin-top:18px;padding:16px 16px 10px;border:1px solid var(--line-soft);border-radius:var(--r-ctrl);
+  background:var(--panel)}
+.chart svg{width:100%;height:auto;display:block}
+.chart .grid{stroke:var(--line-soft);stroke-width:.6}
+.chart .ideal{fill:none;stroke:var(--faint);stroke-width:1.1;stroke-dasharray:3 3;opacity:.7}
+.chart .band{fill:rgba(88,166,255,.10)}
+.chart .actual{fill:none;stroke:var(--accent);stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round}
+.chart .dot{fill:var(--accent)}
+.chart text{fill:var(--faint);font-family:var(--mono);font-size:6px;letter-spacing:.06em}
+.legend{display:flex;gap:var(--sp-4);margin-top:12px;font-size:var(--fs-small);color:var(--faint)}
+.legend i{display:inline-block;width:14px;height:0;border-top:2px solid var(--accent);margin-right:7px;vertical-align:3px}
+.legend i.ghost{border-top:1.5px dashed var(--faint)}
+
+/* -- Configure: the one pane whose controls change the shell -- */
+.set{display:flex;flex-direction:column;gap:var(--sp-5);max-width:52ch}
+.set section h3{margin:0 0 3px;font-size:var(--fs-body);font-weight:600;color:var(--heading)}
+.set section p{margin:0 0 11px;font-size:var(--fs-ui);color:var(--faint);line-height:1.55}
+.opts{display:flex;flex-direction:column;gap:var(--sp-2)}
+.opt{display:flex;align-items:center;gap:var(--sp-3);padding:11px 13px;border-radius:var(--r-ctrl);
+  border:1px solid var(--line-soft);background:var(--panel);text-align:left;width:100%;
+  transition:border-color var(--t-fast) ease,background var(--t-fast) ease}
+.opt:hover{border-color:var(--line-hover)}
+.opt.on{border-color:rgba(88,166,255,.45);background:var(--accent-dim)}
+.opt .mark{width:15px;height:15px;flex:none;border-radius:50%;border:1.5px solid var(--line-hover);
+  display:grid;place-items:center}
+.opt.on .mark{border-color:var(--accent)}
+.opt.on .mark::after{content:"";width:7px;height:7px;border-radius:50%;background:var(--accent);
+  box-shadow:0 0 8px rgba(88,166,255,.85)}
+.opt .t{line-height:1.35}
+.opt .t b{display:block;font-size:var(--fs-body);font-weight:500;color:var(--text)}
+.opt .t span{font-size:var(--fs-small);color:var(--faint)}
+
+
+/* the receipt: what ran it, how long it took, what it spent */
+.runmeta{display:flex;align-items:center;gap:var(--sp-2);margin-top:13px;
+  font-family:var(--mono);font-size:var(--fs-micro);color:var(--faint);font-variant-numeric:tabular-nums}
+.runmeta .provider{width:12px;height:12px;filter:none;opacity:.8}
+.runmeta span + span::before{content:"·";margin-right:9px;color:var(--strike)}
+
+/* -- A message waiting its turn -- */
+.msg.queued .say p{color:var(--muted)}
+.qchip{display:inline-flex;align-items:center;gap:var(--sp-2);height:19px;padding:0 8px;border-radius:999px;
+  border:1px solid rgba(210,153,34,.4);background:rgba(210,153,34,.09);
+  font-family:var(--mono);font-size:var(--fs-micro);letter-spacing:.09em;color:var(--warn)}
+
+/* -- The viewer's own state readout -- */
+.proto .now{display:flex;align-items:center;gap:var(--sp-2);height:26px;padding:0 12px;border-radius:999px;
+  border:1px solid var(--line-soft);background:var(--panel);font-size:var(--fs-ui);color:var(--muted)}
+.proto .now .dotm{background:var(--line-hover);box-shadow:none}
+.proto .now[data-tone="boot"] .dotm{background:var(--warn);box-shadow:0 0 8px rgba(210,153,34,.8)}
+.proto .now[data-tone="live"] .dotm{background:var(--accent);box-shadow:0 0 8px rgba(88,166,255,.9)}
+.proto .now[data-tone="live"]{color:var(--text)}
+
+/* ══ Viewer ════════════════════════════════════════════════════════════════
+   Everything under this heading is the prototype VIEWER, not the product. One
+   shell is built once; the band at the top swaps which state is in the layout,
+   so the rail, the tab strip and the frame are the same objects throughout.
+   None of it ships. ══════════════════════════════════════════════════════ */
+.root{height:100dvh;min-height:600px;display:flex;flex-direction:column;overflow:hidden;background:var(--viewer)}
+.proto{height:48px;flex:none;display:flex;align-items:center;gap:var(--sp-3);padding:0 14px;
+  background:var(--viewer);border-bottom:1px solid var(--line-soft)}
+.proto .id{display:flex;align-items:baseline;gap:var(--sp-2);padding-right:2px}
+.proto .id b{font-size:var(--fs-ui);font-weight:600;color:var(--heading);letter-spacing:-.01em}
+.proto .id .lab{color:var(--faint)}
+.proto .sep{width:1px;height:20px;background:var(--line-soft);flex:none}
+.proto .hint{margin-left:auto;display:flex;align-items:center;gap:var(--sp-2);color:var(--faint);font-size:var(--fs-small);white-space:nowrap}
+.key{display:inline-grid;place-items:center;min-width:22px;height:21px;padding:0 7px;border-radius:var(--r-chip);
+  font-family:var(--ui);font-size:var(--fs-micro);font-weight:600;letter-spacing:.01em;color:var(--text);
+  background:linear-gradient(180deg,var(--raised),var(--surface));
+  border:1px solid var(--line);border-bottom-color:var(--line-hover);border-bottom-width:2px;
+  box-shadow:var(--inner-lift)}
+
+.seg{display:flex;align-items:center;gap:2px;padding:3px;border-radius:var(--r-ctrl);flex:none;
+  background:var(--panel);border:1px solid var(--line-soft);box-shadow:var(--inner-lift)}
+.seg button{height:26px;padding:0 11px;border-radius:var(--r-nav);display:flex;align-items:center;gap:var(--sp-2);
+  font-size:var(--fs-ui);color:var(--muted);white-space:nowrap;transition:background var(--t-fast) ease,color var(--t-fast) ease}
+.seg button:hover{color:var(--text);background:rgba(255,255,255,.045)}
+.seg button.on{color:var(--heading);background:var(--raised);box-shadow:var(--inner-lift),0 1px 2px rgba(0,0,0,.45)}
+.seg .no{font-family:var(--mono);font-size:var(--fs-micro);letter-spacing:.08em;color:var(--faint)}
+.seg button.on .no{color:var(--accent)}
+.seg .dotm{width:6px;height:6px;border-radius:50%;background:var(--line-hover);flex:none;transition:background var(--t-fast) ease}
+.seg button.on .dotm{background:var(--accent);box-shadow:0 0 7px rgba(88,166,255,.85)}
+
+.frame{flex:1;min-height:0;min-width:0;display:grid;grid-template-columns:1fr;grid-template-rows:1fr}
+
+/* the state swap: only the live page is in the grid, the other two are gone */
+.view{display:none}
+.root[data-view="standby"] .v-standby,
+.root[data-view="boot"] .v-boot,
+.root[data-view="live"] .v-live{display:contents}
+.onlylive,.onlyboot{display:none}
+.root[data-view="live"] .onlylive{display:flex}
+.root[data-view="boot"] .onlyboot{display:flex}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- Anthropic's mark: ten tapered blades from a common centre -->
+    <path id="ab" d="M12 2.7c.63 0 1.14.51 1.14 1.14l-.29 6.4a.85.85 0 0 1-1.7 0l-.29-6.4c0-.63.51-1.14 1.14-1.14z"/>
+  </defs>
+  <symbol id="anthropic" viewBox="0 0 24 24">
+    <g fill="currentColor">
+      <use href="#ab"/><use href="#ab" transform="rotate(36 12 12)"/><use href="#ab" transform="rotate(72 12 12)"/>
+      <use href="#ab" transform="rotate(108 12 12)"/><use href="#ab" transform="rotate(144 12 12)"/>
+      <use href="#ab" transform="rotate(180 12 12)"/><use href="#ab" transform="rotate(216 12 12)"/>
+      <use href="#ab" transform="rotate(252 12 12)"/><use href="#ab" transform="rotate(288 12 12)"/>
+      <use href="#ab" transform="rotate(324 12 12)"/>
+    </g>
+  </symbol>
+</svg>
+
+<div class="root" data-view="standby">
+
+<!-- ══ Viewer band ══ -->
+<header class="proto">
+  <span class="id"><b>TOBI UI 2.0</b><span class="lab">Design</span></span>
+  <span class="sep"></span>
+
+  <div class="seg" role="group" aria-label="Screen">
+    <button data-screen="01" class="on" aria-pressed="true"><span class="no">01</span>Starting screen</button>
+    <button data-screen="02" aria-pressed="false"><span class="no">02</span>Canvas view</button>
+  </div>
+
+  <span class="now" data-tone="idle"><span class="dotm"></span><span id="nowlab">Asleep</span></span>
+  <span class="hint">A working prototype. Press <span class="key">Start TOBI</span>.</span>
+</header>
+
+<div class="frame">
+<div class="app">
+
+  <!-- ══ Navigation rail ══ -->
+  <nav class="rail" aria-label="Mission Control">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 3.2 4.6 7.4v9.2L12 20.8l7.4-4.2V7.4z"/><path d="M12 11.6 4.6 7.4M12 11.6l7.4-4.2M12 11.6v9.2"/></svg>
+      </span>
+      <span>
+        <span class="name">Mission Control</span>
+        <span class="ver">TOBI · UI 2.0</span>
+      </span>
+    </div>
+
+    <div class="navscroll">
+      <div class="group">
+        <div class="lab">Main</div>
+        <a class="nav on" href="#" aria-current="page">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M12 3.4 5 7.3v9.4l7 3.9 7-3.9V7.3z"/><circle cx="12" cy="12" r="2.6"/><path d="M12 6.2v3.2M12 14.6v3.2M8.2 9.4l2.2 1.3M13.6 13.3l2.2 1.3M15.8 9.4l-2.2 1.3M10.4 13.3l-2.2 1.3"/></svg>
+          UI 2.0
+        </a>
+        <a class="nav" href="#"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/></svg>Dashboard</a>
+        <a class="nav" href="#"><svg class="ic" viewBox="0 0 24 24"><path d="M3.5 12.5h4l1.6 2.6h5.8l1.6-2.6h4"/><path d="M5.6 5.4 3.5 12.5v5a1.8 1.8 0 0 0 1.8 1.8h13.4a1.8 1.8 0 0 0 1.8-1.8v-5L18.4 5.4a1.8 1.8 0 0 0-1.6-1H7.2a1.8 1.8 0 0 0-1.6 1z"/></svg>Inbox<span class="count">3</span></a>
+        <a class="nav" href="#"><svg class="ic" viewBox="0 0 24 24"><path d="M20.5 12.4a7.6 7.6 0 0 1-8.2 7.6 8.4 8.4 0 0 1-3.2-.7L4 20.5l1.3-4.6a7.6 7.6 0 0 1-.8-3.5 7.6 7.6 0 0 1 7.6-7.6 7.6 7.6 0 0 1 8.4 7.6z"/></svg>Chat</a>
+        <a class="nav" href="#"><svg class="ic" viewBox="0 0 24 24"><path d="M3.5 7.4a1.8 1.8 0 0 1 1.8-1.8h3.4l2 2.4h8a1.8 1.8 0 0 1 1.8 1.8v7.6a1.8 1.8 0 0 1-1.8 1.8H5.3a1.8 1.8 0 0 1-1.8-1.8z"/></svg>Projects<span class="count">4</span></a>
+      </div>
+
+      <div class="group">
+        <div class="lab">Mind</div>
+        <a class="nav" href="#"><svg class="ic" viewBox="0 0 24 24"><path d="M12 4.2a3.1 3.1 0 0 0-3 2.3 2.9 2.9 0 0 0-2.4 4.4A3 3 0 0 0 7 15.8a3 3 0 0 0 2.9 3.9 2.6 2.6 0 0 0 2.1-1"/><path d="M12 4.2a3.1 3.1 0 0 1 3 2.3 2.9 2.9 0 0 1 2.4 4.4 3 3 0 0 1-.4 4.9 3 3 0 0 1-2.9 3.9 2.6 2.6 0 0 1-2.1-1"/><path d="M12 4.2v14.6"/></svg>Brain</a>
+        <a class="nav" href="#"><svg class="ic" viewBox="0 0 24 24"><circle cx="6.4" cy="17.6" r="2.4"/><circle cx="17.6" cy="17.6" r="2.4"/><circle cx="12" cy="6.4" r="2.4"/><path d="m8 15.8 2.6-7.2M13.4 8.6l2.6 7.2M8.8 17.6h6.4"/></svg>Graph</a>
+        <a class="nav" href="#"><svg class="ic" viewBox="0 0 24 24"><path d="M3.5 12.4h3.8l1.9-4.6 3 9.4 2.2-6.2 1.3 1.4h4.8"/></svg>Health</a>
+      </div>
+
+      <div class="group">
+        <div class="lab">Work</div>
+        <a class="nav" href="#"><svg class="ic" viewBox="0 0 24 24"><path d="M4.5 20.5V6.2a1.7 1.7 0 0 1 1.7-1.7h7a1.7 1.7 0 0 1 1.7 1.7v14.3"/><path d="M14.9 10.4h3.4a1.7 1.7 0 0 1 1.7 1.7v8.4M4.5 20.5h15.5M8 8.4h3.4M8 12.4h3.4M8 16.4h3.4"/></svg>Office</a>
+        <a class="nav" href="#"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="5.4" height="15" rx="1.5"/><rect x="11.6" y="4.5" width="5.4" height="9.6" rx="1.5"/><path d="M20.5 4.5v15"/></svg>Tasks<span class="count">9</span></a>
+        <a class="nav" href="#"><svg class="ic" viewBox="0 0 24 24"><path d="M3.5 12.4h3.4l2-6.4 3.4 12 2.2-5.6h5.9"/></svg>Runs</a>
+      </div>
+    </div>
+
+    <div class="railfoot">
+      <span class="avatar" aria-hidden="true">TH</span>
+      <span class="who"><b>Thomas</b><span>owner</span></span>
+      <button class="iconbtn" aria-label="Settings">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.1 14.6a1.5 1.5 0 0 0 .3 1.7l.1.1a1.8 1.8 0 1 1-2.6 2.6l-.1-.1a1.5 1.5 0 0 0-1.7-.3 1.5 1.5 0 0 0-.9 1.4v.2a1.8 1.8 0 1 1-3.6 0v-.1a1.5 1.5 0 0 0-1-1.4 1.5 1.5 0 0 0-1.7.3l-.1.1a1.8 1.8 0 1 1-2.6-2.6l.1-.1a1.5 1.5 0 0 0 .3-1.7 1.5 1.5 0 0 0-1.4-.9h-.2a1.8 1.8 0 1 1 0-3.6h.1a1.5 1.5 0 0 0 1.4-1 1.5 1.5 0 0 0-.3-1.7l-.1-.1a1.8 1.8 0 1 1 2.6-2.6l.1.1a1.5 1.5 0 0 0 1.7.3h.1a1.5 1.5 0 0 0 .9-1.4v-.2a1.8 1.8 0 1 1 3.6 0v.1a1.5 1.5 0 0 0 .9 1.4 1.5 1.5 0 0 0 1.7-.3l.1-.1a1.8 1.8 0 1 1 2.6 2.6l-.1.1a1.5 1.5 0 0 0-.3 1.7v.1a1.5 1.5 0 0 0 1.4.9h.2a1.8 1.8 0 1 1 0 3.6h-.1a1.5 1.5 0 0 0-1.4.9z"/></svg>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ══ App column ══ -->
+  <div class="col">
+
+    <div class="strip" role="tablist" aria-label="Open pages">
+      <button class="wtab on" role="tab" aria-selected="true">UI 2.0 <span class="x">×</span></button>
+      <button class="wtab" role="tab" aria-selected="false">Projects <span class="x">×</span></button>
+      <button class="wtab" role="tab" aria-selected="false">Runs <span class="x">×</span></button>
+      <span class="spacer"></span>
+      <span class="livepill onlylive"><span class="livedot"></span> LIVE</span>
+      <span class="livepill onlyboot" style="color:var(--muted);border-color:var(--line);background:var(--panel)"><span class="livedot" style="background:var(--muted);box-shadow:none"></span> STARTING</span>
+    </div>
+
+    <!-- ── 01 · Standby, asleep ── -->
+    <div class="view v-standby">
+    <div class="page solo">
+      <section class="console" aria-label="Session">
+        <div class="corner">
+          <button class="pill" data-act="model" aria-haspopup="menu" aria-expanded="false">
+            <svg class="provider" viewBox="0 0 24 24" aria-hidden="true"><use href="#anthropic"/></svg>
+            <span class="mname">claude-opus-5</span>
+            <svg class="ic chev" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="m6 9.5 6 5 6-5"/></svg>
+          </button>
+          <div class="menu cornermenu" data-menu="model" hidden>
+            <button data-model="claude-opus-5" class="on"><svg class="ic tick" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg><svg class="provider" viewBox="0 0 24 24" aria-hidden="true"><use href="#anthropic"/></svg>claude-opus-5<span class="k">deep work</span></button>
+            <button data-model="claude-sonnet-5"><svg class="ic tick" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg><svg class="provider" viewBox="0 0 24 24" aria-hidden="true"><use href="#anthropic"/></svg>claude-sonnet-5<span class="k">everyday</span></button>
+            <button data-model="claude-haiku-4.5"><svg class="ic tick" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg><svg class="provider" viewBox="0 0 24 24" aria-hidden="true"><use href="#anthropic"/></svg>claude-haiku-4.5<span class="k">fast</span></button>
+            <p class="foot">The model can change mid-session. The context already spent stays spent.</p>
+          </div>
+          <button class="pill" data-act="history">
+            <svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px;color:var(--muted)"><path d="M3.2 12a8.8 8.8 0 1 0 2.9-6.5L3 8.2"/><path d="M3 3.4v4.9h4.9"/><path d="M12 7.4V12l3 1.8"/></svg>
+            History
+          </button>
+        </div>
+        <div class="stage">
+          <div class="neuron asleep" role="img" aria-label="TOBI is asleep">
+            <span class="disc" aria-hidden="true"></span>
+            <span class="sweep" aria-hidden="true"></span>
+            <canvas class="brain" data-state="asleep" aria-hidden="true"></canvas>
+            <svg viewBox="0 0 288 288">
+              <defs>
+                <radialGradient id="bloom-asleep" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stop-color="#58a6ff" stop-opacity=".06"/>
+                  <stop offset="52%" stop-color="#58a6ff" stop-opacity=".02"/>
+                  <stop offset="100%" stop-color="#58a6ff" stop-opacity="0"/>
+                </radialGradient>
+                <filter id="halo-asleep" x="-90%" y="-90%" width="280%" height="280%">
+                  <feGaussianBlur stdDeviation="9"/>
+                </filter>
+                <filter id="glow-asleep" x="-70%" y="-70%" width="240%" height="240%">
+                  <feGaussianBlur stdDeviation="2.6" result="b"/>
+                  <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
+              </defs>
+              <circle cx="144" cy="144" r="142" fill="url(#bloom-asleep)"/>
+              <circle cx="144" cy="144" r="118" fill="none" stroke="#58a6ff" stroke-opacity=".06"/>
+              <circle class="n-bezel" cx="144" cy="144" r="129" fill="none" stroke="#58a6ff"
+                      stroke-opacity=".13" stroke-width="4"
+                      stroke-dasharray="1.1 7.35" style="transform-origin:144px 144px"/>
+              <circle cx="144" cy="144" r="118" fill="none" stroke="#232b35" stroke-width="2.5"/>
+              <circle class="n-glow" cx="144" cy="144" r="22" fill="#58a6ff" opacity=".22" filter="url(#halo-asleep)"/>
+            </svg>
+          </div>
+          <div class="state" style="color:var(--faint)">Asleep</div>
+          <button class="start" data-act="start">Start TOBI</button>
+          <p class="lastrun">Last session <b class="lastwhen">2 hours ago</b> · 31m 48s · 4 actions</p>
+        </div>
+      </section>
+    </div>
+    </div>
+
+    <!-- ── 01 · Standby, starting ── -->
+    <div class="view v-boot">
+    <div class="page solo">
+      <section class="console" aria-label="Starting the session">
+        <div class="statusbar" style="opacity:.5">
+          <span class="model">
+            <svg class="provider" viewBox="0 0 24 24" aria-hidden="true"><use href="#anthropic"/></svg>
+            claude-opus-5
+          </span>
+          <span class="rule"></span>
+          <span class="ctx">
+            <svg class="donut" viewBox="0 0 36 36" aria-hidden="true">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="#2b333d" stroke-width="4"/>
+              <circle cx="18" cy="18" r="15" fill="none" stroke="#58a6ff" stroke-width="4" stroke-linecap="round"
+                      stroke-dasharray="2.8 94.2" transform="rotate(-90 18 18)"/>
+            </svg>
+            <span class="pct">3%</span>
+            <span class="of">6k / 200k</span>
+          </span>
+          <span class="rule"></span>
+          <span class="clock">00:00</span>
+          <span class="health" style="background:var(--muted);box-shadow:none"></span>
+        </div>
+        <div class="stage">
+          <div class="neuron booting" role="img" aria-label="TOBI is waking up">
+            <span class="disc" aria-hidden="true"></span>
+            <span class="sweep" aria-hidden="true"></span>
+            <canvas class="brain" data-state="booting" aria-hidden="true"></canvas>
+            <svg viewBox="0 0 288 288">
+              <defs>
+                <radialGradient id="bloom-booting" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stop-color="#58a6ff" stop-opacity=".16"/>
+                  <stop offset="52%" stop-color="#58a6ff" stop-opacity=".04"/>
+                  <stop offset="100%" stop-color="#58a6ff" stop-opacity="0"/>
+                </radialGradient>
+                <filter id="halo-booting" x="-90%" y="-90%" width="280%" height="280%">
+                  <feGaussianBlur stdDeviation="9"/>
+                </filter>
+                <filter id="glow-booting" x="-70%" y="-70%" width="240%" height="240%">
+                  <feGaussianBlur stdDeviation="2.6" result="b"/>
+                  <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
+              </defs>
+              <circle cx="144" cy="144" r="142" fill="url(#bloom-booting)"/>
+              <circle cx="144" cy="144" r="118" fill="none" stroke="#58a6ff" stroke-opacity=".1"/>
+              <circle class="n-bezel" cx="144" cy="144" r="129" fill="none" stroke="#58a6ff"
+                      stroke-opacity=".2" stroke-width="4"
+                      stroke-dasharray="1.1 7.35" style="transform-origin:144px 144px"/>
+              <circle cx="144" cy="144" r="118" fill="none" stroke="#232b35" stroke-width="2.5"/>
+              <circle cx="144" cy="144" r="118" fill="none" stroke="#58a6ff" stroke-width="3" stroke-linecap="round" stroke-dasharray="22 700.7" transform="rotate(-90 144 144)"/>
+              <circle class="n-glow" cx="144" cy="144" r="22" fill="#58a6ff" opacity=".22" filter="url(#halo-booting)"/>
+            </svg>
+          </div>
+          <div class="state shimmer">Waking up</div>
+          <div class="checks">
+            <div class="check wait" data-val="claude-opus-5"><span class="st"></span><span class="nm">Model connected</span><span class="val">claude-opus-5</span></div>
+            <div class="check wait" data-val="4 projects"><span class="st"></span><span class="nm">Memory linked</span><span class="val">4 projects</span></div>
+            <div class="check wait" data-val="24 ready"><span class="st"></span><span class="nm">Tools loaded</span><span class="val">24 ready</span></div>
+            <div class="check wait" data-val="idle"><span class="st"></span><span class="nm">Canvas ready to call</span><span class="val">idle</span></div>
+            <div class="check wait" data-val="locked off"><span class="st"></span><span class="nm">Voice engine</span><span class="val">locked off</span></div>
+          </div>
+          <div class="bootbar">
+            <span class="track"><i style="width:0%"></i></span>
+            <span class="num">0 of 5 · 5s</span>
+          </div>
+          <p class="boothint">Starting runs to the end. Nothing to press.</p>
+        </div>
+      </section>
+    </div>
+    </div>
+
+    <!-- ── 02 · Live session, speaking ── -->
+    <div class="view v-live">
+    <div class="page">
+
+      <!-- ── Console ── -->
+      <section class="console" aria-label="Conversation">
+
+        <div class="statusbar">
+          <button class="model" data-act="model" aria-haspopup="menu" aria-expanded="false">
+            <svg class="provider" viewBox="0 0 24 24" aria-hidden="true"><use href="#anthropic"/></svg>
+            <span class="mname">claude-opus-5</span>
+            <svg class="ic chev" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="m6 9.5 6 5 6-5"/></svg>
+          </button>
+          <div class="menu modelmenu modelmenu" data-menu="model" hidden>
+            <button data-model="claude-opus-5" class="on"><svg class="ic tick" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg><svg class="provider" viewBox="0 0 24 24" aria-hidden="true"><use href="#anthropic"/></svg>claude-opus-5<span class="k">deep work</span></button>
+            <button data-model="claude-sonnet-5"><svg class="ic tick" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg><svg class="provider" viewBox="0 0 24 24" aria-hidden="true"><use href="#anthropic"/></svg>claude-sonnet-5<span class="k">everyday</span></button>
+            <button data-model="claude-haiku-4.5"><svg class="ic tick" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg><svg class="provider" viewBox="0 0 24 24" aria-hidden="true"><use href="#anthropic"/></svg>claude-haiku-4.5<span class="k">fast</span></button>
+            <p class="foot">The model can change mid-session. The context already spent stays spent.</p>
+          </div>
+          <span class="rule"></span>
+          <span class="ctx" title="Context used">
+            <svg class="donut" viewBox="0 0 36 36" aria-hidden="true">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="#2b333d" stroke-width="4"/>
+              <circle cx="18" cy="18" r="15" fill="none" stroke="#58a6ff" stroke-width="4" stroke-linecap="round"
+                      stroke-dasharray="15.1 94.2" transform="rotate(-90 18 18)"/>
+            </svg>
+            <span class="pct">16%</span>
+            <span class="of">32k / 200k</span>
+          </span>
+          <span class="rule"></span>
+          <span class="clock">01:44</span>
+          <span class="health" title="All systems healthy"></span>
+        </div>
+
+        <div class="stage">
+          <div class="neuron" role="img" aria-label="TOBI is speaking">
+            <span class="disc" aria-hidden="true"></span>
+            <span class="sweep" aria-hidden="true"></span>
+            <canvas class="brain" aria-hidden="true"></canvas>
+            <svg viewBox="0 0 288 288">
+              <defs>
+                <radialGradient id="bloom" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stop-color="#58a6ff" stop-opacity=".20"/>
+                  <stop offset="52%" stop-color="#58a6ff" stop-opacity=".05"/>
+                  <stop offset="100%" stop-color="#58a6ff" stop-opacity="0"/>
+                </radialGradient>
+                <filter id="halo" x="-90%" y="-90%" width="280%" height="280%">
+                  <feGaussianBlur stdDeviation="9"/>
+                </filter>
+                <filter id="glow" x="-70%" y="-70%" width="240%" height="240%">
+                  <feGaussianBlur stdDeviation="2.6" result="b"/>
+                  <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
+              </defs>
+
+              <circle cx="144" cy="144" r="142" fill="url(#bloom)"/>
+              <circle cx="144" cy="144" r="118" fill="none" stroke="#58a6ff" stroke-opacity=".12"/>
+
+              <!-- instrument bezel: hairline ticks, turning slowly against the sweep -->
+              <circle class="n-bezel" cx="144" cy="144" r="129" fill="none" stroke="#58a6ff" stroke-opacity=".26"
+                      stroke-width="4" stroke-dasharray="1.1 7.35" style="transform-origin:144px 144px"/>
+
+              <!-- context: the track, then the 16% actually used, with a lit endpoint -->
+              <circle cx="144" cy="144" r="118" fill="none" stroke="#232b35" stroke-width="2.5"/>
+              <circle class="n-ring-lit" cx="144" cy="144" r="118" fill="none" stroke="#58a6ff" stroke-width="2.5" filter="url(#glow)"/>
+              <circle cx="144" cy="144" r="118" fill="none" stroke="#58a6ff" stroke-width="3" stroke-linecap="round"
+                      stroke-dasharray="118.6 622.9" transform="rotate(-90 144 144)"/>
+              <circle cx="243.6" cy="80.8" r="3.4" fill="#bcdcff" filter="url(#glow)"/>
+
+              <!-- the core reads as a bloom over the densest cluster, not an object -->
+              <circle class="n-glow" cx="144" cy="144" r="22" fill="#58a6ff" opacity=".38" filter="url(#halo)"/>
+            </svg>
+          </div>
+
+          <div class="statusslot gone">
+            <div class="status" data-state="idle" role="status" aria-live="polite" aria-atomic="true">
+            <span class="sglyph" aria-hidden="true">
+              <span class="g g-dot"></span>
+              <span class="g g-bars"><i></i><i></i><i></i></span>
+              <svg class="g g-arc" viewBox="0 0 24 24">
+                <circle class="track" cx="12" cy="12" r="8.4"/>
+                <circle class="run" cx="12" cy="12" r="8.4"/>
+              </svg>
+            </span>
+            <span class="slabel">Ready</span>
+              <span class="srun"><span class="selapsed"></span><span class="stokens"></span></span>
+              <button class="sstop" data-act="stop">Esc to stop</button>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- one exchange at a time, built by the renderer the script panel uses -->
+        <div class="convowrap">
+          <div class="convo" tabindex="0">
+            <div class="script"></div>
+          </div>
+          <button class="jump" data-act="jump" hidden>
+            <svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+            Jump to latest
+            <span class="unread"></span>
+          </button>
+        </div>
+
+        <div class="dock">
+          <button class="sq" data-act="add" aria-label="Add a file or a connector" aria-haspopup="menu" aria-expanded="false">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M12 5.5v13M5.5 12h13"/></svg>
+          </button>
+          <div class="menu addmenu" data-menu="add" hidden>
+            <button data-act="attach"><svg class="ic" viewBox="0 0 24 24"><path d="M20.4 11.2 12 19.6a5 5 0 0 1-7.1-7.1l8.5-8.4a3.3 3.3 0 0 1 4.7 4.7l-8.4 8.4a1.7 1.7 0 0 1-2.4-2.3l7.8-7.8"/></svg>Attach a file<span class="keys"><kbd>⌘</kbd><kbd>U</kbd></span></button>
+            <button data-act="connect"><svg class="ic" viewBox="0 0 24 24"><path d="M9 3.5v5M15 3.5v5"/><path d="M7 8.5h10v3.6a5 5 0 0 1-10 0z"/><path d="M12 17.1v3.4"/></svg>Connect a source<span class="k">3 live</span></button>
+            <p class="foot">Attached files stay with this session and appear on the canvas.</p>
+          </div>
+
+          <button class="sq speak" data-act="vol" aria-label="TOBI's voice" aria-haspopup="menu" aria-expanded="false">
+            <svg class="ic g g-loud" viewBox="0 0 24 24"><path d="M11.5 4.6 6.9 8.4H3.6v7.2h3.3l4.6 3.8z"/><path d="M15.4 9.1a4.1 4.1 0 0 1 0 5.8"/><path d="M18.1 6.4a7.9 7.9 0 0 1 0 11.2"/></svg>
+            <svg class="ic g g-off" viewBox="0 0 24 24"><path d="M11.5 4.6 6.9 8.4H3.6v7.2h3.3l4.6 3.8z"/><path d="m15.6 9.8 5 4.4M20.6 9.8l-5 4.4"/></svg>
+          </button>
+          <div class="menu volmenu" data-menu="vol" hidden>
+            <button data-act="mute" class="on">
+              <svg class="ic tick" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg>
+              TOBI's voice<span class="k">on</span>
+            </button>
+            <div class="vol">
+              <svg class="ic" viewBox="0 0 24 24"><path d="M11.5 4.6 6.9 8.4H3.6v7.2h3.3l4.6 3.8z"/><path d="M15.4 9.1a4.1 4.1 0 0 1 0 5.8"/><path d="M18.1 6.4a7.9 7.9 0 0 1 0 11.2"/></svg>
+              <input type="range" min="0" max="100" value="70" step="1" aria-label="Volume">
+              <span class="pctv">70%</span>
+            </div>
+            <p class="foot">His voice only. Nothing else in the room gets quieter.</p>
+          </div>
+
+          <div class="field">
+            <input type="text" placeholder="Type to TOBI. He finishes speaking first." aria-label="Message TOBI">
+            <button class="send" data-act="send" aria-label="Send">
+              <svg class="ic" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+            </button>
+          </div>
+
+          <div class="ctrl mic m-locked" role="group" aria-label="Voice">
+            <button class="glyph" data-act="mic" aria-label="Voice is locked. Choose a mode from the menu">
+              <svg class="ic g g-lock" viewBox="0 0 24 24"><rect x="7.4" y="2.6" width="5.8" height="10.2" rx="2.9"/><path d="M4.2 10.9a6.1 6.1 0 0 0 8 5.8"/><path d="M10.3 18.3V20.9"/><path d="M7.2 20.9h6.2"/><path d="M16.7 15.5v-1.4a2.15 2.15 0 0 1 4.3 0v1.4" stroke-width="1.5"/><rect x="15.5" y="15.5" width="6.7" height="5.5" rx="1.6" fill="currentColor" stroke="none"/></svg><svg class="ic g g-mic" viewBox="0 0 24 24"><rect x="9.1" y="2.6" width="5.8" height="10.2" rx="2.9"/><path d="M5.9 10.9a6.1 6.1 0 0 0 12.2 0"/><path d="M12 17.1v3.2"/><path d="M8.9 20.3h6.2"/></svg><svg class="ic g g-mute" viewBox="0 0 24 24"><rect x="9.1" y="2.6" width="5.8" height="10.2" rx="2.9"/><path d="M5.9 10.9a6.1 6.1 0 0 0 12.2 0"/><path d="M12 17.1v3.2"/><path d="M8.9 20.3h6.2"/><path d="M4.4 3.4 19.6 20.6"/></svg>
+            </button>
+            <span class="div"></span>
+            <button class="drop" data-act="micmenu" aria-label="Voice mode" aria-haspopup="menu" aria-expanded="false">
+              <svg class="chev" viewBox="0 0 24 24"><path d="m6 14.5 6-5 6 5"/></svg>
+            </button>
+          </div>
+          <div class="menu micmenu" data-menu="mic" hidden>
+            <button data-mode="onoff"><svg class="ic tick" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg>On and off<span class="keys"><kbd>Alt</kbd><kbd>M</kbd></span></button>
+            <button data-mode="ptt"><svg class="ic tick" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg>Push to talk<span class="keys">hold <kbd>Space</kbd></span></button>
+            <button data-mode="locked" class="on"><svg class="ic tick" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg>Locked<span class="k">menu only</span></button>
+            <p class="foot">Esc puts the microphone back to Locked from anywhere.</p>
+          </div>
+
+          <span class="rule"></span>
+          <button class="ctrl end" data-act="end" aria-label="End the session">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M12 3.9v8.2"/><path d="M6.9 6.6a7.2 7.2 0 1 0 10.2 0"/></svg>
+          </button>
+        </div>
+      </section>
+
+      <!-- ── Canvas ── -->
+      <section class="canvas" aria-label="Canvas">
+        <span class="grip" role="separator" aria-label="Resize the canvas" aria-orientation="vertical"></span>
+
+        <div class="cbar">
+          <button class="cbtn" data-act="collapse" aria-label="Close the canvas">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M6.4 6.4 17.6 17.6M17.6 6.4 6.4 17.6"/></svg>
+          </button>
+          <button class="cbtn" data-act="full" aria-label="Full screen"><svg class="ic" viewBox="0 0 24 24"><path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"/></svg></button>
+          <span class="spacer"></span>
+          <div class="cgroup">
+            <button class="cbtn" data-open="artifacts" aria-label="Session artifacts, 4 in this session"><svg class="ic" viewBox="0 0 24 24"><path d="M14 2.8H7.5a2 2 0 0 0-2 2v14.4a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7.6z"/><path d="M14 2.8V7.6h4.5"/><path d="M3 7.5v11.8A2.2 2.2 0 0 0 5.2 21.5H14"/></svg><span class="badge">4</span></button>
+            <button class="cbtn" data-open="script" aria-label="Session script"><svg class="ic" viewBox="0 0 24 24"><path d="M6.5 3.5h11a2 2 0 0 1 2 2V18a2.5 2.5 0 0 1-2.5 2.5H7A2.5 2.5 0 0 1 4.5 18V5.5a2 2 0 0 1 2-2z"/><path d="M8.5 8h7M8.5 12h7"/></svg></button>
+            <button class="cbtn" data-open="history" aria-label="Session history"><svg class="ic" viewBox="0 0 24 24"><path d="M3.2 12a8.8 8.8 0 1 0 2.9-6.5L3 8.2"/><path d="M3 3.4v4.9h4.9"/><path d="M12 7.4V12l3 1.8"/></svg></button>
+            <button class="cbtn" data-open="configure" aria-label="Configure"><svg class="ic" viewBox="0 0 24 24"><path d="M4 7.5h7M15.5 7.5H20M4 16.5h3.5M12 16.5H20"/><circle cx="13.2" cy="7.5" r="2.3"/><circle cx="9.7" cy="16.5" r="2.3"/></svg></button>
+          </div>
+        </div>
+
+        <div class="ctabs" role="tablist" aria-label="Open documents" hidden>
+          <button class="ctab" data-tab="plan" role="tab" aria-selected="false" hidden>
+            <svg class="ic" viewBox="0 0 24 24"><path d="M14 2.8H7.5a2 2 0 0 0-2 2v14.4a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7.6z"/><path d="M14 2.8V7.6h4.5"/></svg>
+            <span class="tname">foundation-plan.md</span> <span class="x" data-act="closetab">×</span>
+          </button>
+          <button class="ctab" data-tab="burndown" role="tab" aria-selected="false" hidden>
+            <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.2"/><path d="M4 18.5 9.5 11l4 5 2.5-3.2 4 5.7z"/><circle cx="8.4" cy="9" r="1.3"/></svg>
+            <span class="tname">week-1-burndown.png</span> <span class="x" data-act="closetab">×</span>
+          </button>
+          <button class="ctab" data-tab="items" role="tab" aria-selected="false" hidden>
+            <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.2"/><path d="M4.5 9.5h15M4.5 14.5h15M9.5 4.5v15"/></svg>
+            <span class="tname">week-1-items.csv</span> <span class="x" data-act="closetab">×</span>
+          </button>
+          <button class="ctab" data-tab="scriptdoc" role="tab" aria-selected="false" hidden>
+            <svg class="ic" viewBox="0 0 24 24"><path d="M6.5 3.5h11a2 2 0 0 1 2 2V18a2.5 2.5 0 0 1-2.5 2.5H7A2.5 2.5 0 0 1 4.5 18V5.5a2 2 0 0 1 2-2z"/><path d="M8.5 8h7M8.5 12h7"/></svg>
+            <span class="tname">session-script.md</span> <span class="x" data-act="closetab">×</span>
+          </button>
+          <button class="ctab" data-tab="recap" role="tab" aria-selected="false" hidden>
+            <svg class="ic" viewBox="0 0 24 24"><path d="M3.2 12a8.8 8.8 0 1 0 2.9-6.5L3 8.2"/><path d="M3 3.4v4.9h4.9"/><path d="M12 7.4V12l3 1.8"/></svg>
+            <span class="tname">Session recap</span> <span class="x" data-act="closetab">×</span>
+          </button>
+        </div>
+
+        <div class="doc" tabindex="0">
+          <div class="doc-inner">
+
+            <div class="pane on" data-pane="plan">
+              <h1>Foundation Plan</h1>
+              <p class="lede">Six weeks from first commit to the first owner demo. Every week ends with something
+                that runs, not something that compiles.</p>
+              <div class="meta">
+                <span class="chip info">Monolith 1</span>
+                <span class="chip">Updated <b class="n">2 days</b> ago</span>
+                <span class="chip"><b class="n">12</b> KB</span>
+                <span class="chip warn">Week 1, <b class="n">2</b> behind</span>
+              </div>
+  
+              <h2>Week 1: Skeleton</h2>
+              <p>One command brings the whole thing up. Nothing is stubbed that a demo would touch, and the
+                seed data is real enough to spot a bad join.</p>
+              <ul>
+                <li class="done"><span class="tick"><svg class="ic" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg></span><span>Repository, CI, and a green pipeline on an empty test</span></li>
+                <li class="done"><span class="tick"><svg class="ic" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg></span><span>API and web boot together from one command</span></li>
+                <li><span class="tick"></span><span>Auth callback route wired end to end</span></li>
+                <li><span class="tick"></span><span>Seed dataset that survives a full reset</span></li>
+              </ul>
+  <pre><span class="c"># boots api + web together, with the seed applied</span>
+  <span class="k">$</span> make dev
+  <span class="c">→ api  http://localhost:4000   ready in 1.2s</span>
+  <span class="c">→ web  http://localhost:5173   ready in 0.8s</span></pre>
+  
+              <h2>Week 2: Data layer</h2>
+              <p>Schema first, then the queries the demo actually runs. Anything the owner will click gets an
+                index before it gets a feature. <code>pnpm db:check</code> must stay green in CI.</p>
+              <blockquote>
+                <p>The client contract binds delivery to 14 days after sign-off, on page 4 of client-rules.pdf.
+                  Week 2 is the last week that can absorb a slip without moving that date.</p>
+              </blockquote>
+  
+              <h2>Week 3: First vertical slice</h2>
+              <p>One feature, all the way down: interface, endpoint, table, test. It exists to prove the layers
+                fit together, so the feature itself should be the least interesting one on the list.</p>
+            </div>
+
+            <div class="pane" data-pane="script">
+              <h1>Session script</h1>
+              <p class="lede">Everything said and done, in order, exactly as it appeared while it happened.
+                It writes itself and saves when the session ends.</p>
+              <div class="meta">
+                <span class="chip">Started <b class="n">09:12</b></span>
+                <span class="chip"><b class="n">31m 48s</b></span>
+                <span class="chip"><b class="n">4</b> actions</span>
+                <span class="chip"><b class="n">4</b> artifacts</span>
+              </div>
+
+              <div class="thread">
+              <div class="msg you">
+                <span class="who-av" aria-hidden="true">TH</span>
+                <div class="body">
+                  <div class="head"><b>You</b><time>09:12</time></div>
+                  <div class="say"><p>Morning. Where did we leave Monolith 1?</p></div>
+                </div>
+              </div>
+
+              <div class="msg tobi">
+                <span class="who-av" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.4 5 7.3v9.4l7 3.9 7-3.9V7.3z"/><circle cx="12" cy="12" r="2.6"/><path d="M12 6.2v3.2M12 14.6v3.2M8.2 9.4l2.2 1.3M13.6 13.3l2.2 1.3M15.8 9.4l-2.2 1.3M10.4 13.3l-2.2 1.3"/></svg></span>
+                <div class="body">
+                  <div class="head"><b>TOBI</b><time>09:12</time></div>
+                  <div class="act"><svg class="ic" viewBox="0 0 24 24"><path d="M12 4.2a3.1 3.1 0 0 0-3 2.3 2.9 2.9 0 0 0-2.4 4.4A3 3 0 0 0 7 15.8a3 3 0 0 0 2.9 3.9 2.6 2.6 0 0 0 2.1-1"/><path d="M12 4.2a3.1 3.1 0 0 1 3 2.3 2.9 2.9 0 0 1 2.4 4.4 3 3 0 0 1-.4 4.9 3 3 0 0 1-2.9 3.9 2.6 2.6 0 0 1-2.1-1"/><path d="M12 4.2v14.6"/></svg><span class="nm">Read the brain for Monolith 1</span><span class="stat">4 projects · 0.3s<svg class="ok" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg></span></div>
+                  <div class="say"><p>Week one, two items behind: the auth callback and the seed dataset. Nothing else has slipped, so Friday still holds.</p></div>
+                  <div class="res">
+                    <div><div class="k">Week</div><div class="v">1 of 6</div><div class="s">Skeleton</div></div>
+                    <div><div class="k">Done</div><div class="v ok">2 of 4</div><div class="s">Repo, boot</div></div>
+                    <div><div class="k">Behind</div><div class="v warn">2</div><div class="s">Both on auth</div></div>
+                    <div><div class="k">Friday</div><div class="v ok">Holds</div><div class="s">If auth moves</div></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="msg you">
+                <span class="who-av" aria-hidden="true">TH</span>
+                <div class="body">
+                  <div class="head"><b>You</b><time>09:31</time></div>
+                  <div class="say"><p>Open the foundation plan for Monolith 1.</p></div>
+                  <div class="runmeta"><svg class="provider" viewBox="0 0 24 24" aria-hidden="true"><use href="#anthropic"/></svg><span>claude-opus-5</span><span>1.4s</span><span>610 tokens</span></div>
+                </div>
+              </div>
+
+              <div class="msg tobi">
+                <span class="who-av" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.4 5 7.3v9.4l7 3.9 7-3.9V7.3z"/><circle cx="12" cy="12" r="2.6"/><path d="M12 6.2v3.2M12 14.6v3.2M8.2 9.4l2.2 1.3M13.6 13.3l2.2 1.3M15.8 9.4l-2.2 1.3M10.4 13.3l-2.2 1.3"/></svg></span>
+                <div class="body">
+                  <div class="head"><b>TOBI</b><time>09:31</time></div>
+                  <div class="act"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.2"/><path d="M3 9.5h18"/></svg><span class="nm">Opened foundation-plan.md on the canvas</span><span class="stat">12 KB · 0.2s<svg class="ok" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg></span></div>
+                  <div class="say"><p>It is on the canvas. Six weeks end to end, and week one is the two items behind.</p></div>
+                  <button class="fileref" data-doc="plan"><svg class="ic" viewBox="0 0 24 24"><path d="M14 2.8H7.5a2 2 0 0 0-2 2v14.4a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7.6z"/><path d="M14 2.8V7.6h4.5"/></svg>foundation-plan.md</button>
+                </div>
+              </div>
+
+              <div class="msg you">
+                <span class="who-av" aria-hidden="true">TH</span>
+                <div class="body">
+                  <div class="head"><b>You</b><time>09:34</time></div>
+                  <div class="say"><p>Draw me the burndown for week one.</p></div>
+                  <div class="runmeta"><svg class="provider" viewBox="0 0 24 24" aria-hidden="true"><use href="#anthropic"/></svg><span>claude-opus-5</span><span>0.9s</span><span>340 tokens</span></div>
+                </div>
+              </div>
+
+              <div class="msg tobi">
+                <span class="who-av" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.4 5 7.3v9.4l7 3.9 7-3.9V7.3z"/><circle cx="12" cy="12" r="2.6"/><path d="M12 6.2v3.2M12 14.6v3.2M8.2 9.4l2.2 1.3M13.6 13.3l2.2 1.3M15.8 9.4l-2.2 1.3M10.4 13.3l-2.2 1.3"/></svg></span>
+                <div class="body">
+                  <div class="head"><b>TOBI</b><time>09:34</time></div>
+                  <div class="act"><svg class="ic" viewBox="0 0 24 24"><path d="M4 5.5h6a2.5 2.5 0 0 1 2 2.5v11a2 2 0 0 0-1.6-1.5H4z"/><path d="M20 5.5h-6a2.5 2.5 0 0 0-2 2.5v11a2 2 0 0 1 1.6-1.5H20z"/></svg><span class="nm">Read the run log</span><span class="stat">2,104 lines · 0.4s<svg class="ok" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg></span></div>
+                  <div class="act"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.2"/><path d="M7 15.5l3.4-4 2.6 3 4-5.5"/></svg><span class="nm">Generated week-1-burndown.png</span><span class="stat">88 KB · 1.1s<svg class="ok" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg></span></div>
+                  <div class="say"><p>The gap opens on Wednesday, the day the auth callback was meant to land. Nothing after it has slipped, so one item closes the whole gap.</p></div>
+                  <pre><span class="c"># the two open items, straight out of the run log</span>
+<span class="k">$</span> tobi runs --project monolith-1 --week 1 --state open
+<span class="c">→ auth-callback     blocked  owner: Thomas  since Wed</span>
+<span class="c">→ seed-dataset      blocked  owner: TOBI    since Wed</span></pre>
+                  <button class="fileref" data-doc="burndown"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.2"/><path d="M4 18.5 9.5 11l4 5 2.5-3.2 4 5.7z"/><circle cx="8.4" cy="9" r="1.3"/></svg>week-1-burndown.png</button>
+                </div>
+              </div>
+
+              <div class="msg you">
+                <span class="who-av" aria-hidden="true">TH</span>
+                <div class="body">
+                  <div class="head"><b>You</b><time>09:36</time></div>
+                  <div class="say"><p>Export the four items so I can send them on.</p></div>
+                  <div class="runmeta"><svg class="provider" viewBox="0 0 24 24" aria-hidden="true"><use href="#anthropic"/></svg><span>claude-opus-5</span><span>3.2s</span><span>2.1k tokens</span></div>
+                </div>
+              </div>
+
+              <div class="msg tobi">
+                <span class="who-av" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.4 5 7.3v9.4l7 3.9 7-3.9V7.3z"/><circle cx="12" cy="12" r="2.6"/><path d="M12 6.2v3.2M12 14.6v3.2M8.2 9.4l2.2 1.3M13.6 13.3l2.2 1.3M15.8 9.4l-2.2 1.3M10.4 13.3l-2.2 1.3"/></svg></span>
+                <div class="body">
+                  <div class="head"><b>TOBI</b><time>09:36</time></div>
+                  <div class="act"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.2"/><path d="M4.5 9.5h15M4.5 14.5h15M9.5 4.5v15"/></svg><span class="nm">Wrote week-1-items.csv</span><span class="stat">4 rows · 2 KB · 0.3s<svg class="ok" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg></span></div>
+                  <div class="say"><p>Done. Both open items are blocked on the same callback URL, which is why the burndown catches up in one step rather than two.</p></div>
+                  <button class="fileref" data-doc="items"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.2"/><path d="M4.5 9.5h15M4.5 14.5h15M9.5 4.5v15"/></svg>week-1-items.csv</button>
+                  <div class="runmeta"><svg class="provider" viewBox="0 0 24 24" aria-hidden="true"><use href="#anthropic"/></svg><span>claude-opus-5</span><span>1.1s</span><span>780 tokens</span></div>
+                </div>
+              </div>
+              </div>
+            </div>
+
+            <div class="pane" data-pane="artifacts">
+              <h1>Session artifacts</h1>
+              <p class="lede">What this session produced. Everything here is already on disk.</p>
+              <div class="meta">
+                <span class="chip"><b class="n">4</b> files</span>
+                <span class="chip"><b class="n">31</b> KB</span>
+                <span class="chip ok">Autosaved</span>
+              </div>
+              <div class="rows" style="margin-top:18px">
+                <button class="rowitem" data-doc="plan"><span class="ftile f-doc" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M13.5 3H7.6A2.1 2.1 0 0 0 5.5 5.1v13.8A2.1 2.1 0 0 0 7.6 21h8.8a2.1 2.1 0 0 0 2.1-2.1V8z"/><path d="M13.5 3v5h5"/><path d="M8.7 12.9h6.6M8.7 16.5h4.4"/></svg></span><span class="t"><b>foundation-plan.md</b><span>Edited from the canvas</span></span><span class="r">12 KB · 09:31</span></button>
+                <button class="rowitem" data-doc="burndown"><span class="ftile f-img" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4.6" width="18" height="14.8" rx="2.6"/><circle cx="8.7" cy="9.7" r="1.5"/><path d="M3.5 17.6 9 12.1l3.5 3.5 3.2-2.8 4.8 4.4"/></svg></span><span class="t"><b>week-1-burndown.png</b><span>Generated from the run log</span></span><span class="r">88 KB · 09:34</span></button>
+                <button class="rowitem" data-doc="items"><span class="ftile f-sheet" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4.6" width="18" height="14.8" rx="2.6"/><rect x="3" y="4.6" width="18" height="4.6" rx="2.6" fill="currentColor" stroke="none" opacity=".24"/><path d="M3 9.2h18M3 14.3h18M9.4 9.2v10.2M15 9.2v10.2"/></svg></span><span class="t"><b>week-1-items.csv</b><span>Four rows, two behind</span></span><span class="r">2 KB · 09:36</span></button>
+                <button class="rowitem" data-doc="scriptdoc"><span class="ftile f-log" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M13.5 3H7.6A2.1 2.1 0 0 0 5.5 5.1v13.8A2.1 2.1 0 0 0 7.6 21h8.8a2.1 2.1 0 0 0 2.1-2.1V8z"/><path d="M13.5 3v5h5"/><path d="m8.9 12.7 2.1 2-2.1 2M12.9 16.7h3"/></svg></span><span class="t"><b>session-script.md</b><span>Written continuously</span></span><span class="r">9 KB · live</span></button>
+              </div>
+            </div>
+
+            <div class="pane" data-pane="history">
+              <h1>Session history</h1>
+              <p class="lede">Every live session, with what came out of it. Ask TOBI about any of them by name.</p>
+              <div class="rows" style="margin-top:18px">
+                <button class="rowitem" data-doc="recap"><span class="ftile f-time" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M3.2 12a8.8 8.8 0 1 0 2.9-6.5L3 8.2"/><path d="M3 3.4v4.9h4.9"/><path d="M12 7.4V12l3 1.8"/></svg></span><span class="t"><b>Today, 09:12</b><span>Monolith 1 foundation plan, week 1 review</span></span><span class="r">31m 48s · 4</span></button>
+                <button class="rowitem" data-doc="recap"><span class="ftile f-time" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M3.2 12a8.8 8.8 0 1 0 2.9-6.5L3 8.2"/><path d="M3 3.4v4.9h4.9"/><path d="M12 7.4V12l3 1.8"/></svg></span><span class="t"><b>Yesterday, 16:40</b><span>Client rules read, delivery date pinned to the contract</span></span><span class="r">18m 02s · 2</span></button>
+                <button class="rowitem" data-doc="recap"><span class="ftile f-time" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M3.2 12a8.8 8.8 0 1 0 2.9-6.5L3 8.2"/><path d="M3 3.4v4.9h4.9"/><path d="M12 7.4V12l3 1.8"/></svg></span><span class="t"><b>Tuesday, 11:05</b><span>Inbox triage, three runs restarted</span></span><span class="r">52m 19s · 9</span></button>
+                <button class="rowitem" data-doc="recap"><span class="ftile f-time" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M3.2 12a8.8 8.8 0 1 0 2.9-6.5L3 8.2"/><path d="M3 3.4v4.9h4.9"/><path d="M12 7.4V12l3 1.8"/></svg></span><span class="t"><b>Monday, 08:58</b><span>Brain V2 curation, first pass</span></span><span class="r">1h 14m · 6</span></button>
+              </div>
+            </div>
+
+            <div class="pane" data-pane="configure">
+              <h1>Configure</h1>
+              <p class="lede">These settings change the shell you are looking at right now.</p>
+              <div class="set" style="margin-top:22px">
+                <section>
+                  <h3>Voice</h3>
+                  <p>How the microphone opens. Locked is the state every session starts in.</p>
+                  <div class="opts">
+                    <button class="opt" data-mode="onoff"><span class="mark"></span><span class="t"><b>On and off</b><span>Click the microphone, or press the shortcut</span></span><span class="keys"><kbd>Alt</kbd><kbd>M</kbd></span></button>
+                    <button class="opt" data-mode="ptt"><span class="mark"></span><span class="t"><b>Push to talk</b><span>Hold the key, speak, let go</span></span><span class="keys"><kbd>Space</kbd></span></button>
+                    <button class="opt on" data-mode="locked"><span class="mark"></span><span class="t"><b>Locked</b><span>Nothing opens the microphone but this menu</span></span><span class="k">none</span></button>
+                  </div>
+                </section>
+              </div>
+            </div>
+
+
+            <div class="pane" data-pane="burndown">
+              <h1>Week 1 burndown</h1>
+              <p class="lede">Items remaining against the days left in week one. The dashed line is where the
+                plan said we would be.</p>
+              <div class="meta">
+                <span class="chip">Generated <b class="n">09:34</b></span>
+                <span class="chip">From the run log</span>
+                <span class="chip warn"><b class="n">2</b> behind</span>
+              </div>
+              <div class="chart">
+                <svg viewBox="0 0 200 96" role="img" aria-label="Burndown chart, two items behind plan">
+                  <path class="grid" d="M18 8h174M18 28h174M18 48h174M18 68h174M18 78h174"/>
+                  <path class="band" d="M18 78 44 66 70 60 96 52 122 46 148 38 148 78z"/>
+                  <path class="ideal" d="M18 78 44 64 70 50 96 36 122 22 148 10"/>
+                  <path class="actual" d="M18 78 44 66 70 60 96 52 122 46 148 38"/>
+                  <circle class="dot" cx="148" cy="38" r="2.4"/>
+                  <text x="0" y="80">0</text><text x="0" y="50">4</text><text x="0" y="11">8</text>
+                  <text x="14" y="92">Mon</text><text x="66" y="92">Wed</text><text x="118" y="92">Fri</text>
+                </svg>
+                <div class="legend"><span><i></i>Done</span><span><i class="ghost"></i>Planned</span></div>
+              </div>
+              <p>The gap opens on Wednesday, which is the day the auth callback was meant to land. Nothing
+                after it has slipped, so the week still closes on Friday if that one item moves.</p>
+            </div>
+
+            <div class="pane" data-pane="items">
+              <h1>Week 1 items</h1>
+              <p class="lede">The four items in the skeleton week, as they stand right now.</p>
+              <div class="meta">
+                <span class="chip"><b class="n">4</b> rows</span>
+                <span class="chip">Updated <b class="n">09:36</b></span>
+              </div>
+              <table>
+                <thead><tr><th>Item</th><th>Owner</th><th>Due</th><th>State</th></tr></thead>
+                <tbody>
+                  <tr><td>Repository, CI, green pipeline</td><td class="n">TOBI</td><td class="n">Mon</td><td><span class="chip ok">Done</span></td></tr>
+                  <tr><td>API and web boot from one command</td><td class="n">TOBI</td><td class="n">Tue</td><td><span class="chip ok">Done</span></td></tr>
+                  <tr><td>Auth callback wired end to end</td><td class="n">Thomas</td><td class="n">Wed</td><td><span class="chip warn">Behind</span></td></tr>
+                  <tr><td>Seed dataset that survives a reset</td><td class="n">TOBI</td><td class="n">Thu</td><td><span class="chip warn">Behind</span></td></tr>
+                </tbody>
+              </table>
+              <p>Both open items are blocked on the same callback URL. Once that is registered they close
+                together, which is why the burndown catches up in one step rather than two.</p>
+            </div>
+
+            <div class="pane" data-pane="scriptdoc">
+              <h1>Session script</h1>
+              <p class="lede">The written record of this session, as a document you can hand to someone else.</p>
+              <div class="meta">
+                <span class="chip">Started <b class="n">09:12</b></span>
+                <span class="chip"><b class="n">9</b> KB</span>
+                <span class="chip live">Still writing</span>
+              </div>
+              <h2>What was asked</h2>
+              <p>Where Monolith 1 stood, then the foundation plan itself, then the two items behind in week one.</p>
+              <h2>What was done</h2>
+              <ul>
+                <li class="done"><span class="tick"><svg class="ic" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg></span><span>Opened the foundation plan on the canvas</span></li>
+                <li class="done"><span class="tick"><svg class="ic" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg></span><span>Read the run log and drew the week 1 burndown</span></li>
+                <li class="done"><span class="tick"><svg class="ic" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg></span><span>Exported the four week 1 items</span></li>
+                <li><span class="tick"></span><span>Register the auth callback URL</span></li>
+              </ul>
+            </div>
+
+            <div class="pane" data-pane="recap">
+              <h1 class="rectitle">Session recap</h1>
+              <p class="lede">What this session was about, and what came out of it.</p>
+              <div class="meta">
+                <span class="chip info recwhen">Today, 09:12</span>
+                <span class="chip"><b class="n">31m 48s</b></span>
+                <span class="chip"><b class="n">4</b> actions</span>
+              </div>
+              <h2>In one line</h2>
+              <p>Monolith 1 week one reviewed. Two items behind, both blocked on the same auth callback.</p>
+              <h2>Decisions</h2>
+              <ul>
+                <li class="done"><span class="tick"><svg class="ic" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg></span><span>Week 2 stays as planned. The slip is absorbed inside week 1.</span></li>
+                <li class="done"><span class="tick"><svg class="ic" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg></span><span>The delivery date stays pinned to the contract, page 4.</span></li>
+              </ul>
+              <h2>Left open</h2>
+              <p>The callback URL still needs registering, and it is the only thing holding both items.</p>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+    </div>
+    </div>
+
+  </div>
+
+  <!-- ══ Over the shell ══ -->
+  <div class="scrim" data-scrim="end" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="endtitle">
+      <h3 id="endtitle">End this live session?</h3>
+      <p>TOBI stops listening, the canvas closes, and the session is written to History with a recap you can ask him about later.</p>
+      <div class="row">
+        <span class="chip"><b class="n">31m 48s</b></span>
+        <span class="chip"><b class="n">4</b> actions</span>
+        <span class="chip ok"><b class="n">4</b> artifacts saved</span>
+      </div>
+      <div class="acts">
+        <button class="btn" data-act="cancel">Keep going</button>
+        <button class="btn danger" data-act="endyes">End session</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="scrim" data-scrim="history" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="histtitle">
+      <header>
+        <svg class="ic" viewBox="0 0 24 24" style="color:var(--accent)"><path d="M3.2 12a8.8 8.8 0 1 0 2.9-6.5L3 8.2"/><path d="M3 3.4v4.9h4.9"/><path d="M12 7.4V12l3 1.8"/></svg>
+        <h3 id="histtitle">Session history</h3>
+        <button class="iconbtn" data-act="cancel" aria-label="Close"><svg class="ic" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></button>
+      </header>
+      <div class="body">
+        <div class="rows">
+          <button class="rowitem" data-doc="recap"><span class="ftile f-time" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M3.2 12a8.8 8.8 0 1 0 2.9-6.5L3 8.2"/><path d="M3 3.4v4.9h4.9"/><path d="M12 7.4V12l3 1.8"/></svg></span><span class="t"><b>Today, 09:12</b><span>Monolith 1 foundation plan, week 1 review</span></span><span class="r">31m 48s · 4</span></button>
+          <button class="rowitem" data-doc="recap"><span class="ftile f-time" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M3.2 12a8.8 8.8 0 1 0 2.9-6.5L3 8.2"/><path d="M3 3.4v4.9h4.9"/><path d="M12 7.4V12l3 1.8"/></svg></span><span class="t"><b>Yesterday, 16:40</b><span>Client rules read, delivery date pinned to the contract</span></span><span class="r">18m 02s · 2</span></button>
+          <button class="rowitem" data-doc="recap"><span class="ftile f-time" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M3.2 12a8.8 8.8 0 1 0 2.9-6.5L3 8.2"/><path d="M3 3.4v4.9h4.9"/><path d="M12 7.4V12l3 1.8"/></svg></span><span class="t"><b>Tuesday, 11:05</b><span>Inbox triage, three runs restarted</span></span><span class="r">52m 19s · 9</span></button>
+          <button class="rowitem" data-doc="recap"><span class="ftile f-time" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M3.2 12a8.8 8.8 0 1 0 2.9-6.5L3 8.2"/><path d="M3 3.4v4.9h4.9"/><path d="M12 7.4V12l3 1.8"/></svg></span><span class="t"><b>Monday, 08:58</b><span>Brain V2 curation, first pass</span></span><span class="r">1h 14m · 6</span></button>
+          <button class="rowitem" data-doc="recap"><span class="ftile f-time" aria-hidden="true"><svg class="ic" viewBox="0 0 24 24"><path d="M3.2 12a8.8 8.8 0 1 0 2.9-6.5L3 8.2"/><path d="M3 3.4v4.9h4.9"/><path d="M12 7.4V12l3 1.8"/></svg></span><span class="t"><b>Friday, 14:22</b><span>Office hours, two documents drafted</span></span><span class="r">26m 07s · 3</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+<script>
+(function () {
+  var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* How much of a brain there is. In the app these come from Brain V2's own graph,
+     so the picture thickens as TOBI actually learns. Only the disc is fixed. */
+  var COUNT    = 340;   // memories and concepts
+  var COMMS    = 6;     // communities orbiting the core
+  var RIM      = 0.26;  // share sitting on the periphery, singly attached
+  /* One live wave, steered by the state machine below. Amplitude and rate are
+     eased rather than switched, and the phase is carried forward so changing
+     the rate never jumps the front. dir -1 runs it inward, which is what
+     listening looks like: sound arriving rather than an answer leaving. */
+  var LIVE = { gain: 0, target: 0, phase: 0, rate: 1 / 2.6, dir: 1, last: 0 };
+
+  var nodes = [], links = [];
+
+  var rnd = (function (seed) {          // seeded: the same brain on every load
+    return function () { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+  })(20260827);
+
+  function build() {
+    nodes = []; links = [];
+    var seen = {};
+    var link = function (a, b, bridge) {
+      if (a === b) return;
+      var key = a < b ? a + '|' + b : b + '|' + a;
+      if (seen[key]) return;
+      seen[key] = 1;
+      links.push({ a: a, b: b, bridge: !!bridge });
+      nodes[a].deg++; nodes[b].deg++;
+    };
+
+    /* communities: a dense core with satellites on a ring */
+    var groups = [{ cx: 0, cy: 0, rad: 0.24, share: 0.26, ids: [] }];
+    for (var c = 0; c < COMMS; c++) {
+      var ang0 = (c / COMMS) * Math.PI * 2 - Math.PI / 2 + 0.22;
+      groups.push({
+        cx: Math.cos(ang0) * 0.52, cy: Math.sin(ang0) * 0.52,
+        rad: 0.155 + rnd() * 0.03, share: (1 - 0.26) / COMMS, ids: []
+      });
+    }
+
+    var interior = Math.round(COUNT * (1 - RIM));
+    for (var g = 0; g < groups.length; g++) {
+      var G = groups[g], n = Math.round(interior * G.share);
+      for (var i = 0; i < n; i++) {
+        var th = rnd() * Math.PI * 2, rr = Math.sqrt(rnd()) * G.rad;   // even area, not a pile
+        nodes.push({ x: G.cx + Math.cos(th) * rr, y: G.cy + Math.sin(th) * rr,
+                     vx: 0, vy: 0, deg: 0, g: g, rim: false });
+        G.ids.push(nodes.length - 1);
+      }
+    }
+
+    /* periphery: an even ring, lightly jittered, one link inward */
+    var rimCount = COUNT - nodes.length, rimIds = [];
+    for (var k = 0; k < rimCount; k++) {
+      var a2 = (k / rimCount) * Math.PI * 2 + (rnd() - 0.5) * 0.055;
+      var r3 = 0.9 + rnd() * 0.075;
+      nodes.push({ x: Math.cos(a2) * r3, y: Math.sin(a2) * r3, vx: 0, vy: 0, deg: 0, g: -1, rim: true });
+      rimIds.push(nodes.length - 1);
+    }
+
+    /* inside a community, join each node to its two nearest neighbours */
+    for (var q = 0; q < groups.length; q++) {
+      var ids = groups[q].ids;
+      for (var u = 0; u < ids.length; u++) {
+        var A = nodes[ids[u]], best = [], bd = [];
+        for (var v = 0; v < ids.length; v++) {
+          if (v === u) continue;
+          var B = nodes[ids[v]], dd0 = (B.x - A.x) * (B.x - A.x) + (B.y - A.y) * (B.y - A.y);
+          if (best.length < 2) { best.push(ids[v]); bd.push(dd0); }
+          else {
+            var worst = bd[0] > bd[1] ? 0 : 1;
+            if (dd0 < bd[worst]) { best[worst] = ids[v]; bd[worst] = dd0; }
+          }
+        }
+        for (var w0 = 0; w0 < best.length; w0++) link(ids[u], best[w0], false);
+      }
+    }
+
+    /* a few clean bridges: core to each satellite, and neighbour to neighbour */
+    function bridge(g1, g2, howMany) {
+      var A2 = groups[g1].ids, B2 = groups[g2].ids, pairs = [];
+      for (var i2 = 0; i2 < A2.length; i2++) {
+        for (var j2 = 0; j2 < B2.length; j2++) {
+          var p1 = nodes[A2[i2]], p2 = nodes[B2[j2]];
+          pairs.push([ (p2.x - p1.x) * (p2.x - p1.x) + (p2.y - p1.y) * (p2.y - p1.y), A2[i2], B2[j2] ]);
+        }
+      }
+      pairs.sort(function (m, n2) { return m[0] - n2[0]; });
+      var used = {};
+      for (var z = 0, made = 0; z < pairs.length && made < howMany; z++) {
+        if (used[pairs[z][1]] || used[pairs[z][2]]) continue;
+        used[pairs[z][1]] = used[pairs[z][2]] = 1;
+        link(pairs[z][1], pairs[z][2], true); made++;
+      }
+    }
+    for (var b2 = 1; b2 < groups.length; b2++) {
+      bridge(0, b2, 3);
+      bridge(b2, b2 === groups.length - 1 ? 1 : b2 + 1, 2);
+    }
+
+    /* every rim node hangs off the nearest interior node */
+    for (var r4 = 0; r4 < rimIds.length; r4++) {
+      var Ri = rimIds[r4], Rn = nodes[Ri], pick = -1, pd = 1e9;
+      for (var t2 = 0; t2 < nodes.length; t2++) {
+        if (nodes[t2].rim) continue;
+        var dx2 = nodes[t2].x - Rn.x, dy2 = nodes[t2].y - Rn.y, d2 = dx2 * dx2 + dy2 * dy2;
+        if (d2 < pd) { pd = d2; pick = t2; }
+      }
+      if (pick >= 0) link(Ri, pick, false);
+    }
+  }
+
+  /* springs pull, neighbours push, communities hold together, the disc is the wall */
+  function relax(passes) {
+    var cent = [];
+    for (var i = 0; i < nodes.length; i++) {
+      var g = nodes[i].g;
+      if (g < 0) continue;
+      if (!cent[g]) cent[g] = { x: 0, y: 0, n: 0 };
+      cent[g].x += nodes[i].x; cent[g].y += nodes[i].y; cent[g].n++;
+    }
+    for (var q = 0; q < cent.length; q++) if (cent[q]) { cent[q].x /= cent[q].n; cent[q].y /= cent[q].n; }
+
+    for (var it = 0; it < passes; it++) {
+      var alpha = 1 - it / passes;
+      for (var e = 0; e < links.length; e++) {
+        var A = nodes[links[e].a], B = nodes[links[e].b];
+        var dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy) || 1e-4;
+        var want = links[e].bridge ? 0.2 : 0.062;
+        var fr = (d - want) * 0.05 * alpha;
+        A.vx += dx / d * fr; A.vy += dy / d * fr; B.vx -= dx / d * fr; B.vy -= dy / d * fr;
+      }
+      for (var i2 = 0; i2 < nodes.length; i2++) {
+        for (var j2 = i2 + 1; j2 < nodes.length; j2++) {
+          var a3 = nodes[i2], b3 = nodes[j2];
+          var ax = b3.x - a3.x, ay = b3.y - a3.y, dd = ax * ax + ay * ay;
+          if (dd > 0.0075 || dd === 0) continue;      // short range only — keeps dots off each other
+          var m2 = (0.00016 / (dd + 0.0002)) * alpha;
+          a3.vx -= ax * m2; a3.vy -= ay * m2; b3.vx += ax * m2; b3.vy += ay * m2;
+        }
+      }
+      for (var k2 = 0; k2 < nodes.length; k2++) {
+        var n3 = nodes[k2];
+        if (n3.g >= 0 && cent[n3.g]) {
+          n3.vx += (cent[n3.g].x - n3.x) * 0.010 * alpha;
+          n3.vy += (cent[n3.g].y - n3.y) * 0.010 * alpha;
+        }
+        n3.x += n3.vx; n3.y += n3.vy; n3.vx *= 0.6; n3.vy *= 0.6;
+        var rr2 = Math.hypot(n3.x, n3.y), cap = n3.rim ? 0.985 : 0.84;
+        if (rr2 > cap) { n3.x = n3.x / rr2 * cap; n3.y = n3.y / rr2 * cap; }
+      }
+    }
+
+    for (var z2 = 0; z2 < nodes.length; z2++) {
+      nodes[z2].px = nodes[z2].x; nodes[z2].py = nodes[z2].y;
+      nodes[z2].rad = Math.hypot(nodes[z2].px, nodes[z2].py);   // when the boot sweep reaches it
+    }
+    for (var L = 0; L < links.length; L++) {     // when the front reaches it, plus a little of its own
+      var P = nodes[links[L].a], Q = nodes[links[L].b];
+      links[L].r = Math.hypot((P.px + Q.px) / 2, (P.py + Q.py) / 2) + (rnd() - 0.5) * 0.15;
+    }
+  }
+
+  /* One graph, drawn into every panel on the page. Each panel says what state it
+     is in, and the state decides only how the connections behave. The nodes are
+     identical everywhere: this is the same brain, awake or not. */
+  var panels = [];
+  function mount() {
+    document.querySelectorAll('.brain').forEach(function (el) {
+      var c = el.getContext('2d');
+      if (c) panels.push({ el: el, ctx: c, state: el.getAttribute('data-state') || 'speaking' });
+    });
+  }
+
+  function resize() {
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    panels.forEach(function (p) {
+      var box = p.el.getBoundingClientRect();
+      p.W = box.width; p.H = box.height;
+      p.el.width = Math.round(p.W * dpr); p.el.height = Math.round(p.H * dpr);
+      p.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      p.CX = p.W / 2; p.CY = p.H / 2; p.R = Math.min(p.W, p.H) * 0.375;
+    });
+  }
+
+  function draw(time) {
+    var t = still ? 1.0 : time * 0.001;
+    var dt = LIVE.last ? Math.max(0, Math.min(0.05, t - LIVE.last)) : 0;   // never run the wave backwards
+    LIVE.last = t;
+    LIVE.gain += (LIVE.target - LIVE.gain) * Math.min(1, dt * 4.2);   // settles in about 420ms
+    LIVE.phase = (LIVE.phase + dt * LIVE.rate) % 1;
+    for (var q = 0; q < panels.length; q++) {
+      if (panels[q].W > 8) paint(panels[q], t);   // a hidden state has nothing to draw into
+    }
+  }
+
+  function paint(p, t) {
+    var ctx = p.ctx, R = p.R, CX = p.CX, CY = p.CY;
+    ctx.clearRect(0, 0, p.W, p.H);
+
+    /* asleep: the graph is there, nothing is moving through it */
+    if (p.state === 'asleep') {
+      ctx.lineCap = 'butt'; ctx.lineWidth = 0.55;
+      ctx.strokeStyle = 'rgba(139,148,158,.075)';
+      ctx.beginPath();
+      for (var e0 = 0; e0 < links.length; e0++) {
+        var A0 = nodes[links[e0].a], B0 = nodes[links[e0].b];
+        ctx.moveTo(CX + A0.px * R, CY + A0.py * R); ctx.lineTo(CX + B0.px * R, CY + B0.py * R);
+      }
+      ctx.stroke();
+      for (var k0 = 0; k0 < nodes.length; k0++) {
+        var m0 = nodes[k0], d0 = Math.min(m0.deg, 7);
+        ctx.beginPath();
+        ctx.arc(CX + m0.px * R, CY + m0.py * R, m0.rim ? 0.7 : 0.9 + d0 * 0.1, 0, 6.2832);
+        ctx.fillStyle = 'rgba(139,148,158,' + (m0.rim ? 0.2 : 0.26 + d0 * 0.028).toFixed(3) + ')';
+        ctx.fill();
+      }
+      return;
+    }
+
+    /* booting: the graph assembles outward, once per cycle, and holds what it has built */
+    if (p.state === 'booting') {
+      var BUILD = 3.5;                       // the assembly finishes just before the shell hands over
+      var reveal = still ? 1 : (typeof p.boot === "number" ? Math.min(1, (t - p.boot) / BUILD) : 0);
+      ctx.lineCap = 'butt'; ctx.lineWidth = 0.6;
+      for (var tier0 = 0; tier0 < 2; tier0++) {
+        ctx.strokeStyle = tier0 ? 'rgba(158,206,255,.22)' : 'rgba(88,166,255,.075)';
+        ctx.beginPath();
+        for (var e1 = 0; e1 < links.length; e1++) {
+          var L1 = links[e1];
+          if (L1.r > reveal) continue;
+          var fresh = L1.r > reveal - 0.11;
+          if ((tier0 === 1) !== fresh) continue;
+          var A1 = nodes[L1.a], B1 = nodes[L1.b];
+          ctx.moveTo(CX + A1.px * R, CY + A1.py * R); ctx.lineTo(CX + B1.px * R, CY + B1.py * R);
+        }
+        ctx.stroke();
+      }
+      for (var k1 = 0; k1 < nodes.length; k1++) {
+        var m1 = nodes[k1];
+        if (m1.rad > reveal) continue;
+        var d1 = Math.min(m1.deg, 7);
+        var young = Math.max(0, 1 - (reveal - m1.rad) / 0.11);
+        ctx.beginPath();
+        ctx.arc(CX + m1.px * R, CY + m1.py * R, (m1.rim ? 0.75 : 1 + d1 * 0.13) + young * 0.9, 0, 6.2832);
+        ctx.fillStyle = 'rgba(' + Math.round(158 + 60 * young) + ',' + Math.round(206 + 34 * young) + ',255,' +
+                        Math.min(0.95, (m1.rim ? 0.3 : 0.4 + d1 * 0.05) + young * 0.45).toFixed(3) + ')';
+        ctx.fill();
+      }
+      return;
+    }
+
+    /* live: one front crosses the graph, and how it crosses is the state */
+    var base = 0.042 + LIVE.gain * 0.045;
+    var gain = 0.17 + LIVE.gain * 0.4;
+    var SIG = 0.075, REACH = 1.12;
+
+    var phase = LIVE.phase;
+    var front = LIVE.dir > 0 ? phase * REACH : REACH - phase * REACH;
+    var rise = Math.min(1, phase / 0.12);
+    var fall = Math.max(0, 1 - Math.max(0, (phase - 0.82) / 0.18));
+    var amp = rise * rise * (3 - 2 * rise) * (fall * fall * (3 - 2 * fall)) * LIVE.gain;
+
+    var e;
+    for (e = 0; e < links.length; e++) {
+      var w = 0;
+      if (amp > 0) {
+        var dd = links[e].r - front;
+        w = Math.exp(-(dd * dd) / (2 * SIG * SIG)) * amp;
+      }
+      links[e].w = w;
+    }
+
+    var TIERS = 14, tier = [], i;
+    for (i = 0; i < TIERS; i++) tier.push([]);
+    for (e = 0; e < links.length; e++) {
+      var v = links[e].w + (links[e].bridge ? 0.1 : 0);
+      var idx = (v * (TIERS - 1)) | 0;
+      tier[idx > TIERS - 1 ? TIERS - 1 : idx].push(e);
+    }
+    ctx.lineCap = 'butt';
+    for (i = 0; i < TIERS; i++) {
+      if (!tier[i].length) continue;
+      var f2 = i / (TIERS - 1);
+      var soft = Math.pow(f2, 1.35);
+      ctx.lineWidth = 0.6 + soft * 0.4;
+      ctx.strokeStyle = 'rgba(' + Math.round(88 + 118 * soft) + ',' +
+                        Math.round(166 + 68 * soft) + ',255,' + (base + gain * soft).toFixed(3) + ')';
+      ctx.beginPath();
+      for (var j = 0; j < tier[i].length; j++) {
+        var L2 = links[tier[i][j]], P2 = nodes[L2.a], Q2 = nodes[L2.b];
+        ctx.moveTo(CX + P2.px * R, CY + P2.py * R);
+        ctx.lineTo(CX + Q2.px * R, CY + Q2.py * R);
+      }
+      ctx.stroke();
+    }
+
+    for (var k3 = 0; k3 < nodes.length; k3++) {
+      var m3 = nodes[k3], deg = Math.min(m3.deg, 7);
+      var na = m3.rim ? 0.32 : 0.42 + deg * 0.055;
+      ctx.beginPath();
+      ctx.arc(CX + m3.px * R, CY + m3.py * R, m3.rim ? 0.75 : 1 + deg * 0.13, 0, 6.2832);
+      ctx.fillStyle = 'rgba(158,206,255,' + Math.min(na, 0.92).toFixed(3) + ')';
+      ctx.fill();
+    }
+  }
+
+  /* ══ The prototype ═════════════════════════════════════════════════════════
+     Two screens. Screen 01 starts asleep and boots for real when Start TOBI is
+     pressed; when the boot finishes it hands over to the session. Screen 02 is
+     the session already running, with the canvas as designed. Every control in
+     the shell below is wired to the state it claims to reach. ════════════════ */
+  var $  = function (sel, r) { return (r || document).querySelector(sel); };
+  var $$ = function (sel, r) { return Array.prototype.slice.call((r || document).querySelectorAll(sel)); };
+  var root = document.querySelector('.root');
+  if (!root) return;
+
+  var TICK = '<svg class="ic" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg>';
+  var timers = [], streams = [];
+  function stop() {
+    timers.forEach(clearTimeout); timers = [];
+    streams.forEach(clearInterval); streams = [];
+    elapsedTimer = null; heard = null; heardN = 0;
+  }
+  function after(ms, fn) { timers.push(setTimeout(fn, ms)); }
+  function two(n) { return (n < 10 ? '0' : '') + n; }
+  function repaint() { if (panels.length) { resize(); draw(performance.now()); } }
+
+  function view(name) {
+    root.setAttribute('data-view', name);
+    var screen = name === 'live' ? '02' : '01';
+    $$('.proto .seg button').forEach(function (b) {
+      var on = b.getAttribute('data-screen') === screen;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    repaint();
+  }
+  function readout(label, tone) {
+    $('#nowlab').textContent = label;
+    $('.proto .now').setAttribute('data-tone', tone);
+  }
+
+  /* ── the session clock, running for real ── */
+  var secs = 0, ticker = null;
+  function clockOn(from) {
+    clockOff(); secs = from; paintClock();
+    ticker = setInterval(function () { secs++; paintClock(); }, 1000);
+  }
+  function clockOff() { if (ticker) clearInterval(ticker); ticker = null; }
+  function paintClock() {
+    var t = two((secs / 60) | 0) + ':' + two(secs % 60);
+    var el = $('.v-live .clock'); if (el) el.textContent = t;
+    if (root.getAttribute('data-view') === 'live') readout('In session · ' + t, 'live');
+  }
+
+  /* ── context, wherever it is shown ── */
+  /* the header and the receipts are the same number seen twice, so the header
+     is driven by what the runs actually spend rather than set once and left */
+  var ctxTokens = 8000;
+  function setCtx(scope, tok) {
+    var box = $(scope);
+    if (!box) return;
+    var pct = tok / 2000;                                  // 200k of context is the full circle
+    var p = $('.pct', box), o = $('.of', box), arc = $('.donut circle:last-child', box);
+    if (p) p.textContent = (pct < 10 ? pct.toFixed(1) : Math.round(pct)) + '%';
+    if (o) o.textContent = (tok / 1000).toFixed(1) + 'k / 200k';
+    if (arc) arc.setAttribute('stroke-dasharray', (pct * 0.942).toFixed(1) + ' 94.2');
+  }
+  function spendCtx(tok) { ctxTokens += tok; setCtx('.v-live .statusbar', ctxTokens); }
+
+  /* ══ Screen 01 · asleep ═══════════════════════════════════════════════════ */
+  function goStandby() {
+    stop(); clockOff(); closeMenus(); closeOverlays();
+    setBoot(0);
+    view('standby');
+    readout('Asleep', 'idle');
+  }
+
+  /* ══ Screen 01 · starting, on a real clock ════════════════════════════════ */
+  var BOOT = [520, 1240, 2050, 2960, 3820], BOOT_END = 4600;
+
+  function setBoot(n) {
+    var rows = $$('.v-boot .check');
+    if (!rows.length) return;
+    rows.forEach(function (row, i) {
+      row.className = 'check ' + (i < n ? 'done' : i === n ? 'now' : 'wait');
+      $('.st', row).innerHTML = i < n ? TICK : (i === n ? '<span class="spin"></span>' : '');
+      $('.val', row).textContent = i === n ? '…' : row.getAttribute('data-val');
+    });
+    var left = Math.max(0, Math.round((BOOT_END - (n ? BOOT[n - 1] : 0)) / 1000));
+    $('.v-boot .track i').style.width = (n / rows.length * 100) + '%';
+    $('.v-boot .bootbar .num').textContent = n + ' of ' + rows.length + ' · ' + left + 's';
+    setCtx('.v-boot .statusbar', [0, 1200, 2400, 3800, 5600, 8000][n]);   // it hands over at 8k
+    $('.v-boot .statusbar').style.opacity = n === rows.length ? '1' : '.5';
+    if (n === rows.length) $('.v-boot .health').removeAttribute('style');
+    else $('.v-boot .health').setAttribute('style', 'background:var(--muted);box-shadow:none');
+    repaint();
+  }
+
+  function goBoot() {
+    stop(); clockOff(); closeMenus(); closeOverlays();
+    setBoot(0);
+    view('boot');
+    readout('Starting', 'boot');
+    panels.forEach(function (p) { if (p.state === 'booting') p.boot = performance.now() / 1000; });
+    BOOT.forEach(function (ms, i) { after(ms, function () { setBoot(i + 1); }); });
+    after(BOOT_END, function () { goLive(true); });      // it runs to the end: nothing stops it
+  }
+
+  /* ══ Screen 02 · the session ══════════════════════════════════════════════ */
+  var REPLIES = [
+    'Noted. It is on the canvas.',
+    'That one sits in week two. Say the word and I will move it.',
+    'Saved to the session script.',
+    'Two items are still behind in week one. Same two as this morning.',
+  ];
+  var replyN = 0, mood = 'Idle', drove = false, run = null;
+
+  var STATES = {
+    idle:      { label: 'Ready',     gain: 0,    period: 2.60, dir:  1, timed: false },
+    listening: { label: 'Listening', gain: 0.85, period: 1.35, dir: -1, timed: false },
+    thinking:  { label: 'Thinking',  gain: 1.00, period: 1.50, dir:  1, timed: true  },
+    working:   { label: 'Working',   gain: 0.62, period: 2.10, dir:  1, timed: true  },
+    speaking:  { label: 'Speaking',  gain: 0.55, period: 2.38, dir:  1, timed: false },
+  };
+  var since = 0, tokens = 0, elapsedTimer = null;
+
+  function setMood(name, label) {
+    var S = STATES[name] || STATES.idle;
+    mood = name;
+    LIVE.target = S.gain; LIVE.rate = 1 / S.period; LIVE.dir = S.dir;
+
+    var strip = $('.v-live .status');
+    if (strip) {
+      strip.setAttribute('data-state', name);
+      var lab = $('.slabel', strip), text = label || S.label;
+      if (lab.textContent !== text) {
+        lab.textContent = text;
+        lab.classList.remove('in');
+        void lab.offsetWidth;                       // restart the entrance
+        lab.classList.add('in');
+      }
+      strip.classList.toggle('timing', !!S.timed);
+      var slot = strip.parentElement;
+      if (slot) slot.classList.toggle('gone', name === 'idle');
+    }
+    var brain = $('.v-live .neuron');
+    if (brain) brain.className = 'neuron s-' + name;
+
+    var wasTiming = !!elapsedTimer;
+    if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+    if (S.timed) {
+      if (!wasTiming) { since = Date.now(); tokens = 0; }   // one run, however many steps it takes
+      showRun();
+      elapsedTimer = setInterval(showRun, 100);   // a slow step must never look like a stuck one
+      streams.push(elapsedTimer);
+    } else if (strip) {
+      $('.selapsed', strip).textContent = '';
+      $('.stokens', strip).textContent = '';
+    }
+  }
+  function showRun() {
+    tokens += 22 + Math.round(Math.random() * 18);           // about 300 a second, as one of these runs
+    var el = $('.v-live .selapsed'), tk = $('.v-live .stokens');
+    if (el) el.textContent = ((Date.now() - since) / 1000).toFixed(1) + 's';
+    if (tk) tk.textContent = (tokens < 1000 ? tokens : (tokens / 1000).toFixed(1) + 'k') + ' tokens';
+  }
+
+  var BRAND = '<svg viewBox="0 0 24 24"><path d="M12 3.4 5 7.3v9.4l7 3.9 7-3.9V7.3z"/>' +
+              '<circle cx="12" cy="12" r="2.6"/>' +
+              '<path d="M12 6.2v3.2M12 14.6v3.2M8.2 9.4l2.2 1.3M13.6 13.3l2.2 1.3' +
+              'M15.8 9.4l-2.2 1.3M10.4 13.3l-2.2 1.3"/></svg>';
+  var CANVAS_IC = '<rect x="3" y="4.5" width="18" height="15" rx="2.2"/><path d="M3 9.5h18"/>';
+  var DOC_IC = '<path d="M14 2.8H7.5a2 2 0 0 0-2 2v14.4a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7.6z"/><path d="M14 2.8V7.6h4.5"/>';
+
+  function stamp() {                                  // the session started at 09:12
+    var t = 9 * 3600 + 12 * 60 + secs;
+    return two(((t / 3600) | 0) % 24) + ':' + two(((t / 60) | 0) % 60);
+  }
+
+  /* the console renders a message exactly the way the script panel does */
+  var STOP_IC = '<rect x="6.5" y="6.5" width="11" height="11" rx="2"/>';
+  function stopRun() {
+    if (mood === 'idle' || !run) return;
+    var body = run.body, done = run.done, total = run.total;
+    stop();                                        // every timer and stream this run owns
+    var live = $('.act.running', body);
+    if (live) {
+      live.className = 'act stopped';
+      $('.spin', live).outerHTML = '<svg class="ic" viewBox="0 0 24 24">' + TOOL_IC + '</svg>';
+      $('.stat', live).textContent = 'Stopped';
+    }
+    var caret = $('.caret', body);
+    if (caret) caret.remove();
+    body.insertAdjacentHTML('beforeend',
+      '<div class="stopnote"><svg class="ic" viewBox="0 0 24 24">' + STOP_IC + '</svg>' +
+      '<span></span></div>');
+    $('.stopnote span', body).textContent =
+      'Stopped by you after ' + done + ' of ' + total + ' steps. Everything above it is kept.';
+    run = null;
+    setMood('idle');
+    arrive();
+  }
+
+  function turn(who, text, caret, queued, extra) {
+    var d = document.createElement('div');
+    d.className = 'msg ' + (who === 'tobi' ? 'tobi' : 'you') + (queued ? ' queued' : '');
+    d.innerHTML =
+      '<span class="who-av" aria-hidden="true">' + (who === 'tobi' ? BRAND : 'TH') + '</span>' +
+      '<div class="body"><div class="head"><b>' + (who === 'tobi' ? 'TOBI' : 'You') + '</b>' +
+      '<time>' + stamp() + '</time>' + (queued ? '<span class="qchip">QUEUED</span>' : '') + '</div>' +
+      '<div class="say"><p></p></div></div>';
+    var col = $('.body', d), p = $('p', d);
+    p.textContent = text;
+    if (caret) p.insertAdjacentHTML('beforeend', '<span class="caret"></span>');
+    if (extra && extra.act) {
+      col.insertAdjacentHTML('afterbegin',
+        '<div class="act"><svg class="ic" viewBox="0 0 24 24">' + CANVAS_IC + '</svg>' +
+        '<span class="nm"></span><span class="stat">' + extra.act.meta +
+        '<svg class="ok" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg></span></div>');
+      $('.act .nm', col).textContent = extra.act.name;
+      col.insertBefore($('.act', col), $('.say', col));   // the head stays first, the deed before the words
+    }
+    if (extra && extra.file) {
+      col.insertAdjacentHTML('beforeend',
+        '<button class="fileref" data-doc="' + extra.file.id + '"><svg class="ic" viewBox="0 0 24 24">' +
+        DOC_IC + '</svg></button>');
+      $('.fileref', col).appendChild(document.createTextNode(extra.file.name));
+    }
+    $('.v-live .script').appendChild(d);
+    if (who !== 'tobi') {
+      /* two lines, then it folds. Measured where there is a layout to measure,
+         and by length where there is not, so it behaves the same either way. */
+      var over = p.scrollHeight ? (p.scrollHeight > p.clientHeight + 2) : (text.length > 90);
+      if (over) {
+        d.classList.add('clamped');
+        col.insertAdjacentHTML('beforeend',
+          '<button class="pmore" data-act="pmore">Show all' +
+          '<svg class="chev" viewBox="0 0 24 24"><path d="m6 9.5 6 5 6-5"/></svg></button>');
+      }
+    }
+    arrive();
+    return d;
+  }
+
+  /* ── Scrolling ────────────────────────────────────────────────────────────
+     The view follows him only while you are already at the bottom. The moment
+     you scroll up it lets go and stays where you left it, and anything that
+     lands while you are up there is counted on the way back down. ────────── */
+  var stuck = true, unread = 0;
+  function convo() { return $('.v-live .convo'); }
+  function measure() {
+    var c = convo();
+    if (!c) return;
+    stuck = (c.scrollHeight - c.scrollTop - c.clientHeight) < 26;
+    if (stuck) unread = 0;
+    paintJump();
+  }
+  function paintJump() {
+    var b = $('.v-live .jump');
+    if (!b) return;
+    b.hidden = stuck;
+    b.classList.toggle('new', unread > 0);
+    $('.unread', b).textContent = unread || '';
+  }
+  function bottom(smooth) {
+    var c = convo();
+    if (!c) return;
+    if (smooth && c.scrollTo) c.scrollTo({ top: c.scrollHeight, behavior: 'smooth' });
+    else c.scrollTop = c.scrollHeight;
+  }
+  function follow() { if (stuck) bottom(false); }          // per character: creeping, not jumping
+  function arrive() {                                      // a whole block landed
+    if (!stuck) { unread++; paintJump(); return; }
+    bottom(true);
+  }
+  function toLatest() { stuck = true; unread = 0; bottom(true); paintJump(); }
+
+  /* one exchange on screen at a time; the Script panel keeps every one of them */
+  function newExchange() {
+    var sc = $('.v-live .script');
+    if (sc) sc.innerHTML = '';
+    stuck = true; unread = 0; paintJump();
+  }
+  function ask(text) { newExchange(); turn('you', text, false, false); answer(); }
+
+  function send() {
+    var input = $('.v-live .field input');
+    var text = (input.value || '').trim();
+    if (!text) return;
+    input.value = '';
+    if (mood !== 'idle') {                              // typing never interrupts him
+      var mine = turn('you', text, false, true);        // it waits, visibly, under what he is saying
+      after(1100, function () { mine.remove(); ask(text); });
+    } else ask(text);
+  }
+  /* Each step names what it is doing to what. The row appears the moment the
+     step starts, spins while it runs, and is replaced by its own result. */
+  var FLOW = [
+    { state: 'thinking', label: 'Working out what you are asking for', ms: 820 },
+    { state: 'working',  label: 'Reading the brain for Monolith 1',
+      act: { run: 'Reading the brain for Monolith 1', done: 'Read the brain for Monolith 1',
+             meta: '4 projects · 0.3s' }, ms: 1050 },
+    { state: 'working',  label: 'Reading the run log for week 1',
+      act: { run: 'Reading the run log', done: 'Read the run log', meta: '2,104 lines · 0.4s' },
+      fail: { name: 'Could not read the run log', reason: 'No response · 2.1s',
+              why: 'The run log service did not answer. That is on the service, not on the plan: ' +
+                   'everything else in this answer still stands.' }, ms: 950 },
+    { state: 'working',  label: 'Opening foundation-plan.md on the canvas',
+      act: { run: 'Opening foundation-plan.md', done: 'Opened foundation-plan.md on the canvas',
+             meta: '12 KB · 0.2s' }, open: 'plan', ms: 900 },
+  ];
+  var TOOL_IC = '<path d="M12 4.2a3.1 3.1 0 0 0-3 2.3 2.9 2.9 0 0 0-2.4 4.4A3 3 0 0 0 7 15.8a3 3 0 0 0 2.9 3.9' +
+                ' 2.6 2.6 0 0 0 2.1-1"/><path d="M12 4.2a3.1 3.1 0 0 1 3 2.3 2.9 2.9 0 0 1 2.4 4.4 3 3 0 0 1-.4 4.9' +
+                ' 3 3 0 0 1-2.9 3.9 2.6 2.6 0 0 1-2.1-1"/><path d="M12 4.2v14.6"/>';
+  var TICK_IC = '<svg class="ok" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></svg>';
+
+  function startAct(body, a) {
+    var row = document.createElement('div');
+    row.className = 'act running';
+    row.innerHTML = '<span class="spin" aria-hidden="true"></span><span class="nm"></span><span class="stat"></span>';
+    $('.nm', row).textContent = a.run;
+    body.insertBefore(row, $('.say', body));
+    arrive();
+    return row;
+  }
+  var RETRY_IC = '<path d="M20.5 12a8.5 8.5 0 1 1-2.8-6.3"/><path d="M20.8 4.4v4.8h-4.8"/>';
+  var runN = 0;                                  // every other run shows what a failure looks like
+
+  function failAct(row, fl) {
+    row.className = 'act failed';
+    row.innerHTML = '<svg class="ic" viewBox="0 0 24 24">' + TOOL_IC + '</svg>' +
+      '<span class="nm"></span><span class="stat">' + fl.fail.reason +
+      '<svg class="bad" viewBox="0 0 24 24"><path d="M6.5 6.5 17.5 17.5M17.5 6.5 6.5 17.5"/></svg></span>' +
+      '<button class="retry" data-act="retry"><svg class="ic" viewBox="0 0 24 24">' + RETRY_IC +
+      '</svg>Try again</button><p class="why"></p>';
+    $('.nm', row).textContent = fl.fail.name;
+    $('.why', row).textContent = fl.fail.why;
+    row.retryWith = fl.act;
+    follow();
+  }
+
+  function finishAct(row, a) {
+    row.className = 'act';
+    row.innerHTML = '<svg class="ic" viewBox="0 0 24 24">' + TOOL_IC + '</svg>' +
+                    '<span class="nm"></span><span class="stat">' + a.meta + TICK_IC + '</span>';
+    $('.nm', row).textContent = a.done;
+    follow();
+  }
+
+  /* three or more finished steps read as a wall, so they become one line */
+  function foldActs(body) {
+    var rows = $$('.act', body);
+    if (rows.length < 3) return;
+    var secs = 0;
+    rows.forEach(function (r) {
+      var m = /([0-9.]+)s/.exec($('.stat', r).textContent);
+      if (m) secs += parseFloat(m[1]);
+    });
+    var wrap = document.createElement('div');
+    wrap.className = 'acts';
+    wrap.innerHTML = '<button class="actsum" data-act="unfold">' +
+      '<svg class="ic" viewBox="0 0 24 24">' + TOOL_IC + '</svg>' +
+      '<span class="nm"><b class="n">' + rows.length + '</b> actions</span>' +
+      '<span class="stat">' + secs.toFixed(1) + 's' +
+      '<svg class="chev" viewBox="0 0 24 24"><path d="m6 9.5 6 5 6-5"/></svg></span></button>' +
+      '<div class="actlist"></div>';
+    body.insertBefore(wrap, rows[0]);
+    var list = $('.actlist', wrap);
+    rows.forEach(function (r) { list.appendChild(r); });
+  }
+
+  /* the answer arrives as it is written, not all at once */
+  function stream(p, line, then) {
+    p.innerHTML = '<span class="txt"></span><span class="caret"></span>';
+    var txt = $('.txt', p), i = 0;
+    var iv = setInterval(function () {
+      txt.textContent = line.slice(0, ++i);
+      follow();
+      if (i >= line.length) {
+        clearInterval(iv);
+        after(420, function () {
+          var c = $('.caret', p); if (c) c.remove();
+          if (then) then();
+        });
+      }
+    }, 22);
+    streams.push(iv);
+  }
+
+  function spent(n) { return (n < 1000 ? n : (n / 1000).toFixed(1) + 'k') + ' tokens'; }
+  function receipt(secs, tok) {
+    var model = $('.v-live .mname');
+    return '<div class="runmeta">' +
+      '<svg class="provider" viewBox="0 0 24 24" aria-hidden="true"><use href="#anthropic"/></svg>' +
+      '<span>' + (model ? model.textContent : 'claude-opus-5') + '</span>' +
+      '<span>' + secs + 's</span><span>' + spent(tok) + '</span></div>';
+  }
+
+  function answer() {
+    var msg = turn('tobi', '', false, false);
+    var body = $('.body', msg), p = $('.say p', msg);
+    var step = 0, broke = false;
+    var breaks = (++runN % 2 === 0);             // alternate, so both outcomes can be seen
+    run = { msg: msg, body: body, done: 0, total: 0 };
+    FLOW.forEach(function (x) { if (x.act) run.total++; });
+
+    (function next() {
+      if (step >= FLOW.length) return say();
+      var fl = FLOW[step++];
+      setMood(fl.state, fl.label);
+      var row = fl.act ? startAct(body, fl.act) : null;
+      after(fl.ms, function () {
+        if (row) {
+          if (fl.fail && breaks) { failAct(row, fl); broke = true; }
+          else finishAct(row, fl.act);
+          run.done++;
+        }
+        if (fl.open) openDoc(fl.open);
+        next();
+      });
+    })();
+
+    function say() {
+      foldActs(body);
+      var thought = tokens;                        // what the run had spent before he opened his mouth
+      setMood('speaking');
+      var line = broke
+        ? 'The plan is on the canvas. I could not reach the run log, so the burndown is from this morning, not from now.'
+        : (drove ? REPLIES[replyN++ % REPLIES.length]
+                 : 'It is on the canvas. Six weeks end to end, and week one is two items behind.');
+      drove = true;
+      stream(p, line, function () {
+        var secs = ((Date.now() - since) / 1000).toFixed(1);
+        $('.body', msg).insertAdjacentHTML('beforeend',
+          '<button class="fileref" data-doc="plan"><svg class="ic" viewBox="0 0 24 24">' + DOC_IC +
+          '</svg>foundation-plan.md</button>' +
+          receipt(secs, thought + Math.round(line.length / 3.6)));
+        spendCtx(thought + Math.round(line.length / 3.6));
+        run = null;
+        setMood('idle');
+        arrive();
+      });
+    }
+  }
+
+  /* ── listening: what he hears, appearing as he hears it ── */
+  var HEARD = ['Where', 'did', 'we', 'leave', 'Monolith', '1', 'this', 'morning?'];
+  var heard = null, heardN = 0, heardTimer = null;
+
+  function openEar() {
+    if (heard) return;
+    setMood('listening');
+    heardN = 0;
+    heard = turn('you', '', false, false);
+    heard.classList.add('ghost');
+    $('.say p', heard).innerHTML = '<span class="txt"></span><span class="caret"></span>';
+    heardTimer = setInterval(function () {
+      if (heardN >= HEARD.length) return;
+      $('.say p .txt', heard).textContent = HEARD.slice(0, ++heardN).join(' ');
+    }, 300);
+    streams.push(heardTimer);
+  }
+  function closeEar() {
+    if (heardTimer) { clearInterval(heardTimer); heardTimer = null; }
+    if (!heard) return;
+    var el = heard, said = HEARD.slice(0, heardN).join(' ');
+    heard = null;
+    if (!heardN) { el.remove(); setMood('idle'); return; }
+    el.remove();
+    ask(said);
+  }
+
+  function goLive(fresh) {
+    stop(); closeMenus(); closeOverlays();
+    view('live');
+    setMic('locked', false);
+    newExchange();
+    drove = !fresh;                                   // the designed screen already has the plan open
+    $('.v-live .field input').value = '';
+    var att = $('.v-live .field .chip'); if (att) att.remove();
+    if (fresh) {
+      resetCanvas([]);
+      ctxTokens = 8000; setCtx('.v-live .statusbar', ctxTokens);
+      clockOn(0);
+      setMood('speaking');
+      stream($('.say p', turn('tobi', '', false, false)),
+             'I am up. Memory is linked and the tools are loaded. What are we doing?',
+             function () { setMood('idle'); });
+    } else {
+      turn('you', 'Open the foundation plan for Monolith 1 and tell me what is still behind in week one, ' +
+                  'anything blocked on the auth callback, and whether Friday still holds.', false, false);
+      resetCanvas(['items', 'plan'], 'plan');
+      ctxTokens = 32000; setCtx('.v-live .statusbar', ctxTokens);
+      clockOn(104);
+      setMood('speaking');
+      stream($('.say p', turn('tobi', '', false, false)),
+             'It is on the canvas. Six weeks end to end, and week one is two items behind.',
+             function () { setMood('idle'); });
+    }
+    readout('In session', 'live');
+    paintClock();
+  }
+
+  /* ── voice: three modes, and the keys that belong to each ── */
+  var micMode = 'locked', micLive = false;
+  function setMic(mode, live) {
+    micMode = mode;
+    micLive = mode === 'locked' ? false : !!live;
+    var el = $('.v-live .ctrl.mic');
+    if (el) el.className = 'ctrl mic m-' + micMode + (micLive ? ' live' : '');
+    $$('[data-mode]').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-mode') === micMode); });
+    var g = $('.v-live .glyph');
+    if (g) g.setAttribute('aria-label', micMode === 'locked' ? 'Voice is locked. Choose a mode from the menu'
+      : micMode === 'ptt' ? 'Push to talk. Hold Space, or hold this button'
+      : (micLive ? 'Listening. Click to stop' : 'Voice is off. Click to listen'));
+    if (micLive) openEar();
+    else if (mood === 'listening') closeEar();
+  }
+
+  /* ── his voice: on or off, and how loud ── */
+  var voiceOn = true, volume = 70;
+  function setVoice(on, level) {
+    voiceOn = on; volume = level;
+    var btn = $('.v-live .sq.speak'), menu = $('.v-live .volmenu');
+    if (btn) {
+      btn.classList.toggle('muted', !voiceOn || volume === 0);
+      btn.setAttribute('aria-label', voiceOn ? "TOBI's voice, " + volume + " percent" : "TOBI's voice is off");
+    }
+    if (menu) {
+      menu.classList.toggle('off', !voiceOn);
+      $('[data-act="mute"]', menu).classList.toggle('on', voiceOn);
+      $('[data-act="mute"] .k', menu).textContent = voiceOn ? 'on' : 'off';
+      var slider = $('input', menu);
+      slider.value = volume;
+      slider.style.setProperty('--fill', volume + '%');
+      $('.pctv', menu).textContent = volume + '%';
+    }
+  }
+
+  /* ── the canvas ───────────────────────────────────────────────────────────
+     Two kinds of thing live in here and they never mix. The four buttons on
+     the right each open a panel: one at a time, no tabs, and opening one puts
+     the last one away. Anything you pick out of a panel becomes a document,
+     and the tab bar exists only for documents. ───────────────────────────── */
+  var SNAP = [30, 50, 70];        // the three widths the edge sticks to
+  var MIN_W = SNAP[0], MAX_W = SNAP[SNAP.length - 1], STICK = 3;
+  var SHORT = ['artifacts', 'history', 'configure'];   // lists and settings: narrow is enough
+  var width = 30, panel = null, docs = [], activeDoc = null;
+
+  /* the canvas opens at the width its content needs. A list gets 30, anything
+     you actually read gets 50, and the grip still overrides both by hand. */
+  function widthFor(what) { return SHORT.indexOf(what) >= 0 ? 30 : 50; }
+
+  function stick(w) {             // near a preset, take the preset: the edge should feel magnetic
+    for (var i = 0; i < SNAP.length; i++) if (Math.abs(w - SNAP[i]) <= STICK) return SNAP[i];
+    return w;
+  }
+
+  function applyLayout() {
+    var page = $('.v-live .page');
+    if (!page) return;
+    page.style.gridTemplateColumns = page.classList.contains('min') ? '' : '1fr ' + width + '%';
+  }
+
+  function renderCanvas() {
+    var cv = $('.v-live .canvas');
+    if (!cv) return;
+    var showing = panel || (docs.length ? activeDoc : null);
+    $('.v-live .ctabs').hidden = !!panel || !docs.length;
+    $$('.v-live .ctab').forEach(function (t) {
+      var id = t.getAttribute('data-tab'), open = docs.indexOf(id) >= 0, live = open && !panel && id === activeDoc;
+      t.hidden = !open;
+      t.classList.toggle('on', live);
+      t.setAttribute('aria-selected', live ? 'true' : 'false');
+    });
+    $$('.v-live .pane').forEach(function (p) { p.classList.toggle('on', p.getAttribute('data-pane') === showing); });
+    $$('.v-live [data-open]').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-open') === panel); });
+    cv.classList.toggle('empty', !showing);
+    if (!showing) {                                  // nothing to show, so there is no canvas to show it in
+      $('.v-live .page').classList.add('min');
+      cv.classList.add('min'); cv.classList.remove('bleed');
+    }
+    applyLayout();
+    var doc = $('.v-live .doc');
+    if (doc) doc.scrollTop = 0;
+  }
+
+  function uncollapse() {
+    var page = $('.v-live .page'), cv = $('.v-live .canvas');
+    page.classList.remove('min'); cv.classList.remove('min');
+    applyLayout();
+  }
+  function openPanel(name) {
+    panel = (panel === name) ? null : name;
+    width = widthFor(panel || activeDoc);
+    uncollapse(); renderCanvas();
+  }
+  function openDoc(id, title) {
+    panel = null;
+    var at = docs.indexOf(id);
+    if (at >= 0) docs.splice(at, 1);
+    docs.push(id);
+    if (docs.length > 4) docs.shift();          // four documents stay open; the least used parks
+    activeDoc = id;
+    width = widthFor(id);
+    if (id === 'recap' && title) {
+      $('.v-live .rectitle').textContent = title;
+      $('.v-live .recwhen').textContent = title;
+      $('.v-live .ctab[data-tab="recap"] .tname').textContent = title;
+    }
+    uncollapse(); renderCanvas();
+  }
+  function selectDoc(id) {
+    if (docs.indexOf(id) < 0) return;
+    panel = null; activeDoc = id; width = widthFor(id); renderCanvas();
+  }
+  function closeDoc(id) {
+    var at = docs.indexOf(id);
+    if (at < 0) return;
+    docs.splice(at, 1);
+    activeDoc = docs[docs.length - 1] || null;
+    if (activeDoc) width = widthFor(activeDoc);
+    renderCanvas();
+  }
+  function resetCanvas(list, active) {
+    panel = null; docs = (list || []).slice();
+    activeDoc = active || docs[docs.length - 1] || null;
+    width = widthFor(activeDoc);
+    renderCanvas();
+  }
+
+  /* full screen means the browser tab, not the machine: the canvas covers the page */
+  function toggleFull() {
+    var cv = $('.v-live .canvas');
+    cv.classList.toggle('bleed');
+    if (cv.classList.contains('bleed')) { $('.v-live .page').classList.remove('min'); cv.classList.remove('min'); }
+  }
+
+  /* ── menus and the things that open over the shell ── */
+  function closeMenus() {
+    $$('.menu').forEach(function (m) { m.hidden = true; });
+    $$('[aria-haspopup="menu"]').forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
+  }
+  function toggleMenu(menu, trigger) {
+    var wasOpen = !menu.hidden;
+    closeMenus();
+    menu.hidden = wasOpen;
+    if (trigger) trigger.setAttribute('aria-expanded', wasOpen ? 'false' : 'true');
+  }
+  function openOverlay(name) {
+    closeMenus();
+    var el = document.querySelector('.scrim[data-scrim="' + name + '"]');
+    if (el) el.hidden = false;
+  }
+  function closeOverlays() { $$('.scrim').forEach(function (el) { el.hidden = true; }); }
+  function anyOpen() { return $$('.menu').some(function (m) { return !m.hidden; }) ||
+                              $$('.scrim').some(function (m) { return !m.hidden; }); }
+
+  function setModel(name) {
+    $$('.mname').forEach(function (el) { el.textContent = name; });
+    $$('[data-model]').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-model') === name); });
+  }
+
+  /* ── one delegated handler: every control in the shell arrives here ── */
+  root.addEventListener('click', function (ev) {
+    var t = ev.target;
+    if (!t || !t.closest) return;
+
+    var x = t.closest('[data-act="closetab"]');
+    if (x) { ev.stopPropagation(); closeDoc(x.closest('[data-tab]').getAttribute('data-tab')); closeMenus(); return; }
+
+    var screen = t.closest('[data-screen]');
+    if (screen) { screen.getAttribute('data-screen') === '01' ? goStandby() : goLive(false); return; }
+
+    var act = t.closest('[data-act]');
+    var name = act && act.getAttribute('data-act');
+    switch (name) {
+      case 'start':    goBoot(); return;
+      case 'end':      openOverlay('end'); return;
+      case 'endyes':   $('.v-standby .lastwhen').textContent = 'just now'; goStandby(); return;
+      case 'history':  openOverlay('history'); return;
+      case 'cancel':   closeOverlays(); return;
+      case 'send':     send(); return;
+      case 'jump':     toLatest(); return;
+      case 'stop':     stopRun(); return;
+      case 'retry': {
+        var row = act.closest('.act');
+        var a = row.retryWith;
+        row.className = 'act running';
+        row.innerHTML = '<span class="spin" aria-hidden="true"></span><span class="nm"></span><span class="stat"></span>';
+        $('.nm', row).textContent = a.run;
+        setMood('working', a.run);
+        after(950, function () { finishAct(row, a); setMood('idle'); });
+        return;
+      }
+      case 'unfold':   act.closest('.acts').classList.toggle('open'); follow(); return;
+      case 'pmore': {
+        var m = act.closest('.msg');
+        m.classList.toggle('open');
+        act.firstChild.nodeValue = m.classList.contains('open') ? 'Show less' : 'Show all';
+        follow(); return;
+      }
+      case 'mic':
+        if (micMode === 'onoff') setMic('onoff', !micLive);
+        else if (micMode === 'locked') toggleMenu($('.v-live .micmenu'), $('.v-live [data-act="micmenu"]'));
+        return;
+      case 'micmenu':  toggleMenu($('.v-live .micmenu'), act); return;
+      case 'add':      toggleMenu($('.v-live .addmenu'), act); return;
+      case 'vol':      toggleMenu($('.v-live .volmenu'), act); return;
+      case 'mute':     setVoice(!voiceOn, volume); return;
+      case 'model':    toggleMenu($('.menu', act.parentElement), act); return;
+      case 'attach': {
+        closeMenus();
+        var field = $('.v-live .field');
+        if (!$('.chip', field)) field.insertAdjacentHTML('afterbegin',
+          '<span class="chip info">client-rules.pdf<button data-act="unattach" aria-label="Remove">×</button></span>');
+        return;
+      }
+      case 'unattach': { var c = t.closest('.chip'); if (c) c.remove(); return; }
+      case 'connect':  closeMenus(); return;
+      case 'collapse': {
+        var page = $('.v-live .page'), cv = $('.v-live .canvas'), min = !page.classList.contains('min');
+        page.classList.toggle('min', min); cv.classList.toggle('min', min);
+        applyLayout(); return;
+      }
+      case 'full': toggleFull(); return;
+    }
+
+    var pnl = t.closest('[data-open]');
+    if (pnl) { openPanel(pnl.getAttribute('data-open')); closeMenus(); return; }
+
+    var row = t.closest('[data-doc]');
+    if (row) {
+      var b = row.querySelector('b');
+      openDoc(row.getAttribute('data-doc'), b ? b.textContent : null);
+      closeOverlays(); closeMenus(); return;
+    }
+
+    var tab = t.closest('[data-tab]');
+    if (tab) { selectDoc(tab.getAttribute('data-tab')); closeMenus(); return; }
+
+    var mode = t.closest('[data-mode]');
+    if (mode) { setMic(mode.getAttribute('data-mode'), false); closeMenus(); return; }
+
+    var md = t.closest('[data-model]');
+    if (md) { setModel(md.getAttribute('data-model')); closeMenus(); return; }
+
+    if (!t.closest('.menu')) closeMenus();
+  });
+
+  /* clicking the dim area behind a dialog is the same as cancelling */
+  $$('.scrim').forEach(function (sc) {
+    sc.addEventListener('click', function (ev) { if (ev.target === sc) closeOverlays(); });
+  });
+
+  var vol = $('.v-live .volmenu input');
+  if (vol) vol.addEventListener('input', function () { setVoice(voiceOn, +vol.value); });
+
+  var scroller = $('.v-live .convo');
+  if (scroller) scroller.addEventListener('scroll', measure);
+
+  var input = $('.v-live .field input');
+  if (input) input.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); send(); }
+  });
+
+  /* the grip really resizes, within the range the layout stays readable in */
+  var grip = $('.v-live .grip');
+  if (grip) grip.addEventListener('pointerdown', function (ev) {
+    var page = $('.v-live .page');
+    if (page.classList.contains('min')) return;
+    ev.preventDefault();
+    var box = page.getBoundingClientRect();
+    function move(e) {
+      var frac = (e.clientX - box.left) / box.width;
+      var w = stick(Math.round((1 - frac) * 100));
+      width = Math.max(MIN_W, Math.min(MAX_W, w));
+      grip.classList.toggle('snapped', SNAP.indexOf(width) >= 0);
+      applyLayout();
+    }
+    function up() {
+      grip.classList.remove('snapped');
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+    }
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  });
+
+  document.addEventListener('keydown', function (ev) {
+    var tag = (ev.target && ev.target.tagName) || '';
+    var typing = tag === 'INPUT' || tag === 'TEXTAREA';
+
+    if (ev.key === 'Escape') {
+      var bleed = $('.v-live .canvas.bleed');
+      if (bleed) { bleed.classList.remove('bleed'); return; }
+      if (anyOpen()) { closeMenus(); closeOverlays(); }
+      else if (run) stopRun();                     // a run in flight is what Escape is for
+      else if (root.getAttribute('data-view') === 'live') setMic('locked', false);
+      return;
+    }
+    if (typing) return;
+
+    if (ev.altKey && (ev.key === 'm' || ev.key === 'M')) {          // belongs to On and off
+      if (root.getAttribute('data-view') === 'live' && micMode === 'onoff') { ev.preventDefault(); setMic('onoff', !micLive); }
+      return;
+    }
+    if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+
+    if (ev.code === 'Space' && micMode === 'ptt' && root.getAttribute('data-view') === 'live') {
+      ev.preventDefault();
+      if (!ev.repeat) setMic('ptt', true);
+      return;
+    }
+    if (ev.key === '1') { goStandby(); ev.preventDefault(); }
+    else if (ev.key === '2') { goLive(false); ev.preventDefault(); }
+  });
+  document.addEventListener('keyup', function (ev) {
+    if (ev.code === 'Space' && micMode === 'ptt') setMic('ptt', false);
+  });
+
+  mount();
+  if (panels.length) { build(); relax(120); resize(); draw(0); }
+  applyLayout();
+  setModel('claude-opus-5');
+  setVoice(true, 70);
+  goStandby();
+  if (!still && panels.length) (function loop(ts) { draw(ts); requestAnimationFrame(loop); })(0);
+  window.addEventListener('resize', function () { repaint(); });
+})();
+</script>
+
