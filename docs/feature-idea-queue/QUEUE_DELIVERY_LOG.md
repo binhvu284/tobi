@@ -91,6 +91,22 @@ plural `project`. The focused live-HTTP test uses the owner's exact phrase and p
 run, `model=not_used`, and duplicate-free replay. A restarted-server owner retest remains the final
 live confirmation of this wording repair.
 
+T02A is implemented on 2026-09-01 and remains inside #35 Coding maintenance. Explicit normal-Chat
+requests such as `Use Developer to ...` and `/developer ...` now produce a durable, owner-readable
+proposal containing the objective, project, acceptance checks, scope, and risk. Proposal creation has
+zero queue, preflight, workflow, or worker side effects. Accepting the existing confirmation card
+creates or reuses exactly one Developer queue item, runs preflight once, and starts one linked durable
+workflow across retry, reconnect, and reload. Refusal creates no Developer work. Chat shows truthful
+running, waiting, blocked, failed, canceled, and completed states; completion requires linked changed
+files, passed checks, and generated evidence. The session artifact rail separates owner uploads from
+Developer plans, diffs, checks, and files, and each run links to its exact Developer workflow. The
+red-first checks failed before the dispatch module and HTTP branch existed; the focused contract now
+passes 20/20 and the complete shared gate passes 33/33. The production dashboard build passes. A
+mocked Playwright owner flow verifies proposal, Accept, live run status, generated artifacts, and
+desktop/mobile layout with zero console errors, failed requests, or horizontal overflow. Owner live
+verification remains before T02A is accepted. No DeepSeek Harness worker, browser/external action,
+model call, Supabase, or Vercel path was changed or used.
+
 
 <a id="item-34"></a>
 

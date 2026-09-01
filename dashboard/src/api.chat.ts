@@ -33,6 +33,7 @@ export type ChatTurnMeta = {
   context?: { projects?: ContextChip[]; resources?: { name?: string }[] }
   memoryChips?: MemoryChip[]
   turn_id?: string
+  developer_dispatch_id?: string
 }
 export type ChatRuntimeMode = 'off' | 'shadow' | 'on'
 export async function getChatConfig(): Promise<{ mode_v2: boolean; chat_runtime_v2?: ChatRuntimeMode }> { return get('/api/chat/config') }
@@ -93,6 +94,24 @@ export type StoredAttachment = {
 
 export async function getSessionAttachments(id: number): Promise<{ attachments: StoredAttachment[] }> {
   return get(`/api/chat/sessions/${id}/attachments`)
+}
+
+export type DeveloperGeneratedArtifact = {
+  id: number | string | null; kind: string; title: string; group: 'generated'
+  workflow_id: number; developer_url: string
+}
+export type ChatDeveloperDispatch = {
+  id: string; session_id: number; status: string; title: string; objective: string
+  queue_id?: number | null; workflow_id?: number | null; stage?: string | null; progress: number
+  blocker?: string | null; error_code?: string | null; developer_url: string; updated_at: string
+  changes: { files: string[]; stat?: string }; checks: Array<Record<string, unknown>>
+  artifacts: DeveloperGeneratedArtifact[]
+}
+export async function getDeveloperDispatch(id: string): Promise<ChatDeveloperDispatch> {
+  return get(`/api/chat/developer-dispatches/${encodeURIComponent(id)}`)
+}
+export async function getSessionDeveloperDispatches(id: number): Promise<{ dispatches: ChatDeveloperDispatch[] }> {
+  return get(`/api/chat/sessions/${id}/developer-dispatches`)
 }
 
 /** Where the bytes live. Content-addressed and immutable under an id, so the browser caches it. */

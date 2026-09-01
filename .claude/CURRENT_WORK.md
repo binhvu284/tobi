@@ -9,15 +9,15 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #35 TOBI Agent Tier Completion
-**Package:** T02 - Owner-Wording Live Repair
-**Status:** T00 and T01 complete. T02 owner-wording repair is implemented; owner live retest is pending.
+**Package:** T02A - Chat-to-Developer Dispatch
+**Status:** T00, T01, and T02 are implemented. T02A passes engineering verification; owner live verification remains.
 
 **Purpose (one sentence, plain words):**
-Make the owner's normal wording `list all project` enter T02 canonical Runtime instead of the legacy
-model loop, without widening another Agent or Developer route.
+Let the owner turn a limitation described in normal Chat into one confirmed, durable Developer
+workflow with truthful status and evidence, without creating work before confirmation.
 
 **Not doing:**
-- No Chat-to-Developer dispatch (T02A), coding worker execution, or changes to DeepSeek Harness.
+- No changes to DeepSeek Harness, Codex worker adapters, worker selection, or coding execution logic.
 - No browser automation, GitHub action, Telegram delivery, external connector action, or proactive work.
 - No changes to DeepSeek Harness or another agent's Developer-worker implementation.
 - No live model calls, browser submissions, GitHub writes, Telegram delivery, Supabase, Vercel, merge,
@@ -27,25 +27,29 @@ model loop, without widening another Agent or Developer route.
 
 **Files expected:**
 - `.claude/CURRENT_WORK.md`
-- `core/runtime/agent_workflows.py`
-- `core/runtime/file_tools.py`
-- `core/chat_runtime_contracts.py`
-- `core/chat_runtime.py`
-- `core/owner_flags.py`
+- `core/developer_dispatch.py`
 - `core/conductor_registry.py`
-- `api/routers/chat.py`
-- `core/agent_tier.py`
 - `core/runtime/self_check.py`
-- `tests/test_agent_tier_workflows.py`
-- `tests/test_mc_runtime_file_tools.py`
+- `api/routers/chat.py`
+- `dashboard/src/api.chat.ts`
+- `dashboard/src/api.conductor.ts`
+- `dashboard/src/api.developer.ts`
+- `dashboard/src/api.brain.ts`
+- `dashboard/src/pages/Chat.tsx`
+- `dashboard/src/pages/Developer.tsx`
+- `dashboard/src/components/chat/chatTypes.ts`
+- `dashboard/src/components/chat/Attachments.tsx`
+- `dashboard/src/components/chat/DeveloperDispatchCard.tsx`
+- `tests/test_chat_developer_dispatch.py`
 - `docs/feature-idea-queue/AGENT_TIER_COMPLETION_PLAN.md`
 - `docs/feature-idea-queue/QUEUE.md`
 - `docs/feature-idea-queue/QUEUE_DELIVERY_LOG.md`
-- focused #35 documentation plus the inherited #21/#34/T00 gate
+- focused #35 documentation plus the inherited T02/#21/#34/T00 gate
 
-**Gate: green - the owner-wording repair and all 32 suites must pass**
+**Gate: green - T02A and all inherited suites must pass**
 
 ```gate
+../.python/venv/Scripts/python.exe tests/test_chat_developer_dispatch.py
 ../.python/venv/Scripts/python.exe tests/test_agent_tier_workflows.py
 ../.python/venv/Scripts/python.exe tests/test_agent_tier_registry.py
 ../.python/venv/Scripts/python.exe tests/test_agent_tier_baseline.py

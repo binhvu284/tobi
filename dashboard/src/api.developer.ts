@@ -245,6 +245,9 @@ export async function prepareDeveloperWorkflow(queueId: number, readinessId?: nu
 export async function getDeveloperHistory(signal?: AbortSignal): Promise<{ workflows: DeveloperWorkflow[] }> {
   return vreq('/api/developer/workflows/history', { signal })
 }
+export async function getDeveloperWorkflow(workflowId: number, signal?: AbortSignal): Promise<DeveloperWorkflow> {
+  return vreq(`/api/developer/workflows/${workflowId}`, { signal })
+}
 export async function getDeveloperScorecard(workflowId: number): Promise<DeveloperScorecard> {
   return vreq(`/api/developer/workflows/${workflowId}/scorecard`)
 }

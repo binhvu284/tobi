@@ -1,6 +1,6 @@
 # TOBI Agent Tier Completion
 
-`UPG-CORE-8D32H-012` | Queue item #35 | Owner-approved plan | In progress - T02 complete
+`UPG-CORE-8D32H-012` | Queue item #35 | Owner-approved plan | In progress - T02A implemented
 
 ## Delivery Status
 
@@ -15,8 +15,14 @@
   successful live workflows record bounded current-release proof for `local_work_execution`.
 - Verification: T02 focused checks pass 20/20 and the shared gate passes 32/32. The live HTTP check
   proves one canonical run and linked reply, zero model calls, and no duplicate transcript on retry.
-- Next package: T02A Developer dispatch. It remains a separate Coding maintenance package; DeepSeek
-  Harness work remains outside #35.
+- T02A: implemented on 2026-09-01. Normal Chat recognizes explicit Developer capability work and
+  the deterministic `/developer` command, persists an owner-readable proposal with zero Developer
+  side effects, and starts exactly one linked queue item and workflow only after confirmation.
+  Chat then shows truthful Developer state, blockers, evidence, and generated artifacts with a deep
+  link to the existing Developer page. Focused contract checks pass 20/20 and the shared gate passes
+  33/33. The production build and mocked desktop/mobile Playwright owner flow pass with no console,
+  network, or overflow error. Owner live verification remains. DeepSeek Harness worker code remains
+  outside #35 and was not changed.
 
 ## The One Outcome
 
@@ -440,6 +446,6 @@ must not invent a passing command in the plan and assume it exists.
 
 ## Worker Start Rule
 
-T00 is owner-accepted and T01-T02 are complete. Start only T02A next, set the current-work gate red for
-its focused dispatch target, and keep DeepSeek Harness plus external/browser action packages outside
-that Coding maintenance boundary.
+T00 is owner-accepted and T01-T02 are complete. T02A passes its engineering gate but needs owner live
+verification before T03 begins. Keep DeepSeek Harness plus external/browser action packages outside
+this Coding maintenance boundary.

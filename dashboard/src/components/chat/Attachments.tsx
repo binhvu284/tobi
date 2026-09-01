@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FileText, FileType2, X, Expand, Download, Paperclip, ChevronLeft } from 'lucide-react'
-import { attachmentUrl, type StoredAttachment } from '../../api.chat'
+import { FileText, FileType2, X, Expand, Download, Paperclip, ChevronLeft, Code2, ExternalLink } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { attachmentUrl, type ChatDeveloperDispatch, type StoredAttachment } from '../../api.chat'
 
 /**
  * What the owner attached: shown in his own message, and collected in a session files panel.
@@ -124,26 +125,29 @@ export function AttachmentStrip({ items, pendingCount, onOpen }: {
  * scrolling back through a long conversation to find one screenshot is the wrong job for a
  * message list. Collapsed it is a single tab with a count; expanded it is a grid of thumbnails.
  */
-export function SessionFiles({ items, collapsed, onToggle, onOpen }: {
+export function SessionFiles({ items, generated = [], collapsed, onToggle, onOpen }: {
   items: StoredAttachment[]
+  generated?: ChatDeveloperDispatch[]
   collapsed: boolean
   onToggle: () => void
   onOpen: (a: StoredAttachment) => void
 }) {
   const images = useMemo(() => items.filter(isImage), [items])
   const files = useMemo(() => items.filter(a => !isImage(a)), [items])
-  if (!items.length) return null
+  const generatedCount = generated.reduce((count, run) => count + run.artifacts.length, 0)
+  const total = items.length + generatedCount
+  if (!items.length && !generated.length) return null
 
   if (collapsed) {
     return (
       <button
         type="button" onClick={onToggle}
         aria-expanded={false}
-        title={`${items.length} file${items.length === 1 ? '' : 's'} in this session`}
+        title={`${total} artifact${total === 1 ? '' : 's'} in this session`}
         className="sf-tab"
       >
         <Paperclip size={13} />
-        <span className="sf-tab-count">{items.length}</span>
+        <span className="sf-tab-count">{total}</span>
       </button>
     )
   }
@@ -158,9 +162,9 @@ export function SessionFiles({ items, collapsed, onToggle, onOpen }: {
       <div className="mb-2 flex items-center gap-2">
         <Paperclip size={13} className="text-muted" />
         <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted">
-          Session files
+          Session artifacts
         </span>
-        <span className="ml-auto text-[10px] text-muted/60">{items.length}</span>
+        <span className="ml-auto text-[10px] text-muted/60">{total}</span>
         <button
           type="button" onClick={onToggle} aria-expanded aria-label="Collapse session files"
           className="rounded p-0.5 text-muted transition-colors hover:text-accent"
@@ -170,33 +174,64 @@ export function SessionFiles({ items, collapsed, onToggle, onOpen }: {
       </div>
 
       <div className="sf-scroll">
-        {images.length > 0 && (
-          <div className="grid grid-cols-2 gap-1.5">
-            {images.map(a => (
-              <button
-                key={a.id} type="button" onClick={() => onOpen(a)}
-                title={`${a.name} · ${prettyBytes(a.bytes)}`}
-                aria-label={`Open ${a.name} full screen`}
-                className="sf-cell"
-              >
-                <img src={attachmentUrl(a.id)} alt={a.name} loading="lazy" />
-                <span className="att-thumb-veil" aria-hidden><Expand size={14} /></span>
-              </button>
-            ))}
+        {items.length > 0 && (
+          <div>
+            <div className="mb-1.5 text-[10px] font-medium uppercase text-muted">Your uploads</div>
+            {images.length > 0 && (
+              <div className="grid grid-cols-2 gap-1.5">
+                {images.map(a => (
+                  <button
+                    key={a.id} type="button" onClick={() => onOpen(a)}
+                    title={`${a.name} · ${prettyBytes(a.bytes)}`}
+                    aria-label={`Open ${a.name} full screen`}
+                    className="sf-cell"
+                  >
+                    <img src={attachmentUrl(a.id)} alt={a.name} loading="lazy" />
+                    <span className="att-thumb-veil" aria-hidden><Expand size={14} /></span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {files.length > 0 && (
+              <div className={`flex flex-col gap-1 ${images.length ? 'mt-2 border-t border-border/60 pt-2' : ''}`}>
+                {files.map(a => (
+                  <a
+                    key={a.id} href={attachmentUrl(a.id, true)} title={`Download ${a.name}`}
+                    className="flex items-center gap-1.5 rounded px-1 py-1 text-[11px] text-muted transition-colors hover:text-accent"
+                  >
+                    <FileGlyph a={a} />
+                    <span className="truncate">{a.name}</span>
+                    <span className="ml-auto shrink-0 text-muted/60">{prettyBytes(a.bytes)}</span>
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
         )}
-        {files.length > 0 && (
-          <div className={`flex flex-col gap-1 ${images.length ? 'mt-2 border-t border-border/60 pt-2' : ''}`}>
-            {files.map(a => (
-              <a
-                key={a.id} href={attachmentUrl(a.id, true)} title={`Download ${a.name}`}
-                className="flex items-center gap-1.5 rounded px-1 py-1 text-[11px] text-muted transition-colors hover:text-accent"
-              >
-                <FileGlyph a={a} />
-                <span className="truncate">{a.name}</span>
-                <span className="ml-auto shrink-0 text-muted/60">{prettyBytes(a.bytes)}</span>
-              </a>
-            ))}
+        {generated.length > 0 && (
+          <div className={items.length ? 'mt-3 border-t border-border/60 pt-2' : ''}>
+            <div className="mb-1.5 flex items-center gap-1 text-[10px] font-medium uppercase text-muted">
+              <Code2 size={10} /> Generated by Developer
+            </div>
+            <div className="space-y-2">
+              {generated.map(run => (
+                <div key={run.id}>
+                  <Link to={run.developer_url} className="flex items-center gap-1 text-[11px] font-medium text-text hover:text-accent">
+                    <span className="truncate">{run.title}</span><ExternalLink size={10} className="shrink-0" />
+                  </Link>
+                  <div className="mt-0.5 flex flex-col gap-0.5">
+                    {run.artifacts.map(artifact => (
+                      <Link key={`${run.id}-${artifact.id}`} to={artifact.developer_url}
+                        className="flex items-center gap-1.5 rounded px-1 py-1 text-[11px] text-muted hover:bg-accent/5 hover:text-accent">
+                        <FileText size={11} className="shrink-0" />
+                        <span className="truncate">{artifact.title}</span>
+                      </Link>
+                    ))}
+                    {!run.artifacts.length && <span className="px-1 text-[10px] text-muted/60">No generated artifact yet</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

@@ -23,6 +23,9 @@ export async function getConductorActions(limit = 50): Promise<{ count: number; 
 export async function getConductorStatus(): Promise<ConductorStatus> { return get('/api/conductor/status') }
 export async function confirmConductorAction(
   action_id: number, decision: 'approve' | 'reject',
-): Promise<{ ok: boolean; status: string; summary?: string; result?: unknown; error?: string }> {
+): Promise<{
+  ok: boolean; status: string; summary?: string; result?: unknown; error?: string
+  developer_dispatch?: { status: string; blocker?: string | null; workflow_id?: number | null }
+}> {
   return request('/api/conductor/confirm', { method: 'POST', body: JSON.stringify({ action_id, decision }) })
 }

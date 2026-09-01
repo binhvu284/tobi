@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio  # noqa: F401 - used by streaming/background handlers
 import json  # noqa: F401 - used by some handlers
 import logging
+import uuid
 from typing import Optional  # noqa: F401 - used in models/signatures
 
 from fastapi import APIRouter, HTTPException, Request
@@ -188,6 +189,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
     from core import chat_store, conductor, model_router, attachments as attach
     from core import premium_readers, youtube_reader, chat_modes, chat_runtime, context_manager
     from core.chat_runtime_contracts import RouteDecision, TurnError, TurnRequest
+    from core.developer_dispatch import DeveloperDispatchService, qualify_developer_request
     from core.runtime.agent_workflows import AgentWorkflowService, qualify_agent_workflow
     from core.runtime import config as runtime_config
     from core.runtime.gateway import TurnGateway, submit_gateway_accept, submit_gateway_mirror
@@ -223,6 +225,9 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         capabilities=ctx.get("capabilities") or {},
         workflow_fields=dict(payload.workflow_fields or {}),
     )
+    developer_qualification = qualify_developer_request(message)
+    developer_dispatch_ready = developer_qualification.status in {"accepted", "clarify"}
+    developer_client_turn_id = str(payload.client_turn_id or f"server-{uuid.uuid4().hex}")
     try:
         runtime_intent = classify(message)
     except Exception:
@@ -294,6 +299,103 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             return True, future.result()
 
         if not message and not img_urls and not att_text:
+            yield "event: done\ndata: {}\n\n"
+            return
+        if developer_dispatch_ready:
+            t0 = _time.time()
+            cid = chat_store.chat_id_for_session(sid)
+            from core.database import save_conversation_message as _bridge_msg
+
+            if mode_v2:
+                yield f"event: mode\ndata: {json.dumps({'mode': ctx['mode'], 'legacy_mode': ctx['legacy_mode'], 'capabilities': ctx['capabilities']})}\n\n"
+            if developer_qualification.status == "clarify":
+                reply = developer_qualification.question
+                stored_user = message + (f"  📎×{len(payload.attachments)}" if payload.attachments else "")
+                user_mid = await loop.run_in_executor(
+                    None, lambda: chat_store.add_message(sid, "user", stored_user, model=model)
+                )
+                if payload.attachments:
+                    from core import chat_attachments
+                    await loop.run_in_executor(
+                        None, lambda: chat_attachments.save_many(sid, user_mid, payload.attachments)
+                    )
+                await loop.run_in_executor(
+                    None,
+                    lambda: chat_store.add_message(
+                        sid,
+                        "assistant",
+                        reply,
+                        model="not_used",
+                        tokens=0,
+                        meta=json.dumps({"mode": ctx["mode"]}),
+                    ),
+                )
+                await loop.run_in_executor(None, lambda: _bridge_msg(cid, "user", message))
+                await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", reply))
+                await loop.run_in_executor(None, lambda: chat_store.auto_title(sid, message))
+                for chunk in conductor._stream_chunks(reply):
+                    yield f"event: delta\ndata: {json.dumps({'text': chunk})}\n\n"
+                yield "event: usage\ndata: " + json.dumps({
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "model": "not_used",
+                    "requested_model": model,
+                    "actual_model": None,
+                    "fallback_reason": None,
+                    "attempts": 0,
+                    "latency_ms": round((_time.time() - t0) * 1000),
+                }) + "\n\n"
+                yield "event: done\ndata: {}\n\n"
+                return
+
+            dispatch_service = DeveloperDispatchService()
+            proposal_result = await loop.run_in_executor(
+                None,
+                lambda: dispatch_service.propose(
+                    session_id=sid,
+                    client_turn_id=developer_client_turn_id,
+                    message=message,
+                ),
+            )
+            reply = str(proposal_result["reply"])
+            dispatch_id = str(proposal_result["dispatch"]["id"])
+            stored_user = message + (f"  📎×{len(payload.attachments)}" if payload.attachments else "")
+            exchange = await loop.run_in_executor(
+                None,
+                lambda: dispatch_service.persist_exchange(
+                    dispatch_id,
+                    user_content=stored_user,
+                    assistant_content=reply,
+                    mode=ctx["mode"],
+                ),
+            )
+            if not exchange["replayed"]:
+                if payload.attachments:
+                    from core import chat_attachments
+                    await loop.run_in_executor(
+                        None,
+                        lambda: chat_attachments.save_many(
+                            sid, int(exchange["user_message_id"]), payload.attachments
+                        ),
+                    )
+                await loop.run_in_executor(None, lambda: _bridge_msg(cid, "user", message))
+                await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", reply))
+                await loop.run_in_executor(None, lambda: chat_store.auto_title(sid, message))
+            for chunk in conductor._stream_chunks(reply):
+                yield f"event: delta\ndata: {json.dumps({'text': chunk})}\n\n"
+            if proposal_result.get("pending_action"):
+                yield f"event: action\ndata: {json.dumps(proposal_result['pending_action'])}\n\n"
+            yield "event: usage\ndata: " + json.dumps({
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "model": "not_used",
+                "requested_model": model,
+                "actual_model": None,
+                "fallback_reason": None,
+                "attempts": 0,
+                "latency_ms": round((_time.time() - t0) * 1000),
+                "replayed": bool(exchange["replayed"]),
+            }) + "\n\n"
             yield "event: done\ndata: {}\n\n"
             return
         runtime_gateway = TurnGateway()
@@ -1323,6 +1425,26 @@ def chat_session_activity(sid: int, limit: int = 50):
     from core import chat_store, conductor
     cid = chat_store.chat_id_for_session(sid)
     return conductor.list_actions(limit=max(1, min(limit, 200)), chat_id=cid)
+
+
+@router.get("/api/chat/developer-dispatches/{dispatch_id}")
+def chat_developer_dispatch(dispatch_id: str):
+    from core.developer_dispatch import DeveloperDispatchService
+
+    try:
+        return DeveloperDispatchService().get(dispatch_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Developer dispatch not found") from exc
+
+
+@router.get("/api/chat/sessions/{sid}/developer-dispatches")
+def chat_session_developer_dispatches(sid: int):
+    from core import chat_store
+    from core.developer_dispatch import DeveloperDispatchService
+
+    if not chat_store.get_session(sid):
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"dispatches": DeveloperDispatchService().list_for_session(sid)}
 
 
 # ── Agent runs + artifacts (#16) ─────────────────────────────────────────────────

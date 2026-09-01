@@ -18,7 +18,7 @@ import VaultUnlockPanel from '../components/VaultUnlockPanel'
 import { useToast } from '../context/ToastProvider'
 import { useVaultSession } from '../hooks/useVaultSession'
 import type { AvailableModel, LlmProvider } from '../api.chat'
-import { approveDeveloperWorkflow, assessDeveloperGoal, commandDeveloperGoal, commandDeveloperWorkflow, createDeveloperGoal, getDeveloperHistory, getDeveloperLearning, getDeveloperOverview, getDeveloperQueue, getDeveloperStorage, getDeveloperVersions, getDeveloperGoals, getDeveloperWorkerLogin, getDeveloperWorkerModels, getDeveloperWorkers, prepareDeveloperWorkflow, probeDeveloperWorker, replayDeveloperLearning, saveDeveloperWorker, startDeveloperWorkflow, streamDeveloperEvents, switchDeveloperWorker, cleanupDeveloperStorage, rejectDeveloperWorkflow, setDeveloperProcessSettings, type DeveloperAssessment, type DeveloperEvent, type DeveloperOverview, type DeveloperGoal, type DeveloperQueueItem, type DeveloperQueueState, type DeveloperRelease, type DeveloperStorage, type DeveloperWorkerLogin, type DeveloperWorkerModels, type DeveloperWorkerProfile, type DeveloperWorkflow } from '../api.developer'
+import { approveDeveloperWorkflow, assessDeveloperGoal, commandDeveloperGoal, commandDeveloperWorkflow, createDeveloperGoal, getDeveloperHistory, getDeveloperLearning, getDeveloperOverview, getDeveloperQueue, getDeveloperStorage, getDeveloperVersions, getDeveloperGoals, getDeveloperWorkflow, getDeveloperWorkerLogin, getDeveloperWorkerModels, getDeveloperWorkers, prepareDeveloperWorkflow, probeDeveloperWorker, replayDeveloperLearning, saveDeveloperWorker, startDeveloperWorkflow, streamDeveloperEvents, switchDeveloperWorker, cleanupDeveloperStorage, rejectDeveloperWorkflow, setDeveloperProcessSettings, type DeveloperAssessment, type DeveloperEvent, type DeveloperOverview, type DeveloperGoal, type DeveloperQueueItem, type DeveloperQueueState, type DeveloperRelease, type DeveloperStorage, type DeveloperWorkerLogin, type DeveloperWorkerModels, type DeveloperWorkerProfile, type DeveloperWorkflow } from '../api.developer'
 
 import { HistoryView, SystemView } from './developer/SystemView'
 import { DeveloperSkeleton, WorkflowHeader } from './developer/WorkflowHeader'
@@ -40,6 +40,7 @@ export default function Developer() {
   const [learning, setLearning] = useState<{ records: Array<Record<string, unknown>>; playbooks: Array<Record<string, unknown>> }>({ records: [], playbooks: [] })
   const [events, setEvents] = useState<DeveloperEvent[]>([])
   const [history, setHistory] = useState<DeveloperWorkflow[]>([])
+  const [linkedWorkflow, setLinkedWorkflow] = useState<DeveloperWorkflow | null>(null)
   const [streamState, setStreamState] = useState<DeveloperStreamState>('idle')
   const [streamIssue, setStreamIssue] = useState<string | null>(null)
   const [lastSignalAt, setLastSignalAt] = useState<number | null>(null)
@@ -64,17 +65,21 @@ export default function Developer() {
       controller.abort()
     }, LOAD_TIMEOUT_MS)
     try {
-      const [o, q, v, s, g, w, learn, historyResult] = await Promise.all([
+      const requestedWorkflowId = Number(new URLSearchParams(window.location.search).get('workflow'))
+      const linkedRequest = Number.isFinite(requestedWorkflowId) && requestedWorkflowId > 0
+        ? getDeveloperWorkflow(requestedWorkflowId, controller.signal).catch(() => null)
+        : Promise.resolve(null)
+      const [o, q, v, s, g, w, learn, historyResult, linked] = await Promise.all([
         getDeveloperOverview(controller.signal), getDeveloperQueue(controller.signal),
         getDeveloperVersions(controller.signal), getDeveloperStorage(controller.signal),
         getDeveloperGoals(controller.signal), getDeveloperWorkers(false, controller.signal),
-        getDeveloperLearning(controller.signal), getDeveloperHistory(controller.signal),
+        getDeveloperLearning(controller.signal), getDeveloperHistory(controller.signal), linkedRequest,
       ])
       if (controller.signal.aborted) return
       setOverview(o); setQueue(q); setReleases(v.releases); setStorage(s); setGoals(g.goals)
       setWorkers(w.workers); setWorkerModels(w.models ?? []); setWorkerProviders(w.providers ?? [])
       setModelRouting(w.routing ?? { default_model: '', coding: '', coding_review: '' })
-      setLearning(learn); setHistory(historyResult.workflows); setError(null)
+      setLearning(learn); setHistory(historyResult.workflows); setLinkedWorkflow(linked); setError(null)
     } catch (err) {
       if (controller.signal.aborted && !timedOut) return
       const apiError = err as { message?: string; status?: number; code?: string }
@@ -113,7 +118,7 @@ export default function Developer() {
     localStorage.setItem('tobi.developer.header.collapsed', String(collapsed))
   }
 
-  const active = overview?.active_workflow ?? null
+  const active = linkedWorkflow ?? overview?.active_workflow ?? null
   const activeIsTerminal = active ? TERMINAL_STATES.has(active.state) : false
   useEffect(() => {
     if (!active?.id) {

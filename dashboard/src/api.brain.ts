@@ -109,7 +109,14 @@ export async function brainChat(message: string): Promise<{ reply: string }> {
 /** Brain v2: stream the chat reply token-by-token. `onDelta` fires per chunk; resolves
  *  when the `done` event arrives. Falls back transparently to a single chunk when the
  *  model provider can't stream (backend emits one delta then done). */
-export type PendingAction = { id: number; tool: string; summary: string; risk: string; items?: PendingAction[] }
+export type DeveloperProposal = {
+  title: string; objective: string; project: string; acceptance_checks: string[]
+  scope: string[]; risk: 'low' | 'medium' | 'high' | 'critical'
+}
+export type PendingAction = {
+  id: number; tool: string; summary: string; risk: string; items?: PendingAction[]
+  developer_proposal?: DeveloperProposal
+}
 
 export async function streamBrainChat(
   message: string,

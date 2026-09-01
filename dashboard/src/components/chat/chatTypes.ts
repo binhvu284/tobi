@@ -14,6 +14,7 @@ export type Meta = {
   requestedModel?: string | null
   actualModel?: string | null
   fallbackReason?: string | null
+  developer_dispatch_id?: string
 }
 export type Msg = {
   id?: number; role: string; content: string; model?: string | null; meta?: Meta

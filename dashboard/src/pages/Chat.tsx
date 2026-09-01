@@ -6,11 +6,11 @@ import {
   Square, RotateCcw, Copy, ChevronDown, Cpu, MessageSquarePlus,
   Paperclip, Globe, Image as ImageIcon, FileText, ThumbsUp, ThumbsDown, Activity,
   GitBranch, Plug, Layers, PanelLeftClose, PanelLeftOpen, AlertTriangle, Zap, Quote,
-  Terminal, Search, Briefcase, Wrench, ShieldCheck, CheckCircle2, XCircle, ListChecks, Radio, Gauge,
+  Terminal, Search, Briefcase, Wrench, ShieldCheck, CheckCircle2, XCircle, ListChecks, Radio, Gauge, Code2,
   ChevronUp, MessagesSquare, ChevronRight, Pin, Youtube, Loader2, MoreVertical, Expand,
 } from 'lucide-react'
 import { SiGithub, SiGoogle, SiNotion, SiVercel, SiSupabase, type IconType } from '@icons-pack/react-simple-icons'
-import { type ChatSession, type AvailableModel, type ChatUsage, type ChatNotice, type ChatStoredMessage, type ChatAttachment, type ChatPicker, type ReaderChip, type ChatModeId, type ContextChip, type ChatArtifactEvent, type ChatArtifact, type ChatRuntimeEvent, type ChatTurnTrace, getChatSessions, createChatSession, getChatSession, patchChatSession, deleteChatSession, appendChatMessage, streamChatSession, getLlmModels, forkChatSession, setMessageFeedback, getSessionActivity, getChatConfig, commandAgentRun, getChatTurnTrace, getSessionArtifacts, getChatArtifact, getSessionAttachments, type StoredAttachment,
+import { type ChatSession, type AvailableModel, type ChatUsage, type ChatNotice, type ChatStoredMessage, type ChatAttachment, type ChatPicker, type ReaderChip, type ChatModeId, type ContextChip, type ChatArtifactEvent, type ChatArtifact, type ChatRuntimeEvent, type ChatTurnTrace, type ChatDeveloperDispatch, getChatSessions, createChatSession, getChatSession, patchChatSession, deleteChatSession, appendChatMessage, streamChatSession, getLlmModels, forkChatSession, setMessageFeedback, getSessionActivity, getChatConfig, commandAgentRun, getChatTurnTrace, getSessionArtifacts, getChatArtifact, getSessionAttachments, getSessionDeveloperDispatches, type StoredAttachment,
 } from '../api.chat'
 import { type ConductorAction, confirmConductorAction } from '../api.conductor'
 import { compactSession } from '../api.keys'
@@ -29,6 +29,7 @@ import { AttachmentStrip, ImageLightbox, SessionFiles, attachCount, stripAttachT
 import PickerWizard, { type PickerAnswer } from '../components/chat/PickerWizard'
 import ChatAmbient, { ChatHeroMotif } from '../components/chat/ChatAmbient'
 import TerminalMode from '../components/chat/TerminalMode'
+import DeveloperDispatchCard from '../components/chat/DeveloperDispatchCard'
 
 import type { TierMark, Meta, Msg, ChatMode, TurnOpts, QueuedTurn } from '../components/chat/chatTypes'
 import {
@@ -80,6 +81,7 @@ export default function Chat() {
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [lightbox, setLightbox] = useState<LightboxImage | null>(null)
   const [sessionFiles, setSessionFiles] = useState<StoredAttachment[]>([])
+  const [developerDispatches, setDeveloperDispatches] = useState<ChatDeveloperDispatch[]>([])
   const [filesOpen, setFilesOpen] = useState(false)
   const [plusOpen, setPlusOpen] = useState(false)
   const [plusPanel, setPlusPanel] = useState<'connectors' | 'confirmations' | null>('connectors')
@@ -217,11 +219,13 @@ export default function Chat() {
     Promise.all([
       getChatSession(activeId),
       getSessionArtifacts(activeId, 200).catch(() => ({ artifacts: [] as ChatArtifact[] })),
-    ]).then(([r, artifactResult]) => {
+      getSessionDeveloperDispatches(activeId).catch(() => ({ dispatches: [] as ChatDeveloperDispatch[] })),
+    ]).then(([r, artifactResult, developerResult]) => {
       if (cancelled) return
       setModel(r.session.model ?? null)
       const artifactMap = new Map(artifactResult.artifacts.map(a => [a.id, a]))
       setMessages(r.messages.map(m => storedToMsg(m, artifactMap)))
+      setDeveloperDispatches(developerResult.dispatches)
       loadSessionFiles(activeId)                 // stored files for this session
     }).catch(() => { if (!cancelled) setMessages([]) })
     return () => { cancelled = true }
@@ -286,11 +290,13 @@ export default function Chat() {
   const refreshSessions = async () => { try { setSessions((await getChatSessions()).sessions) } catch (error) { softFail('chat data')(error) } }
   const reloadMessages = async (sid: number) => {
     try {
-      const [r, artifactResult] = await Promise.all([
+      const [r, artifactResult, developerResult] = await Promise.all([
         getChatSession(sid),
         getSessionArtifacts(sid, 200).catch(() => ({ artifacts: [] as ChatArtifact[] })),
+        getSessionDeveloperDispatches(sid).catch(() => ({ dispatches: [] as ChatDeveloperDispatch[] })),
       ])
       const artifactMap = new Map(artifactResult.artifacts.map(a => [a.id, a]))
+      setDeveloperDispatches(developerResult.dispatches)
       setMessages(r.messages.map((m, i, arr) => {
         const msg = storedToMsg(m, artifactMap)
         if (i === arr.length - 1 && m.role === 'assistant') msg.meta = { ...msg.meta, ...lastMetaRef.current }
@@ -651,15 +657,29 @@ export default function Chat() {
     setMessages(m => [...m, { role: 'assistant', content: `On it, sir — ${label}…` }])
     try {
       let okCount = 0; let lastErr = ''
+      let developerResult: { status: string; blocker?: string | null; workflow_id?: number | null } | undefined
       for (const it of items) {
-        try { const r = await confirmConductorAction(it.id, 'approve'); if (r.ok) okCount++; else lastErr = r.error || '' }
+        try {
+          const r = await confirmConductorAction(it.id, 'approve')
+          if (r.developer_dispatch) developerResult = r.developer_dispatch
+          if (r.ok) okCount++; else lastErr = r.error || ''
+        }
         catch (e) { lastErr = (e as Error).message }
       }
-      const done = okCount === items.length
-        ? `✓ Done, sir — ${items.length > 1 ? `all ${items.length} actions completed` : p.summary}.`
-        : `⚠️ Completed ${okCount} of ${items.length}${lastErr ? ` — ${lastErr}` : ''}.`
+      const done = developerResult
+        ? developerResult.status === 'running'
+          ? `Developer workflow #${developerResult.workflow_id} started. Its live status and evidence are attached to the proposal above.`
+          : developerResult.status === 'blocked'
+            ? `Developer accepted the work but preflight stopped it: ${developerResult.blocker || 'open the run card for the blocker.'}`
+            : developerResult.status === 'completed'
+              ? 'Developer work is complete and its evidence is attached to the proposal above.'
+              : `Developer could not start this work${developerResult.blocker ? `: ${developerResult.blocker}` : '.'}`
+        : okCount === items.length
+          ? `✓ Done, sir — ${items.length > 1 ? `all ${items.length} actions completed` : p.summary}.`
+          : `⚠️ Completed ${okCount} of ${items.length}${lastErr ? ` — ${lastErr}` : ''}.`
       setMessages(m => [...m.slice(0, -1), { role: 'assistant', content: done }]); if (activeId) appendChatMessage(activeId, done).catch(softFail('chat data'))
       if (activeId && activityOpen) loadActivity(activeId)
+      if (activeId) void loadDeveloperDispatches(activeId)
     } catch (e) { setMessages(m => [...m.slice(0, -1), { role: 'assistant', content: `⚠️ ${(e as Error).message}` }]) }
   }
 
@@ -679,6 +699,18 @@ export default function Chat() {
     try { setSessionFiles((await getSessionAttachments(sid)).attachments) }
     catch (error) { softFail('chat attachments')(error) }
   }
+  const loadDeveloperDispatches = async (sid: number) => {
+    try { setDeveloperDispatches((await getSessionDeveloperDispatches(sid)).dispatches) }
+    catch (error) { softFail('developer dispatches')(error) }
+  }
+
+  useEffect(() => {
+    if (activeId == null || !developerDispatches.some(item => ['proposed', 'preflighting', 'running', 'waiting_approval', 'blocked'].includes(item.status))) return
+    const timer = window.setInterval(() => { void loadDeveloperDispatches(activeId) }, 3000)
+    return () => window.clearInterval(timer)
+    // The status signature stops polling once every linked run is terminal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, developerDispatches.map(item => `${item.id}:${item.status}`).join('|')])
 
   const activeFlags = (webResearch ? 1 : 0) + connectors.length + attachments.length
 
@@ -764,6 +796,7 @@ export default function Chat() {
     { cmd: 'model', desc: 'Switch model', icon: Cpu, run: () => setModelMenuOpen(true) },
     { cmd: 'chat', desc: 'Switch to chat mode', icon: MessageSquarePlus, run: () => setMode('chat') },
     { cmd: 'agent', desc: 'Switch to agent mode', icon: Wrench, run: () => setMode('agent') },
+    { cmd: 'developer', desc: 'Send work to Developer', icon: Code2, run: () => setInput('/developer ') },
     { cmd: 'terminal', desc: 'Commands run in Agent mode now', icon: Terminal, run: () => { setMode('agent'); toast({ kind: 'info', title: 'Terminal → Agent', detail: 'Describe the command — the safety gate still applies.' }) } },
     { cmd: 'research', desc: deepResearch ? 'Deep Research → off' : 'Deep Research → on (next message)', icon: Search, run: () => setDeepResearch(v => !v) },
     { cmd: 'web', desc: webResearch ? 'Web research → off' : 'Web research → on', icon: Globe, run: () => setWebResearch(v => !v) },
@@ -1022,7 +1055,7 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
 
         <div className="relative flex min-h-0 flex-1">
           {/* files sent in this session, tucked to the left of the transcript */}
-          <SessionFiles items={sessionFiles} collapsed={!filesOpen}
+          <SessionFiles items={sessionFiles} generated={developerDispatches} collapsed={!filesOpen}
             onToggle={() => setFilesOpen(o => !o)} onOpen={a => setLightbox(storedImage(a))} />
           <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-6 sm:px-8">
             <div className={`${COLUMN} space-y-6`}>
@@ -1102,6 +1135,7 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
                         {m.content ? <MarkdownView content={m.content} /> : (isLast && busy ? null : <span className="text-sm text-muted">…</span>)}
                         {streaming && isLast && <span className={`ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] bg-accent align-middle ${reduced ? '' : 'chat-caret'}`} />}
                       </div>
+                      {m.meta?.developer_dispatch_id && <DeveloperDispatchCard dispatchId={m.meta.developer_dispatch_id} />}
                       {/* #20 review P1: per-memory feedback chips for this turn (empty until meta folds in) */}
                       <MemoryChips chips={m.meta?.memoryChips} turnRef={m.meta?.turn_id} />
                       {m.created_at && !(streaming && isLast) && (
@@ -1195,7 +1229,7 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
 
               {pending && !sending && (
                 <motion.div initial={{ opacity: 0, y: reduced ? 0 : 8 }} animate={{ opacity: 1, y: 0 }} className="mx-auto w-full max-w-md rounded-xl border border-warning/40 bg-warning/5 p-3.5">
-                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-warning"><ShieldAlert size={14} /> Confirm action{pending.items && pending.items.length > 1 ? 's' : ''} · <span className="uppercase tracking-wide">{pending.risk} risk</span></div>
+                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-warning"><ShieldAlert size={14} /> {pending.developer_proposal ? 'Confirm Developer work' : `Confirm action${pending.items && pending.items.length > 1 ? 's' : ''}`} · <span className="uppercase tracking-wide">{pending.risk} risk</span></div>
                   {pending.items && pending.items.length > 1 ? (
                     <div className="mb-3">
                       <div className="mb-1.5 text-sm text-text">TOBI wants to perform <span className="font-medium">{pending.items.length} high-risk actions</span>:</div>
@@ -1204,6 +1238,29 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
                           <li key={it.id} className="flex items-start gap-2 text-[13px] text-text"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-warning/70" />{it.summary}</li>
                         ))}
                       </ul>
+                    </div>
+                  ) : pending.developer_proposal ? (
+                    <div className="mb-3 space-y-2.5 text-[12px] text-text">
+                      <div>
+                        <div className="text-[10px] font-medium uppercase text-muted">Objective</div>
+                        <p className="mt-0.5 leading-relaxed">{pending.developer_proposal.objective}</p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        <div><span className="text-muted">Project</span><div className="font-medium">{pending.developer_proposal.project}</div></div>
+                        <div><span className="text-muted">Work risk</span><div className="font-medium capitalize">{pending.developer_proposal.risk}</div></div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-medium uppercase text-muted">Acceptance checks</div>
+                        <ul className="mt-1 space-y-1">
+                          {pending.developer_proposal.acceptance_checks.slice(0, 4).map(check => <li key={check} className="flex gap-1.5"><CheckCircle2 size={11} className="mt-0.5 shrink-0 text-success" /><span>{check}</span></li>)}
+                        </ul>
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-medium uppercase text-muted">Scope</div>
+                        <ul className="mt-1 space-y-1 text-muted">
+                          {pending.developer_proposal.scope.slice(0, 3).map(item => <li key={item} className="flex gap-1.5"><span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted" /><span>{item}</span></li>)}
+                        </ul>
+                      </div>
                     </div>
                   ) : (
                     <div className="mb-3 text-sm text-text">TOBI wants to <span className="font-medium">{pending.summary}</span>.</div>

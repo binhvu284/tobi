@@ -167,6 +167,10 @@ SUITES: tuple[SuiteSpec, ...] = (
               "tests/test_agent_tier_workflows.py",
               "Qualified Project, local diagnosis, and coding maintenance requests use canonical "
               "Runtime, preserve retries, require grounded evidence, and retain a scoped rollback."),
+    SuiteSpec("chat_developer_dispatch", "Chat starts one confirmed Developer run", "#35 T02A",
+              "tests/test_chat_developer_dispatch.py",
+              "A normal Chat request creates no Developer work before confirmation, then starts "
+              "one durable linked workflow with truthful status, evidence, and reload behavior."),
     SuiteSpec("tobival_workflows", "Supported work follows one workflow", "#34 T02",
               "tests/test_tobival_workflows.py",
               "Known Mission Control requests select one frozen workflow and cannot escape its "

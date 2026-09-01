@@ -59,7 +59,7 @@ from core.conductor_registry import (
     _execute_terminal_and_log, _log_action, _pending_all, _terminal_command_for,
     # Re-exported for callers that reach them through this module: api/routers/
     # {conductor,chat,office}.py, core/telegram_bot.py and the mode/office test suites.
-    confirm_action, list_actions, propose_action,
+    confirm_action, list_actions, propose_action, propose_developer_action,
 )
 
 # Tool functions stay re-exported from this module: core/chat_modes.py and

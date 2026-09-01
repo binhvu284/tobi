@@ -456,6 +456,61 @@ def propose_runtime_action(
     return pending
 
 
+def propose_developer_action(
+    dispatch_id: str,
+    proposal: dict,
+    *,
+    chat_id: int,
+) -> dict:
+    """Put one T02A proposal on the existing TOBI Actions confirmation path."""
+    args = {
+        "dispatch_id": str(dispatch_id),
+        "objective": str(proposal.get("objective") or ""),
+    }
+    title = str(proposal.get("title") or "Developer work")
+    summary = f"start Developer work: {title}"
+    metadata = {"developer_dispatch": {"dispatch_id": str(dispatch_id)}}
+    conn = _conn()
+    try:
+        _ensure_actions_table(conn)
+        conn.commit()
+        conn.execute("BEGIN IMMEDIATE")
+        linked = conn.execute(
+            "SELECT action_id FROM chat_developer_dispatches WHERE id=?",
+            (str(dispatch_id),),
+        ).fetchone()
+        action_id = int(linked["action_id"]) if linked and linked["action_id"] else None
+        if action_id is None:
+            action_id = int(conn.execute(
+                """INSERT INTO tobi_actions
+                   (chat_id,surface,tool,args_json,risk,status,summary,result_json,executed_at)
+                   VALUES (?,?,?,?,?,'proposed',?,?,NULL)""",
+                (
+                    int(chat_id), "mc", "developer_dispatch",
+                    json.dumps(args, default=str), "high", summary,
+                    json.dumps(metadata, sort_keys=True),
+                ),
+            ).lastrowid)
+            conn.execute(
+                "UPDATE chat_developer_dispatches SET action_id=?,updated_at=? WHERE id=?",
+                (action_id, _now(), str(dispatch_id)),
+            )
+        action = conn.execute(
+            "SELECT risk,status,summary FROM tobi_actions WHERE id=?", (action_id,)
+        ).fetchone()
+        conn.commit()
+    finally:
+        conn.close()
+    return {
+        "id": action_id,
+        "tool": "developer_dispatch",
+        "risk": action["risk"] if action else "high",
+        "status": action["status"] if action else "proposed",
+        "summary": action["summary"] if action else summary,
+        "developer_proposal": proposal,
+    }
+
+
 def runtime_action_for_run(runtime_run_id: str) -> Optional[dict]:
     conn = _conn()
     try:
@@ -493,6 +548,20 @@ def _runtime_metadata(row: dict) -> Optional[dict]:
         return None
     runtime = value.get("runtime_v2")
     return runtime if isinstance(runtime, dict) else None
+
+
+def _developer_dispatch_metadata(row: dict) -> Optional[dict]:
+    try:
+        value = json.loads(row.get("result_json") or "{}")
+    except Exception:
+        return None
+    if not isinstance(value, dict):
+        return None
+    dispatch = value.get("developer_dispatch")
+    if not isinstance(dispatch, dict):
+        return None
+    dispatch_id = dispatch.get("dispatch_id") or dispatch.get("id")
+    return {"dispatch_id": str(dispatch_id)} if dispatch_id else None
 
 
 def _terminal_command_for(tool: str, args: dict) -> Optional[str]:
@@ -584,8 +653,9 @@ def confirm_action(action_id: int, decision: str = "approve", surface: str = "mc
         return {"ok": False, "error": "action not found"}
     row = dict(row)
     runtime_metadata = _runtime_metadata(row)
+    developer_metadata = _developer_dispatch_metadata(row)
     if row["status"] != "proposed":
-        if runtime_metadata is not None:
+        if runtime_metadata is not None or developer_metadata is not None:
             replay = json.loads(row.get("result_json") or "{}")
             return replay if isinstance(replay, dict) else {
                 "ok": row["status"] == "executed", "status": row["status"]
@@ -603,6 +673,14 @@ def confirm_action(action_id: int, decision: str = "approve", surface: str = "mc
             agent_runs.resolve_action(action_id, str(result.get("status") or "failed"))
         except Exception as exc:
             logger.warning("agent run approval propagation failed: %s", exc)
+        return result
+    if developer_metadata is not None:
+        from core.developer_dispatch import DeveloperDispatchService
+
+        result = DeveloperDispatchService().resolve_linked_action(
+            row, decision, developer_metadata
+        )
+        _set_status(action_id, str(result.get("status") or "failed"), result)
         return result
     if str(decision).lower() in ("reject", "no", "cancel", "deny"):
         if str(row.get("tool") or "").startswith("office_"):
