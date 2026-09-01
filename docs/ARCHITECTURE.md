@@ -16,25 +16,39 @@ complete. The registry starts at 0/7 until later #35 packages record current bou
 
 ## System Context
 
+The canonical, rendered version of this picture lives in
+[`architecture/diagrams/overall-tobi.mmd`](architecture/diagrams/overall-tobi.mmd) and is what the
+Mission Control **Architecture** page shows. Keep the two in step; the summary below is the same
+system with the runtime detail collapsed.
+
 ```mermaid
 flowchart TD
   Owner[Owner] --> MC[Mission Control web app]
   Owner --> TG[Telegram bot]
   Owner --> CLI[TOBI CLI and terminal]
 
-  MC --> DashAPI[Mission Control FastAPI :8080]
+  MC --> DashAPI[Mission Control FastAPI - DASHBOARD_PORT, 8090 locally]
   TG --> TelegramAdapter[core/telegram_bot.py]
   CLI --> Main[main.py]
 
-  DashAPI --> Conductor[Conductor]
-  DashAPI --> DevControl[Coding Agent control plane]
-  TelegramAdapter --> Conductor
+  DashAPI --> Gateway[Runtime gateway]
+  DashAPI --> Adapter[Surface adapter]
+  DashAPI --> DevControl[Developer control plane]
+  TelegramAdapter --> Adapter
   Main --> Scheduler[Scheduler jobs]
+  Scheduler --> Adapter
   Main --> PublicAPI[External API :8000]
 
-  Conductor --> Brain[Brain and Graph context]
+  Gateway --> Run[Canonical run]
+  Adapter --> Run
+  Run --> Runtime[Runtime V2: history, leases, policy, receipts, traces]
+  Runtime --> Tobival[TOBIval evidence and release gate]
+  Tobival --> Rollout[Staged activation and rollback]
+
+  Gateway --> Conductor[Conductor facade]
+  Conductor --> Brain[Brain V2 and Graph context]
   Conductor --> Models[Model router]
-  Conductor --> Tools[Read and action tools]
+  Runtime --> Tools[Read and action tools]
 
   Tools --> Projects[Projects, tasks, goals, resources]
   Tools --> Terminal[Terminal engine]
@@ -43,16 +57,23 @@ flowchart TD
   Tools --> Engines[Research, execution, CEO, Explore]
 
   Brain --> SQLite[(SQLite)]
+  Runtime --> SQLite
   Projects --> SQLite
   Projects --> Files[(Project resource files)]
-  Tools --> SQLite
   Models --> Providers[LLM providers]
   Integrations --> External[External APIs]
+
+  Conductor --> Dispatch[Chat to Developer proposal]
+  Dispatch --> Confirm[Owner confirmation]
+  Confirm --> DevControl
+  DevControl --> Run
   DevControl --> DevDB[(Development ledger)]
   DevControl --> Worktrees[(Isolated Git worktrees)]
+  DevControl --> Harness[DeepSeek Harness worker - default]
   DevControl --> RunnerQueue[Durable runner queue]
   RunnerQueue --> RunnerService[Supervised coding runner]
-  RunnerService --> CodingCLIs[Codex and OpenCode CLIs]
+  RunnerService --> CodingCLIs[Codex and OpenCode CLIs - flag gated]
+  Run --> AgentTier[Agent tier evidence registry]
 
   Main --> Hermes[Hermes state and skills]
   Brain --> Hermes
@@ -136,8 +157,11 @@ flowchart TD
   Shell --> Panes[Mounted workspace route panes]
   Panes --> Pages[20 destinations plus project workspaces]
   Pages --> Client[api.ts plus domain API modules]
-  Client --> DashAPI[FastAPI :8080]
+  Client --> DashAPI[FastAPI - DASHBOARD_PORT, 8090 locally]
 ```
+
+The rendered, node-by-node version is
+[`architecture/diagrams/mission-control.mmd`](architecture/diagrams/mission-control.mmd).
 
 Key ownership:
 

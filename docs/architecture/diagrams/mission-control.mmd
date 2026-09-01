@@ -1,5 +1,6 @@
 %% Mission Control - React frontend architecture (canonical). Flowchart-only subset (#20).
-%% Updated for #21: the Runs pane, the shared runtime store, and the Health infrastructure test.
+%% Refreshed 2026-09-01: Runs plus Evaluations, Brain V2, News V2, GraphSigil, the three-width
+%% sidebar, the Chat-to-Developer dispatch card, and the Morpheus workspace.
 flowchart TD
   App[App.tsx route composition] --> Theme[ThemeProvider]
   Theme --> Motion[MotionProvider]
@@ -8,20 +9,26 @@ flowchart TD
   Tabs --> Shell[AppShell shell and navigation]
 
   Shell --> Header[Global header and tab strip]
-  Shell --> Sidebar[Sidebar and command palette]
+  Shell --> Sidebar[Sidebar - wide, narrow, or closed with hover preview]
+  Shell --> Palette[Command palette]
   Shell --> Panes[Mounted workspace route panes]
 
   Panes --> Chat[Chat and Agent]
-  Panes --> Runs[Runs - one live view of every run]
+  Panes --> Runs[Runs and Evaluations]
+  Panes --> Developer[Developer]
   Panes --> Projects[Projects and workspaces]
-  Panes --> Brain[Brain]
-  Panes --> Graph[Graph]
+  Panes --> Brain[Brain V2]
+  Panes --> Graph[Graph and GraphSigil]
   Panes --> Evolution[Evolution and Ability]
   Panes --> Architecture[Architecture]
   Panes --> Office[Office V3]
   Panes --> Health[Health, Infrastructure, Performance]
-  Panes --> Developer[Developer]
-  Panes --> More[Explore, Storage, Integrations, Settings]
+  Panes --> More[News V2, Explore, Models, Control Room, Storage, Integrations, MCP, Settings]
+  Panes --> Morpheus[Morpheus workspace]
+
+  Chat --> Dispatch[Developer dispatch card]
+  Dispatch --> Developer
+  Runs --> EvalCenter[Eval control center]
 
   Runs --> RuntimeStore[Runtime store, reconnecting]
   Chat --> RuntimeStore
@@ -36,12 +43,14 @@ flowchart TD
   Evolution --> Client
   Architecture --> Client
   Health --> Client
+  Developer --> Client
+  EvalCenter --> Client
 
   Client --> Domains[Domain API modules]
   Stream --> Domains
   Domains --> Core[apiCore get and request]
   Core --> DashAPI[FastAPI 8090]
-  DashAPI --> RuntimeAPI[Runtime runs, rollout, health]
+  DashAPI --> RuntimeAPI[Runtime runs, evals, rollout, health]
 
   Panes --> Async[Shared pending-state primitives]
 
@@ -49,3 +58,6 @@ flowchart TD
   Office -.-> Lazy
   More -.-> Lazy
   Architecture -.-> Lazy
+  Developer -.-> Lazy
+  Runs -.-> Lazy
+  Morpheus -.-> Lazy

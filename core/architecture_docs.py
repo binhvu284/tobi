@@ -219,7 +219,10 @@ def version(diagram_id: str, sha: str):
 LAYERS = {
     "summary": "TOBI is a personal-Jarvis agent: a Python service that runs Mission Control and a "
                "Telegram bot over one shared brain. Since queue #21 every request from every "
-               "surface becomes one canonical run with ordered history that survives a restart.",
+               "surface becomes one canonical run with ordered history that survives a restart. "
+               "Queue #34 added the frozen exam suite that must pass before that engine can be "
+               "switched on, and queue #35 added the Agent tier: work described in Chat becomes "
+               "one confirmed Developer item with recorded evidence.",
     "layers": [
         {"layer": "Host / runtime", "detail": "Python 3 process on a Windows dev box (local migration) or VPS; "
          "main.py is the orchestrator + scheduler (run modes: start/bot/api/research/execute/ceo). "
@@ -232,14 +235,25 @@ LAYERS = {
          "runs with append-only redacted history, leased steps, restart checkpoints, one policy authority, one "
          "validated tool catalog, immutable action receipts, traces with quality gates, and staged activation "
          "with a rollback switch. The controls ship off: today it records and compares in shadow mode."},
+        {"layer": "Evidence (TOBIval, #34)", "detail": "A frozen exam suite that gates activation: hash-locked "
+         "cases in tobival/dataset.py run through the real runtime, executable scorers mark them, a live model "
+         "lane keeps the raw model answer separate from deterministic recovery, and held-back cases run once. "
+         "The owner accepted the result on 2026-08-30. Deterministic selection (core/runtime/workflows.py) "
+         "matches a common request to a frozen workflow with typed arguments before a model is involved."},
         {"layer": "Engines (core/)", "detail": "model_router, task_classifier, research, executor, CEO loop, "
-         "brain (the second brain), graph_engine, and the conductor — which is now a thin compatibility facade "
-         "over the runtime services rather than the engine itself."},
+         "brain (the second brain, now V2-authoritative), graph_engine, and the conductor — which is now a thin "
+         "compatibility facade over the runtime services rather than the engine itself."},
+        {"layer": "Developer tier (#22, #35)", "detail": "A limitation described in Chat becomes a proposal "
+         "(core/developer_dispatch.py), and only an owner confirmation turns it into one linked Developer queue "
+         "item. The default coding worker is the in-process DeepSeek Harness (core/coding_workers.py); the Codex "
+         "and OpenCode command-line workers remain behind a feature flag. core/agent_tier.py records the "
+         "seven-ability evidence that Evolution Tier II reads."},
         {"layer": "Data", "detail": "SQLite (core/database.py): projects, tasks, agents, missions, lessons, "
-         "conversations, brain_memories, the encrypted vault, and the 22 canonical mc_* runtime tables. "
-         "Additive migrations only, recorded in a shared ledger."},
-        {"layer": "Interfaces", "detail": "The React Mission Control chat, the Runs page (one live view of every "
-         "run), and the Telegram bot. Health → Infrastructure runs the whole engine as a one-click test."},
+         "conversations, brain_memories, the encrypted vault, and the canonical mc_* runtime and mc_eval_* "
+         "tables. Additive migrations only, recorded in a shared ledger."},
+        {"layer": "Interfaces", "detail": "The React Mission Control chat, the Runs page with its Runs and "
+         "Evaluations views, the Developer page, and the Telegram bot. Health → Infrastructure runs the whole "
+         "engine as a one-click test."},
         {"layer": "Integrations", "detail": "The Genesis vault holds encrypted credentials for Notion, GitHub, "
          "Vercel, Supabase, Telegram, the LLM providers, and Tavily."},
     ],

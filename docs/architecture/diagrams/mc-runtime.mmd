@@ -1,9 +1,10 @@
 %% Mission Control Runtime V2 - the engine every request runs on (canonical, queue #21).
 %% One request, from the surface it arrived on to the receipt it leaves behind.
+%% Refreshed 2026-09-01 for #34 TOBIval proof and #35 Chat-to-Developer dispatch.
 flowchart TD
   ChatIn[Chat or Agent turn] --> Gateway[Runtime gateway]
   Surfaces[Projects, Office, CLI, Telegram, schedulers] --> AdapterIn[Surface adapter, fail-open]
-  Coding[Coding agent sessions] --> AdapterIn
+  Coding[Developer sessions] --> AdapterIn
 
   Gateway --> Identity[Request identity check]
   Identity --> Reuse[Same request reuses one run]
@@ -19,6 +20,13 @@ flowchart TD
     Work --> Retry[Bounded retries and cancellation]
   end
 
+  subgraph Selection["Deterministic selection - #34"]
+    Run --> Workflows[Frozen workflow catalog]
+    Workflows --> Typed[Typed argument resolution]
+    Typed --> Missing[A missing field asks one question]
+    Typed --> Grounded[Grounded outcome with no model]
+  end
+
   subgraph Authority["One place decides"]
     Work --> Policy[Permissions and risk tiers]
     Policy --> Approval[Owner approval when required]
@@ -29,6 +37,7 @@ flowchart TD
   Approval --> Catalog[Tool catalog]
   Budget --> Catalog
   Creds --> Catalog
+  Grounded --> Catalog
   Catalog --> Validate[Arguments validated before running]
   Validate --> Reserve[Action reservation]
   Reserve --> Execute[Files, terminal, projects, connectors]
@@ -45,14 +54,29 @@ flowchart TD
   RunsView --> RunsPage[Runs page]
 
   Run --> Traces[One trace per request]
-  Traces --> Evals[Quality gates and evidence]
-  Evals --> Rollout[Staged activation]
+
+  subgraph Evidence["TOBIval - proof before activation"]
+    Traces --> Cases[Hash-locked case dataset]
+    Workflows --> Cases
+    Cases --> Runner[Canonical eval runner]
+    Runner --> Scorers[Executable scorers and metrics]
+    Scorers --> Lane[Live model lane and holdouts]
+    Lane --> Gate[Release gate, owner accepted]
+  end
+
+  Gate --> Rollout[Staged activation]
+  Gate --> EvalPage[Evaluations page]
   Rollout --> Compare[Seven matching comparisons required]
   Rollout --> Rollback[One switch returns new work to shadow]
 
   Gateway --> Shadow[Shadow mode - old path still answers]
   Shadow --> Legacy[Conductor facade and legacy tools]
   Legacy --> Compare
+
+  Coding --> Dispatch[Chat to Developer dispatch, #35]
+  Dispatch --> Confirm[Owner confirms before any work]
+  Confirm --> Run
+  Run --> AgentTier[Agent tier evidence registry]
 
   RunsPage --> Health[Health infrastructure test]
   Store --> Health

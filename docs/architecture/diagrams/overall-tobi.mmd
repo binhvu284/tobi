@@ -1,5 +1,6 @@
 %% TOBI - overall system architecture (canonical). Flowchart-only subset (#20 Architecture V2).
-%% Rewritten for #21 Mission Control Infrastructure V2: every surface now enters one engine.
+%% Refreshed 2026-09-01: #21 Runtime V2 in shadow, #34 TOBIval evidence lane accepted,
+%% #35 Agent tier and Chat-to-Developer dispatch, DeepSeek Harness as the default worker.
 %% Edit this file to change the rendered Overall TOBI diagram; the runtime validates it on load.
 flowchart TD
   Owner[Owner] --> MC[Mission Control web app]
@@ -17,7 +18,7 @@ flowchart TD
   TelegramAdapter --> Adapter[Surface adapter]
   DashAPI --> Adapter
   Main --> Adapter
-  DashAPI --> DevControl[Coding Agent control plane]
+  DashAPI --> DevControl[Developer control plane]
 
   subgraph Runtime["Runtime V2 - one engine behind every request"]
     Gateway --> Rollout[Rollout controls and rollback]
@@ -25,14 +26,24 @@ flowchart TD
     Adapter --> Run
     Run --> History[Ordered run history, redacted]
     Run --> Steps[Leased steps and checkpoints]
+    Run --> Workflows[Frozen workflow catalog]
     Run --> Policy[Policy, approvals, budgets]
     Policy --> Catalog[Tool catalog and validation]
     Catalog --> Receipts[Action receipts, applied once]
     Run --> Trace[Traces and quality gates]
   end
 
+  subgraph Tobival["TOBIval - the proof that gates activation"]
+    Trace --> Cases[Hash-locked eval cases]
+    Workflows --> Cases
+    Cases --> Scorers[Executable scorers and metrics]
+    Scorers --> ModelLane[Live model lane and holdouts]
+    ModelLane --> Proof[Acceptance proof, owner accepted]
+  end
+  Proof --> Rollout
+
   Gateway --> Conductor[Conductor facade]
-  Conductor --> Brain[Brain and Graph context]
+  Conductor --> Brain[Brain V2 and Graph context]
   Conductor --> Models[Model router and fallbacks]
   Catalog --> Tools[Read and action tools]
 
@@ -42,8 +53,10 @@ flowchart TD
   Tools --> MCP[MCP and A2A]
   Tools --> Engines[Research, execution, CEO, Explore]
 
-  Trace --> RunsPage[Runs page and health checks]
+  Trace --> RunsPage[Runs and Evaluations pages]
   Rollout --> RunsPage
+  Run --> AgentTier[Agent tier evidence registry]
+  AgentTier --> Evolution[Evolution Tier II]
 
   Brain --> SQLite[(SQLite)]
   History --> SQLite
@@ -54,12 +67,18 @@ flowchart TD
   Models --> Providers[LLM providers]
   Integrations --> External[External APIs]
 
+  Conductor --> Dispatch[Chat to Developer proposal]
+  Dispatch --> Confirm[Owner confirmation]
+  Confirm --> Queue[Developer queue item]
+  Queue --> DevControl
   DevControl --> Run
   DevControl --> DevDB[(Development ledger)]
   DevControl --> Worktrees[(Isolated Git worktrees)]
+  DevControl --> Harness[DeepSeek Harness worker, default]
+  Harness --> Models
   DevControl --> RunnerQueue[Durable runner queue]
   RunnerQueue --> RunnerService[Supervised coding runner]
-  RunnerService --> CodingCLIs[Codex and OpenCode CLIs]
+  RunnerService --> CodingCLIs[Codex and OpenCode CLIs, flag gated]
 
   Main --> Hermes[Hermes state and skills]
   Brain --> Hermes

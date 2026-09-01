@@ -11,6 +11,13 @@ on, does its work, and leaves a receipt. Click any node to jump to its notes.
 Rollout controls ship **off**. In shadow mode the old path still answers the owner while the new
 engine records and compares alongside it — which is exactly why the two paths both appear here.
 
+Two things joined the diagram since the last refresh. **Deterministic selection** (#34) means a
+common request is matched to a frozen workflow and typed arguments before a model is involved at
+all, so the answer stops depending on which model is selected. **TOBIval** (#34) is the exam suite
+that must pass before any of this can be switched on; the owner accepted its result on 2026-08-30.
+Chat-to-Developer dispatch (#35) is the third addition: a limitation you describe in Chat can
+become one confirmed Developer work item on the same canonical run.
+
 ## ChatIn
 A Chat or Agent turn from Mission Control. The one surface that can eventually be *executed* by
 the runtime rather than only recorded by it, which is why it has its own activation stage.
@@ -21,8 +28,23 @@ compatibility adapter and are **recorded**, never re-routed: their existing exec
 untouched.
 
 ## Coding
-Coding-agent sessions (queue #22). Each accepted session creates or reuses one deterministic run
-and mirrors its lifecycle. The worker cannot change the authoritative record itself.
+Developer sessions (queue #22, extended by #35). Each accepted session creates or reuses one
+deterministic run and mirrors its lifecycle. The worker cannot change the authoritative record
+itself. The default worker is now the in-process DeepSeek Harness.
+
+## Dispatch
+`core/developer_dispatch.py` — a limitation described in ordinary Chat becomes a *proposal*, not
+work. No queue row, no branch, no run is created at this point.
+
+## Confirm
+The proposal only becomes work when the owner confirms the card in Chat. The confirmed item is
+linked back to the message that asked for it, so status and evidence stay truthful rather than
+optimistic.
+
+## AgentTier
+`core/agent_tier.py` — the seven-ability evidence registry. An ability is complete only while a
+real run's qualifying evidence is fresh (24 hours); it stores bounded references, never raw output
+or secrets, and it fails closed.
 
 ## Gateway
 `core/runtime/gateway.py` — the entry point for Chat and Agent. It decides whether this turn is
@@ -124,9 +146,55 @@ where it left off. When it is empty it says *why* it is empty.
 ## Traces
 One trace per request joining context, model, tools, approvals, cost and outcome.
 
-## Evals
-Versioned evaluation cases with immutable results. Missing, failed or below-threshold evidence
-blocks a release rather than warning about it.
+## Workflows
+`core/runtime/workflows.py` — the frozen catalog of bounded jobs TOBI knows how to do, each with
+its required fields, allowed tools, stop condition, and success evidence. Selection is
+deterministic: the same wording always picks the same workflow, and a request outside the catalog
+is refused rather than improvised.
+
+## Typed
+`core/runtime/typed_resolution.py` — the request's arguments are resolved into the workflow's
+declared shape before anything runs. Guessing a value is not an option.
+
+## Missing
+A required field that is absent produces exactly one clarifying question, not a plausible
+invention and not a silent failure.
+
+## Grounded
+`core/runtime/grounded_outcomes.py` — when the workflow and its arguments fully determine the
+answer, the result is produced without a model at all. This is what makes common Mission Control
+work stop depending on which model is selected.
+
+## Cases
+`tobival/dataset.py` — 72 frozen exam cases plus 14 held-back ones, locked by a hash so an exam
+cannot be quietly edited to improve a score. Each case runs through the real runtime lifecycle and
+stores its run and trace IDs.
+
+## Runner
+`core/runtime/eval_runner.py` and `eval_executor.py` — the canonical runner. It records route,
+context, validation, execution, and final-outcome ownership for every case, so a result can be
+traced to the decision that produced it.
+
+## Scorers
+`core/runtime/eval_scorers.py` and `eval_metrics.py` — marking is executable code, not judgement.
+A case either produced the required evidence or it did not, and the numbers land in immutable
+records.
+
+## Lane
+`tobival/model_lane.py` and `core/runtime/eval_live.py` — the live half. It keeps the raw model
+response separate from what deterministic recovery rescued afterwards, and the held-back cases run
+once, so a score cannot come from practising on the answers.
+
+## Gate
+The release gate. Missing, failed, or below-threshold evidence blocks activation rather than
+warning about it. The approved live rerun recorded 156 of 156 model responses, raw model pass
+32.05%, deterministic recovery 67.95%, and no provider failures; **the owner accepted it on
+2026-08-30**. Production routing is still limited to narrow, safe workflows with no required
+fields.
+
+## EvalPage
+The **Evaluations** view on the Runs page — the owner-facing projection of all of the above:
+cases, decisions, evidence, live results, and whether the gate is open.
 
 ## Rollout
 `core/runtime/rollout.py` — staged activation: shadow, then direct chat, then read chat, then
