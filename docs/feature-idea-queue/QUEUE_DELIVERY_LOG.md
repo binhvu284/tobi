@@ -101,11 +101,20 @@ running, waiting, blocked, failed, canceled, and completed states; completion re
 files, passed checks, and generated evidence. The session artifact rail separates owner uploads from
 Developer plans, diffs, checks, and files, and each run links to its exact Developer workflow. The
 red-first checks failed before the dispatch module and HTTP branch existed; the focused contract now
-passes 20/20 and the complete shared gate passes 33/33. The production dashboard build passes. A
+passes 22/22 and the complete shared gate passes 33/33. The production dashboard build passes. A
 mocked Playwright owner flow verifies proposal, Accept, live run status, generated artifacts, and
 desktop/mobile layout with zero console errors, failed requests, or horizontal overflow. Owner live
 verification remains before T02A is accepted. No DeepSeek Harness worker, browser/external action,
 model call, Supabase, or Vercel path was changed or used.
+
+The first owner live confirmation on 2026-09-01 failed honestly with `QUEUE.md table header could not
+be located.` Proposal creation and the no-side-effect boundary worked, but the shared Developer queue
+writer still recognized only the retired `Feature | Status | ... | Spec` schema. The production queue
+uses `ID | Name | Description | Status | Notes`. A new red-first check reproduced the exact mismatch.
+The repaired writer discovers the supported columns and emits a parseable current or legacy row while
+retaining the existing lock, queue-hash conflict check, atomic plan/queue writes, and rollback behavior.
+The failed live attempt stopped before writing either a queue row or plan file. T02A now passes 22/22
+focused checks and the full gate remains 33/33; owner restart and confirmation retest remain.
 
 
 <a id="item-34"></a>

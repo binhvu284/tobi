@@ -28,6 +28,58 @@ def _clean_cell(value: str) -> str:
     return re.sub(r"\s+", " ", value).replace("|", "-").strip()
 
 
+def _table_cells(line: str) -> list[str]:
+    value = line.strip()
+    if not value.startswith("|") or not value.endswith("|"):
+        return []
+    return [cell.strip() for cell in value.strip("|").split("|")]
+
+
+def _queue_table(lines: list[str]) -> tuple[int, list[str]]:
+    for index, line in enumerate(lines[:-1]):
+        columns = _table_cells(line)
+        normalized = [column.lower() for column in columns]
+        if not columns or normalized[0] != "#" or "status" not in normalized:
+            continue
+        current = {"id", "name", "description", "notes"}.issubset(normalized)
+        legacy = {"feature", "spec", "notes"}.issubset(normalized)
+        separator = _table_cells(lines[index + 1])
+        valid_separator = (
+            len(separator) == len(columns)
+            and all(re.fullmatch(r":?-{3,}:?", cell) for cell in separator)
+        )
+        if (current or legacy) and valid_separator:
+            return index, normalized
+    raise RuntimeError("QUEUE.md table header could not be located.")
+
+
+def _queue_row(
+    columns: list[str],
+    *,
+    queue_id: int,
+    title: str,
+    objective: str,
+    effort: str,
+    plan_name: str,
+    notes: str,
+) -> str:
+    values = {
+        "#": str(queue_id),
+        "id": f"`DEV-QUEUE-{queue_id:03d}`",
+        "name": f"[**{title}**]({plan_name})",
+        "description": _clean_cell(objective),
+        "status": "Draft",
+        "notes": notes,
+        "feature": f"**{title}**",
+        "solo time (full -> left)": _clean_cell(effort),
+        "spec": f"[{plan_name}]({plan_name})",
+    }
+    unknown = [column for column in columns if column not in values]
+    if unknown:
+        raise RuntimeError(f"QUEUE.md has unsupported columns: {', '.join(unknown)}")
+    return "| " + " | ".join(values[column] for column in columns) + " |"
+
+
 def _atomic_write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
@@ -96,18 +148,18 @@ def create_queue_item(
         ])
         queue_text = QUEUE_PATH.read_text(encoding="utf-8")
         lines = queue_text.splitlines()
-        header = next((
-            index for index, line in enumerate(lines)
-            if line.strip().startswith("| # | Feature | Status |")
-        ), None)
-        separator = header + 1 if header is not None and header + 1 < len(lines) else None
-        if separator is None or not re.match(r"^\|[-| ]+\|$", lines[separator]):
-            raise RuntimeError("QUEUE.md table header could not be located.")
+        header, columns = _queue_table(lines)
+        separator = header + 1
         dependency_note = f" Depends on {' and '.join(f'#{item}' for item in dependencies)}." if dependencies else ""
         risk_note = " Critical scope." if risk.lower() in {"high", "critical"} else ""
-        row = (
-            f"| {queue_id} | **{title}** | Draft | {_clean_cell(effort)} | "
-            f"[{plan_name}]({plan_name}) | Created in Developer Work.{dependency_note}{risk_note} |"
+        row = _queue_row(
+            columns,
+            queue_id=queue_id,
+            title=title,
+            objective=objective,
+            effort=effort,
+            plan_name=plan_name,
+            notes=f"Created in Developer Work.{dependency_note}{risk_note}",
         )
         lines.insert(separator + 1, row)
         _atomic_write(plan_path, plan.rstrip() + "\n")

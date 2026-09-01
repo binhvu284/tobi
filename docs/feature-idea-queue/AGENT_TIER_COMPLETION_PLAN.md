@@ -19,10 +19,15 @@
   the deterministic `/developer` command, persists an owner-readable proposal with zero Developer
   side effects, and starts exactly one linked queue item and workflow only after confirmation.
   Chat then shows truthful Developer state, blockers, evidence, and generated artifacts with a deep
-  link to the existing Developer page. Focused contract checks pass 20/20 and the shared gate passes
+  link to the existing Developer page. Focused contract checks pass 22/22 and the shared gate passes
   33/33. The production build and mocked desktop/mobile Playwright owner flow pass with no console,
   network, or overflow error. Owner live verification remains. DeepSeek Harness worker code remains
   outside #35 and was not changed.
+- Owner live test on 2026-09-01 proved proposal creation but exposed a stale Developer queue writer:
+  it expected the retired `Feature | Status | ... | Spec` header and rejected the current
+  `ID | Name | Description | Status | Notes` queue. The repair now discovers supported columns,
+  writes a parseable row in either schema, and preserves locking, hash conflict detection, atomic
+  writes, and legacy compatibility. The failed live attempt wrote no queue row or plan file.
 
 ## The One Outcome
 

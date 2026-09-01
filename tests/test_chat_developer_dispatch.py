@@ -20,7 +20,7 @@ from core.database import get_connection, init_database  # noqa: E402
 
 init_database()
 
-from core import conductor, developer_dispatch  # noqa: E402
+from core import coding_queue, coding_queue_authoring, conductor, developer_dispatch  # noqa: E402
 from core.developer_dispatch import DeveloperDispatchService  # noqa: E402
 from core.development_store import DevelopmentStore  # noqa: E402
 
@@ -34,6 +34,70 @@ def ok(name: str, condition: bool, detail="") -> None:
         raise AssertionError(f"{name}: {detail}")
     PASS += 1
     print(f"PASS {name}")
+
+
+queue_root = TMP / "queue-root"
+queue_dir = queue_root / "docs" / "feature-idea-queue"
+queue_dir.mkdir(parents=True)
+queue_path = queue_dir / "QUEUE.md"
+existing_plan = queue_dir / "EXISTING_PLAN.md"
+existing_plan.write_text("# Existing\n", encoding="utf-8")
+queue_path.write_text(
+    "\n".join([
+        "# Feature Development Queue",
+        "",
+        "| # | ID | Name | Description | Status | Notes |",
+        "|---|----|------|-------------|--------|-------|",
+        "| 36 | `FOUND-EXAMPLE-001` | [**Existing**](EXISTING_PLAN.md) | Existing item. | Queued | Existing. |",
+        "",
+    ]),
+    encoding="utf-8",
+)
+original_queue_root = coding_queue.REPO_ROOT
+original_queue_path = coding_queue.QUEUE_PATH
+original_authoring_root = coding_queue_authoring.REPO_ROOT
+original_authoring_path = coding_queue_authoring.QUEUE_PATH
+try:
+    coding_queue.REPO_ROOT = queue_root
+    coding_queue.QUEUE_PATH = queue_path
+    coding_queue_authoring.REPO_ROOT = queue_root
+    coding_queue_authoring.QUEUE_PATH = queue_path
+    authored = coding_queue_authoring.create_queue_item(
+        title="Chat Developer repair",
+        objective="Repair one confirmed Mission Control limitation through Developer.",
+        acceptance_criteria=["the current Queue schema receives one parseable row"],
+        expected_queue_hash=coding_queue_authoring.queue_hash(),
+    )
+finally:
+    coding_queue.REPO_ROOT = original_queue_root
+    coding_queue.QUEUE_PATH = original_queue_path
+    coding_queue_authoring.REPO_ROOT = original_authoring_root
+    coding_queue_authoring.QUEUE_PATH = original_authoring_path
+ok(
+    "confirmed Chat work authors the current Queue table schema",
+    authored["queue_id"] == 37
+    and authored["title"] == "Chat Developer repair"
+    and authored["queue_status"].endswith("Draft")
+    and "| 37 | `DEV-QUEUE-037` | [**Chat Developer repair**]" in queue_path.read_text(encoding="utf-8"),
+    authored,
+)
+legacy_row = coding_queue_authoring._queue_row(
+    ["#", "feature", "status", "solo time (full -> left)", "spec", "notes"],
+    queue_id=2,
+    title="Legacy item",
+    objective="Preserve the archived queue contract.",
+    effort="1 day -> same",
+    plan_name="LEGACY_ITEM_PLAN.md",
+    notes="Created in Developer Work.",
+)
+ok(
+    "Developer authoring preserves the legacy Queue table schema",
+    legacy_row == (
+        "| 2 | **Legacy item** | Draft | 1 day -> same | "
+        "[LEGACY_ITEM_PLAN.md](LEGACY_ITEM_PLAN.md) | Created in Developer Work. |"
+    ),
+    legacy_row,
+)
 
 
 class FakeDeveloperGateway:

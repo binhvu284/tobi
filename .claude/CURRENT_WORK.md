@@ -10,7 +10,7 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 
 **Item:** #35 TOBI Agent Tier Completion
 **Package:** T02A - Chat-to-Developer Dispatch
-**Status:** T00, T01, and T02 are implemented. T02A passes engineering verification; owner live verification remains.
+**Status:** T00, T01, and T02 are implemented. T02A live Queue-schema repair is engineering-green; owner retest remains.
 
 **Purpose (one sentence, plain words):**
 Let the owner turn a limitation described in normal Chat into one confirmed, durable Developer
@@ -29,6 +29,7 @@ workflow with truthful status and evidence, without creating work before confirm
 - `.claude/CURRENT_WORK.md`
 - `core/developer_dispatch.py`
 - `core/conductor_registry.py`
+- `core/coding_queue_authoring.py`
 - `core/runtime/self_check.py`
 - `api/routers/chat.py`
 - `dashboard/src/api.chat.ts`
@@ -46,7 +47,7 @@ workflow with truthful status and evidence, without creating work before confirm
 - `docs/feature-idea-queue/QUEUE_DELIVERY_LOG.md`
 - focused #35 documentation plus the inherited T02/#21/#34/T00 gate
 
-**Gate: green - T02A and all inherited suites must pass**
+**Gate: green - T02A live repair and all inherited suites must pass**
 
 ```gate
 ../.python/venv/Scripts/python.exe tests/test_chat_developer_dispatch.py
