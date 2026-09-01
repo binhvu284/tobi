@@ -178,6 +178,7 @@ def _entry(
     idempotency_policy: str = "none",
     audit_policy: str = "file_read",
     reason_code: str = "file.migration_run2a",
+    allowed_surfaces: tuple[Surface, ...] = (Surface.DEVELOPER,),
 ) -> ToolCatalogEntry:
     spec = RuntimeToolSpec(
         name=name,
@@ -189,7 +190,7 @@ def _entry(
         side_effect_class=side_effect_class,
         risk=risk,
         allowed_modes=("agent",),
-        allowed_surfaces=(Surface.DEVELOPER,),
+        allowed_surfaces=allowed_surfaces,
         required_permissions=required_permissions,
         timeout_s=30,
         retry_policy=retry_policy,
@@ -357,13 +358,18 @@ def _write_after_ref(output: Any) -> str:
 
 
 def build_file_tool_runtime(
-    *, broker: FileToolBroker, control: Any = None
+    *,
+    broker: FileToolBroker,
+    control: Any = None,
+    read_surfaces: tuple[Surface, ...] = (Surface.DEVELOPER,),
 ) -> FileToolRuntime:
     """Build an isolated runtime around a caller-owned coding broker."""
     if not callable(getattr(broker, "read_file", None)) or not callable(
         getattr(broker, "list_files", None)
     ) or not callable(getattr(broker, "write_file", None)):
         raise ToolExecutionError("tool.file_broker_invalid")
+    if not read_surfaces or any(not isinstance(item, Surface) for item in read_surfaces):
+        raise ToolExecutionError("tool.file_read_surfaces_invalid")
     write_adapter = _FileWriteAdapter(broker)
 
     entries = (
@@ -372,12 +378,14 @@ def build_file_tool_runtime(
             description="List policy-indexable files under one coding worktree folder.",
             input_schema=LIST_FILES_INPUT_SCHEMA,
             output_schema=LIST_FILES_OUTPUT_SCHEMA,
+            allowed_surfaces=read_surfaces,
         ),
         _entry(
             name="read_file",
             description="Read UTF-8 text from one policy-approved coding worktree file.",
             input_schema=READ_FILE_INPUT_SCHEMA,
             output_schema=READ_FILE_OUTPUT_SCHEMA,
+            allowed_surfaces=read_surfaces,
         ),
         _entry(
             name="write_file",

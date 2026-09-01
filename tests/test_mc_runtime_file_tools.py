@@ -1059,8 +1059,8 @@ for source_root in (ROOT / "core", ROOT / "api"):
         if "core.runtime.file_tools" in source or "runtime.file_tools import" in source:
             live_imports.append(source_path.relative_to(ROOT).as_posix())
 ok(
-    "new file execution path remains dormant with no live imports",
-    live_imports == [],
+    "the file runtime is activated only by the qualified #35 Agent workflow",
+    live_imports == ["core/runtime/agent_workflows.py"],
     live_imports,
 )
 

@@ -22,6 +22,7 @@ class TurnRequest:
     client_turn_id: Optional[str] = None
     resume_run_id: Optional[int] = None
     capabilities: dict[str, Any] = field(default_factory=dict)
+    workflow_fields: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -127,4 +128,3 @@ class TurnOutcome:
     tools_used: list[str] = field(default_factory=list)
     error: Optional[TurnError] = None
     recovery: Optional[RecoveryOptions] = None
-

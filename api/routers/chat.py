@@ -51,6 +51,7 @@ class ChatSendReq(BaseModel):
     review_mode: str | None = None                           # 'ask' | 'session' | 'always'
     client_turn_id: str | None = None                        # runtime trace/idempotency correlation
     resume_run_id: int | None = None                         # continue an existing paused Agent run
+    workflow_fields: dict[str, object] = Field(default_factory=dict)  # explicit typed T02 values
 
 
 class ChatAppendReq(BaseModel):
@@ -88,6 +89,7 @@ class ChatConfigReq(BaseModel):
     mode_v2: Optional[bool] = None
     premium_readers: Optional[bool] = None   # #14 rollback flag (YouTube/reader layer)
     chat_runtime_v2: Optional[str] = None    # off | shadow | on
+    agent_local_workflows: Optional[bool] = None  # #35/T02 scoped rollback
 
 
 @router.get("/api/chat/config")
@@ -95,23 +97,32 @@ def chat_config_get():
     """Chat feature flags — the frontend picks the v2 Chat/Agent UI vs the legacy five-mode
     UI (#16), plus the #14 premium-reader rollback flag, both from owner_settings."""
     from core import chat_modes, premium_readers, chat_runtime
+    from core.runtime.agent_workflows import local_agent_workflows_enabled
     return {"mode_v2": chat_modes.mode_v2_enabled(),
             "premium_readers": premium_readers.premium_readers_enabled(),
-            "chat_runtime_v2": chat_runtime.runtime_mode()}
+            "chat_runtime_v2": chat_runtime.runtime_mode(),
+            "agent_local_workflows": local_agent_workflows_enabled()}
 
 
 @router.post("/api/chat/config")
 def chat_config_set(body: ChatConfigReq):
     from core import chat_modes, premium_readers, chat_runtime
+    from core.runtime.agent_workflows import (
+        local_agent_workflows_enabled,
+        set_local_agent_workflows,
+    )
     if body.mode_v2 is not None:
         chat_modes.set_mode_v2(body.mode_v2)
     if body.premium_readers is not None:
         premium_readers.set_premium_readers(body.premium_readers)
     if body.chat_runtime_v2 is not None:
         chat_runtime.set_runtime_mode(body.chat_runtime_v2)
+    if body.agent_local_workflows is not None:
+        set_local_agent_workflows(body.agent_local_workflows)
     return {"mode_v2": chat_modes.mode_v2_enabled(),
             "premium_readers": premium_readers.premium_readers_enabled(),
-            "chat_runtime_v2": chat_runtime.runtime_mode()}
+            "chat_runtime_v2": chat_runtime.runtime_mode(),
+            "agent_local_workflows": local_agent_workflows_enabled()}
 
 
 @router.get("/api/chat/sessions")
@@ -176,7 +187,8 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
     **web_search** tool and **connector** emphasis, all gated by the chat's `+` menu."""
     from core import chat_store, conductor, model_router, attachments as attach
     from core import premium_readers, youtube_reader, chat_modes, chat_runtime, context_manager
-    from core.chat_runtime_contracts import TurnError, TurnRequest
+    from core.chat_runtime_contracts import RouteDecision, TurnError, TurnRequest
+    from core.runtime.agent_workflows import AgentWorkflowService, qualify_agent_workflow
     from core.runtime import config as runtime_config
     from core.runtime.gateway import TurnGateway, submit_gateway_accept, submit_gateway_mirror
     from core.task_classifier import classify
@@ -209,6 +221,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         session_id=sid, message=message, mode=ctx["mode"], model=model,
         client_turn_id=(payload.client_turn_id or None), resume_run_id=payload.resume_run_id,
         capabilities=ctx.get("capabilities") or {},
+        workflow_fields=dict(payload.workflow_fields or {}),
     )
     try:
         runtime_intent = classify(message)
@@ -229,6 +242,28 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         runtime_request, runtime_intent, route_intelligence
     )
     runtime_active = runtime_state == "on"
+    agent_workflow_qualification = qualify_agent_workflow(runtime_request)
+    agent_workflow_ready = bool(
+        runtime_active
+        and runtime_request.mode == "agent"
+        and agent_workflow_qualification.status in {"accepted", "clarify"}
+        and not payload.attachments
+    )
+    if agent_workflow_ready:
+        workflow = agent_workflow_qualification.workflow
+        assert workflow is not None
+        route_decision = RouteDecision(
+            "clarify" if agent_workflow_qualification.status == "clarify"
+            else "action" if workflow.policy_class in {"reversible_action", "terminal_action"}
+            else "read",
+            "SUPPORTED_WORKFLOW",
+            0.99,
+            workflow.allowed_tools if agent_workflow_qualification.status == "accepted" else (),
+            requires_clarification=agent_workflow_qualification.status == "clarify",
+            reason=agent_workflow_qualification.reason,
+            max_tool_steps=1,
+            final_tokens=900,
+        )
     direct_chat_ready = bool(
         runtime_active
         and runtime_request.mode == "chat"
@@ -263,13 +298,15 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             return
         runtime_gateway = TurnGateway()
         gateway_acceptance = None
-        accept_future = submit_gateway_accept(
-            lambda: runtime_gateway.accept_turn(
-                runtime_request,
-                attachments=payload.attachments,
-                activation_ready=direct_chat_ready,
+        accept_future = None
+        if not agent_workflow_ready:
+            accept_future = submit_gateway_accept(
+                lambda: runtime_gateway.accept_turn(
+                    runtime_request,
+                    attachments=payload.attachments,
+                    activation_ready=direct_chat_ready,
+                )
             )
-        )
         if accept_future is not None:
             try:
                 completed, result = await poll_background_result(
@@ -287,7 +324,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
                     "Runtime V2 gateway acceptance failed: %s",
                     type(exc).__name__,
                 )
-        else:
+        elif not agent_workflow_ready:
             logger.warning("Runtime V2 gateway acceptance queue is full")
 
         if expected_gateway_mode == "on" and gateway_acceptance is None:
@@ -450,21 +487,109 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
             )
             yield "event: done\ndata: {}\n\n"
             return
+        t0 = _time.time()
+        agent_workflow_result = None
+        if agent_workflow_ready:
+            runtime_event("step_started", "agent_local_workflow", {
+                "workflow_id": agent_workflow_qualification.workflow_id,
+                "family": "local_work_execution",
+            })
+            agent_workflow_result = await loop.run_in_executor(
+                None,
+                lambda: AgentWorkflowService().execute(
+                    runtime_request,
+                    review_mode=review_mode or "ask",
+                ),
+            )
+
         cid = chat_store.chat_id_for_session(sid)
         from core.database import save_conversation_message as _bridge_msg
         history = await loop.run_in_executor(None, lambda: chat_store.recent_history(sid, limit=8))
-        stored_user = message + (f"  📎×{len(payload.attachments)}" if payload.attachments else "")
-        user_mid = await loop.run_in_executor(
-            None, lambda: chat_store.add_message(sid, "user", stored_user, model=model))
-        # Durably store what was attached, bound to this message. The bytes used to be decoded
-        # for the model and dropped, so reopening the session showed only the 📎×N count.
-        if payload.attachments:
-            from core import chat_attachments
-            await loop.run_in_executor(
-                None, lambda: chat_attachments.save_many(sid, user_mid, payload.attachments))
-        await loop.run_in_executor(None, lambda: _bridge_msg(cid, "user", message))
-        await loop.run_in_executor(None, lambda: chat_store.auto_title(sid, message or "Attachment"))
-        t0 = _time.time()
+        if agent_workflow_result is None or not agent_workflow_result.replayed:
+            stored_user = message + (f"  📎×{len(payload.attachments)}" if payload.attachments else "")
+            user_mid = await loop.run_in_executor(
+                None, lambda: chat_store.add_message(sid, "user", stored_user, model=model))
+            # Durably store what was attached, bound to this message. The bytes used to be decoded
+            # for the model and dropped, so reopening the session showed only the 📎×N count.
+            if payload.attachments:
+                from core import chat_attachments
+                await loop.run_in_executor(
+                    None, lambda: chat_attachments.save_many(sid, user_mid, payload.attachments))
+            await loop.run_in_executor(None, lambda: _bridge_msg(cid, "user", message))
+            await loop.run_in_executor(None, lambda: chat_store.auto_title(sid, message or "Attachment"))
+
+        if agent_workflow_ready:
+            assert agent_workflow_result is not None
+            result = agent_workflow_result
+            reply = result.reply
+            if result.replayed and result.run_id:
+                persisted = await loop.run_in_executor(
+                    None,
+                    lambda: chat_store.get_runtime_response(sid, result.run_id),
+                )
+                if persisted is not None:
+                    reply = persisted["content"]
+            if not reply:
+                reply = "The bounded Agent workflow completed. Open Runs to inspect its evidence."
+            meta = json.dumps({
+                "mode": ctx["mode"],
+                "turn_id": recorder.turn_id if recorder else None,
+                "runtime_run_id": result.run_id,
+                "workflow_id": result.workflow_id,
+                "workflow_family": result.family_id,
+                "evidence_refs": list(result.evidence_refs),
+            })
+            if not result.replayed:
+                if result.run_id:
+                    await loop.run_in_executor(
+                        None,
+                        lambda: chat_store.add_runtime_response(
+                            sid, result.run_id, reply, model="not_used", tokens=0, meta=meta,
+                        ),
+                    )
+                else:
+                    await loop.run_in_executor(
+                        None,
+                        lambda: chat_store.add_message(
+                            sid, "assistant", reply, model="not_used", tokens=0, meta=meta,
+                        ),
+                    )
+                await loop.run_in_executor(None, lambda: _bridge_msg(cid, "assistant", reply))
+            for chunk in conductor._stream_chunks(reply):
+                yield f"event: delta\ndata: {json.dumps({'text': chunk})}\n\n"
+            if result.pending_action:
+                yield f"event: action\ndata: {json.dumps(result.pending_action)}\n\n"
+            yield "event: usage\ndata: " + json.dumps({
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "model": "not_used",
+                "requested_model": model,
+                "actual_model": None,
+                "fallback_reason": None,
+                "attempts": 0,
+                "latency_ms": round((_time.time() - t0) * 1000),
+                "replayed": result.replayed,
+            }) + "\n\n"
+            completed_status = (
+                "waiting_user" if result.status == "clarify"
+                else "waiting_approval" if result.status == "waiting_approval"
+                else "succeeded" if result.status == "succeeded"
+                else "failed"
+            )
+            runtime_event("step_completed", "agent_local_workflow", {
+                "status": result.status,
+                "run_id": result.run_id,
+                "evidence_refs": list(result.evidence_refs),
+            })
+            runtime_complete(completed_status)
+            if runtime_tracking:
+                yield runtime_frame("turn_completed", "gateway", {
+                    "status": completed_status,
+                    "run_id": result.run_id,
+                    "replayed": result.replayed,
+                })
+            yield "event: done\ndata: {}\n\n"
+            return
 
         # A clear request to mutate state from Chat mode does not need an LLM round-trip.
         # The clarification gate gives one deterministic, recoverable instruction instead.

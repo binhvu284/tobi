@@ -426,6 +426,75 @@ def propose_action(tool: str, args: Optional[dict] = None, *, chat_id: int = 0,
             "summary": summary, "args": args}
 
 
+def propose_runtime_action(
+    tool: str,
+    args: dict,
+    *,
+    chat_id: int,
+    runtime_run_id: str,
+    approval_id: str,
+) -> dict:
+    """Reuse the existing owner confirmation card for one canonical Runtime action."""
+    pending = propose_action(tool, args, chat_id=chat_id, surface="mc")
+    if pending.get("error"):
+        return pending
+    metadata = {
+        "runtime_v2": {
+            "run_id": str(runtime_run_id),
+            "approval_id": str(approval_id),
+        }
+    }
+    conn = _conn()
+    try:
+        conn.execute(
+            "UPDATE tobi_actions SET result_json=? WHERE id=? AND status='proposed'",
+            (json.dumps(metadata, sort_keys=True), int(pending["id"])),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return pending
+
+
+def runtime_action_for_run(runtime_run_id: str) -> Optional[dict]:
+    conn = _conn()
+    try:
+        _ensure_actions_table(conn)
+        rows = conn.execute(
+            "SELECT * FROM tobi_actions WHERE status='proposed' ORDER BY id DESC LIMIT 100"
+        ).fetchall()
+    finally:
+        conn.close()
+    for row in rows:
+        item = dict(row)
+        try:
+            metadata = json.loads(item.get("result_json") or "{}")
+        except Exception:
+            continue
+        runtime = metadata.get("runtime_v2") if isinstance(metadata, dict) else None
+        if isinstance(runtime, dict) and runtime.get("run_id") == runtime_run_id:
+            return {
+                "id": item["id"],
+                "tool": item["tool"],
+                "risk": item["risk"],
+                "status": item["status"],
+                "summary": item["summary"],
+                "args": json.loads(item.get("args_json") or "{}"),
+            }
+    return None
+
+
+def _runtime_metadata(row: dict) -> Optional[dict]:
+    try:
+        value = json.loads(row.get("result_json") or "{}")
+    except Exception:
+        return None
+    if not isinstance(value, dict):
+        return None
+    runtime = value.get("runtime_v2")
+    return runtime if isinstance(runtime, dict) else None
+
+
 def _terminal_command_for(tool: str, args: dict) -> Optional[str]:
     """The concrete shell command a terminal tool WOULD run, for gating/plan (#11)."""
     if tool == "run_command":
@@ -514,8 +583,27 @@ def confirm_action(action_id: int, decision: str = "approve", surface: str = "mc
     if not row:
         return {"ok": False, "error": "action not found"}
     row = dict(row)
+    runtime_metadata = _runtime_metadata(row)
     if row["status"] != "proposed":
+        if runtime_metadata is not None:
+            replay = json.loads(row.get("result_json") or "{}")
+            return replay if isinstance(replay, dict) else {
+                "ok": row["status"] == "executed", "status": row["status"]
+            }
         return {"ok": False, "error": f"action already {row['status']}", "status": row["status"]}
+    if runtime_metadata is not None:
+        from core.runtime.agent_workflows import AgentWorkflowService
+
+        result = AgentWorkflowService().resolve_linked_action(
+            row, decision, runtime_metadata
+        )
+        _set_status(action_id, str(result.get("status") or "failed"), result)
+        try:
+            from core import agent_runs
+            agent_runs.resolve_action(action_id, str(result.get("status") or "failed"))
+        except Exception as exc:
+            logger.warning("agent run approval propagation failed: %s", exc)
+        return result
     if str(decision).lower() in ("reject", "no", "cancel", "deny"):
         if str(row.get("tool") or "").startswith("office_"):
             try:

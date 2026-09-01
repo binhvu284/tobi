@@ -71,6 +71,18 @@ workflows. The red-first target failed for the missing registry; afterward its 1
 shared gate, dashboard build, and desktop/mobile owner flow pass. No external service, model call,
 DeepSeek Harness file, or production workflow was used or changed in T01. T02 is next.
 
+T02 is complete on 2026-09-01. Normal Mission Control Agent turns now qualify seven bounded local
+workflows before the model loop: Project listing/task creation, local file listing/reading, Terminal
+status/approved typed command, and read-only Coding workflow status. The accepted typed request and
+run identity survive retry and reload; duplicate HTTP delivery creates no second run, user message,
+reply, or side effect. Missing IDs, paths, or titles produce bounded clarification. Mutations pause on
+the existing owner confirmation card, then resume the same canonical Runtime run with an immutable
+receipt. Successful runs record only bounded current-release evidence, so code presence alone still
+cannot increase Tier II. The scoped `agent.local_workflows` switch and #21 master rollback restore the
+previous Agent path. T02 focused checks pass 20/20 and the shared gate passes 32/32. T02A Developer
+dispatch, DeepSeek Harness, browser/external action, live model calls, Supabase, and Vercel were not
+part of this package.
+
 
 <a id="item-34"></a>
 

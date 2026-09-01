@@ -1,6 +1,6 @@
 # TOBI Agent Tier Completion
 
-`UPG-CORE-8D32H-012` | Queue item #35 | Owner-approved plan | In progress - T01 complete
+`UPG-CORE-8D32H-012` | Queue item #35 | Owner-approved plan | In progress - T02 complete
 
 ## Delivery Status
 
@@ -8,12 +8,15 @@
   separately and is valid only while the baseline artifact hash, dataset hash, and production commit match.
 - T01: delivered on 2026-08-31. One persisted seven-ability registry now owns Tier II completion;
   Evolution shows its bounded evidence, freshness, missing proof, and next action.
-- Current Tier II result: 0/7 by design because no T02-T06 production workflow has recorded qualifying
-  evidence yet. Existing components do not become proof merely because their code exists.
-- Verification: T01 focused checks pass 17/17, the shared gate passes 31/31, the dashboard production
-  build passes, and desktop/mobile Evolution checks pass without overflow or browser errors.
-- Next package: T02 local assigned-work workflows. T02A Developer dispatch remains a later, separate
-  Coding maintenance subpackage; DeepSeek Harness work remains outside #35.
+- T02: delivered on 2026-09-01. Qualified Agent requests now complete Project execution, local
+  file/Terminal diagnosis, and Coding-status checks through canonical Runtime. Missing fields clarify;
+  accepted requests replay durably; mutations use the existing owner confirmation card and receipts.
+- Current Tier II result remains evidence-derived. T02 code does not grant a percentage by itself;
+  successful live workflows record bounded current-release proof for `local_work_execution`.
+- Verification: T02 focused checks pass 20/20 and the shared gate passes 32/32. The live HTTP check
+  proves one canonical run and linked reply, zero model calls, and no duplicate transcript on retry.
+- Next package: T02A Developer dispatch. It remains a separate Coding maintenance package; DeepSeek
+  Harness work remains outside #35.
 
 ## The One Outcome
 
@@ -259,6 +262,12 @@ Required proof:
 - success cannot appear without the declared evidence;
 - Runtime activation is scoped to qualified workflows and has a tested rollback path.
 
+**Delivered 2026-09-01:** seven frozen local workflows are active only for qualified Agent turns:
+`project.list`, `task.create`, `file.inventory`, `file.read`, `terminal.status`,
+`terminal.typed_command`, and read-only `coding.qualify`. The scoped `agent.local_workflows` flag and
+the #21 master rollback return these requests to the previous Agent path without deleting runs or
+evidence. T02 does not dispatch a coding worker and does not own browser or external action.
+
 ### T02A - Chat-to-Developer Dispatch
 
 **Purpose:** let the owner turn an MC limitation into controlled Developer work from normal Chat.
@@ -431,6 +440,6 @@ must not invent a passing command in the plan and assume it exists.
 
 ## Worker Start Rule
 
-T00 is owner-accepted and T01 is complete. Start only T02, set the current-work gate to red for its
-focused workflow target, and keep T02A Developer dispatch plus external/browser action packages out of
-that local-work boundary.
+T00 is owner-accepted and T01-T02 are complete. Start only T02A next, set the current-work gate red for
+its focused dispatch target, and keep DeepSeek Harness plus external/browser action packages outside
+that Coding maintenance boundary.

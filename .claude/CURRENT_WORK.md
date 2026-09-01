@@ -9,15 +9,16 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #35 TOBI Agent Tier Completion
-**Package:** T01 - Evidence-Based Agent Registry And Evolution Truth
-**Status:** T00 baseline accepted. T01 complete under green verification; T02 has not started.
+**Package:** T02 - Canonical Local Agent Workflows
+**Status:** T00 baseline accepted. T01 and T02 complete under green verification; T02A has not started.
 
 **Purpose (one sentence, plain words):**
-Make Tier II progress come only from current, bounded evidence and show the owner exactly what proof
-exists, what is missing, whether it is fresh, and what to do next.
+Make normal Agent turns complete bounded Project, local diagnosis, and Coding-status workflows
+through canonical Runtime with durable typed requests and evidence-grounded results.
 
 **Not doing:**
-- No Agent execution, Chat routing, Developer dispatch, browser automation, or external action in T01.
+- No Chat-to-Developer dispatch (T02A), coding worker execution, or changes to DeepSeek Harness.
+- No browser automation, GitHub action, Telegram delivery, external connector action, or proactive work.
 - No changes to DeepSeek Harness or another agent's Developer-worker implementation.
 - No live model calls, browser submissions, GitHub writes, Telegram delivery, Supabase, Vercel, merge,
   deployment, deletion, spending, or credential changes.
@@ -26,22 +27,26 @@ exists, what is missing, whether it is fresh, and what to do next.
 
 **Files expected:**
 - `.claude/CURRENT_WORK.md`
-- `tests/evals/agent_tier/baselines/<production-commit>/owner-acceptance.json`
-- `tobival/agent_tier_baseline.py`
-- `core/schema/agent_tier.py`
-- `core/database.py`
+- `core/runtime/agent_workflows.py`
+- `core/runtime/file_tools.py`
+- `core/chat_runtime_contracts.py`
+- `core/chat_runtime.py`
+- `core/owner_flags.py`
+- `core/conductor_registry.py`
+- `api/routers/chat.py`
 - `core/agent_tier.py`
-- `core/awakening_detect.py`
-- `api/routers/evolution.py`
-- `dashboard/src/api.abilities.ts`
-- `dashboard/src/pages/Evolution.tsx`
 - `core/runtime/self_check.py`
-- `tests/test_agent_tier_registry.py`
+- `tests/test_agent_tier_workflows.py`
+- `tests/test_mc_runtime_file_tools.py`
+- `docs/feature-idea-queue/AGENT_TIER_COMPLETION_PLAN.md`
+- `docs/feature-idea-queue/QUEUE.md`
+- `docs/feature-idea-queue/QUEUE_DELIVERY_LOG.md`
 - focused #35 documentation plus the inherited #21/#34/T00 gate
 
-**Gate: green**
+**Gate: green - 32/32 suites on 2026-09-01**
 
 ```gate
+../.python/venv/Scripts/python.exe tests/test_agent_tier_workflows.py
 ../.python/venv/Scripts/python.exe tests/test_agent_tier_registry.py
 ../.python/venv/Scripts/python.exe tests/test_agent_tier_baseline.py
 ../.python/venv/Scripts/python.exe tests/test_mc_runtime_contracts.py
