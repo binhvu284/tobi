@@ -209,7 +209,9 @@ class SourceRecord:
         _require(isinstance(self.item_type, ItemType), "item_type must be ItemType")
         _require(isinstance(self.trust, TrustClass), "trust must be TrustClass")
         _require(self.engagement >= 0, "engagement must be >= 0")
-        _require(len(self.excerpt) <= EXCERPT_MAX, f"excerpt exceeds {EXCERPT_MAX} chars")
+        # a source with no summary may hand us None; that is missing data, not a
+        # malformed record — it must not fail the whole ingest batch.
+        _require(len(self.excerpt or "") <= EXCERPT_MAX, f"excerpt exceeds {EXCERPT_MAX} chars")
         _iso_or_none(self.observed_at, "observed_at")
         _iso_or_none(self.published_at, "published_at")
 

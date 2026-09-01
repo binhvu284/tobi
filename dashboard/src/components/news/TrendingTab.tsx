@@ -486,7 +486,7 @@ function SourceExplore({ reloadKey }: { reloadKey: number }) {
                       className="inline-flex items-center gap-1 text-[11px] font-medium text-muted transition-colors hover:text-accent">
                       <ExternalLink size={11} /> Open
                     </a>
-                    <ActionBar itemId={item.item_id} interaction={item.interaction} size="xs" />
+                    <ActionBar itemId={item.item_id} interaction={item.interaction} size="xs" savedToBrain={item.saved_to_brain} />
                   </div>
                 </div>
               </article>

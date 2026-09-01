@@ -203,21 +203,35 @@ export default function NewsV2() {
  *  honored by the refresh engine, a disabled source never enters a job — plus the
  *  per-tab Daily/Weekly/Monthly schedule. Every change SAVES IMMEDIATELY
  *  (optimistic, reverted on failure) — no Save button to forget. */
+/** The three context classes News is allowed to use (core/news/contracts.CONTEXT_CLASSES),
+ *  described by what they DO rather than by their internal names. */
+const CONTEXT_CLASS_COPY = [
+  { id: 'owner_interests', label: 'Things you asked TOBI to remember',
+    description: 'Approved notes on your Brain page. Anything still waiting for your approval is ignored.' },
+  { id: 'project_topics', label: 'Projects you are working on',
+    description: 'The name and description of your active projects — nothing from inside them.' },
+  { id: 'chat_topics', label: 'What you have been discussing in Chat',
+    description: 'The short summaries TOBI already writes for each conversation. Never the conversation itself.' },
+] as const
+
 function SourcesSettingsModal({ open, onClose, settings, onSaved }: {
   open: boolean; onClose: () => void; settings: NewsV2Settings
-  onSaved: (patch: { enabled_sources: string[]; schedules: Record<string, string> }) => void
+  onSaved: (patch: { enabled_sources: string[]; schedules: Record<string, string>
+                     context_classes: Record<string, boolean> }) => void
 }) {
   const { toast } = useToast()
   const [enabled, setEnabled] = useState<Record<string, boolean>>({})
   const [schedules, setSchedules] = useState<Record<string, string>>({})
+  const [contextClasses, setContextClasses] = useState<Record<string, boolean>>({})
   const [saving, setSaving] = useState(false)
-  const [section, setSection] = useState<'sources' | 'schedules'>('sources')
+  const [section, setSection] = useState<'sources' | 'schedules' | 'personalization'>('sources')
   useEffect(() => {
     if (!open) return
     const allOn = settings.enabled_sources.length === 0
     setEnabled(Object.fromEntries(settings.known_sources.map(name =>
       [name, allOn || settings.enabled_sources.includes(name)])))
     setSchedules({ ...settings.schedules })
+    setContextClasses({ ...(settings.context_classes ?? {}) })
     setSection('sources')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -225,12 +239,14 @@ function SourcesSettingsModal({ open, onClose, settings, onSaved }: {
   const tabsUsing = (source: string) =>
     Object.entries(settings.tab_sources).filter(([, names]) => names.includes(source)).map(([t]) => t)
 
-  const persist = async (patch: { enabled_sources?: string[]; schedules?: Record<string, string> },
+  const persist = async (patch: { enabled_sources?: string[]; schedules?: Record<string, string>
+                                  context_classes?: Record<string, boolean> },
                          revert: () => void) => {
     setSaving(true)
     try {
       const result = await patchNewsV2Settings(patch)
-      onSaved({ enabled_sources: result.enabled_sources, schedules: result.schedules })
+      onSaved({ enabled_sources: result.enabled_sources, schedules: result.schedules,
+        context_classes: result.context_classes })
     } catch (err) {
       revert()
       toast({ kind: 'error', title: 'Setting not saved', detail: err instanceof Error ? err.message : String(err) })
@@ -245,6 +261,15 @@ function SourcesSettingsModal({ open, onClose, settings, onSaved }: {
     // every source on → store the default "all" ([]) so future sources join automatically
     void persist({ enabled_sources: on.length === settings.known_sources.length ? [] : on },
       () => setEnabled(previous))
+  }
+
+  // N11 cross-module context (plan §6): each class is the owner's own switch. Off means
+  // News never reads that part of TOBI at all — not read-then-ignored.
+  const toggleContext = (cls: string) => {
+    const previous = { ...contextClasses }
+    const next = { ...contextClasses, [cls]: !contextClasses[cls] }
+    setContextClasses(next)
+    void persist({ context_classes: next }, () => setContextClasses(previous))
   }
 
   const changeSchedule = (tabName: string, value: string) => {
@@ -269,7 +294,8 @@ function SourcesSettingsModal({ open, onClose, settings, onSaved }: {
                 <Settings2 size={16} className="text-accent" />
                 <h2 className="text-sm font-semibold text-text">Settings</h2>
               </div>
-              {([['sources', 'Sources', Rss], ['schedules', 'Schedules', Clock]] as const).map(([key, label, Icon]) => (
+              {([['sources', 'Sources', Rss], ['schedules', 'Schedules', Clock],
+                 ['personalization', 'Personalization', Sparkles]] as const).map(([key, label, Icon]) => (
                 <button key={key} onClick={() => setSection(key)}
                   className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors ${
                     section === key ? 'bg-accent/12 text-accent' : 'text-muted hover:bg-overlay/5 hover:text-text'}`}>
@@ -283,11 +309,15 @@ function SourcesSettingsModal({ open, onClose, settings, onSaved }: {
             <div className="flex min-w-0 flex-1 flex-col">
               <header className="flex items-center justify-between gap-3 border-b border-border px-6 py-4">
                 <div>
-                  <h3 className="text-base font-semibold text-text">{section === 'sources' ? 'Data sources' : 'Refresh schedules'}</h3>
+                  <h3 className="text-base font-semibold text-text">{
+                    section === 'sources' ? 'Data sources'
+                      : section === 'schedules' ? 'Refresh schedules' : 'What TOBI may learn from'}</h3>
                   <p className="mt-0.5 text-xs text-muted">
                     {section === 'sources'
                       ? 'Toggle a source to include or skip it. Changes save instantly; collected items stay.'
-                      : 'How often each tab refreshes on its own. Manual refresh is always available.'}
+                      : section === 'schedules'
+                        ? 'How often each tab refreshes on its own. Manual refresh is always available.'
+                        : 'Let your feed take a small hint from other parts of TOBI. Each one is off until you turn it on, and none of them can move a story by more than a few places.'}
                   </p>
                 </div>
                 <button onClick={onClose} title="Close" className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-overlay/10 hover:text-text"><X size={17} /></button>
@@ -323,6 +353,32 @@ function SourcesSettingsModal({ open, onClose, settings, onSaved }: {
                         </button>
                       </div>
                     ))}
+                  </div>
+                ) : section === 'personalization' ? (
+                  <div className="space-y-2.5">
+                    {CONTEXT_CLASS_COPY.map(({ id, label, description }) => (
+                      <div key={id} className="flex items-center gap-3 rounded-lg border border-border bg-background/40 px-3.5 py-3 transition-colors hover:border-border/80">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-muted"><Sparkles size={15} /></span>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium text-text">{label}</div>
+                          <div className="mt-0.5 text-[11px] leading-4 text-muted">{description}</div>
+                        </div>
+                        <button onClick={() => toggleContext(id)} disabled={saving}
+                          role="switch" aria-checked={contextClasses[id] ?? false}
+                          title={contextClasses[id] ? 'On — click to stop using this' : 'Off — click to let your feed use this'}
+                          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors duration-200 disabled:opacity-60 ${
+                            contextClasses[id] ? 'border-accent bg-accent' : 'border-border bg-overlay/20'}`}>
+                          <span className={`inline-flex h-[18px] w-[18px] transform items-center justify-center rounded-full bg-white shadow-md transition-transform duration-200 ${
+                            contextClasses[id] ? 'translate-x-[22px]' : 'translate-x-[3px]'}`}>
+                            {contextClasses[id] && <Check size={12} strokeWidth={3} className="text-accent" />}
+                          </span>
+                        </button>
+                      </div>
+                    ))}
+                    <p className="pt-1 text-[11px] leading-4 text-muted">
+                      TOBI never reads your chat transcripts, your files, or memories you have not approved.
+                      When one of these moves a story up, the card says so under <span className="text-text">Why</span>.
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-2.5">
@@ -622,7 +678,7 @@ function ReleaseNewsCard({ item }: { item: NewsV2ReleaseNews }) {
             ? <div className="mt-0.5"><span className="mr-1 inline-flex items-center gap-0.5 align-middle text-[9px] font-semibold uppercase text-accent/80"><Sparkles size={9} /> recap</span><span className="text-[11px] leading-4 text-muted [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">{body}</span></div>
             : <p className="mt-0.5 line-clamp-3 text-[11px] leading-4 text-muted">{body}</p>
         )}
-        <div className="mt-1.5"><ActionBar itemId={item.item_id} interaction={item.interaction} size="xs" /></div>
+        <div className="mt-1.5"><ActionBar itemId={item.item_id} interaction={item.interaction} size="xs" savedToBrain={item.saved_to_brain} /></div>
       </div>
     </div>
   )

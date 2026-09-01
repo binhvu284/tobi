@@ -190,8 +190,24 @@ CREATE TABLE IF NOT EXISTS news_github_trending (
 );
 """
 
+# N11 Save to Brain (#23 plan §6). The News side owns the provenance ledger so a saved
+# item is remembered ONCE no matter how often the button is pressed, and so nothing in
+# #20's own tables has to carry a News-specific column. One row per item; `memory_id` is
+# the id the Brain facade returned (NULL only when Brain stored it encrypted-only).
+_MIGRATION_6 = """
+CREATE TABLE IF NOT EXISTS news_brain_saves (
+    item_id      INTEGER PRIMARY KEY REFERENCES news_items(id) ON DELETE CASCADE,
+    memory_id    INTEGER,
+    provenance   TEXT NOT NULL,
+    action       TEXT NOT NULL,
+    content      TEXT NOT NULL,
+    saved_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_news_brain_saves_memory ON news_brain_saves(memory_id);
+"""
+
 _MIGRATIONS: list[tuple[int, str]] = [(1, _MIGRATION_1), (2, _MIGRATION_2), (3, _MIGRATION_3),
-                                      (4, _MIGRATION_4), (5, _MIGRATION_5)]
+                                      (4, _MIGRATION_4), (5, _MIGRATION_5), (6, _MIGRATION_6)]
 
 SNAPSHOT_KEEP = 20     # retained rank snapshots per kind (immutable, rebuilt often)
 

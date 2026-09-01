@@ -1,7 +1,7 @@
 # News Page V2 - Personalized AI Intelligence Dashboard
 
 - **Queue item:** #23
-- **Status:** Queued
+- **Status:** Engineering complete 2026-09-01 (N01-N12 all delivered, including N11). `news.v2_enabled` is still off pending the owner's visual pass and evidence read — run `python scripts/news_launch_gate.py` for both.
 - **Solo-founder effort:** XXL - 12-18 focused days
 - **Dependencies:** Use the accepted #20 Brain V2 service contract; coordinate theme-token work with #13.
 **Rollout rule:** Preserve Explore V1 behind `news_v2_enabled` until every production gate passes.

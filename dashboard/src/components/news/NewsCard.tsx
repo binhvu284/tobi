@@ -7,9 +7,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { softFail } from '../../lib/report'
 import {
-  ExternalLink, EyeOff, Loader2, Sparkles, Star, StickyNote, ThumbsDown, ThumbsUp, Undo2,
+  Brain, ExternalLink, EyeOff, Loader2, Sparkles, Star, StickyNote, ThumbsDown, ThumbsUp, Undo2,
 } from 'lucide-react'
-import { patchNewsV2Interaction, postNewsV2Event, putNewsV2Note, type NewsV2Interaction, type NewsV2ItemEntry } from '../../api.explore'
+import { patchNewsV2Interaction, postNewsV2Event, postNewsV2SaveToBrain, putNewsV2Note, type NewsV2Interaction, type NewsV2ItemEntry } from '../../api.explore'
 import { useToast } from '../../context/ToastProvider'
 import SourceLogo from '../SourceLogo'
 
@@ -67,6 +67,9 @@ export default function NewsCard({ entry, override, showReasons, onChange, onRem
   const [noteOpen, setNoteOpen] = useState(false)
   const [draft, setDraft] = useState('')
   const [reasonsOpen, setReasonsOpen] = useState(false)
+  // N11: the ONLY News→Brain write, on an explicit press. The server is idempotent per
+  // item, so once saved this becomes a state rather than a repeatable action.
+  const [inBrain, setInBrain] = useState(Boolean(entry.saved_to_brain))
   const rootRef = useRef<HTMLDivElement | null>(null)
 
   // ── bounded dwell tracking: ≥50% visible for ≥5 s, sent once per item ──────────
@@ -132,6 +135,19 @@ export default function NewsCard({ entry, override, showReasons, onChange, onRem
       toast({ kind: 'success', title: text ? 'Note saved' : 'Note cleared' })
     } catch (err) {
       toast({ kind: 'error', title: 'Note not saved', detail: err instanceof Error ? err.message : String(err) })
+    } finally { setBusy(null) }
+  }
+
+  const saveToBrain = async () => {
+    if (busy || inBrain) return
+    setBusy('brain')
+    try {
+      const res = await postNewsV2SaveToBrain(entry.item_id)
+      setInBrain(true)
+      toast({ kind: 'success', title: res.already_saved ? 'Already in Brain' : 'Saved to Brain',
+        detail: res.already_saved ? 'TOBI remembered this story earlier.' : 'TOBI will remember this story.' })
+    } catch (err) {
+      toast({ kind: 'error', title: 'Not saved to Brain', detail: err instanceof Error ? err.message : String(err) })
     } finally { setBusy(null) }
   }
 
@@ -241,6 +257,10 @@ export default function NewsCard({ entry, override, showReasons, onChange, onRem
               active={Boolean((ix.note ?? '').trim())} busy={false}
               onClick={() => { setDraft(ix.note ?? ''); setNoteOpen(open => !open) }}
               icon={<StickyNote size={14} />} />
+            <IconAction title={inBrain ? 'TOBI remembers this story' : 'Save to Brain — TOBI remembers this story'}
+              active={inBrain} busy={busy === 'brain'} disabled={inBrain}
+              onClick={() => void saveToBrain()}
+              icon={<Brain size={14} className={inBrain ? 'fill-current' : ''} />} />
             {showReasons && (entry.reasons?.length ?? 0) > 0 && (
               <button onClick={() => setReasonsOpen(open => !open)}
                 className={`ml-0.5 inline-flex h-8 items-center gap-1 rounded-md px-2 text-[11px] font-medium transition-colors ${reasonsOpen ? 'text-accent' : 'text-muted hover:bg-overlay/10 hover:text-text'}`}>
@@ -280,11 +300,12 @@ export default function NewsCard({ entry, override, showReasons, onChange, onRem
 
 /** Ghost icon action (X/Artifact-style quiet action row): tooltip carries the label,
  *  active state fills with the accent, busy swaps in a spinner (CLAUDE.md rule). */
-function IconAction({ title, icon, active, busy, onClick }: {
+function IconAction({ title, icon, active, busy, onClick, disabled }: {
   title: string; icon: React.ReactNode; active: boolean; busy: boolean; onClick: () => void
+  disabled?: boolean
 }) {
   return (
-    <button onClick={onClick} disabled={busy} title={title} aria-label={title}
+    <button onClick={onClick} disabled={busy || Boolean(disabled)} title={title} aria-label={title}
       className={`inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors disabled:opacity-50 ${
         active ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-overlay/10 hover:text-text'}`}>
       {busy ? <Loader2 size={14} className="animate-spin" /> : icon}

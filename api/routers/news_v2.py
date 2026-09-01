@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from core import owner_flags
 from core.database import DB_PATH, get_connection
+from core.news import brain_adapter
 from core.news import interactions as IX
 from core.news import personalization, refresh, repository
 from core.news.contracts import NewsSettings, Schedule, Tab, clamp_limit
@@ -119,6 +120,8 @@ def _enrich(conn, entries: list[dict]) -> list[dict]:
     """Join snapshot entries with the live item + interaction state; items removed by
     retention since the snapshot silently drop out."""
     out = []
+    # one query for the whole page's Brain-save badges (N11) instead of one per card
+    saved = brain_adapter.saved_item_ids(conn, [e["item_id"] for e in entries])
     for entry in entries:
         row = conn.execute(
             "SELECT canonical_url, item_type, excerpt, published_at, first_seen_at, media_key,"
@@ -129,6 +132,7 @@ def _enrich(conn, entries: list[dict]) -> list[dict]:
         out.append({**entry, "url": row[0], "item_type": row[1], "excerpt": row[2],
                     "published_at": row[3], "first_seen_at": row[4], "media_key": row[5],
                     "engagement": int(row[6] or 0), "recap": row[7],
+                    "saved_to_brain": entry["item_id"] in saved,
                     "interaction": _interaction_state(conn, entry["item_id"])})
     return out
 
@@ -156,8 +160,10 @@ def v2_home():
                             " FROM news_items n WHERE n.item_type='article'"
                             " ORDER BY (n.media_key IS NOT NULL) DESC, (n.recap IS NOT NULL) DESC,"
                             " COALESCE(n.published_at, n.first_seen_at) DESC LIMIT 8")]
+        saved_news = brain_adapter.saved_item_ids(conn, [i["item_id"] for i in release_news])
         for item in release_news:                        # each release-news card is likeable
             item["interaction"] = _interaction_state(conn, item["item_id"])
+            item["saved_to_brain"] = item["item_id"] in saved_news
         health = {}
         for tab in ("home", "trending", "feed"):
             job = conn.execute(
@@ -415,8 +421,33 @@ def v2_events(item_id: int, req: EventReq,
 
 @router.post("/items/{item_id}/save-to-brain")
 def v2_save_to_brain(item_id: int):
-    raise HTTPException(status_code=501,
-                        detail="Save to Brain lands with the context adapter (N11, after #20 service acceptance)")
+    """N11: the ONLY News→Brain write, and only on the owner's explicit press. Idempotent
+    per item — a second press returns the first save rather than remembering it twice."""
+    conn = _conn()
+    try:
+        try:
+            result = brain_adapter.save_to_brain(conn, item_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        conn.commit()
+        if not result.get("ok"):
+            # Brain refused (e.g. sensitive content, vault locked). Report its own reason
+            # instead of a generic failure, so the owner knows what to do about it.
+            raise HTTPException(status_code=409, detail=result.get("error")
+                                or "Brain could not store this right now.")
+        return result
+    finally:
+        conn.close()
+
+
+@router.get("/items/{item_id}/brain-save")
+def v2_brain_save_state(item_id: int):
+    """Whether this item is already in Brain — what the card's Saved badge reads."""
+    conn = _conn()
+    try:
+        return {"item_id": item_id, "saved": brain_adapter.existing_save(conn, item_id)}
+    finally:
+        conn.close()
 
 
 # ── settings ─────────────────────────────────────────────────────────────────────────

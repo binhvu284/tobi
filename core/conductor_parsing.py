@@ -254,6 +254,7 @@ _TOOL_PHASE = {
     "terminal_status": "Checking the terminal…", "list_jobs": "Checking jobs…",
     "job_output": "Reading job output…", "list_installed_tools": "Reviewing your toolset…",
     "analyze_performance": "Running a system-health diagnosis…",
+    "read_news": "Reading your News page…",
     "awakening_status": "Checking my Awakening status…", "summarize_repo": "Summarizing the repo…",
     "update_task": "Updating the task…", "save_note": "Saving the note…",
     "create_task_from_conversation": "Capturing tasks from our chat…",

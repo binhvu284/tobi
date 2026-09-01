@@ -355,7 +355,59 @@ Created in Developer Work.
 
 `UPG-NEWS-3D-009`
 
-Four-tab evidence-backed News system with ranked models, GitHub/tools discovery, virtualized personalized feed, Favorites, durable refresh jobs, transparent learning, and V1 rollback. Shipped: N01 `core/news/` contracts + 12-table ledger schema, idempotent V1 copy, retention/cursor/interaction primitives, `news.v2_enabled` flag (off), 46-check suite; N02 bounded adapter framework (retry/rate-limit/redaction/partial-failure isolation) + HN/OpenRouter/GitHub adapters + canonical normalizer ingest, 34-check stubbed-HTTP suite; N03 durable refresh engine (per-tab lease join, per-source checkpoints + resume, cancel/retry-failed, owner schedules, `news.v2_shadow`-gated hourly+nightly scheduler jobs), 25-check suite; N04 interactions + learning (replay-safe like/dislike with exact 10s undo ledger, favorite/note retention protection, meaningful-dwell aggregation, versioned interest profiles w/ committed-dislike semantics, bounded immediate modifier, ±5 context cap w/ direct-action precedence, deterministic Why-shown reasons), 35-check suite; N05 versioned rank snapshots (Top-10 model formula w/ fresh-evidence + 2-family eligibility and within-source normalization, honest snapshot-only GitHub growth w/ collecting state, 55/25/10/10 feed formula w/ diversity constraints + immediate dislike hiding, per-tab rebuild wired into refresh, per-kind snapshot pruning), 26-check suite; N06 `/api/explore/v2` surface (flag-gated 503, snapshot reads w/ pinned cursors + 15-40 clamp, Idempotency-Key + optimistic-version mutations w/ replay short-circuit, refresh start/join/commands + SSE, settings, safe media route, legacy /api/explore/* retained), 46-check suite; N07 V2 shell (four tabs, freshness/source-health chips, per-tab refresh w/ job polling, ungated /config flag switch in News.tsx — V1 untouched and default) + N08 Home (Top-10 rank hierarchy via theme-token-mapped news vars w/ motion-safe pulse, Latest Releases always sourced+timed, full-screen keyset-paginated Model Explorer); N09 Trending (GitHub growth table w/ honest Collecting-history chips — growth only from persisted snapshots, week/month/all windows, top-3 rank ladder; featured Tool Discovery + alternatives; Source Explore projection w/ per-source latest items); N10 Feed + Favorites (@tanstack/react-virtual windowed feed against the workspace scroller w/ pinned-cursor infinite scroll, For You|Latest modes, source filter, non-jumping 'N new posts' banner activated only by the owner, shared NewsCard w/ like/dislike + inline 10s undo countdown, favorite, private notes editor, deterministic Why-shown reasons, open/bounded-dwell events fire-and-forget once per item, media from validated cache w/ reserved aspect; desktop sticky rail w/ transparent 'What TOBI learned' profile + mobile bottom-sheet drawer; Favorites reuses the renderer, server-side source/note filters + client-side search, note editing, never auto-refreshes); N12 rollout gates (43-check security/perf/telemetry suite: script/data/file URLs rejected at the contract, injection text inert, media route serves validated cache only w/ zero proxy capability, cursor tampering 422, secrets redacted end-to-end into alerts; 10k-item corpus meets every plan-§9 gate — rebuild 0.13s w/ FEED_CANDIDATE_CAP=500 bounded snapshots, page read 2ms, /feed 22ms, interaction 13ms, refresh ack 16ms, retention 0.02s; repeated source failures now raise ONE deduplicated Inbox task via core/news/telemetry.py). OWNER-SIDE GATES before flag flip (plan §11/§12): visual QA across themes/motion modes, 20-item evidence review (≥80% trustworthy, ≥70% relevant, zero fabricated), 7 consecutive clean local refresh runs in shadow. Runbook: 1) set news.v2_shadow=1 + restart MC → background collection while V1 stays live; 2) after gates, news.v2_enabled=1 → V2 UI; rollback = flip the flag off (V1 routes/data intact, no down-migration). Deferred: N11 Brain adapter (#20 acceptance; save-to-brain=501), media fetch pipeline (cards render media only from a validated cache row; populating the cache is future work).
+Four-tab evidence-backed News system with ranked models, GitHub/tools discovery, virtualized personalized feed, Favorites, durable refresh jobs, transparent learning, and V1 rollback. Shipped: N01 `core/news/` contracts + 12-table ledger schema, idempotent V1 copy, retention/cursor/interaction primitives, `news.v2_enabled` flag (off), 46-check suite; N02 bounded adapter framework (retry/rate-limit/redaction/partial-failure isolation) + HN/OpenRouter/GitHub adapters + canonical normalizer ingest, 34-check stubbed-HTTP suite; N03 durable refresh engine (per-tab lease join, per-source checkpoints + resume, cancel/retry-failed, owner schedules, `news.v2_shadow`-gated hourly+nightly scheduler jobs), 25-check suite; N04 interactions + learning (replay-safe like/dislike with exact 10s undo ledger, favorite/note retention protection, meaningful-dwell aggregation, versioned interest profiles w/ committed-dislike semantics, bounded immediate modifier, ±5 context cap w/ direct-action precedence, deterministic Why-shown reasons), 35-check suite; N05 versioned rank snapshots (Top-10 model formula w/ fresh-evidence + 2-family eligibility and within-source normalization, honest snapshot-only GitHub growth w/ collecting state, 55/25/10/10 feed formula w/ diversity constraints + immediate dislike hiding, per-tab rebuild wired into refresh, per-kind snapshot pruning), 26-check suite; N06 `/api/explore/v2` surface (flag-gated 503, snapshot reads w/ pinned cursors + 15-40 clamp, Idempotency-Key + optimistic-version mutations w/ replay short-circuit, refresh start/join/commands + SSE, settings, safe media route, legacy /api/explore/* retained), 46-check suite; N07 V2 shell (four tabs, freshness/source-health chips, per-tab refresh w/ job polling, ungated /config flag switch in News.tsx — V1 untouched and default) + N08 Home (Top-10 rank hierarchy via theme-token-mapped news vars w/ motion-safe pulse, Latest Releases always sourced+timed, full-screen keyset-paginated Model Explorer); N09 Trending (GitHub growth table w/ honest Collecting-history chips — growth only from persisted snapshots, week/month/all windows, top-3 rank ladder; featured Tool Discovery + alternatives; Source Explore projection w/ per-source latest items); N10 Feed + Favorites (@tanstack/react-virtual windowed feed against the workspace scroller w/ pinned-cursor infinite scroll, For You|Latest modes, source filter, non-jumping 'N new posts' banner activated only by the owner, shared NewsCard w/ like/dislike + inline 10s undo countdown, favorite, private notes editor, deterministic Why-shown reasons, open/bounded-dwell events fire-and-forget once per item, media from validated cache w/ reserved aspect; desktop sticky rail w/ transparent 'What TOBI learned' profile + mobile bottom-sheet drawer; Favorites reuses the renderer, server-side source/note filters + client-side search, note editing, never auto-refreshes); N12 rollout gates (43-check security/perf/telemetry suite: script/data/file URLs rejected at the contract, injection text inert, media route serves validated cache only w/ zero proxy capability, cursor tampering 422, secrets redacted end-to-end into alerts; 10k-item corpus meets every plan-§9 gate — rebuild 0.13s w/ FEED_CANDIDATE_CAP=500 bounded snapshots, page read 2ms, /feed 22ms, interaction 13ms, refresh ack 16ms, retention 0.02s; repeated source failures now raise ONE deduplicated Inbox task via core/news/telemetry.py). OWNER-SIDE GATES before flag flip (plan §11/§12): visual QA across themes/motion modes, 20-item evidence review (≥80% trustworthy, ≥70% relevant, zero fabricated), 7 consecutive clean local refresh runs in shadow. Runbook: 1) set news.v2_shadow=1 + restart MC → background collection while V1 stays live; 2) after gates, news.v2_enabled=1 → V2 UI; rollback = flip the flag off (V1 routes/data intact, no down-migration). N11 SHIPPED, 2026-09-01 — the last deferred piece, plus the Chat read the owner asked for.
+
+**Save to Brain is real** (was a 501 stub). A Brain button now sits on every News card and on the
+release-news and trending cards. Pressing it is the ONLY way anything moves from News into Brain —
+nothing is written on a schedule, on ingest, or on a like. It goes through `core.brain.remember()`,
+the accepted #20 facade, so Brain's own duplicate-merging still applies and no V2 internal is
+touched; the facade gained one optional `source` argument so the memory is stamped
+`news:<item_id>` and the Brain page can show where it came from (the stamp is re-applied on the
+`brain.v2_enabled` path too, so provenance does not vanish when that flag flips). A new
+`news_brain_saves` table (migration 6) holds one row per item, so a second press returns the first
+save instead of remembering the same story twice, and the feed sends a `saved_to_brain` flag with
+the page so the button reads as a state, not a repeatable action. A Brain refusal (sensitive text,
+vault locked) is reported with Brain's own reason and records nothing.
+
+**Cross-module context is wired** (`core/news/context.py`). The feed can take a small hint from
+three places, each with its own switch in News → Settings → Personalization, all off until the
+owner turns them on: approved Brain memories (pending ones are never read), his active projects
+(name and description only), and the short summaries TOBI already writes per chat — never the
+transcripts, files, or tool output. A disabled class is not read at all rather than read-and-
+ignored. The nudge is capped at ±5 points, loses entirely to any direct action on the item, and
+when it moves a story the card's "Why" says which part of TOBI caused it and quotes the owner's own
+phrase.
+
+**TOBI can be asked about the News in Chat** (owner request, 2026-09-01). New read tool
+`read_news`, backed by `core/news/reader.py`: model rankings, releases, GitHub trending, tool
+discovery, the personalized feed, favorites, private notes, a title search, and one story read in
+full with its sources and his own reaction/note. It reads the stored tables only — no browser, no
+web search, no LLM — every row carries its source and timestamp, a missing figure comes back absent
+rather than guessed, and it falls back to the V1 Explore tables so Chat never says "no news" while
+the page is showing plenty.
+
+**Owner gates are now one command**, not a checklist: `python scripts/news_launch_gate.py` runs the
+12 suites, the seven consecutive clean refresh rounds, and prints the 20-item evidence sample with
+each item's source, link, date and why-shown — automatically checking the parts that can be checked
+(nothing fabricated, no more than 3 in a row from one source, no topic over 40%, a reason on every
+card) and leaving only "do I trust it / is it interesting" to him. It ends with the exact command
+to turn the flag on, and the exact command to roll back.
+
+**One long-standing red check fixed.** `test_news_v2_ranking`'s "a completed refresh precomputes its
+tab's rank snapshot" was recorded as a flaky race since July. It was not a race: the refresh engine
+rebuilds twice — once before the job goes terminal, and again only when the off-critical-path
+content enrichment actually wrote something — while the test pinned exactly one. It now derives the
+expected count from the job's own recorded content outcome, so it is exact instead of lucky.
+Contracts also stopped crashing an entire ingest batch when a source hands back `excerpt=None`;
+missing data is missing, not malformed.
+
+Gates: all 12 News suites green (428 checks, 56 of them new in `tests/test_news_v2_context_brain.py`),
+Brain 179, Conductor/tool-registry 61, `test_ui_loading_states` green, dashboard `tsc` + `vite build`
+clean, and the declared package gate 33/33.
+
+STILL THE OWNER'S CALL before the flag flips: the visual pass across themes and motion modes, and
+his own read of the 20 sampled items. Media fetch remains as built — cards render from the
+SSRF-guarded validated cache that `core/news/media.py` populates during ingest.
 
 
 <a id="item-22"></a>

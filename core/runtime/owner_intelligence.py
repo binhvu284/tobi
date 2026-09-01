@@ -30,6 +30,7 @@ SAFE_LOCAL_READ_TOOLS = frozenset({
     "list_tasks",
     "llm_spend",
     "project_overview",
+    "read_news",
     "read_resource",
     "recall",
     "recall_conversations",

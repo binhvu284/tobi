@@ -1380,8 +1380,13 @@ def _resolve_category(content: str, category: Optional[str]) -> str:
     return category if category in CATEGORY_IDS else "identity"
 
 
-def remember_legacy(content: str, category: Optional[str] = None) -> dict:
-    """The pre-V2 Remember path, byte-for-byte (T04 keeps it as the rollback)."""
+def remember_legacy(content: str, category: Optional[str] = None,
+                    source: str = "remember") -> dict:
+    """The pre-V2 Remember path, byte-for-byte (T04 keeps it as the rollback).
+
+    ``source`` stamps provenance on the stored row (default ``remember``, exactly as
+    before). #23 passes ``news:<item_id>`` so the Brain page can show which news item a
+    memory came from and ``list_memories(source=…)`` can find it again."""
     content = (content or "").strip()
     if not content:
         return {"ok": False}
@@ -1396,11 +1401,12 @@ def remember_legacy(content: str, category: Optional[str] = None) -> dict:
         conn.commit()
         conn.close()
         return {"ok": True, "id": best_id, "category": category, "action": "merged"}
-    mid = add_memory(content, category, confidence=0.9, source="remember", status="active")
+    mid = add_memory(content, category, confidence=0.9, source=source, status="active")
     return {"ok": True, "id": mid, "category": category, "action": "active"}
 
 
-def remember(content: str, category: Optional[str] = None) -> dict:
+def remember(content: str, category: Optional[str] = None,
+             source: str = "remember") -> dict:
     """Explicit owner Remember, routed by owner_flags.brain_v2_mode() (#20 T04):
     off → legacy path exactly as before; shadow → legacy result + best-effort V2
     ingest alongside (additive `v2` key, failures never surface); on → V2 is
@@ -1414,11 +1420,11 @@ def remember(content: str, category: Optional[str] = None) -> dict:
     except Exception:
         mode = "off"
     if mode == "off":
-        return remember_legacy(content, category)
+        return remember_legacy(content, category, source)
 
     from core import brain_remember_v2
     if mode == "shadow":
-        res = remember_legacy(content, category)
+        res = remember_legacy(content, category, source)
         v2 = brain_remember_v2.remember_shadow(content, res.get("category") or category,
                                                compat_ref=res.get("id"))
         if v2 is not None:
@@ -1426,7 +1432,20 @@ def remember(content: str, category: Optional[str] = None) -> dict:
                          "status": v2.status.value if v2.status else None}
         return res
     # mode == "on"
-    return brain_remember_v2.remember_on(content, _resolve_category(content, category))
+    res = brain_remember_v2.remember_on(content, _resolve_category(content, category))
+    # V2 owns the write, and its compat mirror always stamps source='remember'. Restamp
+    # the mirror here, in the facade, so a caller's provenance survives the brain.v2_enabled
+    # flip instead of silently disappearing from the Brain page. V2's own tables are not
+    # touched — this is the legacy row core/brain.py already owns.
+    if source != "remember" and res.get("ok") and res.get("id"):
+        conn = get_connection()
+        try:
+            conn.execute("UPDATE brain_memories SET source=? WHERE id=? AND source='remember'",
+                         (source, res["id"]))
+            conn.commit()
+        finally:
+            conn.close()
+    return res
 
 
 # ── stats ────────────────────────────────────────────────────────────────────

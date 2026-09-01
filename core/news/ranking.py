@@ -15,7 +15,8 @@ from datetime import datetime, timedelta, timezone
 
 from core.news.contracts import Tab
 from core.news.personalization import (
-    _tokens, active_profile, context_delta, immediate_adjustments, recompute_profile,
+    CONTEXT_CAP, _tokens, active_profile, context_delta, immediate_adjustments,
+    recompute_profile,
 )
 from core.news.repository import _ensure_once, write_rank_snapshot
 
@@ -283,7 +284,9 @@ def build_feed_snapshots(conn: sqlite3.Connection, now: datetime | None = None,
     """``feed:for_you`` (scored + diversity + top-2 reasons) and ``feed:latest``
     (pure recency). Disliked items are hidden IMMEDIATELY from both — even while
     their undo window is still open. ``context_scores`` ({item_id: {class: pts}})
-    is capped at ±CONTEXT_CAP and ignored on items with a direct signal."""
+    is capped at ±CONTEXT_CAP and ignored on items with a direct signal. Passing None
+    (the normal case) collects it from the owner-enabled context classes; passing a dict
+    overrides that, which is how the tests pin exact context arithmetic."""
     from core.news import personalization, repository
     _ensure_once(conn)
     now_dt = _now(now)
@@ -299,6 +302,13 @@ def build_feed_snapshots(conn: sqlite3.Connection, now: datetime | None = None,
         " FROM news_items n LEFT JOIN news_interactions i ON i.item_id=n.id"
         " WHERE n.item_type IN ('article','social')"
         " ORDER BY stamp DESC, n.id DESC LIMIT ?", (FEED_CANDIDATE_CAP,)).fetchall()
+    # N11 cross-module context: when the caller does not supply scores, collect them from
+    # the context classes the owner has ENABLED. Every class ships off, so this is {} —
+    # and therefore a no-op — until he turns one on in News settings.
+    if context_scores is None:
+        from core.news import context as news_context
+        context_scores = news_context.collect_context_scores(
+            conn, [r[0] for r in rows], settings)
     stamps: dict[int, str] = {}
     recap_at: dict[int, str] = {}
     candidates = []
@@ -323,12 +333,23 @@ def build_feed_snapshots(conn: sqlite3.Connection, now: datetime | None = None,
         has_direct = reaction != "none" or bool(favorite) or bool((note or "").strip())
         ctx = context_delta((context_scores or {}).get(item_id, {}), settings, has_direct)
         tokens = _tokens(title)
+        reasons = personalization.reasons_for(conn, item_id, profile)
+        if ctx:
+            # N11: when cross-module context moved this item, say so ON the card. The
+            # owner sees which part of TOBI nudged it and which of his own phrases matched,
+            # so the boost is inspectable instead of magic (plan §6 "transparent").
+            from core.news import context as news_context
+            for prov in news_context.explain(conn, item_id, settings)[:1]:
+                label = news_context.CLASS_LABELS.get(prov["context_class"], prov["context_class"])
+                reasons = ([{"reason": f"Matches {label}: “{prov['because']}”",
+                             "strength": round(min(1.0, prov["points"] / CONTEXT_CAP), 3),
+                             "context_class": prov["context_class"]}] + reasons)[:2]
         candidates.append({
             "item_id": item_id, "title": title, "source": source,
             "topic": tokens[0] if tokens else source,
             "score": round(score + ctx, 2), "components": components,
             "context_points": round(ctx, 2),
-            "reasons": personalization.reasons_for(conn, item_id, profile),
+            "reasons": reasons,
         })
     candidates.sort(key=lambda e: (-e["score"], e["item_id"]))
     # Feed-quality rule (owner direction): For You is the CURATED deep-dive stream —

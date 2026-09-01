@@ -82,6 +82,7 @@ export type NewsV2ReleaseNews = {
   item_id: number; title: string; url: string; source: string | null
   excerpt: string | null; recap: string | null; media_key: string | null
   published_at: string | null; first_seen_at: string | null
+  saved_to_brain?: boolean
   interaction?: NewsV2Interaction
 }
 export type NewsV2SourceHealth = {
@@ -127,7 +128,9 @@ export type NewsV2ItemEntry = {
   excerpt?: string | null; published_at?: string | null; first_seen_at?: string
   media_key?: string | null; topic?: string; score?: number; trust?: string; engagement?: number
   recap?: string | null
-  reasons?: { reason: string; strength: number }[]; interaction?: NewsV2Interaction
+  saved_to_brain?: boolean
+  reasons?: { reason: string; strength: number; context_class?: string }[]
+  interaction?: NewsV2Interaction
 }
 export async function getNewsV2TrendingGithub(window: 'week' | 'month' | 'all', q = '', topic = ''): Promise<{ entries: NewsV2GithubEntry[]; snapshot_id: number | null; next_cursor: string | null; topics?: string[] }> {
   const qs = new URLSearchParams({ section: 'github', window, limit: '30' })
@@ -205,6 +208,18 @@ export async function postNewsV2Event(
     body: JSON.stringify(event),
   })
 }
+// N11 Save to Brain — the ONLY News→Brain write, and only on an explicit press.
+export type NewsV2BrainSave = {
+  item_id: number; memory_id: number | null; provenance: string
+  action: string; content: string; saved_at: string; already_saved?: boolean
+}
+export async function postNewsV2SaveToBrain(itemId: number): Promise<NewsV2BrainSave> {
+  return request(`/api/explore/v2/items/${itemId}/save-to-brain`, { method: 'POST' })
+}
+export async function getNewsV2BrainSave(itemId: number): Promise<{ item_id: number; saved: NewsV2BrainSave | null }> {
+  return get(`/api/explore/v2/items/${itemId}/brain-save`)
+}
+
 export async function getNewsV2Profile(): Promise<{
   version: number; topics: Record<string, number>; sources: Record<string, number>
   types: Record<string, number>; provenance: Record<string, unknown>

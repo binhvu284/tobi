@@ -104,6 +104,7 @@ for tab in ("home", "trending", "feed"):
     RK.rebuild_for_tab(conn, tab, now=NOW)
 conn.commit()
 A = conn.execute("SELECT id FROM news_items WHERE url_hash=?", (CT.url_hash("https://x.io/h1"),)).fetchone()[0]
+B = conn.execute("SELECT id FROM news_items WHERE url_hash=?", (CT.url_hash("https://x.io/w1"),)).fetchone()[0]
 conn.close()
 
 # ── 3. reads: home / models / trending / feed ────────────────────────────────────────
@@ -209,8 +210,23 @@ ok("favorites mode lists favorited items", client.patch(
     f"{V2}/items/{A}/interaction", json={"action": "favorite", "version": 4},
     headers={"Idempotency-Key": "k9"}).status_code == 200 and [
     e["item_id"] for e in client.get(f"{V2}/feed", params={"mode": "favorites"}).json()["entries"]] == [A])
-ok("save-to-brain honestly reports 501 until N11", client.post(
-    f"{V2}/items/{A}/save-to-brain").status_code == 501)
+# N11 Save to Brain — explicit, once per item, provenance-stamped, 404 on unknown.
+r = client.post(f"{V2}/items/{A}/save-to-brain")
+ok("save-to-brain stores the item on the owner's explicit press",
+   r.status_code == 200 and r.json()["ok"] and r.json()["provenance"] == f"news:{A}"
+   and r.json()["already_saved"] is False, f"{r.status_code} {r.text[:200]}")
+again = client.post(f"{V2}/items/{A}/save-to-brain").json()
+ok("a second press returns the first save instead of remembering it twice",
+   again["already_saved"] is True and again["memory_id"] == r.json()["memory_id"])
+ok("the saved state is readable for the card badge",
+   client.get(f"{V2}/items/{A}/brain-save").json()["saved"]["provenance"] == f"news:{A}")
+ok("saving an unknown item is a 404, not a silent success",
+   client.post(f"{V2}/items/999999/save-to-brain").status_code == 404)
+ok("an item nobody pressed save on is NOT in Brain",
+   client.get(f"{V2}/items/{B}/brain-save").json()["saved"] is None)
+ok("the feed carries the Brain-save badge", {
+    e["item_id"]: e["saved_to_brain"] for e in
+    client.get(f"{V2}/feed", params={"mode": "latest"}).json()["entries"]}.get(A) is True)
 
 # ── 5. settings ──────────────────────────────────────────────────────────────────────
 settings = client.get(f"{V2}/settings").json()

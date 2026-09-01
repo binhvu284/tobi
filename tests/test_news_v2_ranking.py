@@ -11,6 +11,7 @@ precedence, snapshot pruning, and the refresh-engine rebuild hook.
 from __future__ import annotations
 
 import os
+import json
 import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -321,11 +322,20 @@ conn = get_connection()
 before = conn.execute("SELECT COUNT(*) FROM news_rank_snapshots WHERE kind='models:top'").fetchone()[0]
 conn.close()
 job = refresh.request_refresh("home")
-refresh.run_job(job["job_id"])
+done = refresh.run_job(job["job_id"])
 conn = get_connection()
 after = conn.execute("SELECT COUNT(*) FROM news_rank_snapshots WHERE kind='models:top'").fetchone()[0]
 conn.close()
-ok("a completed refresh precomputes its tab's rank snapshot", after == before + 1,
-   f"{before}->{after}")
+# The refresh engine rebuilds in two phases (refresh.py): phase 1 always rebuilds from the
+# fresh ingest before the job goes terminal; phase 2 rebuilds a SECOND time only when the
+# off-critical-path content enrichment actually wrote something. Derive the expectation from
+# the job's own recorded outcome instead of pinning one number, so the assertion stays exact.
+content = (json.loads(done.get("metrics_json") or "{}") if isinstance(done.get("metrics_json"), str)
+           else (done.get("metrics") or {})).get("content") or {}
+produced = (int((content.get("recaps") or {}).get("written", 0))
+            + int((content.get("spotlight") or {}).get("spotlighted", 0)))
+expected = 1 + (1 if produced else 0)
+ok("a completed refresh precomputes its tab's rank snapshot", after == before + expected,
+   f"{before}->{after} expected +{expected} (content={content})")
 
 print(f"\nALL {PASS} CHECKS PASSED")

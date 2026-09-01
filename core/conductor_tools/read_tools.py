@@ -505,3 +505,21 @@ def tool_awakening_status(**_: Any) -> dict:
         return {"error": str(e)[:200]}
     finally:
         conn.close()
+
+
+def tool_read_news(section: str = "overview", query: str = "", item_id: int = 0,
+                   limit: int = 10, window: str = "week", mode: str = "for_you",
+                   **_: Any) -> dict:
+    """Read the owner's News page (#23) so Chat can answer questions about it.
+
+    Grounded only — every field comes from the stored News tables with its source and
+    timestamp attached, and nothing is generated here. Falls back to the V1 Explore
+    tables when News V2 has not collected anything yet, so an answer is never "no news"
+    while the page is showing plenty."""
+    from core.news import reader
+    try:
+        return reader.read(section=section, query=query,
+                           item_id=int(item_id) if item_id else None,
+                           limit=limit, window=window, mode=mode)
+    except Exception as e:
+        return {"error": str(e)[:200]}

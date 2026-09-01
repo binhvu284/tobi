@@ -4,19 +4,21 @@
 // the personalization + content-creator algorithms. onChange lets a parent react to a
 // favourite (e.g. "keep on refresh, otherwise disposable").
 import { useState } from 'react'
-import { Loader2, StickyNote, ThumbsDown, ThumbsUp, Star } from 'lucide-react'
-import { patchNewsV2Interaction, putNewsV2Note, type NewsV2Interaction } from '../../api.explore'
+import { Brain, Loader2, StickyNote, ThumbsDown, ThumbsUp, Star } from 'lucide-react'
+import { patchNewsV2Interaction, postNewsV2SaveToBrain, putNewsV2Note, type NewsV2Interaction } from '../../api.explore'
 import { useToast } from '../../context/ToastProvider'
 import { DEFAULT_INTERACTION } from './NewsCard'
 
-type Action = 'like' | 'dislike' | 'favorite' | 'note'
+type Action = 'like' | 'dislike' | 'favorite' | 'note' | 'brain'
 
-export default function ActionBar({ itemId, interaction, onChange, size = 'sm', actions }: {
+export default function ActionBar({ itemId, interaction, onChange, size = 'sm', actions, savedToBrain }: {
   itemId: number
   interaction?: NewsV2Interaction
   onChange?: (next: NewsV2Interaction) => void
   size?: 'sm' | 'xs'
   actions?: Action[]
+  /** N11: whether this story is already a Brain memory (the feed sends it with the page). */
+  savedToBrain?: boolean
 }) {
   const show = (a: Action) => !actions || actions.includes(a)
   const { toast } = useToast()
@@ -24,6 +26,7 @@ export default function ActionBar({ itemId, interaction, onChange, size = 'sm', 
   const [busy, setBusy] = useState<string | null>(null)
   const [noteOpen, setNoteOpen] = useState(false)
   const [draft, setDraft] = useState('')
+  const [inBrain, setInBrain] = useState(Boolean(savedToBrain))
 
   const apply = (next: NewsV2Interaction) => { setIx(next); onChange?.(next) }
 
@@ -45,6 +48,21 @@ export default function ActionBar({ itemId, interaction, onChange, size = 'sm', 
       toast({ kind: 'success', title: text ? 'Note saved' : 'Note cleared' })
     } catch (err) { toast({ kind: 'error', title: 'Note not saved', detail: err instanceof Error ? err.message : String(err) }) }
     finally { setBusy(null) }
+  }
+
+  // N11: the ONLY News→Brain write. Explicit press, once per story — a second press is a
+  // no-op server-side, so the button becomes a state, not a repeatable action.
+  const saveToBrain = async () => {
+    if (busy || inBrain) return
+    setBusy('brain')
+    try {
+      const res = await postNewsV2SaveToBrain(itemId)
+      setInBrain(true)
+      toast({ kind: 'success', title: res.already_saved ? 'Already in Brain' : 'Saved to Brain',
+        detail: res.already_saved ? 'TOBI remembered this story earlier.' : 'TOBI will remember this story.' })
+    } catch (err) {
+      toast({ kind: 'error', title: 'Not saved to Brain', detail: err instanceof Error ? err.message : String(err) })
+    } finally { setBusy(null) }
   }
 
   const iconSize = size === 'xs' ? 12 : 13
@@ -74,6 +92,14 @@ export default function ActionBar({ itemId, interaction, onChange, size = 'sm', 
             onClick={() => mutate(ix.favorite === 1 ? 'unfavorite' : 'favorite', 'fav')}
             className={`${btn} ${ix.favorite === 1 ? 'border-amber-400/50 bg-amber-400/10 text-amber-400' : off}`}>
             {busy === 'fav' ? <Loader2 size={iconSize} className="animate-spin" /> : <Star size={iconSize} className={ix.favorite === 1 ? 'fill-current' : ''} />}
+          </button>
+        )}
+        {show('brain') && (
+          <button title={inBrain ? 'TOBI remembers this story' : 'Save to Brain — TOBI remembers this story'}
+            aria-label="Save to Brain" disabled={busy !== null || inBrain}
+            onClick={saveToBrain}
+            className={`${btn} ${inBrain ? 'border-violet-400/50 bg-violet-400/10 text-violet-400' : off}`}>
+            {busy === 'brain' ? <Loader2 size={iconSize} className="animate-spin" /> : <Brain size={iconSize} className={inBrain ? 'fill-current' : ''} />}
           </button>
         )}
         {show('note') && (
