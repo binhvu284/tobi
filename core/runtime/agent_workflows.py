@@ -190,7 +190,10 @@ def qualify_agent_workflow(request: TurnRequest) -> AgentWorkflowQualification:
     explicit.update(dict(request.workflow_fields or {}))
     catalog = supported_workflow_catalog()
     normalized = re.sub(r"\s+", " ", request.message.casefold()).strip()
-    forced_id = next((
+    forced_id = (
+        "project.list"
+        if re.search(r"\b(?:list|show)\s+(?:(?:all|my|the)\s+)?projects?\b", normalized)
+        else next((
         workflow_id
         for phrase, workflow_id in (
             ("run approved command", "terminal.typed_command"),
@@ -208,7 +211,8 @@ def qualify_agent_workflow(request: TurnRequest) -> AgentWorkflowQualification:
             ("read file", "file.read"),
         )
         if phrase in normalized
-    ), None)
+        ), None)
+    )
     if forced_id is not None:
         workflow = catalog.get(forced_id)
         missing = tuple(

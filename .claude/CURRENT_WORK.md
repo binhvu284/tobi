@@ -9,12 +9,12 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 ---
 
 **Item:** #35 TOBI Agent Tier Completion
-**Package:** T02 - Canonical Local Agent Workflows
-**Status:** T00 baseline accepted. T01 and T02 complete under green verification; T02A has not started.
+**Package:** T02 - Owner-Wording Live Repair
+**Status:** T00 and T01 complete. T02 owner-wording repair is implemented; owner live retest is pending.
 
 **Purpose (one sentence, plain words):**
-Make normal Agent turns complete bounded Project, local diagnosis, and Coding-status workflows
-through canonical Runtime with durable typed requests and evidence-grounded results.
+Make the owner's normal wording `list all project` enter T02 canonical Runtime instead of the legacy
+model loop, without widening another Agent or Developer route.
 
 **Not doing:**
 - No Chat-to-Developer dispatch (T02A), coding worker execution, or changes to DeepSeek Harness.
@@ -43,7 +43,7 @@ through canonical Runtime with durable typed requests and evidence-grounded resu
 - `docs/feature-idea-queue/QUEUE_DELIVERY_LOG.md`
 - focused #35 documentation plus the inherited #21/#34/T00 gate
 
-**Gate: green - 32/32 suites on 2026-09-01**
+**Gate: green - the owner-wording repair and all 32 suites must pass**
 
 ```gate
 ../.python/venv/Scripts/python.exe tests/test_agent_tier_workflows.py

@@ -83,6 +83,14 @@ previous Agent path. T02 focused checks pass 20/20 and the shared gate passes 32
 dispatch, DeepSeek Harness, browser/external action, live model calls, Supabase, and Vercel were not
 part of this package.
 
+The owner's first production check on 2026-09-01 used `list all project`. It returned correct data but
+did not prove T02: the live database showed legacy Agent run `156`, model `codex:gpt-5.6-sol`, 175
+completion tokens, 15.2 seconds, no linked canonical response, and no matching `mc_runs` row. A
+red-first repair now recognizes bounded `list/show` wording with optional `all/my/the` and singular or
+plural `project`. The focused live-HTTP test uses the owner's exact phrase and proves one canonical
+run, `model=not_used`, and duplicate-free replay. A restarted-server owner retest remains the final
+live confirmation of this wording repair.
+
 
 <a id="item-34"></a>
 

@@ -256,7 +256,7 @@ try:
     streamed = client.post(
         f"/api/chat/sessions/{api_session['id']}/stream",
         json={
-            "message": "list projects",
+            "message": "list all project",
             "mode": "agent",
             "client_turn_id": "turn-live-agent-t02",
         },
@@ -294,7 +294,7 @@ ok(
 replayed_stream = client.post(
     f"/api/chat/sessions/{api_session['id']}/stream",
     json={
-        "message": "list projects",
+        "message": "list all project",
         "mode": "agent",
         "client_turn_id": "turn-live-agent-t02",
     },
