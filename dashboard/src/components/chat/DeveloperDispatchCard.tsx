@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, CirclePause, Code2, ExternalLink, Loader2, XCircle } from 'lucide-react'
-import { getDeveloperDispatch, type ChatDeveloperDispatch } from '../../api.chat'
+import { AlertTriangle, CheckCircle2, CirclePause, Code2, ExternalLink, Loader2, RotateCcw, XCircle } from 'lucide-react'
+import { getDeveloperDispatch, retryDeveloperDispatch, type ChatDeveloperDispatch } from '../../api.chat'
 
 
 const ACTIVE = new Set(['proposed', 'preflighting', 'running', 'waiting_approval', 'blocked'])
@@ -28,6 +28,9 @@ function StatusIcon({ status }: { status: string }) {
 export default function DeveloperDispatchCard({ dispatchId }: { dispatchId: string }) {
   const [dispatch, setDispatch] = useState<ChatDeveloperDispatch | null>(null)
   const [unavailable, setUnavailable] = useState(false)
+  const [retrying, setRetrying] = useState(false)
+  const [retryError, setRetryError] = useState('')
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     let stopped = false
@@ -44,7 +47,21 @@ export default function DeveloperDispatchCard({ dispatchId }: { dispatchId: stri
     }
     void refresh()
     return () => { stopped = true; if (timer) window.clearTimeout(timer) }
-  }, [dispatchId])
+  }, [dispatchId, refreshKey])
+
+  const retry = async () => {
+    setRetrying(true)
+    setRetryError('')
+    try {
+      const result = await retryDeveloperDispatch(dispatchId)
+      setDispatch(result.developer_dispatch)
+      setRefreshKey(value => value + 1)
+    } catch (error) {
+      setRetryError(error instanceof Error ? error.message : 'Developer retry failed')
+    } finally {
+      setRetrying(false)
+    }
+  }
 
   if (!dispatch) {
     return (
@@ -83,6 +100,14 @@ export default function DeveloperDispatchCard({ dispatchId }: { dispatchId: stri
         </div>
       )}
       {dispatch.blocker && <p className="mt-2 text-[11px] leading-relaxed text-warning">{dispatch.blocker}</p>}
+      {retryError && <p className="mt-2 text-[11px] leading-relaxed text-danger">{retryError}</p>}
+      {dispatch.can_retry && (
+        <button type="button" onClick={() => void retry()} disabled={retrying}
+          className="mt-2 inline-flex h-8 items-center gap-1.5 rounded border border-border px-2.5 text-xs font-medium text-text hover:border-accent hover:text-accent disabled:cursor-wait disabled:opacity-60">
+          {retrying ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+          {retrying ? 'Retrying' : 'Retry'}
+        </button>
+      )}
       {(dispatch.changes.files.length > 0 || dispatch.checks.length > 0 || dispatch.artifacts.length > 0) && (
         <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted">
           <span>{dispatch.changes.files.length} changed file{dispatch.changes.files.length === 1 ? '' : 's'}</span>

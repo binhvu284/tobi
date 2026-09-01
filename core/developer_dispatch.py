@@ -503,6 +503,7 @@ class DeveloperDispatchService:
             "progress": 0,
             "blocker": dispatch.get("blocker"),
             "error_code": dispatch.get("error_code"),
+            "can_retry": dispatch.get("status") == "failed" and not dispatch.get("workflow_id"),
             "changes": {"files": [], "stat": ""},
             "checks": [],
             "artifacts": [],
@@ -613,6 +614,48 @@ class DeveloperDispatchService:
         finally:
             conn.close()
         return [self._project(_decode_row(row)) for row in rows]
+
+    def retry(self, dispatch_id: str) -> dict:
+        """Retry an approved hand-off that failed before a Developer workflow existed."""
+        with _CONFIRM_LOCK:
+            dispatch = self._find(dispatch_id)
+            if dispatch is None:
+                raise KeyError(dispatch_id)
+            if dispatch.get("status") != "failed" or dispatch.get("workflow_id"):
+                raise ValueError("This Developer dispatch must be recovered in Developer.")
+            action_id = dispatch.get("action_id")
+            if not action_id:
+                raise ValueError("This Developer dispatch has no linked approval.")
+
+            metadata = {"developer_dispatch": {"dispatch_id": str(dispatch_id)}}
+            conn = get_connection()
+            try:
+                _ensure_schema(conn)
+                conn.execute("BEGIN IMMEDIATE")
+                action = conn.execute(
+                    "SELECT tool,status FROM tobi_actions WHERE id=?", (int(action_id),)
+                ).fetchone()
+                if not action or action["tool"] != "developer_dispatch" or action["status"] != "failed":
+                    conn.rollback()
+                    raise ValueError("This Developer approval is not retryable.")
+                now = utc_now()
+                conn.execute(
+                    """UPDATE tobi_actions
+                       SET status='proposed',result_json=?,executed_at=NULL WHERE id=?""",
+                    (json.dumps(metadata, sort_keys=True), int(action_id)),
+                )
+                conn.execute(
+                    """UPDATE chat_developer_dispatches
+                       SET status='proposed',blocker=NULL,error_code=NULL,updated_at=? WHERE id=?""",
+                    (now, str(dispatch_id)),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            from core import conductor
+
+            return conductor.confirm_action(int(action_id), "approve")
 
     def resolve_linked_action(self, action_row: dict, decision: str, metadata: dict) -> dict:
         dispatch_id = str(metadata.get("dispatch_id") or "")

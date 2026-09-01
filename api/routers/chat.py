@@ -1437,6 +1437,18 @@ def chat_developer_dispatch(dispatch_id: str):
         raise HTTPException(status_code=404, detail="Developer dispatch not found") from exc
 
 
+@router.post("/api/chat/developer-dispatches/{dispatch_id}/retry")
+def chat_developer_dispatch_retry(dispatch_id: str):
+    from core.developer_dispatch import DeveloperDispatchService
+
+    try:
+        return DeveloperDispatchService().retry(dispatch_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Developer dispatch not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @router.get("/api/chat/sessions/{sid}/developer-dispatches")
 def chat_session_developer_dispatches(sid: int):
     from core import chat_store

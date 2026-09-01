@@ -103,12 +103,18 @@ export type DeveloperGeneratedArtifact = {
 export type ChatDeveloperDispatch = {
   id: string; session_id: number; status: string; title: string; objective: string
   queue_id?: number | null; workflow_id?: number | null; stage?: string | null; progress: number
-  blocker?: string | null; error_code?: string | null; developer_url: string; updated_at: string
+  blocker?: string | null; error_code?: string | null; can_retry?: boolean
+  developer_url: string; updated_at: string
   changes: { files: string[]; stat?: string }; checks: Array<Record<string, unknown>>
   artifacts: DeveloperGeneratedArtifact[]
 }
 export async function getDeveloperDispatch(id: string): Promise<ChatDeveloperDispatch> {
   return get(`/api/chat/developer-dispatches/${encodeURIComponent(id)}`)
+}
+export async function retryDeveloperDispatch(id: string): Promise<{
+  ok: boolean; status: string; error?: string; developer_dispatch: ChatDeveloperDispatch
+}> {
+  return request(`/api/chat/developer-dispatches/${encodeURIComponent(id)}/retry`, { method: 'POST' })
 }
 export async function getSessionDeveloperDispatches(id: number): Promise<{ dispatches: ChatDeveloperDispatch[] }> {
   return get(`/api/chat/sessions/${id}/developer-dispatches`)

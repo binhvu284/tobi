@@ -113,8 +113,12 @@ writer still recognized only the retired `Feature | Status | ... | Spec` schema.
 uses `ID | Name | Description | Status | Notes`. A new red-first check reproduced the exact mismatch.
 The repaired writer discovers the supported columns and emits a parseable current or legacy row while
 retaining the existing lock, queue-hash conflict check, atomic plan/queue writes, and rollback behavior.
-The failed live attempt stopped before writing either a queue row or plan file. T02A now passes 22/22
-focused checks and the full gate remains 33/33; owner restart and confirmation retest remain.
+The failed live attempt stopped before writing either a queue row or plan file. The same persisted
+failed card now exposes a bounded Retry action after restart. Retry restores its existing approval,
+continues the same dispatch identity, and reuses an already-authored queue item if one exists; it does
+not create a second proposal. Failures after a Developer workflow exists remain owned by Developer's
+existing recovery controls. T02A now passes 25/25 focused checks and the full gate remains 33/33;
+owner restart and Retry retest remain.
 
 
 <a id="item-34"></a>
