@@ -143,6 +143,15 @@ failure record. After owner confirmation, the item deliberately enters the exist
 nothing to that file. Focused checks pass 39/39, the full gate passes 33/33, TypeScript exits zero,
 and the production dashboard build passes. Owner live retest remains before T02A acceptance.
 
+Round 3 review repair on 2026-09-02 replaces whole-message qualification with bounded sentence and
+line scanning. Explicit Developer commands now survive a preceding problem description, pasted
+multi-line detail, or an unrelated phrase such as `Don't worry`, while actual negations still stay
+in normal Chat. Context-only forms such as `send this to developer` now ask for the missing objective
+instead of creating a synthetic work order, and an objective stops at the end of its instruction
+sentence. Structural regression coverage raises the focused contract to 44/44; the shared gate still
+passes 33/33, TypeScript exits zero, and the production dashboard build passes. Owner live retest
+remains before T02A acceptance. DeepSeek Harness and Developer worker execution remain unchanged.
+
 
 <a id="item-34"></a>
 

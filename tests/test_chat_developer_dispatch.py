@@ -171,7 +171,8 @@ ok("common Markdown ambiguity asks before dispatch", common_ambiguous.status == 
 ok("a bare Developer trigger asks for the objective", bare_trigger.status == "clarify", bare_trigger)
 ok(
     "natural explicit Developer hand-offs are recognized",
-    natural_with.status == natural_send.status == "accepted" and natural_handoff.status == "clarify",
+    natural_with.status == "accepted"
+    and natural_send.status == natural_handoff.status == "clarify",
     {"with": natural_with, "send": natural_send, "handoff": natural_handoff},
 )
 polite_explicit_cases = [
@@ -195,6 +196,60 @@ ok(
         "accepted": [(value, developer_dispatch.qualify_developer_request(value)) for value in polite_explicit_cases],
         "clarify": [(value, developer_dispatch.qualify_developer_request(value)) for value in degenerate_cases],
     },
+)
+wrapped_explicit_cases = [
+    *(f"The page is slow. {value}" for value in polite_explicit_cases),
+    *(f"{value}\n- detail" for value in polite_explicit_cases),
+    "I noticed the Runs page is empty; use Developer to fix the Runs page query.",
+]
+ok(
+    "explicit Developer commands survive surrounding sentences and lines",
+    all(developer_dispatch.qualify_developer_request(value).status == "accepted" for value in wrapped_explicit_cases),
+    [(value, developer_dispatch.qualify_developer_request(value)) for value in wrapped_explicit_cases],
+)
+multiline_explicit_cases = [
+    "Use Developer to fix this:\n- send button\n- retry loop",
+    "Use Developer to fix the send button\nIt fails on mobile",
+    "/developer fix the send button\ncontext: mobile only",
+]
+ok(
+    "multiline Developer commands qualify from their bounded instruction line",
+    all(developer_dispatch.qualify_developer_request(value).status == "accepted" for value in multiline_explicit_cases),
+    [(value, developer_dispatch.qualify_developer_request(value)) for value in multiline_explicit_cases],
+)
+unrelated_negation_cases = [
+    "Don't worry - use Developer to fix the send button",
+    "Don't worry - please fix the send button with Developer",
+    "Never mind the CSS, use Developer to fix the API",
+    "No need to explain, use Developer to fix the Runs query",
+]
+ok(
+    "an unrelated negative lead-in does not cancel a later Developer command",
+    all(developer_dispatch.qualify_developer_request(value).status == "accepted" for value in unrelated_negation_cases),
+    [(value, developer_dispatch.qualify_developer_request(value)) for value in unrelated_negation_cases],
+)
+context_only_handoffs = [
+    "send this to developer",
+    "hand this to the Developer agent",
+    "use developer for this",
+]
+ok(
+    "context-only Developer hand-offs ask for one concrete objective",
+    all(developer_dispatch.qualify_developer_request(value).status == "clarify" for value in context_only_handoffs),
+    [(value, developer_dispatch.qualify_developer_request(value)) for value in context_only_handoffs],
+)
+bounded_objective = developer_dispatch.qualify_developer_request(
+    "Use Developer to fix the Chat send button. It does nothing on mobile."
+)
+compound_objective = developer_dispatch.qualify_developer_request(
+    "Use Developer to inspect the Chat bug, fix the retry loop, and run tests."
+)
+ok(
+    "the Developer objective stops at a sentence without losing its clauses",
+    bounded_objective.status == compound_objective.status == "accepted"
+    and bounded_objective.objective == "fix the Chat send button"
+    and compound_objective.objective == "inspect the Chat bug, fix the retry loop, and run tests",
+    {"bounded": bounded_objective, "compound": compound_objective},
 )
 discussion_cases = [
     "Should we add a feature to export runs?",

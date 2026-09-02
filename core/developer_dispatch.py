@@ -41,7 +41,7 @@ _USE_EXPLICIT = re.compile(
 )
 _SEND_EXPLICIT = re.compile(
     r"^(?:(?:can|could|would)\s+you\s+|please\s+)?send\s+"
-    r"(?:(?P<context>this|it)\s+to\s+)?(?:the\s+)?developer(?:\s+agent)?\b"
+    r"(?:(?:this|it)\s+to\s+)?(?:the\s+)?developer(?:\s+agent)?\b"
     r"(?P<tail>.*)$",
     re.IGNORECASE,
 )
@@ -81,6 +81,17 @@ _QUESTION_OPEN = re.compile(
     r"^(?:what|why|how|should|can|could|would|do|does|did|is|are|was|were)\b",
     re.IGNORECASE,
 )
+_CLAUSE_COMMAND_START = (
+    r"(?:(?:(?:can|could|would)\s+you\s+|please\s+)?(?:use|ask|send|hand)\b|"
+    r"/developer\b|(?:(?:can|could|would)\s+you\s+|please\s+)?"
+    r"(?:fix|repair|build|implement)\b[^.!?\r\n]*\s+with\s+"
+    r"(?:the\s+)?developer(?:\s+agent)?\b)"
+)
+_REQUEST_SEGMENT_BOUNDARY = re.compile(
+    rf"(?:\r?\n+|(?<=[.!?])[ \t]+|;[ \t]*|"
+    rf"(?:,[ \t]+|[ \t]+[-\u2013\u2014][ \t]+)(?={_CLAUSE_COMMAND_START}))",
+    re.IGNORECASE,
+)
 
 
 def _clean_objective(value: str) -> str:
@@ -95,6 +106,14 @@ def _tail_objective(value: str) -> str:
     return _clean_objective(tail)
 
 
+def _request_segments(message: str) -> tuple[str, ...]:
+    return tuple(
+        segment.strip()
+        for segment in _REQUEST_SEGMENT_BOUNDARY.split(message)
+        if segment.strip()
+    )
+
+
 def _explicit_objective(message: str) -> tuple[bool, str]:
     text = message.strip()
     slash = _SLASH_EXPLICIT.match(text)
@@ -105,10 +124,7 @@ def _explicit_objective(message: str) -> tuple[bool, str]:
         return True, _tail_objective(match.group("tail"))
     match = _SEND_EXPLICIT.match(text)
     if match:
-        objective = _tail_objective(match.group("tail"))
-        if not objective and match.group("context"):
-            objective = "Complete the work described in this Chat conversation"
-        return True, objective
+        return True, _tail_objective(match.group("tail"))
     match = _HAND_EXPLICIT.match(text)
     if match:
         return True, _tail_objective(match.group("tail"))
@@ -147,13 +163,21 @@ def qualify_developer_request(message: str) -> DeveloperRequestQualification:
     text = (message or "").strip()
     if not text:
         return DeveloperRequestQualification("unsupported", reason="empty-request")
-    if _NEGATED_REQUEST.search(text) or _NEGATED_DEVELOPER.search(text):
-        return DeveloperRequestQualification("unsupported", reason="developer-request-negated")
-    explicit, objective = _explicit_objective(text)
-    if explicit:
+    segments = _request_segments(text)
+    for segment in segments:
+        explicit, objective = _explicit_objective(segment)
+        if not explicit:
+            continue
+        if _NEGATED_REQUEST.search(segment) or _NEGATED_DEVELOPER.search(segment):
+            return DeveloperRequestQualification("unsupported", reason="developer-request-negated")
         if not _meaningful_objective(objective):
             return _clarify_objective()
         return DeveloperRequestQualification("accepted", objective=objective)
+    if any(
+        _NEGATED_REQUEST.search(segment) or _NEGATED_DEVELOPER.search(segment)
+        for segment in segments
+    ):
+        return DeveloperRequestQualification("unsupported", reason="developer-request-negated")
     if text.endswith("?") or _QUESTION_OPEN.match(text):
         return DeveloperRequestQualification("unsupported", reason="discussion-not-dispatch")
     if _MARKDOWN_CREATION.search(text):
