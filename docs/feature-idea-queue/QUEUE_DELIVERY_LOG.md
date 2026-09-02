@@ -162,6 +162,15 @@ Older persisted proposals fall back to their objective. Focused checks pass 47/4
 passes 33/33, TypeScript exits zero, and the production dashboard build passes. Owner live retest
 remains before T02A acceptance. The optional generic scope wording remains accepted for T02A.
 
+Round 5 review repair on 2026-09-03 keeps the full owner message in its durable proposal and generated
+plan but removes it from the one-line roadmap Description cell. New Queue descriptions are bounded to
+160 characters, and pronoun objectives such as `fix this` use the supporting error, first bullet, or
+preceding problem sentence for a meaningful proposal, plan, and Queue title. Representative pasted
+traceback and bullet rows stay below 400 characters while their complete context remains under the
+plan's `## Context` heading. Focused checks pass 49/49, the shared gate passes 33/33, TypeScript exits
+zero, and the production dashboard build passes. Owner live retest remains before T02A acceptance.
+The optional generic scope wording remains accepted for T02A.
+
 
 <a id="item-34"></a>
 

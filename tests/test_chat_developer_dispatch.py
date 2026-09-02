@@ -300,12 +300,48 @@ context_risk_proposal = service.propose(
     message=context_risk_message,
 )
 detailed_payload = detailed_proposal["pending_action"]["developer_proposal"]
+slow_context_proposal = service.propose(
+    session_id=35,
+    client_turn_id="t02a-slow-context-turn",
+    message="The Chat page is slow. Use Developer to fix it.",
+)
+long_context_message = "\n".join([
+    "Traceback (most recent call last):",
+    *[
+        f'  File "core/chat_store.py", line {line}, in save_turn'
+        for line in range(400, 416)
+    ],
+    "KeyError: missing_owner_context",
+    "Use Developer to fix this.",
+])
+long_context_proposal = service.propose(
+    session_id=35,
+    client_turn_id="t02a-long-context-turn",
+    message=long_context_message,
+)
+slow_context_payload = slow_context_proposal["pending_action"]["developer_proposal"]
+long_context_payload = long_context_proposal["pending_action"]["developer_proposal"]
 ok(
     "the durable proposal preserves full owner context and evaluates its risk",
     detailed_payload["objective"] == "fix this"
     and detailed_payload["context"] == detailed_message
     and context_risk_proposal["pending_action"]["developer_proposal"]["risk"] == "high",
     {"proposal": detailed_payload, "context_risk": context_risk_proposal},
+)
+ok(
+    "anaphor proposal titles describe the supporting owner context",
+    "send button" in detailed_payload["title"].lower()
+    and "chat page" in slow_context_payload["title"].lower()
+    and "keyerror" in long_context_payload["title"].lower()
+    and all(
+        payload["title"].lower() not in {"this", "it"}
+        for payload in (detailed_payload, slow_context_payload, long_context_payload)
+    ),
+    {
+        "bullet_title": detailed_payload["title"],
+        "sentence_title": slow_context_payload["title"],
+        "error_title": long_context_payload["title"],
+    },
 )
 
 original_queue_root = coding_queue.REPO_ROOT
@@ -322,19 +358,42 @@ try:
         "proposal": detailed_payload,
         "queue_snapshot_hash": coding_queue_authoring.queue_hash(),
     })
+    authored_long_context = object.__new__(
+        developer_dispatch.ExistingDeveloperGateway
+    ).create_or_recover_queue_item({
+        "id": long_context_proposal["dispatch"]["id"],
+        "proposal": long_context_payload,
+        "queue_snapshot_hash": coding_queue_authoring.queue_hash(),
+    })
 finally:
     coding_queue.REPO_ROOT = original_queue_root
     coding_queue.QUEUE_PATH = original_queue_path
     coding_queue_authoring.REPO_ROOT = original_authoring_root
     coding_queue_authoring.QUEUE_PATH = original_authoring_path
 context_plan_text = (queue_root / authored_context["plan_path"]).read_text(encoding="utf-8")
+long_context_plan_text = (queue_root / authored_long_context["plan_path"]).read_text(encoding="utf-8")
 context_queue_text = queue_path.read_text(encoding="utf-8")
+context_queue_row = next(
+    line for line in context_queue_text.splitlines()
+    if line.startswith(f"| {authored_context['queue_id']} |")
+)
+long_context_queue_row = next(
+    line for line in context_queue_text.splitlines()
+    if line.startswith(f"| {authored_long_context['queue_id']} |")
+)
 ok(
-    "confirmed Developer authoring keeps owner context in the plan and Queue description",
+    "confirmed Developer Queue rows stay concise and owner-readable",
+    len(context_queue_row) < 400
+    and len(long_context_queue_row) < 400
+    and "retry loop spins forever" not in context_queue_row
+    and "chat_store.py" not in long_context_queue_row,
+    {"context_row": context_queue_row, "long_context_row": long_context_queue_row},
+)
+ok(
+    "confirmed Developer plans keep the complete owner context",
     f"## Context\n{detailed_message}" in context_plan_text
-    and "the send button does nothing" in context_queue_text
-    and "the retry loop spins forever" in context_queue_text,
-    {"plan": context_plan_text, "queue": context_queue_text},
+    and f"## Context\n{long_context_message}" in long_context_plan_text,
+    {"context_plan": context_plan_text, "long_context_plan": long_context_plan_text},
 )
 
 proposal = service.propose(

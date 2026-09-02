@@ -90,7 +90,7 @@ The system menu still displays Document as an unavailable/soon entry; it does no
 
 - `chat_sessions` stores title, selected model, compacted summary metadata, and lifecycle state.
 - `chat_messages` stores role/content/model/thinking/feedback/parent relationships. A private `runtime_run_id` link gives one canonical direct-Chat run exactly one replayable assistant response; public session payloads omit that link.
-- `chat_developer_dispatches` links one normal-Chat turn, proposal action, queue item, and Developer workflow. Its session/turn identity prevents duplicate work across retry and reload. The proposal keeps a concise objective plus the owner's full message context, and confirmed Queue plans preserve both.
+- `chat_developer_dispatches` links one normal-Chat turn, proposal action, queue item, and Developer workflow. Its session/turn identity prevents duplicate work across retry and reload. The proposal keeps a concise objective plus the owner's full message context. Confirmed Queue plans preserve both, while the roadmap row uses a short context-derived title and description instead of flattening the full paste into one table cell.
 - Editing an earlier message creates a forked session rather than rewriting the original history.
 - Compaction summarizes older context while preserving recent messages.
 - The left session list and active session load through `dashboard/src/api.ts`.

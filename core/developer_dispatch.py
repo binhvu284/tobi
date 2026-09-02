@@ -283,17 +283,71 @@ def _dispatch_id(session_id: int, client_turn_id: str) -> str:
     return f"dev-{digest[:24]}"
 
 
-def _title(objective: str) -> str:
+_CONTEXT_ERROR_TITLE = re.compile(
+    r"^(?:[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception|Failure)|HTTP\s+[45]\d{2})\b.*$",
+    re.IGNORECASE,
+)
+_CONTEXT_BULLET_TITLE = re.compile(r"^\s*[-*]\s+(?P<value>\S.*)$")
+_CONTEXT_TITLE_NOISE = re.compile(
+    r"^(?:```|traceback\s*\(|file\s+[\"']|please\b|thanks?\b)",
+    re.IGNORECASE,
+)
+_QUEUE_DESCRIPTION_LIMIT = 160
+
+
+def _context_title_source(context: str) -> str:
+    lines = [re.sub(r"\s+", " ", line).strip() for line in context.splitlines() if line.strip()]
+    for line in reversed(lines):
+        if _CONTEXT_ERROR_TITLE.match(line):
+            return line
+    for line in lines:
+        bullet = _CONTEXT_BULLET_TITLE.match(line)
+        if bullet:
+            return bullet.group("value").strip()
+
+    segments = _request_segments(context)
+    explicit_index = next(
+        (index for index, segment in enumerate(segments) if _explicit_objective(segment)[0]),
+        len(segments),
+    )
+    candidates = (*reversed(segments[:explicit_index]), *segments[explicit_index + 1:])
+    for segment in candidates:
+        value = re.sub(r"\s+", " ", segment).strip().strip(" .!?;:-")
+        if value and not _CONTEXT_TITLE_NOISE.match(value):
+            return value
+    return "Chat requested Developer work"
+
+
+def _title(objective: str, *, context: str = "") -> str:
+    source = objective
+    if _BARE_ANAPHOR_OBJECTIVE.fullmatch(objective.strip()):
+        source = _context_title_source(context)
     value = re.sub(
         r"^(?:to\s+)?(?:fix|repair|add|build|implement|enable)\s+",
         "",
-        objective.strip(),
+        source.strip(),
         flags=re.IGNORECASE,
     )
+    value = re.sub(r"\s+", " ", value)
     sentence = re.split(r"[.!?](?:\s|$)", value, maxsplit=1)[0].strip()
     words = sentence.split()
     result = " ".join(words[:12]).strip() or "Chat requested Developer work"
     return result[:1].upper() + result[1:120]
+
+
+def _queue_description(proposal: dict[str, Any]) -> str:
+    objective = str(proposal.get("objective") or "").strip()
+    if _BARE_ANAPHOR_OBJECTIVE.fullmatch(objective):
+        verb = objective.split(maxsplit=1)[0].capitalize()
+        value = f"{verb}: {proposal.get('title') or 'Chat requested Developer work'}"
+    else:
+        value = objective
+    value = re.sub(r"\s+", " ", value).replace("|", "-").strip()
+    if len(value) < 10:
+        value = f"Developer work: {value}"
+    if len(value) > _QUEUE_DESCRIPTION_LIMIT:
+        value = value[:_QUEUE_DESCRIPTION_LIMIT - 3].rstrip(" .,:;-") + "..."
+    return value
 
 
 _HIGH_RISK_OBJECTIVE = re.compile(
@@ -311,7 +365,7 @@ def _proposal(objective: str, *, context: str) -> dict[str, Any]:
     bounded = objective.strip().rstrip(".")
     owner_context = context.strip()
     return {
-        "title": _title(objective),
+        "title": _title(objective, context=owner_context),
         "objective": objective,
         "context": owner_context,
         "project": "TOBI",
@@ -398,7 +452,7 @@ class ExistingDeveloperGateway:
         plan = _developer_plan_markdown(proposal, marker)
         return create_queue_item(
             title=str(proposal["title"]),
-            objective=context,
+            objective=_queue_description(proposal),
             acceptance_criteria=criteria,
             risk=str(proposal.get("risk") or "medium"),
             expected_queue_hash=str(dispatch.get("queue_snapshot_hash") or queue_hash()),
