@@ -152,6 +152,16 @@ sentence. Structural regression coverage raises the focused contract to 44/44; t
 passes 33/33, TypeScript exits zero, and the production dashboard build passes. Owner live retest
 remains before T02A acceptance. DeepSeek Harness and Developer worker execution remain unchanged.
 
+Round 4 review repair on 2026-09-02 closes the last work-order extraction defect. The concise trigger
+clause remains the proposal objective, while the exact owner message is now persisted as Context,
+shown before confirmation, included in risk evaluation, retained in the Queue description, and
+written into the confirmed plan under `## Context`. This preserves symptoms, tracebacks, bullets,
+file names, and follow-up detail for the coding worker. A context-free `fix it` or `fix this` now asks
+for clarification; the same wording remains valid when another sentence or line supplies its meaning.
+Older persisted proposals fall back to their objective. Focused checks pass 47/47, the shared gate
+passes 33/33, TypeScript exits zero, and the production dashboard build passes. Owner live retest
+remains before T02A acceptance. The optional generic scope wording remains accepted for T02A.
+
 
 <a id="item-34"></a>
 

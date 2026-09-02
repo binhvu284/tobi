@@ -161,7 +161,7 @@ capability = developer_dispatch.qualify_developer_request("add Markdown creation
 ambiguous = developer_dispatch.qualify_developer_request("make Markdown creation")
 common_ambiguous = developer_dispatch.qualify_developer_request("create a markdown creation feature")
 bare_trigger = developer_dispatch.qualify_developer_request("use developer")
-natural_with = developer_dispatch.qualify_developer_request("please fix it with Developer")
+natural_with = developer_dispatch.qualify_developer_request("please fix the login redirect with Developer")
 natural_handoff = developer_dispatch.qualify_developer_request("hand this to the Developer agent")
 natural_send = developer_dispatch.qualify_developer_request("send this to developer")
 ok("a direct file request stays outside Developer", direct_file.status == "unsupported", direct_file)
@@ -178,7 +178,7 @@ ok(
 polite_explicit_cases = [
     "Can you use Developer to fix the Chat send button?",
     "Could you use Developer to add export support?",
-    "Would you use Developer to fix this please?",
+    "Would you use Developer to fix this login redirect please?",
     "use developer to fix the send button, please?",
     "/developer: fix the login redirect",
 ]
@@ -238,6 +238,16 @@ ok(
     all(developer_dispatch.qualify_developer_request(value).status == "clarify" for value in context_only_handoffs),
     [(value, developer_dispatch.qualify_developer_request(value)) for value in context_only_handoffs],
 )
+bare_anaphor_cases = [
+    "Use Developer to fix it.",
+    "Use Developer to fix this.",
+    "please fix it with Developer",
+]
+ok(
+    "bare Developer objectives without supporting context ask for clarification",
+    all(developer_dispatch.qualify_developer_request(value).status == "clarify" for value in bare_anaphor_cases),
+    [(value, developer_dispatch.qualify_developer_request(value)) for value in bare_anaphor_cases],
+)
 bounded_objective = developer_dispatch.qualify_developer_request(
     "Use Developer to fix the Chat send button. It does nothing on mobile."
 )
@@ -271,6 +281,60 @@ ok(
     "- the current Queue schema receives one parseable row" in authored_plan_text
     and "- Must the current Queue schema" not in authored_plan_text,
     authored_plan_text,
+)
+
+detailed_message = (
+    "Use Developer to fix this:\n"
+    "- the send button does nothing\n"
+    "- the retry loop spins forever"
+)
+detailed_proposal = service.propose(
+    session_id=35,
+    client_turn_id="t02a-context-turn",
+    message=detailed_message,
+)
+context_risk_message = "Use Developer to fix this:\n- delete every generated cache file"
+context_risk_proposal = service.propose(
+    session_id=35,
+    client_turn_id="t02a-context-risk-turn",
+    message=context_risk_message,
+)
+detailed_payload = detailed_proposal["pending_action"]["developer_proposal"]
+ok(
+    "the durable proposal preserves full owner context and evaluates its risk",
+    detailed_payload["objective"] == "fix this"
+    and detailed_payload["context"] == detailed_message
+    and context_risk_proposal["pending_action"]["developer_proposal"]["risk"] == "high",
+    {"proposal": detailed_payload, "context_risk": context_risk_proposal},
+)
+
+original_queue_root = coding_queue.REPO_ROOT
+original_queue_path = coding_queue.QUEUE_PATH
+original_authoring_root = coding_queue_authoring.REPO_ROOT
+original_authoring_path = coding_queue_authoring.QUEUE_PATH
+try:
+    coding_queue.REPO_ROOT = queue_root
+    coding_queue.QUEUE_PATH = queue_path
+    coding_queue_authoring.REPO_ROOT = queue_root
+    coding_queue_authoring.QUEUE_PATH = queue_path
+    authored_context = object.__new__(developer_dispatch.ExistingDeveloperGateway).create_or_recover_queue_item({
+        "id": detailed_proposal["dispatch"]["id"],
+        "proposal": detailed_payload,
+        "queue_snapshot_hash": coding_queue_authoring.queue_hash(),
+    })
+finally:
+    coding_queue.REPO_ROOT = original_queue_root
+    coding_queue.QUEUE_PATH = original_queue_path
+    coding_queue_authoring.REPO_ROOT = original_authoring_root
+    coding_queue_authoring.QUEUE_PATH = original_authoring_path
+context_plan_text = (queue_root / authored_context["plan_path"]).read_text(encoding="utf-8")
+context_queue_text = queue_path.read_text(encoding="utf-8")
+ok(
+    "confirmed Developer authoring keeps owner context in the plan and Queue description",
+    f"## Context\n{detailed_message}" in context_plan_text
+    and "the send button does nothing" in context_queue_text
+    and "the retry loop spins forever" in context_queue_text,
+    {"plan": context_plan_text, "queue": context_queue_text},
 )
 
 proposal = service.propose(
@@ -720,6 +784,7 @@ ok(
 
 chat_source = (ROOT / "dashboard/src/pages/Chat.tsx").read_text(encoding="utf-8")
 api_source = (ROOT / "dashboard/src/api.chat.ts").read_text(encoding="utf-8")
+brain_api_source = (ROOT / "dashboard/src/api.brain.ts").read_text(encoding="utf-8")
 files_source = (ROOT / "dashboard/src/components/chat/Attachments.tsx").read_text(encoding="utf-8")
 developer_source = (ROOT / "dashboard/src/pages/Developer.tsx").read_text(encoding="utf-8")
 evidence_source = (ROOT / "dashboard/src/components/developer/DeveloperEvidence.tsx").read_text(encoding="utf-8")
@@ -735,6 +800,8 @@ ok(
     and "getDeveloperArtifact" in evidence_source
     and "retryDeveloperDispatch" in dispatch_card_source
     and "Retry" in dispatch_card_source
+    and "pending.developer_proposal.context" in chat_source
+    and "context: string" in brain_api_source
     and "window.addEventListener('focus'" in chat_source,
 )
 

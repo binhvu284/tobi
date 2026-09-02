@@ -1264,6 +1264,10 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
                         <div className="text-[10px] font-medium uppercase text-muted">Objective</div>
                         <p className="mt-0.5 leading-relaxed">{pending.developer_proposal.objective}</p>
                       </div>
+                      <div>
+                        <div className="text-[10px] font-medium uppercase text-muted">Owner context</div>
+                        <p className="mt-0.5 max-h-28 overflow-y-auto whitespace-pre-wrap break-words leading-relaxed text-muted">{pending.developer_proposal.context}</p>
+                      </div>
                       <div className="grid grid-cols-2 gap-2 text-[11px]">
                         <div><span className="text-muted">Project</span><div className="font-medium">{pending.developer_proposal.project}</div></div>
                         <div><span className="text-muted">Work risk</span><div className="font-medium capitalize">{pending.developer_proposal.risk}</div></div>

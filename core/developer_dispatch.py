@@ -143,11 +143,30 @@ _GENERIC_OBJECTIVE = re.compile(
     r"(?:capability|feature|workflow|support|integration|behavior)$",
     re.IGNORECASE,
 )
+_BARE_ANAPHOR_OBJECTIVE = re.compile(
+    r"^[A-Za-z][A-Za-z0-9_-]*\s+(?:it|this|that|them|these|those)$",
+    re.IGNORECASE,
+)
 
 
-def _meaningful_objective(objective: str) -> bool:
+def _has_supporting_context(segments: tuple[str, ...], explicit_index: int) -> bool:
+    for index, segment in enumerate(segments):
+        if index == explicit_index:
+            continue
+        stripped = segment.strip()
+        words = re.findall(r"[A-Za-z0-9_]+", stripped)
+        if stripped.lstrip().startswith(("-", "*")) and words:
+            return True
+        if len(words) >= 3 and words[0].lower() not in {"please", "thank", "thanks"}:
+            return True
+    return False
+
+
+def _meaningful_objective(objective: str, *, has_supporting_context: bool = False) -> bool:
     words = re.findall(r"[A-Za-z0-9_]+", objective)
-    return len(words) >= 2 and _GENERIC_OBJECTIVE.fullmatch(objective.strip()) is None
+    if len(words) < 2 or _GENERIC_OBJECTIVE.fullmatch(objective.strip()) is not None:
+        return False
+    return has_supporting_context or _BARE_ANAPHOR_OBJECTIVE.fullmatch(objective.strip()) is None
 
 
 def _clarify_objective() -> DeveloperRequestQualification:
@@ -164,13 +183,16 @@ def qualify_developer_request(message: str) -> DeveloperRequestQualification:
     if not text:
         return DeveloperRequestQualification("unsupported", reason="empty-request")
     segments = _request_segments(text)
-    for segment in segments:
+    for index, segment in enumerate(segments):
         explicit, objective = _explicit_objective(segment)
         if not explicit:
             continue
         if _NEGATED_REQUEST.search(segment) or _NEGATED_DEVELOPER.search(segment):
             return DeveloperRequestQualification("unsupported", reason="developer-request-negated")
-        if not _meaningful_objective(objective):
+        if not _meaningful_objective(
+            objective,
+            has_supporting_context=_has_supporting_context(segments, index),
+        ):
             return _clarify_objective()
         return DeveloperRequestQualification("accepted", objective=objective)
     if any(
@@ -285,11 +307,13 @@ def _proposal_risk(objective: str) -> str:
     return "high" if _HIGH_RISK_OBJECTIVE.search(objective) else "medium"
 
 
-def _proposal(objective: str) -> dict[str, Any]:
+def _proposal(objective: str, *, context: str) -> dict[str, Any]:
     bounded = objective.strip().rstrip(".")
+    owner_context = context.strip()
     return {
         "title": _title(objective),
         "objective": objective,
+        "context": owner_context,
         "project": "TOBI",
         "acceptance_checks": [
             f"Mission Control completes this owner outcome: {bounded}.",
@@ -302,18 +326,48 @@ def _proposal(objective: str) -> dict[str, Any]:
             "Reuse the existing Developer control plane and its approval gates.",
             "Do not merge, deploy, delete, or overwrite protected work without Developer approval.",
         ],
-        "risk": _proposal_risk(objective),
+        "risk": _proposal_risk(f"{objective}\n{owner_context}"),
     }
 
 
 def _decode_row(row) -> dict[str, Any]:
     item = dict(row)
     try:
-        item["proposal"] = json.loads(item.pop("proposal_json") or "{}")
+        proposal = json.loads(item.pop("proposal_json") or "{}")
     except (TypeError, ValueError):
-        item["proposal"] = {}
+        proposal = {}
         item.pop("proposal_json", None)
+    item["proposal"] = proposal if isinstance(proposal, dict) else {}
+    item["proposal"].setdefault("context", str(item.get("objective") or ""))
     return item
+
+
+def _developer_plan_markdown(proposal: dict[str, Any], marker: str) -> str:
+    criteria = [str(value) for value in proposal.get("acceptance_checks") or []]
+    scope = [str(value) for value in proposal.get("scope") or []]
+    context = str(proposal.get("context") or proposal["objective"]).strip()
+    return "\n".join([
+        f"# {proposal['title']}",
+        "",
+        marker,
+        "",
+        "## Objective",
+        str(proposal["objective"]),
+        "",
+        "## Context",
+        context,
+        "",
+        "## Acceptance Criteria",
+        *[f"- {value}" for value in criteria],
+        "",
+        "## Scope",
+        *[f"- {value}" for value in scope],
+        "",
+        "## Delivery Notes",
+        "- This item was created from a confirmed Mission Control Chat proposal.",
+        "- The existing Developer preflight, worker, review, and approval gates remain authoritative.",
+        "",
+    ])
 
 
 class ExistingDeveloperGateway:
@@ -329,40 +383,22 @@ class ExistingDeveloperGateway:
         return f"<!-- {_MARKER_PREFIX}{dispatch_id} -->"
 
     def create_or_recover_queue_item(self, dispatch: dict) -> dict:
-        from core.coding_queue import REPO_ROOT, parse_queue
+        from core.coding_queue import QUEUE_PATH, REPO_ROOT, parse_queue
         from core.coding_queue_authoring import create_queue_item, queue_hash
 
         marker = self._marker(str(dispatch["id"]))
-        for item in parse_queue():
+        for item in parse_queue(QUEUE_PATH):
             plan = REPO_ROOT / str(item.get("plan_path") or "")
             if plan.is_file() and marker in plan.read_text(encoding="utf-8", errors="replace"):
                 return {"queue_id": int(item["queue_id"]), "plan_path": item["plan_path"]}
 
         proposal = dispatch["proposal"]
         criteria = [str(value) for value in proposal.get("acceptance_checks") or []]
-        scope = [str(value) for value in proposal.get("scope") or []]
-        plan = "\n".join([
-            f"# {proposal['title']}",
-            "",
-            marker,
-            "",
-            "## Objective",
-            str(proposal["objective"]),
-            "",
-            "## Acceptance Criteria",
-            *[f"- {value}" for value in criteria],
-            "",
-            "## Scope",
-            *[f"- {value}" for value in scope],
-            "",
-            "## Delivery Notes",
-            "- This item was created from a confirmed Mission Control Chat proposal.",
-            "- The existing Developer preflight, worker, review, and approval gates remain authoritative.",
-            "",
-        ])
+        context = str(proposal.get("context") or proposal["objective"]).strip()
+        plan = _developer_plan_markdown(proposal, marker)
         return create_queue_item(
             title=str(proposal["title"]),
-            objective=str(proposal["objective"]),
+            objective=context,
             acceptance_criteria=criteria,
             risk=str(proposal.get("risk") or "medium"),
             expected_queue_hash=str(dispatch.get("queue_snapshot_hash") or queue_hash()),
@@ -670,7 +706,7 @@ class DeveloperDispatchService:
         dispatch_id = _dispatch_id(session_id, turn_id)
         dispatch = self._find(dispatch_id)
         if dispatch is None:
-            proposal = _proposal(qualification.objective)
+            proposal = _proposal(qualification.objective, context=message)
             now = utc_now()
             try:
                 from core.coding_queue_authoring import queue_hash

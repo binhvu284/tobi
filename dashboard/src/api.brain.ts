@@ -110,7 +110,7 @@ export async function brainChat(message: string): Promise<{ reply: string }> {
  *  when the `done` event arrives. Falls back transparently to a single chunk when the
  *  model provider can't stream (backend emits one delta then done). */
 export type DeveloperProposal = {
-  title: string; objective: string; project: string; acceptance_checks: string[]
+  title: string; objective: string; context: string; project: string; acceptance_checks: string[]
   scope: string[]; risk: 'low' | 'medium' | 'high' | 'critical'
 }
 export type PendingAction = {

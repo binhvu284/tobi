@@ -10,7 +10,7 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 
 **Item:** #35 TOBI Agent Tier Completion
 **Package:** T02A - Chat-to-Developer Dispatch
-**Status:** T00, T01, and T02 are implemented. T02A Round 3 review repair is engineering-green; owner retest remains.
+**Status:** T00, T01, and T02 are implemented. T02A Round 4 review repair is engineering-green; owner retest remains.
 
 **Purpose (one sentence, plain words):**
 Let the owner turn a limitation described in normal Chat into one confirmed, durable Developer

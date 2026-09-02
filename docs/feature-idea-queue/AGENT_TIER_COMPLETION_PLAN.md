@@ -19,11 +19,11 @@
   the deterministic `/developer` command, persists an owner-readable proposal with zero Developer
   side effects, and starts exactly one linked queue item and workflow only after confirmation.
   Chat then shows truthful Developer state, blockers, evidence, generated artifacts, and recovery.
-  Round 3 review repair preserves the Round 2 safety boundaries while recognizing explicit commands
-  after contextual sentences, line breaks, and unrelated negative lead-ins. Context-only hand-offs
-  clarify instead of inventing work, and the extracted objective stops at its instruction sentence.
-  Focused contract checks pass 44/44, the shared gate passes 33/33, TypeScript passes, and the
-  production build passes.
+  Round 4 review repair preserves the concise objective while carrying the owner's complete message
+  through the durable proposal, risk decision, confirmation card, Queue description, and generated
+  plan Context. Bare `fix it` or `fix this` requests clarify unless another sentence, line, traceback,
+  or bullet supplies the missing meaning. Focused contract checks pass 47/47, the shared gate passes
+  33/33, TypeScript passes, and the production build passes.
   Owner live verification remains. DeepSeek Harness worker code remains outside #35 and was not changed.
 - Owner live test on 2026-09-01 proved proposal creation but exposed a stale Developer queue writer:
   it expected the retired `Feature | Status | ... | Spec` header and rejected the current
