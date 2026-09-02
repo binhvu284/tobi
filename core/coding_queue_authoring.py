@@ -134,7 +134,7 @@ def create_queue_item(
             objective,
             "",
             "## Acceptance Criteria",
-            *[f"- Must {item.removeprefix('Must ').removeprefix('must ')}" for item in criteria],
+            *[f"- {item}" for item in criteria],
             "",
             "## Dependencies",
             *( [f"- Queue item #{item}" for item in dependencies] or ["- None"] ),

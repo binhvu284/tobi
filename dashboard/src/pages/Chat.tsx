@@ -713,6 +713,21 @@ export default function Chat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId, developerDispatches.map(item => `${item.id}:${item.status}`).join('|')])
 
+  useEffect(() => {
+    if (activeId == null || !developerDispatches.some(item => ['blocked', 'waiting_approval'].includes(item.status))) return
+    const refreshPausedDispatches = () => {
+      if (document.visibilityState === 'visible') void loadDeveloperDispatches(activeId)
+    }
+    window.addEventListener('focus', refreshPausedDispatches)
+    document.addEventListener('visibilitychange', refreshPausedDispatches)
+    return () => {
+      window.removeEventListener('focus', refreshPausedDispatches)
+      document.removeEventListener('visibilitychange', refreshPausedDispatches)
+    }
+    // Paused cards refresh once when the owner returns from Developer, without permanent polling.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, developerDispatches.map(item => `${item.id}:${item.status}`).join('|')])
+
   const activeFlags = (webResearch ? 1 : 0) + connectors.length + attachments.length
 
   // ── picker wizard (Feature 3) — answers go back to TOBI as the owner's next message ──

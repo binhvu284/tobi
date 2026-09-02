@@ -18,13 +18,12 @@
 - T02A: implemented on 2026-09-01. Normal Chat recognizes explicit Developer capability work and
   the deterministic `/developer` command, persists an owner-readable proposal with zero Developer
   side effects, and starts exactly one linked queue item and workflow only after confirmation.
-  Chat then shows truthful Developer state, blockers, evidence, and generated artifacts with a deep
-  link to the existing Developer page. A failed pre-workflow hand-off now offers one bounded Retry
-  action that resumes the same approved dispatch without duplicating queue work. Focused contract
-  checks pass 25/25 and the shared gate passes 33/33. The production build and mocked
-  desktop/mobile Playwright owner flow pass with no console,
-  network, or overflow error. Owner live verification remains. DeepSeek Harness worker code remains
-  outside #35 and was not changed.
+  Chat then shows truthful Developer state, blockers, evidence, generated artifacts, and recovery.
+  Round 2 review repair distinguishes polite commands from questions, blocks negated and historical
+  statements, clarifies vague objectives, labels destructive proposals high risk, refreshes paused
+  cards when the owner returns from Developer, and preserves flat retry history. Focused contract
+  checks pass 39/39, the shared gate passes 33/33, TypeScript passes, and the production build passes.
+  Owner live verification remains. DeepSeek Harness worker code remains outside #35 and was not changed.
 - Owner live test on 2026-09-01 proved proposal creation but exposed a stale Developer queue writer:
   it expected the retired `Feature | Status | ... | Spec` header and rejected the current
   `ID | Name | Description | Status | Notes` queue. The repair now discovers supported columns,
@@ -32,6 +31,8 @@
   writes, and legacy compatibility. The failed live attempt wrote no queue row or plan file.
   Its persisted failed card now exposes Retry after restart; worker-side failures with an existing
   workflow continue to use the Developer page's own recovery controls.
+  After confirmation, Chat-created work deliberately enters the canonical
+  `docs/feature-idea-queue/QUEUE.md`; before confirmation, neither that roadmap nor a plan file changes.
 
 ## The One Outcome
 

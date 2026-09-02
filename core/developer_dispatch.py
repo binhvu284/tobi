@@ -33,14 +33,31 @@ class DeveloperRequestQualification:
     reason: str = ""
 
 
-_EXPLICIT = re.compile(
-    r"(?:^/developer(?:\s+|$)|\b(?:use|ask|send)\s+(?:the\s+)?developer(?:\s+agent)?\b|"
-    r"\bhand\s+(?:this|it)\s+to\s+(?:the\s+)?developer(?:\s+agent)?\b|"
-    r"\b(?:fix|repair|build|implement)\b.+\bwith\s+(?:the\s+)?developer(?:\s+agent)?\b)",
+_SLASH_EXPLICIT = re.compile(r"^/developer(?=$|[\s:])", re.IGNORECASE)
+_USE_EXPLICIT = re.compile(
+    r"^(?:(?:can|could|would)\s+you\s+|please\s+)?(?:use|ask)\s+"
+    r"(?:the\s+)?developer(?:\s+agent)?\b(?P<tail>.*)$",
+    re.IGNORECASE,
+)
+_SEND_EXPLICIT = re.compile(
+    r"^(?:(?:can|could|would)\s+you\s+|please\s+)?send\s+"
+    r"(?:(?P<context>this|it)\s+to\s+)?(?:the\s+)?developer(?:\s+agent)?\b"
+    r"(?P<tail>.*)$",
+    re.IGNORECASE,
+)
+_HAND_EXPLICIT = re.compile(
+    r"^(?:(?:can|could|would)\s+you\s+|please\s+)?hand\s+(?:this|it)\s+to\s+"
+    r"(?:the\s+)?developer(?:\s+agent)?\b(?P<tail>.*)$",
+    re.IGNORECASE,
+)
+_WITH_EXPLICIT = re.compile(
+    r"^(?:(?:can|could|would)\s+you\s+|please\s+)?"
+    r"(?P<objective>(?:fix|repair|build|implement)\b.+?)\s+with\s+"
+    r"(?:the\s+)?developer(?:\s+agent)?\s*[.!?]*$",
     re.IGNORECASE,
 )
 _CAPABILITY = re.compile(
-    r"\b(?:add|build|implement|enable)\b.*"
+    r"^(?:please\s+)?(?:add|build|implement|enable)\b.*"
     r"\b(?:capability|feature|workflow|support|integration|behavior)\b",
     re.IGNORECASE,
 )
@@ -50,8 +67,14 @@ _DIRECT_FILE = re.compile(
     re.IGNORECASE,
 )
 _MARKDOWN_CREATION = re.compile(r"\b(?:make|create)\b.*\bmarkdown\s+creation\b", re.IGNORECASE)
+_NEGATED_REQUEST = re.compile(
+    r"^(?:please\s+)?(?:(?:do\s+not|don't|dont|never|no\s+need\s+to)\b|"
+    r"(?:i(?:'d|\s+would)?|we(?:'d|\s+would)?)\s+rather\s+not\b)",
+    re.IGNORECASE,
+)
 _NEGATED_DEVELOPER = re.compile(
-    r"\b(?:do\s+not|don't|dont|no\s+need\s+to|without|instead\s+of)\b[^.!?]{0,50}\bdeveloper\b",
+    r"\b(?:do\s+not|don't|dont|never|no\s+need\s+to|rather\s+not|without|instead\s+of)\b"
+    r"[^.!?]{0,80}\bdeveloper\b",
     re.IGNORECASE,
 )
 _QUESTION_OPEN = re.compile(
@@ -60,33 +83,63 @@ _QUESTION_OPEN = re.compile(
 )
 
 
-def _objective_from_explicit(message: str) -> str:
+def _clean_objective(value: str) -> str:
+    text = (value or "").strip().strip(" .!?;:-")
+    text = re.sub(r"(?:,\s*)?please\s*$", "", text, flags=re.IGNORECASE)
+    return text.strip().strip(" .!?;:-")
+
+
+def _tail_objective(value: str) -> str:
+    tail = (value or "").strip()
+    tail = re.sub(r"^(?:to|for)\b", "", tail, count=1, flags=re.IGNORECASE)
+    return _clean_objective(tail)
+
+
+def _explicit_objective(message: str) -> tuple[bool, str]:
     text = message.strip()
-    if text.lower().startswith("/developer"):
-        return text[len("/developer"):].strip(" :-")
-    match = re.search(
-        r"\b(?:use|ask|send)\s+(?:the\s+)?developer(?:\s+agent)?"
-        r"(?:\s+to|\s+for)?\s+(.+)$",
-        text,
-        re.IGNORECASE,
-    )
+    slash = _SLASH_EXPLICIT.match(text)
+    if slash:
+        return True, _clean_objective(text[slash.end():].lstrip(" \t:-"))
+    match = _USE_EXPLICIT.match(text)
     if match:
-        return match.group(1).strip(" .:-")
-    match = re.search(
-        r"\bhand\s+(?:this|it)\s+to\s+(?:the\s+)?developer(?:\s+agent)?"
-        r"(?:\s+to|\s+for)?\s*(.*)$",
-        text,
-        re.IGNORECASE,
-    )
+        return True, _tail_objective(match.group("tail"))
+    match = _SEND_EXPLICIT.match(text)
     if match:
-        tail = match.group(1).strip(" .:-")
-        return tail or "this request"
-    match = re.search(
-        r"(.+?)\s+with\s+(?:the\s+)?developer(?:\s+agent)?\s*$",
-        text,
-        re.IGNORECASE,
+        objective = _tail_objective(match.group("tail"))
+        if not objective and match.group("context"):
+            objective = "Complete the work described in this Chat conversation"
+        return True, objective
+    match = _HAND_EXPLICIT.match(text)
+    if match:
+        return True, _tail_objective(match.group("tail"))
+    match = _WITH_EXPLICIT.match(text)
+    if match:
+        return True, _clean_objective(match.group("objective"))
+    return False, ""
+
+
+def _objective_from_explicit(message: str) -> str:
+    return _explicit_objective(message)[1]
+
+
+_GENERIC_OBJECTIVE = re.compile(
+    r"^(?:add|build|implement|enable|create)\s+(?:(?:a|an|the)\s+)?"
+    r"(?:capability|feature|workflow|support|integration|behavior)$",
+    re.IGNORECASE,
+)
+
+
+def _meaningful_objective(objective: str) -> bool:
+    words = re.findall(r"[A-Za-z0-9_]+", objective)
+    return len(words) >= 2 and _GENERIC_OBJECTIVE.fullmatch(objective.strip()) is None
+
+
+def _clarify_objective() -> DeveloperRequestQualification:
+    return DeveloperRequestQualification(
+        "clarify",
+        question="What should Developer change, and what result should prove it is fixed?",
+        reason="developer-objective-missing",
     )
-    return (match.group(1) if match else "").strip(" .:-")
 
 
 def qualify_developer_request(message: str) -> DeveloperRequestQualification:
@@ -94,21 +147,15 @@ def qualify_developer_request(message: str) -> DeveloperRequestQualification:
     text = (message or "").strip()
     if not text:
         return DeveloperRequestQualification("unsupported", reason="empty-request")
-    if _NEGATED_DEVELOPER.search(text):
+    if _NEGATED_REQUEST.search(text) or _NEGATED_DEVELOPER.search(text):
         return DeveloperRequestQualification("unsupported", reason="developer-request-negated")
-    if not text.lower().startswith("/developer") and (
-        text.endswith("?") or _QUESTION_OPEN.match(text)
-    ):
-        return DeveloperRequestQualification("unsupported", reason="discussion-not-dispatch")
-    if _EXPLICIT.search(text):
-        objective = _objective_from_explicit(text)
-        if not objective:
-            return DeveloperRequestQualification(
-                "clarify",
-                question="What should Developer change, and what result should prove it is fixed?",
-                reason="developer-objective-missing",
-            )
+    explicit, objective = _explicit_objective(text)
+    if explicit:
+        if not _meaningful_objective(objective):
+            return _clarify_objective()
         return DeveloperRequestQualification("accepted", objective=objective)
+    if text.endswith("?") or _QUESTION_OPEN.match(text):
+        return DeveloperRequestQualification("unsupported", reason="discussion-not-dispatch")
     if _MARKDOWN_CREATION.search(text):
         return DeveloperRequestQualification(
             "clarify",
@@ -121,7 +168,10 @@ def qualify_developer_request(message: str) -> DeveloperRequestQualification:
     if _DIRECT_FILE.search(text):
         return DeveloperRequestQualification("unsupported", reason="native-file-request")
     if _CAPABILITY.search(text):
-        return DeveloperRequestQualification("accepted", objective=text.strip(" ."))
+        objective = _clean_objective(text)
+        if not _meaningful_objective(objective):
+            return _clarify_objective()
+        return DeveloperRequestQualification("accepted", objective=objective)
     return DeveloperRequestQualification("unsupported", reason="not-developer-work")
 
 
@@ -200,6 +250,17 @@ def _title(objective: str) -> str:
     return result[:1].upper() + result[1:120]
 
 
+_HIGH_RISK_OBJECTIVE = re.compile(
+    r"\b(?:delete|remove|wipe|erase|drop|destroy|format|reset|overwrite|publish|deploy|merge|"
+    r"credential|secret|password|token|production|payment|spend)\b",
+    re.IGNORECASE,
+)
+
+
+def _proposal_risk(objective: str) -> str:
+    return "high" if _HIGH_RISK_OBJECTIVE.search(objective) else "medium"
+
+
 def _proposal(objective: str) -> dict[str, Any]:
     bounded = objective.strip().rstrip(".")
     return {
@@ -217,7 +278,7 @@ def _proposal(objective: str) -> dict[str, Any]:
             "Reuse the existing Developer control plane and its approval gates.",
             "Do not merge, deploy, delete, or overwrite protected work without Developer approval.",
         ],
-        "risk": "medium",
+        "risk": _proposal_risk(objective),
     }
 
 
@@ -921,9 +982,22 @@ class DeveloperDispatchService:
                     conn.rollback()
                     raise ValueError("This Developer approval is not retryable.")
                 try:
-                    previous = json.loads(action["result_json"] or "{}")
+                    previous_result = json.loads(action["result_json"] or "{}")
                 except (TypeError, ValueError):
-                    previous = {}
+                    previous_result = {}
+                previous_dispatch = (
+                    previous_result.get("developer_dispatch")
+                    if isinstance(previous_result, dict)
+                    and isinstance(previous_result.get("developer_dispatch"), dict)
+                    else {}
+                )
+                previous = {
+                    "status": str(previous_result.get("status") or "failed"),
+                    "error": previous_result.get("error") or previous_dispatch.get("blocker"),
+                    "error_code": previous_dispatch.get("error_code"),
+                    "blocker": previous_dispatch.get("blocker"),
+                }
+                previous = {key: value for key, value in previous.items() if value not in (None, "")}
                 metadata = {
                     "developer_dispatch": {"dispatch_id": str(dispatch_id)},
                     "previous_failure": previous,

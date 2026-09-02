@@ -74,6 +74,7 @@ finally:
     coding_queue.QUEUE_PATH = original_queue_path
     coding_queue_authoring.REPO_ROOT = original_authoring_root
     coding_queue_authoring.QUEUE_PATH = original_authoring_path
+authored_plan_text = (queue_root / authored["plan_path"]).read_text(encoding="utf-8")
 ok(
     "confirmed Chat work authors the current Queue table schema",
     authored["queue_id"] == 37
@@ -162,6 +163,7 @@ common_ambiguous = developer_dispatch.qualify_developer_request("create a markdo
 bare_trigger = developer_dispatch.qualify_developer_request("use developer")
 natural_with = developer_dispatch.qualify_developer_request("please fix it with Developer")
 natural_handoff = developer_dispatch.qualify_developer_request("hand this to the Developer agent")
+natural_send = developer_dispatch.qualify_developer_request("send this to developer")
 ok("a direct file request stays outside Developer", direct_file.status == "unsupported", direct_file)
 ok("a capability request enters Developer", capability.status == "accepted", capability)
 ok("an ambiguous request asks one bounded question", ambiguous.status == "clarify" and ambiguous.question, ambiguous)
@@ -169,18 +171,51 @@ ok("common Markdown ambiguity asks before dispatch", common_ambiguous.status == 
 ok("a bare Developer trigger asks for the objective", bare_trigger.status == "clarify", bare_trigger)
 ok(
     "natural explicit Developer hand-offs are recognized",
-    natural_with.status == natural_handoff.status == "accepted",
-    {"with": natural_with, "handoff": natural_handoff},
+    natural_with.status == natural_send.status == "accepted" and natural_handoff.status == "clarify",
+    {"with": natural_with, "send": natural_send, "handoff": natural_handoff},
+)
+polite_explicit_cases = [
+    "Can you use Developer to fix the Chat send button?",
+    "Could you use Developer to add export support?",
+    "Would you use Developer to fix this please?",
+    "use developer to fix the send button, please?",
+    "/developer: fix the login redirect",
+]
+degenerate_cases = [
+    "use developer to ",
+    "/developer .",
+    "add a feature",
+    "hand this to the Developer agent",
+]
+ok(
+    "table-driven qualification accepts commands and clarifies missing objectives",
+    all(developer_dispatch.qualify_developer_request(value).status == "accepted" for value in polite_explicit_cases)
+    and all(developer_dispatch.qualify_developer_request(value).status == "clarify" for value in degenerate_cases),
+    {
+        "accepted": [(value, developer_dispatch.qualify_developer_request(value)) for value in polite_explicit_cases],
+        "clarify": [(value, developer_dispatch.qualify_developer_request(value)) for value in degenerate_cases],
+    },
 )
 discussion_cases = [
     "Should we add a feature to export runs?",
     "Can you explain how to add a caching feature?",
     "Don't use Developer for this, just tell me what is wrong",
+    "Don't build the export feature",
+    "never add that capability",
+    "I'd rather not use Developer for this",
+    "we should probably add caching support at some point",
+    "The team decided to add export capability last week",
 ]
 ok(
     "questions and negations stay outside Developer dispatch",
     all(developer_dispatch.qualify_developer_request(value).status == "unsupported" for value in discussion_cases),
     [developer_dispatch.qualify_developer_request(value) for value in discussion_cases],
+)
+ok(
+    "default Developer plans use plain acceptance-criterion grammar",
+    "- the current Queue schema receives one parseable row" in authored_plan_text
+    and "- Must the current Queue schema" not in authored_plan_text,
+    authored_plan_text,
 )
 
 proposal = service.propose(
@@ -208,6 +243,16 @@ ok(
     development_counts == {"tasks": 0, "workflows": 0}
     and fake.queue_calls == fake.workflow_calls == fake.start_calls == 0,
     development_counts,
+)
+destructive_proposal = service.propose(
+    session_id=35,
+    client_turn_id="t02a-high-risk-turn",
+    message="Use Developer to delete every file in the repo.",
+)
+ok(
+    "destructive Developer work is labeled high risk in the proposal",
+    destructive_proposal["pending_action"]["developer_proposal"]["risk"] == "high",
+    destructive_proposal,
 )
 
 replayed_proposal = service.propose(
@@ -371,6 +416,35 @@ ok(
     and (retry_fake.queue_calls, retry_fake.preflight_calls, retry_fake.workflow_calls, retry_fake.start_calls)
         == (2, 1, 1, 1),
     {"retried": retried_dispatch, "calls": retry_fake.__dict__},
+)
+
+
+class FailTwiceQueueGateway(FakeDeveloperGateway):
+    def create_or_recover_queue_item(self, dispatch: dict) -> dict:
+        self.queue_calls += 1
+        if self.queue_calls <= 2:
+            raise RuntimeError(f"synthetic Queue authoring failure {self.queue_calls}")
+        return {"queue_id": 352, "plan_path": "docs/feature-idea-queue/T02A_SECOND_RETRY_PLAN.md"}
+
+
+twice_fake = FailTwiceQueueGateway()
+developer_dispatch._gateway_factory = lambda: twice_fake
+twice_proposal = DeveloperDispatchService().propose(
+    session_id=35,
+    client_turn_id="t02a-second-retry-turn",
+    message="Use Developer to repair repeated synthetic Queue failures.",
+)
+conductor.confirm_action(int(twice_proposal["pending_action"]["id"]), "approve")
+DeveloperDispatchService().retry(twice_proposal["dispatch"]["id"])
+second_retry = DeveloperDispatchService().retry(twice_proposal["dispatch"]["id"])
+failure_history = second_retry.get("previous_failure", {})
+ok(
+    "repeated retry keeps one flat previous-failure record",
+    second_retry["ok"] is True
+    and failure_history.get("status") == "failed"
+    and "previous_failure" not in failure_history
+    and twice_fake.queue_calls == 3,
+    {"result": second_retry, "calls": twice_fake.queue_calls},
 )
 
 
@@ -605,7 +679,8 @@ ok(
     and "DeveloperEvidence" in developer_source
     and "getDeveloperArtifact" in evidence_source
     and "retryDeveloperDispatch" in dispatch_card_source
-    and "Retry" in dispatch_card_source,
+    and "Retry" in dispatch_card_source
+    and "window.addEventListener('focus'" in chat_source,
 )
 
 print(f"\n{PASS} T02A contract checks passed")

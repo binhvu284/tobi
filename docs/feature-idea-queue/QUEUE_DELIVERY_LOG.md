@@ -132,6 +132,17 @@ exist, and gives the owner separate Plan, Changes, Checks, and retained-artifact
 pass 35/35, the shared gate passes 33/33, and the production dashboard build passes. Owner live retest
 remains before T02A acceptance.
 
+Round 2 review repair on 2026-09-02 closes the remaining qualifier regression and cleanup findings.
+Polite explicit commands such as `Can you use Developer to fix ...?` now dispatch, while negated
+requests, suggestions, historical statements, and missing objectives cannot create an approval.
+`/developer:` and `send this to developer` are supported; destructive objectives display high risk.
+Blocked or approval-waiting cards refresh once when the owner returns to Chat instead of polling
+forever. Default plan criteria no longer generate `Must The`, and repeated retries retain one flat
+failure record. After owner confirmation, the item deliberately enters the existing canonical
+`docs/feature-idea-queue/QUEUE.md` beside other roadmap work; proposal creation itself still writes
+nothing to that file. Focused checks pass 39/39, the full gate passes 33/33, TypeScript exits zero,
+and the production dashboard build passes. Owner live retest remains before T02A acceptance.
+
 
 <a id="item-34"></a>
 
