@@ -245,6 +245,10 @@ export async function prepareDeveloperWorkflow(queueId: number, readinessId?: nu
 export async function getDeveloperHistory(signal?: AbortSignal): Promise<{ workflows: DeveloperWorkflow[] }> {
   return vreq('/api/developer/workflows/history', { signal })
 }
+export type DeveloperArtifact = {
+  id: number; session_id: number; evidence_type: string; sha256: string
+  size_bytes: number; created_at: string
+}
 export async function getDeveloperWorkflow(workflowId: number, signal?: AbortSignal): Promise<DeveloperWorkflow> {
   return vreq(`/api/developer/workflows/${workflowId}`, { signal })
 }
@@ -257,6 +261,16 @@ export async function getDeveloperChanges(
   workflowId: number, signal?: AbortSignal,
 ): Promise<DeveloperChanges> {
   return vreq(`/api/developer/workflows/${workflowId}/changes`, { signal })
+}
+export async function getDeveloperArtifacts(
+  workflowId: number, signal?: AbortSignal,
+): Promise<{ artifacts: DeveloperArtifact[] }> {
+  return vreq(`/api/developer/workflows/${workflowId}/artifacts`, { signal })
+}
+export async function getDeveloperArtifact(
+  workflowId: number, artifactId: number, signal?: AbortSignal,
+): Promise<{ artifact: DeveloperArtifact; content: string }> {
+  return vreq(`/api/developer/workflows/${workflowId}/artifacts/${artifactId}`, { signal })
 }
 export async function commandDeveloperWorkflow(
   workflowId: number,

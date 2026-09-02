@@ -551,6 +551,33 @@ def artifacts(workflow_id: int) -> dict[str, Any]:
         raise _error(exc) from exc
 
 
+@router.get("/workflows/{workflow_id}/artifacts/{artifact_id}", dependencies=[Owner])
+def artifact_detail(workflow_id: int, artifact_id: int) -> dict[str, Any]:
+    """Read one retained JSON artifact by database identity, never by a client path."""
+    try:
+        agent.get_workflow(workflow_id)
+        artifact = agent.store.get_artifact(workflow_id, artifact_id)
+        if not artifact:
+            raise KeyError(f"Artifact #{artifact_id} was not found for this workflow.")
+        root = agent.policy.repo_path("artifact_root").resolve()
+        path = Path(str(artifact["path"])).resolve()
+        if not path.is_relative_to(root) or path.suffix.lower() != ".json":
+            raise ValueError("The retained artifact path is outside the approved evidence store.")
+        if not path.is_file():
+            raise KeyError(f"Artifact #{artifact_id} is no longer retained.")
+        if path.stat().st_size > 2_000_000:
+            raise ValueError("This artifact is too large for the evidence viewer.")
+        return {
+            "artifact": {
+                key: artifact.get(key)
+                for key in ("id", "session_id", "evidence_type", "sha256", "size_bytes", "created_at")
+            },
+            "content": path.read_text(encoding="utf-8", errors="replace"),
+        }
+    except Exception as exc:
+        raise _error(exc) from exc
+
+
 @router.post("/workflows/{workflow_id}/commands", dependencies=[Owner])
 def workflow_command(workflow_id: int, body: WorkflowCommand) -> dict[str, Any]:
     try:

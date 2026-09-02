@@ -132,8 +132,19 @@ export function SessionFiles({ items, generated = [], collapsed, onToggle, onOpe
   onToggle: () => void
   onOpen: (a: StoredAttachment) => void
 }) {
-  const images = useMemo(() => items.filter(isImage), [items])
-  const files = useMemo(() => items.filter(a => !isImage(a)), [items])
+  const uploadGroups = useMemo(() => {
+    const grouped = new Map<number, StoredAttachment[]>()
+    for (const item of items) {
+      const key = item.message_id ?? 0
+      grouped.set(key, [...(grouped.get(key) || []), item])
+    }
+    return [...grouped.entries()].map(([messageId, attachments], index) => ({
+      messageId,
+      label: messageId > 0 ? `Chat turn ${index + 1}` : 'Unlinked uploads',
+      images: attachments.filter(isImage),
+      files: attachments.filter(item => !isImage(item)),
+    }))
+  }, [items])
   const generatedCount = generated.reduce((count, run) => count + run.artifacts.length, 0)
   const total = items.length + generatedCount
   if (!items.length && !generated.length) return null
@@ -177,35 +188,28 @@ export function SessionFiles({ items, generated = [], collapsed, onToggle, onOpe
         {items.length > 0 && (
           <div>
             <div className="mb-1.5 text-[10px] font-medium uppercase text-muted">Your uploads</div>
-            {images.length > 0 && (
-              <div className="grid grid-cols-2 gap-1.5">
-                {images.map(a => (
-                  <button
-                    key={a.id} type="button" onClick={() => onOpen(a)}
-                    title={`${a.name} · ${prettyBytes(a.bytes)}`}
-                    aria-label={`Open ${a.name} full screen`}
-                    className="sf-cell"
-                  >
-                    <img src={attachmentUrl(a.id)} alt={a.name} loading="lazy" />
-                    <span className="att-thumb-veil" aria-hidden><Expand size={14} /></span>
-                  </button>
-                ))}
-              </div>
-            )}
-            {files.length > 0 && (
-              <div className={`flex flex-col gap-1 ${images.length ? 'mt-2 border-t border-border/60 pt-2' : ''}`}>
-                {files.map(a => (
-                  <a
-                    key={a.id} href={attachmentUrl(a.id, true)} title={`Download ${a.name}`}
-                    className="flex items-center gap-1.5 rounded px-1 py-1 text-[11px] text-muted transition-colors hover:text-accent"
-                  >
-                    <FileGlyph a={a} />
-                    <span className="truncate">{a.name}</span>
-                    <span className="ml-auto shrink-0 text-muted/60">{prettyBytes(a.bytes)}</span>
-                  </a>
-                ))}
-              </div>
-            )}
+            <div className="space-y-2">
+              {uploadGroups.map(group => (
+                <div key={group.messageId} className="border-t border-border/50 pt-1.5 first:border-0 first:pt-0">
+                  <div className="mb-1 text-[9px] text-muted/60">{group.label}</div>
+                  {group.images.length > 0 && <div className="grid grid-cols-2 gap-1.5">{group.images.map(a => (
+                    <button key={a.id} type="button" onClick={() => onOpen(a)}
+                      title={`${a.name} · ${prettyBytes(a.bytes)}`} aria-label={`Open ${a.name} full screen`}
+                      className="sf-cell">
+                      <img src={attachmentUrl(a.id)} alt={a.name} loading="lazy" />
+                      <span className="att-thumb-veil" aria-hidden><Expand size={14} /></span>
+                    </button>
+                  ))}</div>}
+                  {group.files.length > 0 && <div className={`flex flex-col gap-1 ${group.images.length ? 'mt-1.5' : ''}`}>{group.files.map(a => (
+                    <a key={a.id} href={attachmentUrl(a.id, true)} title={`Download ${a.name}`}
+                      className="flex items-center gap-1.5 rounded px-1 py-1 text-[11px] text-muted transition-colors hover:text-accent">
+                      <FileGlyph a={a} /><span className="truncate">{a.name}</span>
+                      <span className="ml-auto shrink-0 text-muted/60">{prettyBytes(a.bytes)}</span>
+                    </a>
+                  ))}</div>}
+                </div>
+              ))}
+            </div>
           </div>
         )}
         {generated.length > 0 && (

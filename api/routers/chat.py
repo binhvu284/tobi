@@ -91,6 +91,7 @@ class ChatConfigReq(BaseModel):
     premium_readers: Optional[bool] = None   # #14 rollback flag (YouTube/reader layer)
     chat_runtime_v2: Optional[str] = None    # off | shadow | on
     agent_local_workflows: Optional[bool] = None  # #35/T02 scoped rollback
+    developer_chat_dispatch: Optional[bool] = None  # #35/T02A scoped rollback
 
 
 @router.get("/api/chat/config")
@@ -99,10 +100,12 @@ def chat_config_get():
     UI (#16), plus the #14 premium-reader rollback flag, both from owner_settings."""
     from core import chat_modes, premium_readers, chat_runtime
     from core.runtime.agent_workflows import local_agent_workflows_enabled
+    from core.developer_dispatch import chat_developer_dispatch_enabled
     return {"mode_v2": chat_modes.mode_v2_enabled(),
             "premium_readers": premium_readers.premium_readers_enabled(),
             "chat_runtime_v2": chat_runtime.runtime_mode(),
-            "agent_local_workflows": local_agent_workflows_enabled()}
+            "agent_local_workflows": local_agent_workflows_enabled(),
+            "developer_chat_dispatch": chat_developer_dispatch_enabled()}
 
 
 @router.post("/api/chat/config")
@@ -112,6 +115,10 @@ def chat_config_set(body: ChatConfigReq):
         local_agent_workflows_enabled,
         set_local_agent_workflows,
     )
+    from core.developer_dispatch import (
+        chat_developer_dispatch_enabled,
+        set_chat_developer_dispatch,
+    )
     if body.mode_v2 is not None:
         chat_modes.set_mode_v2(body.mode_v2)
     if body.premium_readers is not None:
@@ -120,10 +127,13 @@ def chat_config_set(body: ChatConfigReq):
         chat_runtime.set_runtime_mode(body.chat_runtime_v2)
     if body.agent_local_workflows is not None:
         set_local_agent_workflows(body.agent_local_workflows)
+    if body.developer_chat_dispatch is not None:
+        set_chat_developer_dispatch(body.developer_chat_dispatch)
     return {"mode_v2": chat_modes.mode_v2_enabled(),
             "premium_readers": premium_readers.premium_readers_enabled(),
             "chat_runtime_v2": chat_runtime.runtime_mode(),
-            "agent_local_workflows": local_agent_workflows_enabled()}
+            "agent_local_workflows": local_agent_workflows_enabled(),
+            "developer_chat_dispatch": chat_developer_dispatch_enabled()}
 
 
 @router.get("/api/chat/sessions")
@@ -189,7 +199,11 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
     from core import chat_store, conductor, model_router, attachments as attach
     from core import premium_readers, youtube_reader, chat_modes, chat_runtime, context_manager
     from core.chat_runtime_contracts import RouteDecision, TurnError, TurnRequest
-    from core.developer_dispatch import DeveloperDispatchService, qualify_developer_request
+    from core.developer_dispatch import (
+        DeveloperDispatchService,
+        chat_developer_dispatch_enabled,
+        qualify_developer_request,
+    )
     from core.runtime.agent_workflows import AgentWorkflowService, qualify_agent_workflow
     from core.runtime import config as runtime_config
     from core.runtime.gateway import TurnGateway, submit_gateway_accept, submit_gateway_mirror
@@ -226,7 +240,10 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         workflow_fields=dict(payload.workflow_fields or {}),
     )
     developer_qualification = qualify_developer_request(message)
-    developer_dispatch_ready = developer_qualification.status in {"accepted", "clarify"}
+    developer_dispatch_candidate = bool(
+        chat_developer_dispatch_enabled()
+        and developer_qualification.status in {"accepted", "clarify"}
+    )
     developer_client_turn_id = str(payload.client_turn_id or f"server-{uuid.uuid4().hex}")
     try:
         runtime_intent = classify(message)
@@ -254,6 +271,7 @@ async def chat_session_stream(sid: int, payload: ChatSendReq, request: Request):
         and agent_workflow_qualification.status in {"accepted", "clarify"}
         and not payload.attachments
     )
+    developer_dispatch_ready = developer_dispatch_candidate and not agent_workflow_ready
     if agent_workflow_ready:
         workflow = agent_workflow_qualification.workflow
         assert workflow is not None

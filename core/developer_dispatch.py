@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 import threading
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -20,6 +21,7 @@ from core.development_store import utc_now
 
 _CONFIRM_LOCK = threading.RLock()
 _GATEWAY_LOCK = threading.Lock()
+_RUNTIME_LOCK = threading.RLock()
 _MARKER_PREFIX = "tobi-chat-developer-dispatch:"
 
 
@@ -32,7 +34,9 @@ class DeveloperRequestQualification:
 
 
 _EXPLICIT = re.compile(
-    r"(?:^/developer(?:\s+|$)|\b(?:use|ask|send)\s+(?:the\s+)?developer\b)",
+    r"(?:^/developer(?:\s+|$)|\b(?:use|ask|send)\s+(?:the\s+)?developer(?:\s+agent)?\b|"
+    r"\bhand\s+(?:this|it)\s+to\s+(?:the\s+)?developer(?:\s+agent)?\b|"
+    r"\b(?:fix|repair|build|implement)\b.+\bwith\s+(?:the\s+)?developer(?:\s+agent)?\b)",
     re.IGNORECASE,
 )
 _CAPABILITY = re.compile(
@@ -46,6 +50,14 @@ _DIRECT_FILE = re.compile(
     re.IGNORECASE,
 )
 _MARKDOWN_CREATION = re.compile(r"\b(?:make|create)\b.*\bmarkdown\s+creation\b", re.IGNORECASE)
+_NEGATED_DEVELOPER = re.compile(
+    r"\b(?:do\s+not|don't|dont|no\s+need\s+to|without|instead\s+of)\b[^.!?]{0,50}\bdeveloper\b",
+    re.IGNORECASE,
+)
+_QUESTION_OPEN = re.compile(
+    r"^(?:what|why|how|should|can|could|would|do|does|did|is|are|was|were)\b",
+    re.IGNORECASE,
+)
 
 
 def _objective_from_explicit(message: str) -> str:
@@ -58,7 +70,23 @@ def _objective_from_explicit(message: str) -> str:
         text,
         re.IGNORECASE,
     )
-    return (match.group(1) if match else text).strip(" .:-")
+    if match:
+        return match.group(1).strip(" .:-")
+    match = re.search(
+        r"\bhand\s+(?:this|it)\s+to\s+(?:the\s+)?developer(?:\s+agent)?"
+        r"(?:\s+to|\s+for)?\s*(.*)$",
+        text,
+        re.IGNORECASE,
+    )
+    if match:
+        tail = match.group(1).strip(" .:-")
+        return tail or "this request"
+    match = re.search(
+        r"(.+?)\s+with\s+(?:the\s+)?developer(?:\s+agent)?\s*$",
+        text,
+        re.IGNORECASE,
+    )
+    return (match.group(1) if match else "").strip(" .:-")
 
 
 def qualify_developer_request(message: str) -> DeveloperRequestQualification:
@@ -66,6 +94,12 @@ def qualify_developer_request(message: str) -> DeveloperRequestQualification:
     text = (message or "").strip()
     if not text:
         return DeveloperRequestQualification("unsupported", reason="empty-request")
+    if _NEGATED_DEVELOPER.search(text):
+        return DeveloperRequestQualification("unsupported", reason="developer-request-negated")
+    if not text.lower().startswith("/developer") and (
+        text.endswith("?") or _QUESTION_OPEN.match(text)
+    ):
+        return DeveloperRequestQualification("unsupported", reason="discussion-not-dispatch")
     if _EXPLICIT.search(text):
         objective = _objective_from_explicit(text)
         if not objective:
@@ -75,10 +109,6 @@ def qualify_developer_request(message: str) -> DeveloperRequestQualification:
                 reason="developer-objective-missing",
             )
         return DeveloperRequestQualification("accepted", objective=objective)
-    if _DIRECT_FILE.search(text):
-        return DeveloperRequestQualification("unsupported", reason="native-file-request")
-    if _CAPABILITY.search(text):
-        return DeveloperRequestQualification("accepted", objective=text.strip(" ."))
     if _MARKDOWN_CREATION.search(text):
         return DeveloperRequestQualification(
             "clarify",
@@ -88,7 +118,23 @@ def qualify_developer_request(message: str) -> DeveloperRequestQualification:
             ),
             reason="file-or-capability-ambiguous",
         )
+    if _DIRECT_FILE.search(text):
+        return DeveloperRequestQualification("unsupported", reason="native-file-request")
+    if _CAPABILITY.search(text):
+        return DeveloperRequestQualification("accepted", objective=text.strip(" ."))
     return DeveloperRequestQualification("unsupported", reason="not-developer-work")
+
+
+def chat_developer_dispatch_enabled() -> bool:
+    from core import owner_flags
+
+    return owner_flags.get_bool(owner_flags.AGENT_CHAT_DEVELOPER_DISPATCH, True)
+
+
+def set_chat_developer_dispatch(enabled: bool) -> bool:
+    from core import owner_flags
+
+    return owner_flags.set_bool(owner_flags.AGENT_CHAT_DEVELOPER_DISPATCH, enabled)
 
 
 def _ensure_schema(conn) -> None:
@@ -110,6 +156,8 @@ def _ensure_schema(conn) -> None:
             assistant_message_id INTEGER,
             blocker TEXT,
             error_code TEXT,
+            queue_snapshot_hash TEXT,
+            runtime_run_id TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             UNIQUE(session_id, client_turn_id)
@@ -127,6 +175,10 @@ def _ensure_schema(conn) -> None:
         conn.execute("ALTER TABLE chat_developer_dispatches ADD COLUMN user_message_id INTEGER")
     if "assistant_message_id" not in columns:
         conn.execute("ALTER TABLE chat_developer_dispatches ADD COLUMN assistant_message_id INTEGER")
+    if "queue_snapshot_hash" not in columns:
+        conn.execute("ALTER TABLE chat_developer_dispatches ADD COLUMN queue_snapshot_hash TEXT")
+    if "runtime_run_id" not in columns:
+        conn.execute("ALTER TABLE chat_developer_dispatches ADD COLUMN runtime_run_id TEXT")
     conn.commit()
 
 
@@ -149,12 +201,13 @@ def _title(objective: str) -> str:
 
 
 def _proposal(objective: str) -> dict[str, Any]:
+    bounded = objective.strip().rstrip(".")
     return {
         "title": _title(objective),
         "objective": objective,
         "project": "TOBI",
         "acceptance_checks": [
-            "The requested behavior works through the owner-facing Mission Control path.",
+            f"Mission Control completes this owner outcome: {bounded}.",
             "A focused regression check proves the repaired behavior.",
             "The active package gate remains green.",
             "Changed files, checks, and generated evidence are linked to the Developer run.",
@@ -212,7 +265,7 @@ class ExistingDeveloperGateway:
             str(proposal["objective"]),
             "",
             "## Acceptance Criteria",
-            *[f"- Must {value.removeprefix('Must ').removeprefix('must ')}" for value in criteria],
+            *[f"- {value}" for value in criteria],
             "",
             "## Scope",
             *[f"- {value}" for value in scope],
@@ -227,8 +280,9 @@ class ExistingDeveloperGateway:
             objective=str(proposal["objective"]),
             acceptance_criteria=criteria,
             risk=str(proposal.get("risk") or "medium"),
-            expected_queue_hash=queue_hash(),
+            expected_queue_hash=str(dispatch.get("queue_snapshot_hash") or queue_hash()),
             plan_markdown=plan,
+            source_note="Created from an owner-confirmed Mission Control Chat proposal.",
         )
 
     def preflight(self, queue_id: int) -> dict:
@@ -298,6 +352,7 @@ class DeveloperDispatchService:
         allowed = {
             "action_id", "status", "queue_id", "workflow_id", "readiness_id",
             "user_message_id", "assistant_message_id", "blocker", "error_code",
+            "queue_snapshot_hash", "runtime_run_id",
         }
         values = [(key, value) for key, value in fields.items() if key in allowed]
         if not values:
@@ -323,6 +378,175 @@ class DeveloperDispatchService:
         if found is None:
             raise KeyError(dispatch_id)
         return found
+
+    def _ensure_runtime_run(self, dispatch: dict) -> dict:
+        """Create one active canonical Runtime record after owner confirmation."""
+        from core.runtime.contracts import (
+            ExecutionPlan,
+            LoopPolicy,
+            LoopRecipe,
+            LoopType,
+            PlanStep,
+            RiskLevel,
+            RunRequest,
+            Surface,
+        )
+        from core.runtime.repository import RuntimeRepository
+        from core.runtime.state import RunStatus
+
+        with _RUNTIME_LOCK:
+            repository = RuntimeRepository()
+            request_id = f"chat-developer-dispatch:{dispatch['id']}"
+            canonical = RunRequest(
+                request_id=request_id,
+                surface=Surface.CHAT,
+                owner_id="owner",
+                session_id=str(dispatch["session_id"]),
+                mode="chat",
+                message=str(dispatch["objective"]),
+                attachments=({"kind": "developer_dispatch", "id": str(dispatch["id"])},),
+                budget_profile="chat-developer-t02a",
+            )
+            run = repository.find_matching_run(canonical)
+            if run is None:
+                recipe = LoopRecipe(
+                    recipe_id="agent.chat-developer-dispatch",
+                    version="1",
+                    name="Confirmed Chat to Developer dispatch",
+                    loop_type=LoopType.TURN,
+                    trigger="owner-confirmed Developer proposal in Chat",
+                    objective="Complete one approved coding-maintenance workflow",
+                    stop_condition="Developer reports changed files, a passing check, and retained evidence",
+                    max_attempts=2,
+                    max_runtime_s=86_400,
+                    max_cost_usd=0.0,
+                    max_model_calls=1,
+                    max_tool_calls=1,
+                    allowed_tools=(),
+                    approval_gates=("owner",),
+                    recovery_policy="recover_in_developer",
+                    evidence_required=("developer_workflow", "coding_check", "artifact"),
+                )
+                repository.save_loop_recipe(recipe)
+                run = repository.create_run(
+                    canonical,
+                    loop_policy=LoopPolicy.from_recipe(
+                        policy_id="agent.chat-developer-dispatch.active",
+                        version="1",
+                        recipe=recipe,
+                        policy_decision_id=f"owner-confirmed:{dispatch['id']}",
+                        enabled=True,
+                    ),
+                    run_id=str(uuid.uuid5(uuid.NAMESPACE_URL, request_id)),
+                    actor="chat-developer-gateway",
+                )
+            if run["status"] == RunStatus.ACCEPTED.value:
+                run = repository.transition_run(
+                    str(run["run_id"]), RunStatus.ROUTING,
+                    expected_version=int(run["version"]), actor="chat-developer-gateway",
+                )
+            if run["status"] == RunStatus.ROUTING.value:
+                run = repository.save_plan(
+                    ExecutionPlan(
+                        plan_id=f"{run['run_id']}:developer-dispatch",
+                        run_id=str(run["run_id"]),
+                        version="1",
+                        objective=str(dispatch["objective"]),
+                        steps=(PlanStep(
+                            step_id="developer-workflow",
+                            kind="workflow",
+                            risk=RiskLevel.HIGH,
+                            output_contract={
+                                "required": ["changed_files", "passing_check", "artifact"],
+                            },
+                        ),),
+                        expected_artifacts=("developer_evidence",),
+                        approval_points=("owner",),
+                        completion_predicate="Developer evidence is complete",
+                    ),
+                    expected_version=int(run["version"]),
+                    actor="chat-developer-planner",
+                )
+            if run["status"] == RunStatus.PLANNED.value:
+                run = repository.transition_run(
+                    str(run["run_id"]), RunStatus.RUNNING,
+                    expected_version=int(run["version"]), actor="chat-developer-gateway",
+                )
+            return self._update(dispatch["id"], runtime_run_id=str(run["run_id"]))
+
+    @staticmethod
+    def _complete_runtime_and_tier(dispatch: dict, artifacts: list[dict]) -> None:
+        """Close canonical proof and publish Tier II evidence idempotently."""
+        from core import agent_tier
+        from core.release_manager import current_developer_version
+        from core.runtime.contracts import RuntimeToolResult
+        from core.runtime.control import RuntimeControl
+        from core.runtime.repository import RuntimeRepository
+        from core.runtime.state import RunStatus
+
+        run_id = str(dispatch.get("runtime_run_id") or "")
+        workflow_id = int(dispatch.get("workflow_id") or 0)
+        action_id = int(dispatch.get("action_id") or 0)
+        if not run_id or not workflow_id or not action_id:
+            return
+        with _RUNTIME_LOCK:
+            repository = RuntimeRepository()
+            run = repository.get_run(run_id)
+            if run is None:
+                return
+            if run["status"] == RunStatus.RUNNING.value:
+                claim = repository.claim_step(
+                    run_id, worker_id=f"developer-dispatch:{dispatch['id']}", lease_seconds=60,
+                )
+                if claim is not None:
+                    artifact_refs = tuple(
+                        f"artifact:{item['id']}" for item in artifacts if item.get("id") is not None
+                    )
+                    RuntimeControl().record_step_success(
+                        run_id,
+                        "developer-workflow",
+                        worker_id=str(claim["worker_id"]),
+                        lease_token=str(claim["lease_token"]),
+                        lease_epoch=int(claim["lease_epoch"]),
+                        result=RuntimeToolResult(
+                            status="succeeded",
+                            typed_output={"workflow_id": workflow_id, "evidence_complete": True},
+                            evidence_refs=(
+                                f"workflow:{workflow_id}",
+                                f"check:developer-workflow:{workflow_id}:scorecard",
+                            ),
+                            artifact_refs=artifact_refs,
+                        ),
+                    )
+                run = repository.get_run(run_id) or run
+                steps = repository.list_steps(run_id)
+                if steps and all(step["status"] in {"succeeded", "skipped"} for step in steps):
+                    run = repository.transition_run(
+                        run_id, RunStatus.SUCCEEDED,
+                        expected_version=int(run["version"]), actor="chat-developer-gateway",
+                    )
+            if run["status"] != RunStatus.SUCCEEDED.value:
+                return
+            conn = get_connection()
+            try:
+                release = current_developer_version(conn)
+                evidence = (
+                    ("runtime_run", f"run:{run_id}"),
+                    ("typed_tool_result", f"check:{run_id}:developer-result"),
+                    ("local_action_receipt", f"receipt:action:{action_id}"),
+                    ("coding_check", f"check:developer-workflow:{workflow_id}:scorecard"),
+                )
+                for evidence_type, evidence_ref in evidence:
+                    agent_tier.record_evidence(
+                        conn,
+                        ability_id="local_work_execution",
+                        family_id="coding_maintenance",
+                        evidence_type=evidence_type,
+                        evidence_ref=evidence_ref,
+                        source_release=release,
+                    )
+            finally:
+                conn.close()
 
     @staticmethod
     def _pending_action(dispatch: dict) -> dict | None:
@@ -363,16 +587,24 @@ class DeveloperDispatchService:
         if dispatch is None:
             proposal = _proposal(qualification.objective)
             now = utc_now()
+            try:
+                from core.coding_queue_authoring import queue_hash
+
+                snapshot_hash = queue_hash()
+            except Exception:
+                snapshot_hash = None
             conn = get_connection()
             try:
                 _ensure_schema(conn)
                 conn.execute(
                     """INSERT OR IGNORE INTO chat_developer_dispatches
-                       (id,session_id,client_turn_id,status,title,objective,proposal_json,created_at,updated_at)
-                       VALUES (?,?,?,?,?,?,?,?,?)""",
+                       (id,session_id,client_turn_id,status,title,objective,proposal_json,
+                        queue_snapshot_hash,created_at,updated_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?)""",
                     (
                         dispatch_id, int(session_id), turn_id, "proposed", proposal["title"],
-                        proposal["objective"], json.dumps(proposal, ensure_ascii=True), now, now,
+                        proposal["objective"], json.dumps(proposal, ensure_ascii=True),
+                        snapshot_hash, now, now,
                     ),
                 )
                 conn.commit()
@@ -483,8 +715,44 @@ class DeveloperDispatchService:
             "title": Path(raw_path).name or kind.replace("_", " ").title(),
             "group": "generated",
             "workflow_id": workflow_id,
-            "developer_url": f"/developer?workflow={workflow_id}",
+            "developer_url": f"/developer?workflow={workflow_id}&artifact={item.get('id')}",
         }
+
+    @staticmethod
+    def _next_action(status: str, workflow_id: int | None) -> str:
+        if status == "proposed":
+            return "Choose Accept to start this work, or Refuse to cancel it."
+        if status == "failed" and workflow_id:
+            return "Open Developer and select Retry for this run."
+        if status == "failed":
+            return "Select Retry on this card to try the approved hand-off again."
+        if status in {"blocked", "waiting_approval"}:
+            return "Open Developer to review the blocker or approval."
+        if status == "completed":
+            return "Open an evidence item below to review the delivered result."
+        return "Open Developer to inspect the live run."
+
+    @staticmethod
+    def _owner_failure(stage: str, *, workflow_id: int | None = None) -> tuple[str, str]:
+        if stage == "queue":
+            return (
+                "Developer could not add this approved item to the queue.",
+                "Select Retry on this card to re-check the queue and try again.",
+            )
+        if stage == "preflight":
+            return (
+                "Developer found a readiness blocker before coding could start.",
+                "Open Developer to review the readiness check, then retry when it is resolved.",
+            )
+        if stage == "start" and workflow_id:
+            return (
+                "Developer created the workflow but could not start it.",
+                "Open Developer and select Retry for this run.",
+            )
+        return (
+            "Developer could not start this approved work.",
+            "Select Retry on this card, or open Developer to inspect the queue.",
+        )
 
     def _project(self, dispatch: dict, *, refresh: bool = True) -> dict:
         proposal = dispatch["proposal"]
@@ -497,12 +765,17 @@ class DeveloperDispatchService:
             "proposal": proposal,
             "queue_id": dispatch.get("queue_id"),
             "workflow_id": dispatch.get("workflow_id"),
+            "runtime_run_id": dispatch.get("runtime_run_id"),
             "user_message_id": dispatch.get("user_message_id"),
             "assistant_message_id": dispatch.get("assistant_message_id"),
             "stage": None,
             "progress": 0,
             "blocker": dispatch.get("blocker"),
             "error_code": dispatch.get("error_code"),
+            "next_action": self._next_action(
+                str(dispatch["status"]),
+                int(dispatch["workflow_id"]) if dispatch.get("workflow_id") else None,
+            ),
             "can_retry": dispatch.get("status") == "failed" and not dispatch.get("workflow_id"),
             "changes": {"files": [], "stat": ""},
             "checks": [],
@@ -529,7 +802,8 @@ class DeveloperDispatchService:
             result.update({
                 "status": "failed",
                 "blocker": "Developer status could not be read.",
-                "error_code": type(exc).__name__,
+                "error_code": f"developer-status-{type(exc).__name__.lower()}",
+                "next_action": "Refresh this card, or open Developer to inspect the run.",
             })
             return result
 
@@ -545,7 +819,7 @@ class DeveloperDispatchService:
                 "title": Path(str(workflow["plan_path"])).name,
                 "group": "generated",
                 "workflow_id": int(workflow_id),
-                "developer_url": developer_url,
+                "developer_url": f"{developer_url}&artifact=plan",
             })
         if files:
             artifacts.append({
@@ -554,7 +828,7 @@ class DeveloperDispatchService:
                 "title": "Change summary",
                 "group": "generated",
                 "workflow_id": int(workflow_id),
-                "developer_url": developer_url,
+                "developer_url": f"{developer_url}&artifact=changes",
             })
         if checks:
             artifacts.append({
@@ -563,7 +837,7 @@ class DeveloperDispatchService:
                 "title": "Test report",
                 "group": "generated",
                 "workflow_id": int(workflow_id),
-                "developer_url": developer_url,
+                "developer_url": f"{developer_url}&artifact=checks",
             })
         status = "running"
         blocker = workflow.get("blocker")
@@ -578,8 +852,16 @@ class DeveloperDispatchService:
             evidence_complete = bool(files) and bool(artifacts) and any(self._passed_check(item) for item in checks)
             status = "completed" if evidence_complete else "blocked"
             if not evidence_complete:
-                blocker = "developer-evidence-incomplete"
+                blocker = (
+                    "Developer finished, but changed files, a passing check, or a retained evidence file is missing."
+                )
                 error_code = "developer-evidence-incomplete"
+            else:
+                self._complete_runtime_and_tier(dispatch, raw_artifacts)
+                if dispatch.get("status") != "completed":
+                    dispatch = self._update(
+                        dispatch["id"], status="completed", blocker=None, error_code=None,
+                    )
         if dispatch.get("status") == "failed" and state == "approved":
             status = "failed"
             blocker = dispatch.get("blocker")
@@ -594,6 +876,7 @@ class DeveloperDispatchService:
             "changes": {**changes, "files": files},
             "checks": checks,
             "artifacts": artifacts,
+            "next_action": self._next_action(status, int(workflow_id)),
         })
         return result
 
@@ -627,17 +910,30 @@ class DeveloperDispatchService:
             if not action_id:
                 raise ValueError("This Developer dispatch has no linked approval.")
 
-            metadata = {"developer_dispatch": {"dispatch_id": str(dispatch_id)}}
             conn = get_connection()
             try:
                 _ensure_schema(conn)
                 conn.execute("BEGIN IMMEDIATE")
                 action = conn.execute(
-                    "SELECT tool,status FROM tobi_actions WHERE id=?", (int(action_id),)
+                    "SELECT tool,status,result_json FROM tobi_actions WHERE id=?", (int(action_id),)
                 ).fetchone()
                 if not action or action["tool"] != "developer_dispatch" or action["status"] != "failed":
                     conn.rollback()
                     raise ValueError("This Developer approval is not retryable.")
+                try:
+                    previous = json.loads(action["result_json"] or "{}")
+                except (TypeError, ValueError):
+                    previous = {}
+                metadata = {
+                    "developer_dispatch": {"dispatch_id": str(dispatch_id)},
+                    "previous_failure": previous,
+                }
+                try:
+                    from core.coding_queue_authoring import queue_hash
+
+                    refreshed_hash = queue_hash()
+                except Exception:
+                    refreshed_hash = dispatch.get("queue_snapshot_hash")
                 now = utc_now()
                 conn.execute(
                     """UPDATE tobi_actions
@@ -646,8 +942,9 @@ class DeveloperDispatchService:
                 )
                 conn.execute(
                     """UPDATE chat_developer_dispatches
-                       SET status='proposed',blocker=NULL,error_code=NULL,updated_at=? WHERE id=?""",
-                    (now, str(dispatch_id)),
+                       SET status='proposed',blocker=NULL,error_code=NULL,
+                           queue_snapshot_hash=?,updated_at=? WHERE id=?""",
+                    (refreshed_hash, now, str(dispatch_id)),
                 )
                 conn.commit()
             finally:
@@ -673,8 +970,11 @@ class DeveloperDispatchService:
         with _CONFIRM_LOCK:
             dispatch = self._find(dispatch_id)
             assert dispatch is not None
+            stage = "runtime"
             try:
+                dispatch = self._ensure_runtime_run(dispatch)
                 if not dispatch.get("queue_id"):
+                    stage = "queue"
                     created = self.gateway.create_or_recover_queue_item(dispatch)
                     dispatch = self._update(
                         dispatch_id,
@@ -684,16 +984,14 @@ class DeveloperDispatchService:
                         error_code=None,
                     )
                 if not dispatch.get("workflow_id"):
+                    stage = "preflight"
                     readiness = self.gateway.preflight(int(dispatch["queue_id"]))
                     dispatch = self._update(
                         dispatch_id,
                         readiness_id=int(readiness.get("readiness_id") or 0) or None,
                     )
                     if not readiness.get("ready"):
-                        blockers = readiness.get("blockers") or []
-                        detail = "; ".join(
-                            str(item.get("message") or item) for item in blockers[:3]
-                        ) or "Developer preflight found a blocker."
+                        detail, _next_action = self._owner_failure("preflight")
                         dispatch = self._update(
                             dispatch_id,
                             status="blocked",
@@ -718,6 +1016,7 @@ class DeveloperDispatchService:
                         blocker=None,
                         error_code=None,
                     )
+                    stage = "start"
                     self.gateway.start_workflow(int(workflow["id"]))
                 projection = self._project(dispatch)
                 return {
@@ -727,16 +1026,22 @@ class DeveloperDispatchService:
                     "developer_dispatch": projection,
                 }
             except Exception as exc:
+                blocker, next_action = self._owner_failure(
+                    stage,
+                    workflow_id=int(dispatch["workflow_id"]) if dispatch.get("workflow_id") else None,
+                )
                 dispatch = self._update(
                     dispatch_id,
                     status="failed",
-                    blocker=str(exc)[:1000],
-                    error_code=type(exc).__name__,
+                    blocker=blocker,
+                    error_code=f"developer-{stage}-{type(exc).__name__.lower()}",
                 )
+                projection = self._project(dispatch, refresh=False)
+                projection["next_action"] = next_action
                 return {
                     "ok": False,
                     "status": "failed",
-                    "error": str(exc)[:1000],
+                    "error": blocker,
                     "summary": action_row.get("summary"),
-                    "developer_dispatch": self._project(dispatch, refresh=False),
+                    "developer_dispatch": projection,
                 }

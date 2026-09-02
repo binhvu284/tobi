@@ -56,6 +56,7 @@ KEYS = {
     "runtime.v2_rollout_stage": "#21 last owner-approved rollout stage (string, default shadow)",
     "runtime.v2_rollback": "#21 master execution rollback (bool, default off)",
     "agent.local_workflows": "#35 qualified local Agent workflows (bool, default on)",
+    "agent.chat_developer_dispatch": "#35 confirmed Chat-to-Developer dispatch (bool, default on)",
 }
 
 # New #20 flags — fail closed (default off). Phase A does NOT read these; they are pre-
@@ -84,6 +85,7 @@ RUNTIME_V2_UI = "runtime.v2_ui"
 RUNTIME_V2_ROLLOUT_STAGE = "runtime.v2_rollout_stage"
 RUNTIME_V2_ROLLBACK = "runtime.v2_rollback"
 AGENT_LOCAL_WORKFLOWS = "agent.local_workflows"
+AGENT_CHAT_DEVELOPER_DISPATCH = "agent.chat_developer_dispatch"
 
 
 def ensure_schema(conn=None) -> None:

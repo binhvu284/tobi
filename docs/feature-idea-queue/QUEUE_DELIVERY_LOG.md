@@ -117,8 +117,20 @@ The failed live attempt stopped before writing either a queue row or plan file. 
 failed card now exposes a bounded Retry action after restart. Retry restores its existing approval,
 continues the same dispatch identity, and reuses an already-authored queue item if one exists; it does
 not create a second proposal. Failures after a Developer workflow exists remain owned by Developer's
-existing recovery controls. T02A now passes 25/25 focused checks and the full gate remains 33/33;
+existing recovery controls. T02A now passes 35/35 focused checks and the full gate remains 33/33;
 owner restart and Retry retest remain.
+
+Claude Code's independent review on 2026-09-02 found that the live repair still needed stricter Chat
+qualification, an explicit rollout switch, stable proposal and queue identity, owner-confirmed Chat
+provenance, canonical Runtime and Tier evidence, clearer recovery, an exact artifact view, bounded
+polling, and upload grouping by Chat turn. The repair implements those boundaries without changing
+the Developer worker or DeepSeek Harness. Questions, negated requests, and vague creation prompts stay
+in normal Chat; only an explicit qualified instruction can produce a proposal, and no queue work exists
+until the owner confirms it. Confirmed work now owns one canonical Runtime run, preserves failure
+history across Retry, records Tier evidence only after linked files, checks, and retained artifacts all
+exist, and gives the owner separate Plan, Changes, Checks, and retained-artifact views. Focused checks
+pass 35/35, the shared gate passes 33/33, and the production dashboard build passes. Owner live retest
+remains before T02A acceptance.
 
 
 <a id="item-34"></a>

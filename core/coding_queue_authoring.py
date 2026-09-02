@@ -105,6 +105,7 @@ def create_queue_item(
     goal_ids: list[int] | None = None,
     expected_queue_hash: str,
     plan_markdown: str | None = None,
+    source_note: str = "Created in Developer Work.",
 ) -> dict[str, Any]:
     title = _clean_cell(title)
     objective = objective.strip()
@@ -159,7 +160,7 @@ def create_queue_item(
             objective=objective,
             effort=effort,
             plan_name=plan_name,
-            notes=f"Created in Developer Work.{dependency_note}{risk_note}",
+            notes=f"{_clean_cell(source_note)}{dependency_note}{risk_note}",
         )
         lines.insert(separator + 1, row)
         _atomic_write(plan_path, plan.rstrip() + "\n")

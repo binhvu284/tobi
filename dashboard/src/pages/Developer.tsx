@@ -13,6 +13,7 @@ import DeveloperAgents from '../components/developer/DeveloperAgents'
 import DeveloperProcess from '../components/developer/DeveloperProcess'
 import DeveloperQueue from '../components/developer/DeveloperQueue'
 import DeveloperRuntimeLoop from '../components/developer/DeveloperRuntimeLoop'
+import DeveloperEvidence from '../components/developer/DeveloperEvidence'
 import DevelopmentGoals, { type GoalCommand } from '../components/developer/DevelopmentGoals'
 import VaultUnlockPanel from '../components/VaultUnlockPanel'
 import { useToast } from '../context/ToastProvider'
@@ -355,6 +356,7 @@ export default function Developer() {
           {active && tab === 'overview' && <WorkflowHeader workflow={active} busy={busy} onCommand={command} onApprove={approve} />}
           <main className="px-4 py-6 sm:px-6">
             {tab === 'overview' && <div className="space-y-8">
+              {linkedWorkflow && <DeveloperEvidence workflow={linkedWorkflow} />}
               {!active && <div className="grid w-full gap-3 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.8fr)]"><section className="relative overflow-hidden rounded-lg border border-accent/25 bg-surface/70 px-5 py-6 shadow-[0_20px_60px_rgb(0_0_0/0.12)] sm:px-6"><div className="absolute inset-y-0 left-0 w-1 bg-accent" /><div className="flex items-start justify-between gap-5"><div><div className="text-[10px] font-semibold uppercase text-accent">Development runtime</div><h2 className="mt-2 text-lg font-semibold text-text">Choose verified work to begin</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted">Create an outcome Goal, link a Queue item, review readiness, then start one durable run.</p></div><button onClick={() => setTab('work')} className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md bg-accent px-3 text-xs font-medium text-background"><Target size={14} /> Open work</button></div><div className="mt-6 h-2 overflow-hidden rounded-full bg-background/70" /><div className="mt-2 text-[11px] text-muted">Idle · no active run</div></section><section className="rounded-lg border border-border bg-surface/60 px-5 py-5"><div className="flex items-start gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-md bg-success/10 text-success"><CheckCircle2 size={18} /></div><div><div className="text-[10px] font-semibold uppercase text-muted">Owner action</div><p className="mt-1.5 text-sm leading-6 text-text">Select a Ready Queue item. Start remains locked until strict preflight passes.</p></div></div></section></div>}
               <div className="grid gap-4 lg:grid-cols-2">
                 <section className="overflow-hidden rounded-md border border-border bg-surface/35">

@@ -1357,6 +1357,17 @@ class DevelopmentStore:
         finally:
             conn.close()
 
+    def get_artifact(self, session_id: int, artifact_id: int) -> dict[str, Any] | None:
+        conn = self.connect()
+        try:
+            row = conn.execute(
+                "SELECT * FROM coding_artifacts WHERE session_id=? AND id=?",
+                (int(session_id), int(artifact_id)),
+            ).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
     def storage_cleanup_counts(self, *, now: str, cutoff: str) -> dict[str, int]:
         artifact_clause, states = state_in_clause("s.state", CLEANUP_ELIGIBLE_STATES)
         session_clause, _ = state_in_clause("state", CLEANUP_ELIGIBLE_STATES)

@@ -563,7 +563,12 @@ def _developer_dispatch_metadata(row: dict) -> Optional[dict]:
     if not isinstance(dispatch, dict):
         return None
     dispatch_id = dispatch.get("dispatch_id") or dispatch.get("id")
-    return {"dispatch_id": str(dispatch_id)} if dispatch_id else None
+    if not dispatch_id:
+        return None
+    metadata = {"dispatch_id": str(dispatch_id)}
+    if "previous_failure" in value:
+        metadata["previous_failure"] = value["previous_failure"]
+    return metadata
 
 
 def _terminal_command_for(tool: str, args: dict) -> Optional[str]:
@@ -682,7 +687,15 @@ def confirm_action(action_id: int, decision: str = "approve", surface: str = "mc
         result = DeveloperDispatchService().resolve_linked_action(
             row, decision, developer_metadata
         )
+        if developer_metadata.get("previous_failure") is not None:
+            result["previous_failure"] = developer_metadata["previous_failure"]
         _set_status(action_id, str(result.get("status") or "failed"), result)
+        try:
+            from core import agent_runs
+
+            agent_runs.resolve_action(action_id, str(result.get("status") or "failed"))
+        except Exception as exc:
+            logger.warning("Developer approval propagation failed: %s", exc)
         return result
     if str(decision).lower() in ("reject", "no", "cancel", "deny"):
         if str(row.get("tool") or "").startswith("office_"):

@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, CirclePause, Code2, ExternalLink, Loader2, RotateCcw, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, CirclePause, Code2, ExternalLink, FileText, Loader2, RotateCcw, XCircle } from 'lucide-react'
 import { getDeveloperDispatch, retryDeveloperDispatch, type ChatDeveloperDispatch } from '../../api.chat'
 
-
-const ACTIVE = new Set(['proposed', 'preflighting', 'running', 'waiting_approval', 'blocked'])
 
 const label: Record<string, string> = {
   proposed: 'Waiting for confirmation',
@@ -25,7 +23,9 @@ function StatusIcon({ status }: { status: string }) {
   return <Loader2 size={14} className="animate-spin text-accent" />
 }
 
-export default function DeveloperDispatchCard({ dispatchId }: { dispatchId: string }) {
+export default function DeveloperDispatchCard({ dispatchId, snapshot }: {
+  dispatchId: string; snapshot?: ChatDeveloperDispatch
+}) {
   const [dispatch, setDispatch] = useState<ChatDeveloperDispatch | null>(null)
   const [unavailable, setUnavailable] = useState(false)
   const [retrying, setRetrying] = useState(false)
@@ -34,20 +34,22 @@ export default function DeveloperDispatchCard({ dispatchId }: { dispatchId: stri
 
   useEffect(() => {
     let stopped = false
-    let timer: number | undefined
     const refresh = async () => {
+      if (snapshot) {
+        setDispatch(snapshot); setUnavailable(false)
+        return
+      }
       try {
         const next = await getDeveloperDispatch(dispatchId)
         if (stopped) return
         setDispatch(next); setUnavailable(false)
-        if (ACTIVE.has(next.status)) timer = window.setTimeout(refresh, 2500)
       } catch {
-        if (!stopped) { setUnavailable(true); timer = window.setTimeout(refresh, 5000) }
+        if (!stopped) setUnavailable(true)
       }
     }
     void refresh()
-    return () => { stopped = true; if (timer) window.clearTimeout(timer) }
-  }, [dispatchId, refreshKey])
+    return () => { stopped = true }
+  }, [dispatchId, refreshKey, snapshot])
 
   const retry = async () => {
     setRetrying(true)
@@ -100,6 +102,7 @@ export default function DeveloperDispatchCard({ dispatchId }: { dispatchId: stri
         </div>
       )}
       {dispatch.blocker && <p className="mt-2 text-[11px] leading-relaxed text-warning">{dispatch.blocker}</p>}
+      {dispatch.next_action && <p className="mt-1 text-[11px] leading-relaxed text-muted">Next: {dispatch.next_action}</p>}
       {retryError && <p className="mt-2 text-[11px] leading-relaxed text-danger">{retryError}</p>}
       {dispatch.can_retry && (
         <button type="button" onClick={() => void retry()} disabled={retrying}
@@ -108,11 +111,27 @@ export default function DeveloperDispatchCard({ dispatchId }: { dispatchId: stri
           {retrying ? 'Retrying' : 'Retry'}
         </button>
       )}
+      {!dispatch.can_retry && dispatch.workflow_id && ['failed', 'blocked', 'waiting_approval'].includes(dispatch.status) && (
+        <Link to={dispatch.developer_url}
+          className="mt-2 inline-flex h-8 items-center gap-1.5 rounded border border-border px-2.5 text-xs font-medium text-text hover:border-accent hover:text-accent">
+          <RotateCcw size={13} /> Open recovery
+        </Link>
+      )}
       {(dispatch.changes.files.length > 0 || dispatch.checks.length > 0 || dispatch.artifacts.length > 0) && (
         <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted">
           <span>{dispatch.changes.files.length} changed file{dispatch.changes.files.length === 1 ? '' : 's'}</span>
           <span>{dispatch.checks.length} check{dispatch.checks.length === 1 ? '' : 's'}</span>
           <span>{dispatch.artifacts.length} artifact{dispatch.artifacts.length === 1 ? '' : 's'}</span>
+        </div>
+      )}
+      {dispatch.artifacts.length > 0 && (
+        <div className="mt-2 border-t border-border/60 pt-2">
+          {dispatch.artifacts.slice(0, 4).map(artifact => (
+            <Link key={`${artifact.workflow_id}-${artifact.id}`} to={artifact.developer_url}
+              className="flex min-h-7 items-center gap-1.5 text-[11px] text-muted hover:text-accent">
+              <FileText size={11} className="shrink-0" /><span className="truncate">{artifact.title}</span>
+            </Link>
+          ))}
         </div>
       )}
     </section>

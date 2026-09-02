@@ -36,7 +36,10 @@ export type ChatTurnMeta = {
   developer_dispatch_id?: string
 }
 export type ChatRuntimeMode = 'off' | 'shadow' | 'on'
-export async function getChatConfig(): Promise<{ mode_v2: boolean; chat_runtime_v2?: ChatRuntimeMode }> { return get('/api/chat/config') }
+export async function getChatConfig(): Promise<{
+  mode_v2: boolean; chat_runtime_v2?: ChatRuntimeMode
+  agent_local_workflows?: boolean; developer_chat_dispatch?: boolean
+}> { return get('/api/chat/config') }
 export async function setChatConfig(modeV2: boolean): Promise<{ mode_v2: boolean }> {
   return request('/api/chat/config', { method: 'POST', body: JSON.stringify({ mode_v2: modeV2 }) })
 }
@@ -103,7 +106,8 @@ export type DeveloperGeneratedArtifact = {
 export type ChatDeveloperDispatch = {
   id: string; session_id: number; status: string; title: string; objective: string
   queue_id?: number | null; workflow_id?: number | null; stage?: string | null; progress: number
-  blocker?: string | null; error_code?: string | null; can_retry?: boolean
+  runtime_run_id?: string | null; blocker?: string | null; error_code?: string | null
+  next_action?: string | null; can_retry?: boolean
   developer_url: string; updated_at: string
   changes: { files: string[]; stat?: string }; checks: Array<Record<string, unknown>>
   artifacts: DeveloperGeneratedArtifact[]

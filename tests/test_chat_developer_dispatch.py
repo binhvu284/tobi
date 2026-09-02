@@ -67,6 +67,7 @@ try:
         objective="Repair one confirmed Mission Control limitation through Developer.",
         acceptance_criteria=["the current Queue schema receives one parseable row"],
         expected_queue_hash=coding_queue_authoring.queue_hash(),
+        source_note="Created from an owner-confirmed Mission Control Chat proposal.",
     )
 finally:
     coding_queue.REPO_ROOT = original_queue_root
@@ -78,7 +79,8 @@ ok(
     authored["queue_id"] == 37
     and authored["title"] == "Chat Developer repair"
     and authored["queue_status"].endswith("Draft")
-    and "| 37 | `DEV-QUEUE-037` | [**Chat Developer repair**]" in queue_path.read_text(encoding="utf-8"),
+    and "| 37 | `DEV-QUEUE-037` | [**Chat Developer repair**]" in queue_path.read_text(encoding="utf-8")
+    and "Created from an owner-confirmed Mission Control Chat proposal." in queue_path.read_text(encoding="utf-8"),
     authored,
 )
 legacy_row = coding_queue_authoring._queue_row(
@@ -156,9 +158,30 @@ service = DeveloperDispatchService()
 direct_file = developer_dispatch.qualify_developer_request("create this Markdown file")
 capability = developer_dispatch.qualify_developer_request("add Markdown creation capability")
 ambiguous = developer_dispatch.qualify_developer_request("make Markdown creation")
+common_ambiguous = developer_dispatch.qualify_developer_request("create a markdown creation feature")
+bare_trigger = developer_dispatch.qualify_developer_request("use developer")
+natural_with = developer_dispatch.qualify_developer_request("please fix it with Developer")
+natural_handoff = developer_dispatch.qualify_developer_request("hand this to the Developer agent")
 ok("a direct file request stays outside Developer", direct_file.status == "unsupported", direct_file)
 ok("a capability request enters Developer", capability.status == "accepted", capability)
 ok("an ambiguous request asks one bounded question", ambiguous.status == "clarify" and ambiguous.question, ambiguous)
+ok("common Markdown ambiguity asks before dispatch", common_ambiguous.status == "clarify", common_ambiguous)
+ok("a bare Developer trigger asks for the objective", bare_trigger.status == "clarify", bare_trigger)
+ok(
+    "natural explicit Developer hand-offs are recognized",
+    natural_with.status == natural_handoff.status == "accepted",
+    {"with": natural_with, "handoff": natural_handoff},
+)
+discussion_cases = [
+    "Should we add a feature to export runs?",
+    "Can you explain how to add a caching feature?",
+    "Don't use Developer for this, just tell me what is wrong",
+]
+ok(
+    "questions and negations stay outside Developer dispatch",
+    all(developer_dispatch.qualify_developer_request(value).status == "unsupported" for value in discussion_cases),
+    [developer_dispatch.qualify_developer_request(value) for value in discussion_cases],
+)
 
 proposal = service.propose(
     session_id=35,
@@ -224,6 +247,17 @@ ok(
     and (fake.queue_calls, fake.preflight_calls, fake.workflow_calls, fake.start_calls) == (1, 1, 1, 1),
     {"approved": approved, "calls": (fake.queue_calls, fake.preflight_calls, fake.workflow_calls, fake.start_calls)},
 )
+conn = get_connection()
+runtime_row = conn.execute(
+    "SELECT run_id,status FROM mc_runs WHERE request_id=?",
+    (f"chat-developer-dispatch:{proposal['dispatch']['id']}",),
+).fetchone()
+conn.close()
+ok(
+    "confirmed Developer work enters canonical Runtime",
+    runtime_row is not None and runtime_row["status"] == "running",
+    dict(runtime_row) if runtime_row else None,
+)
 
 running = DeveloperDispatchService().get(proposal["dispatch"]["id"])
 ok(
@@ -238,7 +272,10 @@ fake.state = "completed"
 unproven = DeveloperDispatchService().get(proposal["dispatch"]["id"])
 ok(
     "completed state is not claimed without changes checks and artifacts",
-    unproven["status"] == "blocked" and unproven["blocker"] == "developer-evidence-incomplete",
+    unproven["status"] == "blocked"
+    and "evidence" in unproven["blocker"].lower()
+    and unproven["error_code"] == "developer-evidence-incomplete"
+    and unproven["next_action"].startswith("Open Developer"),
     unproven,
 )
 fake.with_evidence = True
@@ -248,8 +285,26 @@ ok(
     completed["status"] == "completed"
     and completed["changes"]["files"] == ["core/example.py"]
     and completed["checks"][0]["ok"] is True
-    and completed["artifacts"][0]["kind"] == "test_report",
+    and completed["artifacts"][0]["kind"] == "test_report"
+    and "artifact=1" in completed["artifacts"][0]["developer_url"],
     completed,
+)
+conn = get_connection()
+runtime_complete = conn.execute(
+    "SELECT status FROM mc_runs WHERE run_id=?", (completed["runtime_run_id"],)
+).fetchone()
+tier_rows = conn.execute(
+    """SELECT evidence_type,evidence_ref FROM agent_tier_evidence
+       WHERE ability_id='local_work_execution' AND family_id='coding_maintenance'"""
+).fetchall()
+conn.close()
+ok(
+    "completed Developer work publishes canonical Tier II proof",
+    runtime_complete is not None
+    and runtime_complete["status"] == "succeeded"
+    and {row["evidence_type"] for row in tier_rows}
+        == {"runtime_run", "typed_tool_result", "local_action_receipt", "coding_check"},
+    {"runtime": dict(runtime_complete) if runtime_complete else None, "tier": [dict(row) for row in tier_rows]},
 )
 
 state_expectations = {
@@ -312,9 +367,37 @@ ok(
     and retried_dispatch["developer_dispatch"]["id"] == retry_proposal["dispatch"]["id"]
     and retried_dispatch["developer_dispatch"]["queue_id"] == 351
     and retried_dispatch["developer_dispatch"]["workflow_id"] == 8350
+    and retried_dispatch.get("previous_failure", {}).get("status") == "failed"
     and (retry_fake.queue_calls, retry_fake.preflight_calls, retry_fake.workflow_calls, retry_fake.start_calls)
         == (2, 1, 1, 1),
     {"retried": retried_dispatch, "calls": retry_fake.__dict__},
+)
+
+
+class FailStartGateway(FakeDeveloperGateway):
+    def start_workflow(self, workflow_id: int) -> dict:
+        self.start_calls += 1
+        raise RuntimeError("synthetic worker bootstrap traceback")
+
+
+start_fake = FailStartGateway()
+developer_dispatch._gateway_factory = lambda: start_fake
+start_proposal = DeveloperDispatchService().propose(
+    session_id=35,
+    client_turn_id="t02a-start-failure-turn",
+    message="Use Developer to repair a synthetic start failure.",
+)
+start_failure = conductor.confirm_action(int(start_proposal["pending_action"]["id"]), "approve")
+start_projection = start_failure["developer_dispatch"]
+ok(
+    "a post-workflow start failure gives an owner recovery path",
+    start_failure["ok"] is False
+    and start_projection["workflow_id"] == 8350
+    and start_projection["can_retry"] is False
+    and start_projection["blocker"] == "Developer created the workflow but could not start it."
+    and start_projection["next_action"] == "Open Developer and select Retry for this run."
+    and "traceback" not in start_projection["blocker"].lower(),
+    start_projection,
 )
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -346,6 +429,13 @@ client = TestClient(app)
 session = chat_store.create_session("T02A HTTP")
 original_answer = conductor.answer
 
+config_state = client.get("/api/chat/config").json()
+ok(
+    "Chat-to-Developer dispatch has an owner rollback flag",
+    config_state.get("developer_chat_dispatch") is True,
+    config_state,
+)
+
 
 def forbidden_model_call(*_args, **_kwargs):
     raise AssertionError("an explicit Developer dispatch reached the model loop")
@@ -372,9 +462,78 @@ ok(
     and '"model": "not_used"' in streamed.text,
     streamed.text[:1500],
 )
+
+normal_answers: list[str] = []
+
+
+def normal_model_answer(message, *_args, **_kwargs):
+    normal_answers.append(message)
+    return {
+        "reply": f"Normal answer: {message}",
+        "streamed": False,
+        "tools_used": [],
+        "reasoning": None,
+        "prompt_tokens": 1,
+        "completion_tokens": 3,
+    }
+
+
+conn = get_connection()
+dispatch_count_before = conn.execute("SELECT COUNT(*) FROM chat_developer_dispatches").fetchone()[0]
+action_count_before = conn.execute("SELECT COUNT(*) FROM tobi_actions").fetchone()[0]
+conn.close()
+conductor.answer = normal_model_answer
+try:
+    discussion_responses = [
+        client.post(
+            f"/api/chat/sessions/{session['id']}/stream",
+            json={"message": value, "mode": "chat", "client_turn_id": f"discussion-{index}"},
+        )
+        for index, value in enumerate(discussion_cases)
+    ]
+finally:
+    conductor.answer = original_answer
+conn = get_connection()
+dispatch_count_after = conn.execute("SELECT COUNT(*) FROM chat_developer_dispatches").fetchone()[0]
+action_count_after = conn.execute("SELECT COUNT(*) FROM tobi_actions").fetchone()[0]
+conn.close()
+ok(
+    "ordinary discussion reaches the normal model path without a proposal",
+    normal_answers == discussion_cases
+    and all("event: action" not in response.text and "Normal answer:" in response.text for response in discussion_responses)
+    and dispatch_count_after == dispatch_count_before
+    and action_count_after == action_count_before,
+    {"answers": normal_answers, "dispatches": (dispatch_count_before, dispatch_count_after),
+     "actions": (action_count_before, action_count_after)},
+)
+conductor.answer = normal_model_answer
+try:
+    disabled = client.post(
+        "/api/chat/config", json={"developer_chat_dispatch": False}
+    ).json()
+    disabled_response = client.post(
+        f"/api/chat/sessions/{session['id']}/stream",
+        json={
+            "message": "/developer repair a rollback-only synthetic limitation",
+            "mode": "chat",
+            "client_turn_id": "t02a-rollout-disabled",
+        },
+    )
+finally:
+    client.post("/api/chat/config", json={"developer_chat_dispatch": True})
+    conductor.answer = original_answer
+ok(
+    "the rollback flag returns Developer requests to normal Chat",
+    disabled.get("developer_chat_dispatch") is False
+    and "event: action" not in disabled_response.text
+    and "Normal answer:" in disabled_response.text,
+    {"config": disabled, "response": disabled_response.text[:600]},
+)
 conn = get_connection()
 stored = conn.execute(
-    "SELECT meta FROM chat_messages WHERE session_id=? AND role='assistant' ORDER BY id DESC LIMIT 1",
+    """SELECT meta FROM chat_messages
+       WHERE session_id=? AND role='assistant' AND meta LIKE '%developer_dispatch_id%'
+       ORDER BY id DESC LIMIT 1""",
     (int(session["id"]),),
 ).fetchone()
 conn.close()
@@ -434,13 +593,17 @@ chat_source = (ROOT / "dashboard/src/pages/Chat.tsx").read_text(encoding="utf-8"
 api_source = (ROOT / "dashboard/src/api.chat.ts").read_text(encoding="utf-8")
 files_source = (ROOT / "dashboard/src/components/chat/Attachments.tsx").read_text(encoding="utf-8")
 developer_source = (ROOT / "dashboard/src/pages/Developer.tsx").read_text(encoding="utf-8")
+evidence_source = (ROOT / "dashboard/src/components/developer/DeveloperEvidence.tsx").read_text(encoding="utf-8")
 dispatch_card_source = (ROOT / "dashboard/src/components/chat/DeveloperDispatchCard.tsx").read_text(encoding="utf-8")
 ok(
     "Mission Control renders proposal run status and generated artifacts",
     "DeveloperDispatchCard" in chat_source
     and "getDeveloperDispatch" in api_source
     and "Generated by Developer" in files_source
+    and "Chat turn" in files_source
     and "getDeveloperWorkflow" in developer_source
+    and "DeveloperEvidence" in developer_source
+    and "getDeveloperArtifact" in evidence_source
     and "retryDeveloperDispatch" in dispatch_card_source
     and "Retry" in dispatch_card_source,
 )

@@ -371,7 +371,8 @@ export default function Chat() {
 
   // ── turn ──
   const runTurn = async (text: string, sid: number, opts: TurnOpts) => {
-    lastTurnRef.current = { text, opts }; lastMetaRef.current = {}
+    const stableOpts = { ...opts, client_turn_id: opts.client_turn_id || crypto.randomUUID() }
+    lastTurnRef.current = { text, opts: stableOpts }; lastMetaRef.current = {}
     const tag = opts.attachments?.length ? `  📎×${opts.attachments.length}` : ''
     setMessages(m => [...m, { role: 'user', content: text + tag, attachments: opts.attachments }])
     setSending(true); setPending(null); setModelIssue(false); setModelUnreachable(null)
@@ -488,7 +489,7 @@ export default function Chat() {
           }
           setMessages(m => { const next = [...m]; const last = next[next.length - 1]; if (last && last.role === 'assistant') next[next.length - 1] = { ...last, meta: { ...last.meta, ...lastMetaRef.current } }; return next })
         },
-      }, ac.signal, opts)
+      }, ac.signal, stableOpts)
     } catch (e) {
       flushDelta()
       if ((e as Error).name !== 'AbortError') {
@@ -705,7 +706,7 @@ export default function Chat() {
   }
 
   useEffect(() => {
-    if (activeId == null || !developerDispatches.some(item => ['proposed', 'preflighting', 'running', 'waiting_approval', 'blocked'].includes(item.status))) return
+    if (activeId == null || !developerDispatches.some(item => ['preflighting', 'running'].includes(item.status))) return
     const timer = window.setInterval(() => { void loadDeveloperDispatches(activeId) }, 3000)
     return () => window.clearInterval(timer)
     // The status signature stops polling once every linked run is terminal.
@@ -1135,7 +1136,10 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
                         {m.content ? <MarkdownView content={m.content} /> : (isLast && busy ? null : <span className="text-sm text-muted">…</span>)}
                         {streaming && isLast && <span className={`ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] bg-accent align-middle ${reduced ? '' : 'chat-caret'}`} />}
                       </div>
-                      {m.meta?.developer_dispatch_id && <DeveloperDispatchCard dispatchId={m.meta.developer_dispatch_id} />}
+                      {m.meta?.developer_dispatch_id && <DeveloperDispatchCard
+                        dispatchId={m.meta.developer_dispatch_id}
+                        snapshot={developerDispatches.find(item => item.id === m.meta?.developer_dispatch_id)}
+                      />}
                       {/* #20 review P1: per-memory feedback chips for this turn (empty until meta folds in) */}
                       <MemoryChips chips={m.meta?.memoryChips} turnRef={m.meta?.turn_id} />
                       {m.created_at && !(streaming && isLast) && (
