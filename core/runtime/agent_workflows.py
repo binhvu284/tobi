@@ -304,8 +304,6 @@ class _AgentWorkspaceBroker:
         cap = max(1, min(int(limit), 500))
         files: list[str] = []
         for item in base.rglob("*"):
-            if len(files) >= cap:
-                break
             if not item.is_file():
                 continue
             try:
@@ -313,8 +311,11 @@ class _AgentWorkspaceBroker:
             except ValueError:
                 continue
             files.append(relative)
+        # Sort before cutting, never after -- see the same fix in core/coding_tools.py.
         files.sort()
-        return {"files": files, "truncated": len(files) >= cap}
+        truncated = len(files) > cap
+        files = files[:cap]
+        return {"files": files, "truncated": truncated}
 
     def write_file(self, path: str, content: str) -> dict[str, Any]:
         raise ValueError("Agent local file writes belong to a later qualified workflow")

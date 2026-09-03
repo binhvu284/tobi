@@ -6,6 +6,7 @@ import hashlib
 import os
 import shutil
 import subprocess
+import shlex
 import sys
 import tempfile
 import threading
@@ -200,7 +201,10 @@ except RuntimeError:
 timeout_policy_data = json.loads(json.dumps(policy_data))
 timeout_policy_data["limits"]["worker_timeout_seconds"] = 1
 timeout_policy = CodingPolicy(timeout_policy_data, repo_root=repo)
-os.environ["TOBI_HERMES_CODING_COMMAND"] = "ping 127.0.0.1 -n 8"
+# Any process that outlives the 1s deadline proves the kill. `ping -n 8` was Windows-only
+# ("-n" takes no argument on Linux, so it exited instantly with code 2 and the deadline was
+# never reached). The interpreter running this test exists on every platform by definition.
+os.environ["TOBI_HERMES_CODING_COMMAND"] = f"{shlex.quote(sys.executable)} -c \"import time; time.sleep(8)\""
 os.environ["TOBI_HERMES_SANDBOX_ARGV"] = '["{command}"]'
 try:
     HermesWorker(timeout_policy).run(999, "timeout", repo, {"test": True})
