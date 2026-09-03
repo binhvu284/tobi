@@ -113,18 +113,20 @@ class CodingToolBroker:
             base, _ = self._resolve(prefix)
         if not base.exists() or not base.is_dir():
             raise CodingToolError("List prefix is not a directory.")
-        files: list[str] = []
+        cap = max(1, min(limit, 500))
+        found: list[str] = []
         for item in base.rglob("*"):
-            if len(files) >= max(1, min(limit, 500)):
-                break
             if not item.is_file():
                 continue
             rel = item.resolve().relative_to(self.worktree).as_posix()
             if self.policy.is_indexable(rel):
-                files.append(rel)
-        files.sort()
+                found.append(rel)
+        # rglob yields filesystem order, which differs per OS, so sort before the cut:
+        # otherwise the bounded page is a different page on Windows than on Linux.
+        found.sort()
+        files = found[:cap]
         self._emit("tool_list", {"prefix": prefix, "count": len(files)})
-        return {"files": files, "truncated": len(files) >= max(1, min(limit, 500))}
+        return {"files": files, "truncated": len(found) > cap}
 
     def search(self, query: str, prefix: str = "", limit: int = 50) -> dict[str, Any]:
         needle = str(query or "").strip()
