@@ -21,6 +21,7 @@ from core.database import get_connection, init_database  # noqa: E402
 init_database()
 
 from core import coding_queue, coding_queue_authoring, conductor, developer_dispatch  # noqa: E402
+from core.coding_assessment import CodingTaskAssessor  # noqa: E402
 from core.developer_dispatch import DeveloperDispatchService  # noqa: E402
 from core.development_store import DevelopmentStore  # noqa: E402
 
@@ -322,9 +323,11 @@ long_context_proposal = service.propose(
 slow_context_payload = slow_context_proposal["pending_action"]["developer_proposal"]
 long_context_payload = long_context_proposal["pending_action"]["developer_proposal"]
 ok(
-    "the durable proposal preserves full owner context and evaluates its risk",
-    detailed_payload["objective"] == "fix this"
+    "the durable proposal resolves pronouns while preserving full owner context and risk",
+    detailed_payload["objective"] == "Fix: The send button does nothing"
     and detailed_payload["context"] == detailed_message
+    and slow_context_payload["objective"] == "Fix: The Chat page is slow"
+    and long_context_payload["objective"] == "Fix: KeyError: missing_owner_context"
     and context_risk_proposal["pending_action"]["developer_proposal"]["risk"] == "high",
     {"proposal": detailed_payload, "context_risk": context_risk_proposal},
 )
@@ -342,6 +345,46 @@ ok(
         "sentence_title": slow_context_payload["title"],
         "error_title": long_context_payload["title"],
     },
+)
+
+
+class _NoopAssessmentIndex:
+    def search(self, _query: str, *, limit: int, root: Path) -> list[dict]:
+        return []
+
+
+class _PathDecision:
+    protected = False
+    forbidden = False
+
+
+class _AssessmentPolicy:
+    repo_root = ROOT
+
+    @staticmethod
+    def path_decision(_path: str) -> _PathDecision:
+        return _PathDecision()
+
+
+slow_plan = developer_dispatch._developer_plan_markdown(
+    slow_context_payload,
+    "<!-- tobi-chat-developer-dispatch:test-slow-context -->",
+)
+slow_assessment = CodingTaskAssessor(_AssessmentPolicy(), _NoopAssessmentIndex()).assess(
+    title=slow_context_payload["title"],
+    objective=slow_plan,
+    acceptance_criteria=slow_context_payload["acceptance_checks"],
+    validation_commands=[["python", "tests/test_coding_agent.py"]],
+)
+ok(
+    "a normal Chat limitation produces one bounded measurable Developer sprint",
+    len(slow_context_payload["acceptance_checks"]) == 3
+    and "before-change timing" in slow_context_payload["acceptance_checks"][0].lower()
+    and "measurably faster" in slow_context_payload["acceptance_checks"][1].lower()
+    and len(slow_assessment.sprints) == 1
+    and slow_assessment.route == "direct"
+    and slow_assessment.risk != "high",
+    {"proposal": slow_context_payload, "assessment": slow_assessment.to_dict()},
 )
 
 original_queue_root = coding_queue.REPO_ROOT
@@ -860,6 +903,9 @@ ok(
     and "retryDeveloperDispatch" in dispatch_card_source
     and "Retry" in dispatch_card_source
     and "pending.developer_proposal.context" in chat_source
+    and "pending.developer_proposal?.risk || pending.risk" in chat_source
+    and "jump-to-latest flow row prevents proposal overlap" in chat_source
+    and "pending-${m.role}-${i}" in chat_source
     and "context: string" in brain_api_source
     and "window.addEventListener('focus'" in chat_source,
 )

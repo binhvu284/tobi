@@ -361,24 +361,79 @@ def _proposal_risk(objective: str) -> str:
     return "high" if _HIGH_RISK_OBJECTIVE.search(objective) else "medium"
 
 
+_PERFORMANCE_LIMITATION = re.compile(
+    r"\b(?:slow|slower|latency|lag|performance|takes?\s+(?:too\s+)?long|timeout)\b",
+    re.IGNORECASE,
+)
+_FAILURE_LIMITATION = re.compile(
+    r"\b(?:error|exception|fail(?:ed|ing|s)?|broken|not\s+working|does\s+not|doesn't|"
+    r"cannot|can't)\b",
+    re.IGNORECASE,
+)
+
+
+def _resolved_objective(objective: str, *, title: str) -> str:
+    value = objective.strip()
+    if _BARE_ANAPHOR_OBJECTIVE.fullmatch(value) is None:
+        return value
+    verb = value.split(maxsplit=1)[0].lower()
+    label = {
+        "add": "Add",
+        "build": "Build",
+        "enable": "Enable",
+        "fix": "Fix",
+        "implement": "Implement",
+        "repair": "Repair",
+    }.get(verb, "Address")
+    return f"{label}: {title.strip().rstrip('.')}"
+
+
+def _proposal_acceptance_checks(*, title: str, objective: str, context: str) -> list[str]:
+    reported = title.strip().rstrip(".")
+    source = f"{title}\n{objective}\n{context}"
+    evidence_check = (
+        "Focused regression checks and the active package gate pass, with changed files and "
+        "generated evidence linked to the Developer run."
+    )
+    if _PERFORMANCE_LIMITATION.search(source):
+        return [
+            f"A before-change timing reproduces the reported problem: {reported}.",
+            "The same owner flow is measurably faster after the change, with the after-change "
+            "timing recorded.",
+            evidence_check,
+        ]
+    if _FAILURE_LIMITATION.search(source):
+        return [
+            f"The reported failure is reproduced before the change: {reported}.",
+            "The same owner flow completes without that failure after the change.",
+            evidence_check,
+        ]
+    return [
+        f"The requested result is demonstrated in Mission Control: {objective.rstrip('.')}.",
+        "A focused regression check covers the changed behavior without breaking the related "
+        "owner flow.",
+        evidence_check,
+    ]
+
+
 def _proposal(objective: str, *, context: str) -> dict[str, Any]:
-    bounded = objective.strip().rstrip(".")
     owner_context = context.strip()
+    title = _title(objective, context=owner_context)
+    resolved_objective = _resolved_objective(objective, title=title)
     return {
-        "title": _title(objective, context=owner_context),
-        "objective": objective,
+        "title": title,
+        "objective": resolved_objective,
         "context": owner_context,
         "project": "TOBI",
-        "acceptance_checks": [
-            f"Mission Control completes this owner outcome: {bounded}.",
-            "A focused regression check proves the repaired behavior.",
-            "The active package gate remains green.",
-            "Changed files, checks, and generated evidence are linked to the Developer run.",
-        ],
+        "acceptance_checks": _proposal_acceptance_checks(
+            title=title,
+            objective=resolved_objective,
+            context=owner_context,
+        ),
         "scope": [
-            "Work only inside the TOBI main checkout and the described limitation.",
-            "Reuse the existing Developer control plane and its approval gates.",
-            "Do not merge, deploy, delete, or overwrite protected work without Developer approval.",
+            "Work only inside the TOBI main checkout and the reported limitation.",
+            "Reuse existing Developer controls and stop after a reviewed local change.",
+            "Any protected follow-up action remains behind its existing owner approval.",
         ],
         "risk": _proposal_risk(f"{objective}\n{owner_context}"),
     }

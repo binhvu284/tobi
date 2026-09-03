@@ -1096,14 +1096,15 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
               )}
               {messages.map((m, i) => {
                 const mine = m.role === 'user'; const isLast = i === messages.length - 1
+                const messageKey = m.id != null ? `message-${m.id}` : `pending-${m.role}-${i}`
                 if (m.role === 'summary') return (
-                  <div key={m.id ?? i} className="mx-auto max-w-lg rounded-lg border border-border bg-bg/40 px-3 py-2">
+                  <div key={messageKey} className="mx-auto max-w-lg rounded-lg border border-border bg-bg/40 px-3 py-2">
                     <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted"><Layers size={11} /> Earlier conversation compacted</div>
                     <div className="text-xs text-muted"><MarkdownView content={m.content} /></div>
                   </div>
                 )
                 if (mine) return (
-                  <motion.div key={m.id ?? i} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="group flex flex-row-reverse gap-2.5">
+                  <motion.div key={messageKey} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="group flex flex-row-reverse gap-2.5">
                     <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-accent/30 bg-accent/10 text-accent"><User size={13} /></div>
                     <div className="max-w-[80%]">
                       {editing === m.id ? (
@@ -1136,7 +1137,7 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
                   </motion.div>
                 )
                 return (
-                  <motion.div key={m.id ?? i} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="group flex gap-3">
+                  <motion.div key={messageKey} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="group flex gap-3">
                     <div className="pt-0.5">{tobiMark(28)}</div>
                     <div className="min-w-0 flex-1">
                       {/* process trace: live checkpoints while working, collapsed "Worked for Xs" once done */}
@@ -1248,7 +1249,7 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
 
               {pending && !sending && (
                 <motion.div initial={{ opacity: 0, y: reduced ? 0 : 8 }} animate={{ opacity: 1, y: 0 }} className="mx-auto w-full max-w-md rounded-xl border border-warning/40 bg-warning/5 p-3.5">
-                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-warning"><ShieldAlert size={14} /> {pending.developer_proposal ? 'Confirm Developer work' : `Confirm action${pending.items && pending.items.length > 1 ? 's' : ''}`} · <span className="uppercase tracking-wide">{pending.risk} risk</span></div>
+                  <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-warning"><ShieldAlert size={14} /> {pending.developer_proposal ? 'Confirm Developer work' : `Confirm action${pending.items && pending.items.length > 1 ? 's' : ''}`} · <span className="uppercase tracking-wide">{pending.developer_proposal?.risk || pending.risk} risk</span></div>
                   {pending.items && pending.items.length > 1 ? (
                     <div className="mb-3">
                       <div className="mb-1.5 text-sm text-text">TOBI wants to perform <span className="font-medium">{pending.items.length} high-risk actions</span>:</div>
@@ -1380,17 +1381,20 @@ function SessionMenu({ onRename, onDelete }: { onRename: () => void; onDelete: (
             </aside>
           )}
 
-          {/* jump-to-latest pill (appears when scrolled up) */}
-          <AnimatePresence>
-            {!atBottom && messages.length > 0 && (
-              <motion.button initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
-                onClick={jumpToLatest}
-                className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-surface/95 px-3 py-1.5 text-[11px] font-medium text-text shadow-lg backdrop-blur hover:border-accent/50 hover:text-accent">
-                <ChevronDown size={13} /> Jump to latest
-              </motion.button>
-            )}
-          </AnimatePresence>
         </div>
+
+        {/* jump-to-latest flow row prevents proposal overlap */}
+        <AnimatePresence initial={false}>
+          {!atBottom && messages.length > 0 && (
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 32 }} exit={{ opacity: 0, height: 0 }}
+              className="flex shrink-0 items-center justify-center overflow-hidden px-4">
+              <button onClick={jumpToLatest}
+                className="flex items-center gap-1.5 rounded-full border border-border bg-surface/95 px-3 py-1.5 text-[11px] font-medium text-text shadow-lg hover:border-accent/50 hover:text-accent">
+                <ChevronDown size={13} /> Jump to latest
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* attachment thumbnail cards + grid */}
         {attachments.length > 0 && (

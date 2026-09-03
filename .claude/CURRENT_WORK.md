@@ -10,7 +10,10 @@ for more than an hour: if what you are fixing does not serve that line, stop and
 
 **Item:** #35 TOBI Agent Tier Completion
 **Package:** T02A - Chat-to-Developer Dispatch
-**Status:** T00, T01, and T02 are implemented. T02A Round 5 review repair is engineering-green; owner retest remains.
+**Status:** T00, T01, and T02 are implemented. T02A's owner-test repair is engineering-green:
+focused checks pass 50/50, the shared gate passes 34/34, the production build passes, and desktop
+plus mobile browser checks pass. Restarting MC and testing one fresh proposal is the only remaining
+step before T02A acceptance.
 
 **Purpose (one sentence, plain words):**
 Let the owner turn a limitation described in normal Chat into one confirmed, durable Developer
@@ -50,6 +53,7 @@ workflow with truthful status and evidence, without creating work before confirm
 **Gate: green - T02A live repair and all inherited suites must pass**
 
 ```gate
+../.python/venv/Scripts/python.exe tests/test_coding_agent.py
 ../.python/venv/Scripts/python.exe tests/test_chat_developer_dispatch.py
 ../.python/venv/Scripts/python.exe tests/test_agent_tier_workflows.py
 ../.python/venv/Scripts/python.exe tests/test_agent_tier_registry.py

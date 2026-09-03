@@ -19,12 +19,12 @@
   the deterministic `/developer` command, persists an owner-readable proposal with zero Developer
   side effects, and starts exactly one linked queue item and workflow only after confirmation.
   Chat then shows truthful Developer state, blockers, evidence, generated artifacts, and recovery.
-  Round 5 review repair preserves the concise objective while carrying the owner's complete message
-  through the durable proposal, risk decision, confirmation card, and generated plan Context. The
-  roadmap row now uses bounded context-derived metadata, so pasted tracebacks do not consume the
-  table and accepted `fix it` or `fix this` requests are named from the supporting symptom, bullet,
-  or error. Focused contract checks pass 49/49, the shared gate passes 33/33, TypeScript passes, and
-  the production build passes.
+  The owner-test repair resolves pronoun objectives from the reported limitation, generates three
+  request-specific acceptance checks, keeps ordinary local repair work at medium risk, and places
+  Jump to latest outside the proposal surface. The Developer readiness validator is now part of both
+  the package gate and Health registry, and Queue item #18 again records prerequisite #17 so that
+  validator is truthful. Focused contract checks pass 50/50, the shared gate passes 34/34,
+  TypeScript passes, the production build passes, and desktop/mobile browser checks pass.
   Owner live verification remains. DeepSeek Harness worker code remains outside #35 and was not changed.
 - Owner live test on 2026-09-01 proved proposal creation but exposed a stale Developer queue writer:
   it expected the retired `Feature | Status | ... | Spec` header and rejected the current
@@ -35,6 +35,12 @@
   workflow continue to use the Developer page's own recovery controls.
   After confirmation, Chat-created work deliberately enters the canonical
   `docs/feature-idea-queue/QUEUE.md`; before confirmation, neither that roadmap nor a plan file changes.
+- Owner live test on 2026-09-03 exposed five connected presentation/readiness defects: `fix it`
+  survived as the work objective, four generic checks forced a false two-sprint result, deployment
+  boilerplate inflated risk, the validator failed on missing #18 dependency history, and Jump to latest
+  covered the confirmation area. The repair fixes those defects without changing DeepSeek Harness or
+  Developer worker execution. Existing blocked item #38 remains historical; a fresh proposal is needed
+  after restarting MC so its plan is generated under the repaired contract.
 
 ## The One Outcome
 

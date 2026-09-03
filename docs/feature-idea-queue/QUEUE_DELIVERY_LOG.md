@@ -171,6 +171,16 @@ plan's `## Context` heading. Focused checks pass 49/49, the shared gate passes 3
 zero, and the production dashboard build passes. Owner live retest remains before T02A acceptance.
 The optional generic scope wording remains accepted for T02A.
 
+Owner live repair on 2026-09-03 closes the defects shown after the six review rounds. A request such
+as `The Chat page is slow. Use Developer to fix it.` now proposes `Fix: The Chat page is slow`, uses
+three performance-specific acceptance checks, stays one sprint and medium risk, and keeps the owner
+confirmation controls unobstructed. The Developer validator is now mandatory in the package gate and
+Health registry; restoring item #18's prerequisite #17 history removes the false infrastructure
+failure. Focused checks pass 50/50, `tests/test_coding_agent.py` passes 51/51, the shared gate passes
+34/34, the production build passes, and mocked desktop/mobile browser checks pass with no console or
+network errors. DeepSeek Harness and Developer worker execution were not changed. Existing blocked
+item #38 remains historical; owner restart and one fresh proposal remain before T02A acceptance.
+
 
 <a id="item-34"></a>
 

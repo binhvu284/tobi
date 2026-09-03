@@ -167,6 +167,10 @@ SUITES: tuple[SuiteSpec, ...] = (
               "tests/test_agent_tier_workflows.py",
               "Qualified Project, local diagnosis, and coding maintenance requests use canonical "
               "Runtime, preserve retries, require grounded evidence, and retain a scoped rollback."),
+    SuiteSpec("coding_agent_control", "Developer readiness validates its own control plane", "#35 T02A",
+              "tests/test_coding_agent.py",
+              "The Developer queue, policy, checkpoints, approvals, evidence, and worker boundary "
+              "pass before Chat assigns confirmed work."),
     SuiteSpec("chat_developer_dispatch", "Chat starts one confirmed Developer run", "#35 T02A",
               "tests/test_chat_developer_dispatch.py",
               "A normal Chat request creates no Developer work before confirmation, then starts "

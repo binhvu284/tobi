@@ -107,7 +107,8 @@ The chat stream can emit:
 - references/source metadata;
 - model issue notices;
 - normalized mode/context/plan/artifact events;
-- deterministic Developer proposal actions and linked live run state;
+- deterministic Developer proposal actions with context-resolved objectives and request-specific
+  acceptance checks, plus linked live run state;
 - typed runtime lifecycle events (`turn_started`, context/plan/step events, recovery, completion);
 - completion/error events.
 
