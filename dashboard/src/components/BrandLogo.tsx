@@ -3,7 +3,7 @@ import {
   SiGoogle, SiGmail, SiStripe, SiYcombinator, SiReddit, SiOpenrouter,
   type IconType,
 } from '@icons-pack/react-simple-icons'
-import codexSvg from '@lobehub/icons-static-svg/icons/codex-color.svg?raw'
+import openaiSvg from '@lobehub/icons-static-svg/icons/openai.svg?raw'
 
 /* Accurate brand logos (Simple Icons) per integration id. `color` is chosen to
  * read clearly on the dark cards — brands whose official mark is near-black
@@ -26,13 +26,14 @@ const CODEX_COLOR = '#10A37F'
 const EXPLORE_COLOR = '#22a3e0'
 
 export default function BrandLogo({ id, label }: { id: string; label?: string }) {
-  // Codex ships its own colored mark via @lobehub (no Simple Icons entry).
+  // The Codex auth path is OpenAI's own (2026-09): the card wears the OpenAI mark, via @lobehub
+  // (Simple Icons carries no OpenAI entry in this package).
   if (id === 'codex') {
     return (
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-bg"
         style={{ boxShadow: `inset 0 0 12px ${CODEX_COLOR}1f` }}
-        aria-label={label || 'Codex'}
-        dangerouslySetInnerHTML={{ __html: `<span style="display:inline-flex;font-size:18px;color:${CODEX_COLOR}">${codexSvg}</span>` }} />
+        aria-label={label || 'OpenAI'}
+        dangerouslySetInnerHTML={{ __html: `<span style="display:inline-flex;font-size:18px;color:${CODEX_COLOR}">${openaiSvg}</span>` }} />
     )
   }
   // Explore (News) — composite of 4 overlapping source marks (HN + Reddit + GitHub

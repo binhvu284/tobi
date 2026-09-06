@@ -3,18 +3,18 @@
 // shows all of them. Nothing is rendered twice, two ways.
 import { memo, useLayoutEffect, useRef, useState } from 'react'
 import { ActionButton } from '../components/async-ui'
-import { BrandMark, brandForModel } from '../components/LlmLogo'
+import { BRAND_META, BrandMark, brandForModel } from '../components/LlmLogo'
 import {
   ActGlyph, Anthropic, BrandGlyph, ChevDown, Cross, FileGlyph, Retry, Stop, Tick,
 } from './icons'
 import { OWNER_INITIALS, shortModel, spent, type Act, type Msg } from './model'
 import type { LiveSession } from './session'
 
-/** the provider mark carries the vendor, not the accent */
+/** the provider mark carries the vendor, not the accent: Anthropic's clay, OpenAI's green, and so on */
 export function ProviderMark({ model, className = 'provider' }: { model: string; className?: string }) {
   const brand = brandForModel(model)
   if (brand === 'claude' || !model) return <Anthropic className={className} />
-  return <BrandMark brand={brand} size={15} className={className} />
+  return <span className={className} style={{ color: BRAND_META[brand].color, filter: 'none' }}><BrandMark brand={brand} size={15} /></span>
 }
 
 function ActRow({ a, onRetry }: { a: Act; onRetry: () => void }) {

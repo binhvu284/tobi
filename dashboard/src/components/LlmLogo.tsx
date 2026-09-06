@@ -15,7 +15,7 @@ import deepseekSvg from '@lobehub/icons-static-svg/icons/deepseek-color.svg?raw'
 import qwenSvg from '@lobehub/icons-static-svg/icons/qwen-color.svg?raw'
 import mistralSvg from '@lobehub/icons-static-svg/icons/mistral-color.svg?raw'
 import metaSvg from '@lobehub/icons-static-svg/icons/meta-color.svg?raw'
-import codexSvg from '@lobehub/icons-static-svg/icons/codex-color.svg?raw'
+// Codex is OpenAI's own auth path, not a separate brand any more (2026-09): it wears the OpenAI mark.
 
 export type Brand =
   | 'claude' | 'openai' | 'zhipu' | 'grok' | 'gemini' | 'openrouter'
@@ -25,7 +25,7 @@ const SVGS: Record<Exclude<Brand, 'custom'>, string> = {
   claude: claudeSvg, openai: openaiSvg, zhipu: zhipuSvg, grok: grokSvg,
   gemini: geminiSvg, openrouter: openrouterSvg, ollama: ollamaSvg,
   deepseek: deepseekSvg, qwen: qwenSvg, mistral: mistralSvg, meta: metaSvg,
-  codex: codexSvg,
+  codex: openaiSvg,
 }
 
 // accent used for the rounded tile behind the mark
@@ -41,7 +41,7 @@ export const BRAND_META: Record<Brand, { name: string; color: string }> = {
   qwen:       { name: 'Qwen',        color: '#615CED' },
   mistral:    { name: 'Mistral',     color: '#FA520F' },
   meta:       { name: 'Meta Llama',  color: '#0668E1' },
-  codex:      { name: 'Codex',       color: '#10A37F' },
+  codex:      { name: 'OpenAI',      color: '#10A37F' },
   custom:     { name: 'Custom',      color: '#8B949E' },
 }
 

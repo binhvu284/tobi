@@ -157,7 +157,7 @@ function kindOf(kind: string): FileKind {
   return 'doc'
 }
 const PROVIDER_HINT: Record<string, string> = {
-  anthropic: 'Anthropic', openai: 'OpenAI', codex: 'Codex', glm: 'GLM', zai: 'Z.ai', gemini: 'Google', google: 'Google',
+  anthropic: 'Anthropic', openai: 'OpenAI', codex: 'OpenAI', glm: 'GLM', zai: 'Z.ai', gemini: 'Google', google: 'Google',
   grok: 'xAI', xai: 'xAI', openrouter: 'OpenRouter', deepseek: 'DeepSeek', ollama: 'local',
 }
 /** a failed step says whose fault it was */

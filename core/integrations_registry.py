@@ -141,7 +141,7 @@ def _test_codex() -> tuple[bool, str]:
 
     if not tok:
         return False, (
-            "No Codex auth found. Either:\n"
+            "No OpenAI auth found. Either:\n"
             "  • Run `codex login` (auto-reads the token), or\n"
             "  • Paste CODEX_ACCESS_TOKEN, or\n"
             "  • Set OPENAI_API_KEY for API billing."
@@ -167,15 +167,15 @@ def _test_codex() -> tuple[bool, str]:
                           json={"model": model, "input": "ping", "max_output_tokens": 1})
         if r.status_code == 200:
             mode = "API key" if use_api else "ChatGPT subscription"
-            return True, f"Codex valid — {mode} auth confirmed."
+            return True, f"OpenAI valid — {mode} auth confirmed."
         if r.status_code in (401, 403):
             hint = "Re-run `codex login`" if not use_api else "Check your API key"
-            return False, f"Codex rejected the token (HTTP {r.status_code}). {hint}."
+            return False, f"OpenAI rejected the token (HTTP {r.status_code}). {hint}."
         if r.status_code == 404 and not use_api:
             return False, f"Model '{model}' not found on subscription endpoint — the chatgpt.com backend may have changed. Try using OPENAI_API_KEY instead."
-        return False, f"Codex backend returned HTTP {r.status_code}."
+        return False, f"OpenAI backend returned HTTP {r.status_code}."
     except Exception as exc:
-        return False, _reason(exc, "Could not reach the Codex backend.")
+        return False, _reason(exc, "Could not reach the OpenAI backend.")
 
 
 def _test_google() -> tuple[bool, str]:
@@ -288,7 +288,7 @@ REGISTRY: list[dict] = [
         "test": _test_supabase,
     },
     {
-        "id": "codex", "label": "OpenAI Codex", "category": "tools", "required": False,
+        "id": "codex", "label": "OpenAI", "category": "tools", "required": False,
         "icon": "codex", "available": True,
         "blurb": "Use GPT-5.6 models (Sol/Terra/Luna) via ChatGPT subscription or OpenAI API key. Run `codex login` to auto-auth, or paste a token / API key.",
         "fields": [

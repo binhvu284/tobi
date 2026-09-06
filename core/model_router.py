@@ -117,12 +117,15 @@ PROVIDERS: dict[str, dict] = {
         "models": ["grok-4", "grok-3", "grok-3-mini"],
     },
     "codex": {
-        # OpenAI Codex — auto-detects auth: ChatGPT subscription token (chatgpt.com
-        # backend) or platform API key (api.openai.com). Run `codex login` or set
-        # CODEX_ACCESS_TOKEN / OPENAI_API_KEY.
-        "label": "OpenAI Codex", "kind": "codex", "key_env": "CODEX_ACCESS_TOKEN",
+        # OpenAI through the Codex auth paths — auto-detects: ChatGPT subscription token
+        # (chatgpt.com backend) or platform API key (api.openai.com). Run `codex login` or
+        # set CODEX_ACCESS_TOKEN / OPENAI_API_KEY. Catalog refreshed 2026-09-07: GPT-6 Astra
+        # (released 2026-09-03, id `gpt-6-astra`, 1.05M context) leads; the GPT-5.6 tiers
+        # (Sol flagship, Terra, Luna fastest) and the two older models stay for the frozen
+        # #34 cases that name them.
+        "label": "OpenAI", "kind": "codex", "key_env": "CODEX_ACCESS_TOKEN",
         "base_url": "https://chatgpt.com/backend-api/codex", "needs_key": True, "editable_base_url": False,
-        "models": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6", "gpt-5.5", "gpt-5.4-mini"],
+        "models": ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6", "gpt-5.5", "gpt-5.4-mini"],
     },
     "ollama": {
         "label": "Ollama (local)", "kind": "openai", "key_env": None,

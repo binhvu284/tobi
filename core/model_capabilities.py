@@ -42,6 +42,9 @@ _RULES: list[tuple[str, Caps]] = [
     ("gpt-4-turbo", {"vision": True, "reasoning": False, "context": 128000}),
     ("gpt-4", {"vision": False, "reasoning": False, "context": 8192}),
     ("gpt-3.5", {"vision": False, "reasoning": False, "context": 16385}),
+    # GPT-6 Astra (2026-09-03): 1,050,000-token context, 128k output; `-fast` shares the id prefix
+    ("gpt-6-astra", {"vision": True, "reasoning": True, "context": 1050000}),
+    ("gpt-6", {"vision": True, "reasoning": True, "context": 1050000}),
     ("gpt-5.6-sol", {"vision": True, "reasoning": True, "context": 200000}),
     ("gpt-5.6-terra", {"vision": True, "reasoning": True, "context": 200000}),
     ("gpt-5.6-luna", {"vision": True, "reasoning": True, "context": 200000}),
