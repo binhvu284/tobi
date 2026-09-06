@@ -39,18 +39,38 @@ export function Ctx({ tokens, max }: { tokens: number; max: number }) {
   )
 }
 
+/** the models, grouped under their provider when there is more than one, in a list that
+ *  scrolls while the note under it stays put */
 export function ModelMenu({ s, session, className, onClose }: {
   s: SessionState; session: LiveSession; className: string; onClose: () => void
 }) {
+  const groups: { name: string; rows: SessionState['models'] }[] = []
+  for (const m of s.models) {
+    const name = m.group || ''
+    const g = groups.find(x => x.name === name)
+    if (g) g.rows.push(m); else groups.push({ name, rows: [m] })
+  }
+  const headed = groups.length > 1
+  // twenty models scroll; the one in use is where the eye lands when the menu opens
+  const list = useRef<HTMLDivElement>(null)
+  useEffect(() => { list.current?.querySelector('button.on')?.scrollIntoView({ block: 'center' }) }, [])
   return (
     <div className={`menu ${className}`} role="menu">
-      {s.models.map(m => (
-        <button key={m.id} role="menuitemradio" aria-checked={m.id === s.model} className={m.id === s.model ? 'on' : ''}
-          onClick={() => { void session.setModel(m.id); onClose() }}>
-          <Tick className="ic tick" /><ProviderMark model={m.id} />{m.label}<span className="k">{m.hint}</span>
-        </button>
-      ))}
-      {s.modelsError && <p className="foot">{s.modelsError}</p>}
+      <div className="mlist" ref={list}>
+        {groups.map(g => (
+          <div key={g.name} className="mgroup">
+            {headed && <div className="lab mhead">{g.name}</div>}
+            {g.rows.map(m => (
+              <button key={m.id} role="menuitemradio" aria-checked={m.id === s.model} className={m.id === s.model ? 'on' : ''}
+                title={m.id} onClick={() => { void session.setModel(m.id); onClose() }}>
+                <Tick className="ic tick" /><ProviderMark model={m.id} /><span className="mn">{m.label}</span>
+                {m.hint && <span className="k">{m.hint}</span>}
+              </button>
+            ))}
+          </div>
+        ))}
+        {!s.models.length && <p className="foot">{s.modelsError ? s.modelsError : 'Finding the models…'}</p>}
+      </div>
       <p className="foot">The model can change mid-session. The context already spent stays spent.</p>
     </div>
   )
@@ -135,7 +155,8 @@ export function Console({ session, s, ui }: { session: LiveSession; s: SessionSt
         <Neuron variant="live" mood={s.mood} ctxPct={s.ctxMax ? (s.ctxTokens / s.ctxMax) * 100 : 0}
           label={`TOBI is ${s.label.toLowerCase()}`} still={ui.still} />
         <div className={`statusslot${s.mood === 'idle' ? ' gone' : ''}`}>
-          <div className={`status${s.timing ? ' timing' : ''}`} data-state={s.mood} role="status" aria-live="polite" aria-atomic="true">
+          <div className={`status${s.timing ? ' timing' : ''}${s.run || s.mood === 'listening' ? ' stoppable' : ''}`}
+            data-state={s.mood} role="status" aria-live="polite" aria-atomic="true">
             <span className="sglyph" aria-hidden="true">
               <span className="g g-dot" />
               <span className="g g-bars"><i /><i /><i /></span>

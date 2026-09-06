@@ -176,9 +176,15 @@ export function chatDriver(): Driver {
   let models: ModelChoice[] = []
   const loadModels = async () => {
     const cfg = await getLlmConfig()
-    models = cfg.models.map(m => ({
-      id: m.id, label: m.label || m.model, hint: PROVIDER_HINT[(m.provider || '').toLowerCase()] || m.provider || '', context: m.context,
-    }))
+    models = cfg.models.map(m => {
+      // the backend's display label is "<provider label> · <model>"; the menu shows the model
+      // under a provider heading, so the heading is the label with its own model taken off
+      const name = m.model || shortModel(m.id)
+      const suffix = ` · ${name}`
+      const group = m.label && m.label.endsWith(suffix) ? m.label.slice(0, -suffix.length)
+        : PROVIDER_HINT[(m.provider || '').toLowerCase()] || m.provider || 'Other'
+      return { id: m.id, label: name, group, hint: m.context ? `${Math.round(m.context / 1000)}k` : '', context: m.context }
+    })
     if (!models.length) throw new Error('no model is set up yet. Add a provider key on the Models page, then start again')
     const wanted = cfg.config?.default_model
     const current = wanted && models.some(m => m.id === wanted) ? wanted : models[0].id

@@ -59,6 +59,7 @@ export const Mic = (p: P) => <I {...p}><rect x="9.1" y="2.6" width="5.8" height=
 export const MicMute = (p: P) => <I {...p}><rect x="9.1" y="2.6" width="5.8" height="10.2" rx="2.9" /><path d="M5.9 10.9a6.1 6.1 0 0 0 12.2 0" /><path d="M12 17.1v3.2" /><path d="M8.9 20.3h6.2" /><path d="M4.4 3.4 19.6 20.6" /></I>
 export const Power = (p: P) => <I {...p}><path d="M12 3.9v8.2" /><path d="M6.9 6.6a7.2 7.2 0 1 0 10.2 0" /></I>
 export const ArrowDown = (p: P) => <I {...p}><path d="M12 5v14M6 13l6 6 6-6" /></I>
+export const ArrowLeft = (p: P) => <I {...p}><path d="M19 12H5M11 18l-6-6 6-6" /></I>
 export const Corners = (p: P) => <I {...p}><path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15" /></I>
 export const Files = (p: P) => <I {...p}><path d="M14 2.8H7.5a2 2 0 0 0-2 2v14.4a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7.6z" /><path d="M14 2.8V7.6h4.5" /><path d="M3 7.5v11.8A2.2 2.2 0 0 0 5.2 21.5H14" /></I>
 export const Book = (p: P) => <I {...p}><path d="M6.5 3.5h11a2 2 0 0 1 2 2V18a2.5 2.5 0 0 1-2.5 2.5H7A2.5 2.5 0 0 1 4.5 18V5.5a2 2 0 0 1 2-2z" /><path d="M8.5 8h7M8.5 12h7" /></I>

@@ -91,7 +91,9 @@ export type SessionRecap = {
   /** the designed recaps carry a one-line summary and decisions; real ones derive theirs */
   line?: string; decisions?: string[]
 }
-export type ModelChoice = { id: string; label: string; hint: string; context?: number }
+/** one row of the model menu: the bare model name, a short hint on the right, and the
+ *  provider it sits under (rows are grouped by it when there is more than one) */
+export type ModelChoice = { id: string; label: string; hint: string; group?: string; context?: number }
 export type MicMode = 'locked' | 'onoff' | 'ptt'
 export type BootCheck = { name: string; val: string; status: 'wait' | 'now' | 'done' | 'failed' }
 export type View = 'standby' | 'boot' | 'live'

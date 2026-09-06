@@ -97,6 +97,49 @@ const footer = `
 .ui2 .act.ask .stat{color:var(--warn)}
 .ui2 .act.ask .retry + .retry{margin-left:6px}
 .ui2 .rowitem:disabled,.ui2 .fileref:disabled{opacity:.55;cursor:default}
+
+/* ── Balance (owner review, 2026-09-06) ────────────────────────────────────
+   The solo screens (asleep, waking) centre their block in the pane; the live
+   screen keeps the head at the top because the conversation needs the height.
+   The room's bloom follows the neuron: centred on the solo screens, over the
+   console on the live one (the page sets --bloom-x from the canvas width). */
+.ui2 .page.solo .console{justify-content:center;padding-bottom:4vh}
+.ui2::before{height:var(--bloom-h,62%);
+  background:radial-gradient(58% 78% at var(--bloom-x,26%) var(--bloom-y,8%),rgba(88,166,255,.055),transparent 70%)}
+.ui2[data-view="standby"],.ui2[data-view="boot"]{--bloom-x:50%;--bloom-y:42%;--bloom-h:100%}
+/* the head gives back height on short screens so the exchange keeps room to breathe */
+@media (max-height:860px){.ui2 .neuron{width:244px;height:244px}}
+@media (max-height:700px){.ui2 .neuron{width:200px;height:200px}}
+/* narrow screens: one column, and an open canvas takes the whole viewport */
+@media (max-width:900px){
+  .ui2 .page{grid-template-columns:1fr!important}
+  .ui2 .canvas:not(.min){position:fixed;inset:0;z-index:var(--z-full);border-radius:0;border:0}
+  .ui2 .canvas .grip{display:none}
+}
+/* a control that is waiting on the backend says so */
+.ui2 .pill[aria-busy="true"],.ui2 .model[aria-busy="true"]{opacity:.6;pointer-events:none}
+/* the stop hint only where Esc can stop something: a run, or the open microphone */
+.ui2 .status:not([data-state="idle"]) .sstop{display:none}
+.ui2 .status.stoppable .sstop{display:inline-flex}
+
+/* ── The model menu with a real model list (owner review, 2026-09-06) ───────
+   Twenty models under three providers: the list scrolls, the note stays put,
+   each provider is a heading, a row is one line that ellipsises, and the
+   right-hand hint is the context window. */
+.ui2 .menu{max-width:min(380px,calc(100vw - 24px))}
+.ui2 .menu .mlist{max-height:min(56vh,420px);overflow-y:auto;overscroll-behavior:contain;padding-right:2px}
+.ui2 .menu .mlist::-webkit-scrollbar{width:8px}
+.ui2 .menu .mlist::-webkit-scrollbar-thumb{background:var(--track);border-radius:999px;border:2px solid var(--surface)}
+.ui2 .menu .mlist::-webkit-scrollbar-thumb:hover{background:var(--track-hover)}
+.ui2 .menu .mgroup + .mgroup{margin-top:4px;padding-top:4px;box-shadow:inset 0 1px 0 var(--line-soft)}
+.ui2 .menu .mhead{color:var(--faint);padding:7px 9px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ui2 .menu button{white-space:nowrap}
+.ui2 .menu button .mn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.ui2 .menu button .k{flex:none;padding-left:10px;font-family:var(--mono);font-size:var(--fs-micro);letter-spacing:.04em}
+/* Mission Control's "show header" chip (only while its header is hidden) floats over the
+   pane's top-right corner; the page steps its own corner controls out from under it. */
+.ui2.chipped .corner{right:48px}
+.ui2.chipped .canvas.min .cbar{padding-right:48px}
 `
 fs.writeFileSync(OUT, header + scoped + footer)
 

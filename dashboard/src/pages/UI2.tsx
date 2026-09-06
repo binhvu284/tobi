@@ -12,7 +12,7 @@ import { useLocation } from 'react-router-dom'
 import { useReducedMotionPref } from '../context/MotionProvider'
 import { Canvas, HistoryRows, RecapPane } from '../ui2/Canvas'
 import { Console, type MenuName, type Ui } from '../ui2/Console'
-import { Clock, Cross } from '../ui2/icons'
+import { ArrowLeft, Clock, Cross } from '../ui2/icons'
 import { fmtDur, type SessionRecap } from '../ui2/model'
 import { getSession, useSessionState } from '../ui2/session'
 import { Standby } from '../ui2/Standby'
@@ -38,6 +38,21 @@ export default function UI2() {
 
   useEffect(() => { void session.loadModels() }, [session])
   useEffect(() => { setMenu(null); setOverlay(null); setPick(null) }, [s.view])
+
+  /* With Mission Control's header hidden, its "show header" chip floats over the pane's
+     top-right corner, exactly where the standby pills and the collapsed canvas bar sit.
+     The chip is rendered next to <main> (a sibling, in place of the top bar), so watching
+     that parent's children is enough. */
+  const [chipped, setChipped] = useState(false)
+  useEffect(() => {
+    const column = root.current?.closest('main')?.parentElement
+    if (!column) return
+    const check = () => setChipped(!!column.querySelector(':scope > button[title="Show header"]'))
+    check()
+    const mo = new MutationObserver(check)
+    mo.observe(column, { childList: true })
+    return () => mo.disconnect()
+  }, [])
 
   /* a click anywhere else puts the menus away */
   useEffect(() => {
@@ -97,8 +112,11 @@ export default function UI2() {
   }
   const dismiss = (e: React.MouseEvent<HTMLDivElement>) => { if (e.target === e.currentTarget) setOverlay(null) }
 
+  // the room's bloom sits over the neuron: mid-console in the live view, whatever the canvas takes
+  const bloomX = s.view === 'live' ? (s.canvas.min ? '50%' : `${(100 - s.canvas.width) / 2}%`) : undefined
   return (
-    <div ref={root} className="ui2" data-view={s.view} data-demo={s.demo ? '1' : undefined}>
+    <div ref={root} className={`ui2${chipped ? ' chipped' : ''}`} data-view={s.view} data-demo={s.demo ? '1' : undefined}
+      style={bloomX ? ({ '--bloom-x': bloomX } as React.CSSProperties) : undefined}>
       {s.view === 'live' ? (
         <div ref={page} className={`page${s.canvas.min ? ' min' : ''}`}
           style={{ gridTemplateColumns: s.canvas.min ? undefined : `1fr ${s.canvas.width}%` }}>
@@ -118,7 +136,7 @@ export default function UI2() {
               <span className="chip ok"><b className="n">{s.artifacts.length}</b> artifacts saved</span>
             </div>
             <div className="acts">
-              <button className="btn" onClick={() => setOverlay(null)}>Keep going</button>
+              <button className="btn" autoFocus onClick={() => setOverlay(null)}>Keep going</button>
               <button className="btn danger" onClick={() => { setOverlay(null); session.endSession() }}>End session</button>
             </div>
           </div>
@@ -131,7 +149,7 @@ export default function UI2() {
             <header>
               <Clock className="ic" style={{ color: 'var(--accent)' }} />
               <h3 id="ui2-histtitle">{pick ? 'Session recap' : 'Session history'}</h3>
-              {pick && <button className="iconbtn" aria-label="Back to the list" onClick={() => setPick(null)}><Clock className="ic" /></button>}
+              {pick && <button className="iconbtn" aria-label="Back to the list" onClick={() => setPick(null)}><ArrowLeft className="ic" /></button>}
               <button className="iconbtn" aria-label="Close" onClick={() => setOverlay(null)} style={pick ? { marginLeft: 0 } : undefined}><Cross /></button>
             </header>
             <div className="body">
