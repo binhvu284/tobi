@@ -113,18 +113,22 @@ class CodingToolBroker:
             base, _ = self._resolve(prefix)
         if not base.exists() or not base.is_dir():
             raise CodingToolError("List prefix is not a directory.")
+        cap = max(1, min(limit, 500))
         files: list[str] = []
         for item in base.rglob("*"):
-            if len(files) >= max(1, min(limit, 500)):
-                break
             if not item.is_file():
                 continue
             rel = item.resolve().relative_to(self.worktree).as_posix()
             if self.policy.is_indexable(rel):
                 files.append(rel)
+        # Sort before cutting, never after. Cutting first keeps whatever order the
+        # filesystem happened to return -- alphabetical on NTFS by luck, arbitrary on
+        # ext4 -- so a capped listing silently dropped files and looked sorted anyway.
         files.sort()
+        truncated = len(files) > cap
+        files = files[:cap]
         self._emit("tool_list", {"prefix": prefix, "count": len(files)})
-        return {"files": files, "truncated": len(files) >= max(1, min(limit, 500))}
+        return {"files": files, "truncated": truncated}
 
     def search(self, query: str, prefix: str = "", limit: int = 50) -> dict[str, Any]:
         needle = str(query or "").strip()

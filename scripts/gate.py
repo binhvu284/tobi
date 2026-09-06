@@ -18,8 +18,10 @@ Run it by hand any time:  python scripts/gate.py
 """
 from __future__ import annotations
 
+import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -52,11 +54,38 @@ def read_plan() -> tuple[str, list[str]]:
     return mode, commands
 
 
+def resolve_interpreter(argv: list[str]) -> list[str]:
+    """Point a missing Python interpreter at the one running this script.
+
+    The gate block in CURRENT_WORK.md names the owner's Windows interpreter by path.
+    Anywhere else -- the Linux VPS, a cloud session -- that exact path does not exist, so
+    every check returned "executable not found" and the gate blocked on 34 failures that
+    had never run a line of test code. A gate that cannot run is not an outside opinion,
+    it is noise.
+
+    This substitutes the interpreter only, and only when the named one is genuinely absent.
+    Nothing is skipped, relaxed, or removed: the same suites run, and a real failure still
+    blocks the stop.
+    """
+    if not argv:
+        return argv
+    named = argv[0]
+    if Path(named).is_file() or shutil.which(named):
+        return argv                                  # the named interpreter exists; use it
+    candidate = (ROOT / named) if not os.path.isabs(named) else Path(named)
+    if candidate.is_file():
+        return [str(candidate), *argv[1:]]
+    if Path(named).stem.lower().startswith("python"):
+        return [sys.executable, *argv[1:]]
+    return argv                                      # not an interpreter: report it missing
+
+
 def run(command: str) -> tuple[bool, str]:
     try:
         argv = shlex.split(command)
     except ValueError as exc:
         return False, f"cannot parse command: {exc}"
+    argv = resolve_interpreter(argv)
     try:
         # Windows consoles here are cp1258; a single emoji in child output kills the reader
         # thread and leaves stdout as None. Pin UTF-8 and tolerate None -- this exact bug
