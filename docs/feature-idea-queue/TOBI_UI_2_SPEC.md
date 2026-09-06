@@ -40,6 +40,17 @@ The shell needs these before the build starts. Both are small.
 1. **A speaker control** — an on/off toggle and a **volume slider** for TOBI's voice, so the owner sets how loud he is and can mute him without leaving the screen (Q7).
 2. **The rail label** — the page is called **UI 2.0**, first item in the Main group, above Dashboard (Q26).
 
+### Build status: P1 front end delivered (2026-09-06)
+
+The shell is now a real page at `/ui2`, first in the rail's Main group, built to the shell's own CSS (generated from it by `scripts/ui2_css.mjs`, not retyped). Both additions above are in. What the page does today:
+
+- Both screens, the five states, the status line with elapsed time and tokens, action rows that fold at three, failure with whose fault and Try again, `Esc` to stop with the kept steps counted, the three voice modes as controls, the speaker on/off and volume, the four canvas panels, document tabs that park the fifth, canvas width by content with the magnetic grip, typing that queues.
+- **Typed turns are wired to the Chat runtime** in agent mode, which is where Conductor's tools run: steps become action rows, usage becomes the receipt and the context donut, a risky action becomes a one-line confirmation that calls Conductor's confirm endpoint, and artifacts open on the canvas.
+- The boot runs five real checks (model, projects, tools, canvas, voice) on the shell's clock and fails truthfully with the reason and Try again.
+- `?demo=1` runs the shell's scripted session, so the build can be checked against the design one state at a time. Verified headlessly in Edge, every state, zero runtime errors.
+
+Not yet: everything voice (P2), backend session persistence and reload, the budget cap, real MC pages inside the canvas (P3), and the acceptance case (P4). History is kept in the browser until P3. See [`../MISSION_CONTROL.md`](../MISSION_CONTROL.md#ui-20-live-screen-36-phase-1) for the file map.
+
 ## Decisions (from 30 owner answers)
 
 ### Voice in

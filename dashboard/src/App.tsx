@@ -37,6 +37,9 @@ const Developer = lazy(() => import('./pages/Developer'))
 const Runs = lazy(() => import('./pages/Runs'))
 // Architecture V2 dynamically imports the Mermaid renderer (~500KB) — lazy-load so it stays out of the main bundle.
 const Architecture = lazy(() => import('./pages/Architecture'))
+// UI 2.0 (#36) brings its own design system, fonts and canvas engine — lazy so none of it
+// reaches the main bundle until the page is opened.
+const UI2 = lazy(() => import('./pages/UI2'))
 // Morpheus is the private sibling app: its own shell, tabs, theme and gate. Lazy-loaded so
 // none of it reaches the main bundle for owners who never open it.
 const MorpheusApp = lazy(() => import('./morpheus/MorpheusApp'))
@@ -45,6 +48,9 @@ function RouteSet({ location }: { location?: string }) {
   return (
     <Routes location={location}>
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/ui2" element={
+        <Suspense fallback={<PageLoader />}><UI2 /></Suspense>
+      } />
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/inbox" element={<Inbox />} />
       <Route path="/brain" element={<Brain />} />

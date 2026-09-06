@@ -22,9 +22,12 @@ import TierEmblem from './TierEmblem'
 import ClockCalendar from './ClockCalendar'
 import ProjectIcon from './project/ProjectIcon'
 import { SPRING, DUR, EASE } from '../lib/motion'
+import { Ui2Icon } from '../ui2/icons'
 
 const NAV = [
   { group: 'Main', links: [
+    // #36: the live screen is the first thing in the rail, above Dashboard (owner decision Q26).
+    { to: '/ui2', icon: Ui2Icon, label: 'UI 2.0' },
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/inbox', icon: Inbox, label: 'Inbox' },
     { to: '/chat', icon: MessagesSquare, label: 'Chat' },

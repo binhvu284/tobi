@@ -6,6 +6,7 @@ import {
   HardDrive, KeyRound, Workflow, SlidersHorizontal, Newspaper, Code2, Activity, type LucideIcon,
 } from 'lucide-react'
 import { useToast } from './ToastProvider'
+import { Ui2Icon } from '../ui2/icons'
 
 export const MAX_WORKSPACE_TABS = 5
 
@@ -23,6 +24,7 @@ export type WorkspaceRouteMeta = {
 }
 
 export const WORKSPACE_ROUTES: WorkspaceRouteMeta[] = [
+  { route: '/ui2', label: 'UI 2.0', Icon: Ui2Icon },
   { route: '/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
   { route: '/inbox', label: 'Inbox', Icon: Inbox },
   { route: '/chat', label: 'Chat', Icon: MessagesSquare },
