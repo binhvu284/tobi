@@ -1060,3 +1060,7 @@
    pane's top-right corner; the page steps its own corner controls out from under it. */
 .ui2.chipped .corner{right:48px}
 .ui2.chipped .canvas.min .cbar{padding-right:48px}
+/* The shell left these two paragraphs on the browser's default margin (1em); Mission
+   Control's reset zeroes paragraph margins, which pressed them against what sits above. */
+.ui2 .lastrun{margin:14px 0 0}
+.ui2 .boothint{margin:12px 0 0}
